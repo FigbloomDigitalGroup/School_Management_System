@@ -1,9 +1,70 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+process.loadEnvFile?.(); // Node 20.6+ built-in
+const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 /**
  * The five flows that must never break. Each mirrors a real user's morning, so
  * a failure here means somebody's day is broken, not that a selector moved.
+ *
+ * Every flow below signs in for real (see supabase/seed.ts's DEMO_LOGINS) —
+ * routes are auth-gated, so there is no shortcut around it. The parent flow
+ * uses the fixed local test OTP (supabase/config.toml's [auth.sms.test_otp]),
+ * which only exists against local Supabase — this suite is not meant to run
+ * against a production project.
+ *
+ * The whole file runs serially, not per describe block: Supabase Auth
+ * rate-limits repeated signInWithOtp() calls for the same number, and both
+ * the "sign in" and "parent" tests exercise that same seeded number — real
+ * behaviour, not a test bug to route around. (Running the desktop and phone
+ * projects together can still race each other's OTP call for the same
+ * reason; run them one at a time if that happens.)
  */
+test.describe.configure({ mode: "serial" });
+
+const LOGINS = {
+  platform: { email: "joyce@figbloom.co.ke", password: "figbloom-dev" },
+  schoolAdmin: { email: "principal@alliance.sc.ke", password: "figbloom-dev" },
+  teacher: { email: "otieno@alliance.sc.ke", password: "figbloom-dev" },
+  parent: { phone: "0722118004", otp: "000000" },
+  student: { admissionNo: "4102", pin: "8421" },
+};
+
+/** Sign-in is a client-side redirect after an async Supabase call — wait for
+ *  it to actually land (and the session to persist) before doing anything
+ *  else, or a subsequent page.goto() races it and bounces back to /signin. */
+async function waitForSignedIn(page: Page) {
+  await page.waitForURL((url) => !url.pathname.startsWith("/signin"), { timeout: 15000 });
+}
+
+async function signInStaffOrPlatform(page: Page, tabLabel: "Staff" | "Platform", email: string, password: string) {
+  await page.goto("/signin");
+  await page.getByRole("tab", { name: tabLabel }).click();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await waitForSignedIn(page);
+}
+
+async function signInParent(page: Page, phone: string, otp: string) {
+  await page.goto("/signin");
+  await page.getByRole("tab", { name: "Parent" }).click();
+  await page.getByLabel("Mobile number").fill(phone);
+  await page.getByRole("button", { name: "Text me a code" }).click();
+  await page.getByLabel("The six-digit code").fill(otp);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await waitForSignedIn(page);
+}
+
+async function signInStudent(page: Page, admissionNo: string, pin: string) {
+  await page.goto("/signin");
+  await page.getByRole("tab", { name: "Student" }).click();
+  await page.getByLabel("Admission number").fill(admissionNo);
+  await page.getByLabel("PIN").fill(pin);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await waitForSignedIn(page);
+}
 
 test.describe("sign in", () => {
   test("a parent is asked for a phone number, not an email", async ({ page }) => {
@@ -22,128 +83,200 @@ test.describe("sign in", () => {
   });
 });
 
-test("super admin onboards a school in five steps", async ({ page }) => {
-  await page.goto("/platform/tenants");
-  await page.getByRole("button", { name: "+ Onboard" }).click();
+test.describe("platform", () => {
+  test.beforeEach(async ({ page }) => {
+    await signInStaffOrPlatform(page, "Platform", LOGINS.platform.email, LOGINS.platform.password);
+  });
 
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("step 1 of 5");
+  test("super admin onboards a school in five steps", async ({ page }) => {
+    await page.goto("/platform/tenants");
+    await page.getByRole("button", { name: "+ Onboard" }).click();
 
-  await dialog.getByLabel("School name").fill("Kabarak High School");
-  await dialog.getByRole("button", { name: "Continue" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("step 1 of 5");
 
-  // The address is suggested from the name and flagged as permanent.
-  await expect(dialog).toContainText("cannot be changed later");
-  await dialog.getByRole("button", { name: "Continue" }).click();
-  await dialog.getByRole("button", { name: "Continue" }).click();
+    // Not "Kabarak High School" — suggestSlug() strips "high"/"school" as filler
+    // words, so that name's slug would collide with the seeded "kabarak" tenant.
+    await dialog.getByLabel("School name").fill("Nyeri Girls Secondary School");
+    await dialog.getByRole("button", { name: "Continue" }).click();
 
-  await dialog.getByLabel("Full name").fill("Peter Mwangi");
-  await dialog.getByRole("button", { name: "Continue" }).click();
+    // The workspace address is flagged as permanent — it can't be changed later.
+    await expect(dialog).toContainText("The address is permanent.");
+    await dialog.getByRole("button", { name: "Continue" }).click(); // Workspace -> Plan
+    await dialog.getByRole("button", { name: "Continue" }).click(); // Plan -> Administrator
 
-  await expect(dialog).toContainText("Review before creating");
-  await expect(dialog).toContainText("Kabarak High School");
-  await dialog.getByRole("button", { name: "Create school and send invite" }).click();
+    await dialog.getByLabel("Full name").fill("Peter Mwangi");
+    await dialog.getByLabel("Email").fill("peter.mwangi@nyerigirls.sc.ke");
+    await dialog.getByRole("button", { name: "Continue" }).click(); // Administrator -> Review
 
-  // Success tracks delivery rather than claiming victory.
-  await expect(dialog).toContainText("Waiting for first login");
+    await expect(dialog).toContainText("Review before creating");
+    await expect(dialog).toContainText("Nyeri Girls Secondary School");
+    await dialog.getByRole("button", { name: "Create school and send invite" }).click();
+
+    // Nothing is actually emailed/texted locally — the success screen hands over
+    // real login credentials instead of claiming an invite was delivered.
+    await expect(dialog).toContainText("is live");
+    await expect(dialog).toContainText("Nothing was emailed or texted");
+  });
+
+  test("a taken address is refused", async ({ page }) => {
+    await page.goto("/platform/tenants");
+    await page.getByRole("button", { name: "+ Onboard" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("School name").fill("Alliance");
+    await dialog.getByRole("button", { name: "Continue" }).click(); // School -> Workspace, where the slug check runs
+    // The wizard only knows which slugs are taken, not who owns each one.
+    await expect(dialog).toContainText("already taken by another school");
+  });
+
+  test("console chips cannot contradict their own stat cards", async ({ page }) => {
+    await page.goto("/platform/incidents");
+    await page.getByRole("button", { name: "Open" }).click();
+    // "Open" must include Investigating and Fix in review, not just one of them.
+    await expect(page.getByText("Investigating")).toBeVisible();
+    await expect(page.getByText("Fix in review")).toBeVisible();
+    // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
+    // filter chip itself, and a substring match would also hit "resolved 14 Aug"
+    // in a stat card's sub-text.
+    await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+  });
 });
 
-test("a taken address is refused with the name of the school holding it", async ({ page }) => {
-  await page.goto("/platform/tenants");
-  await page.getByRole("button", { name: "+ Onboard" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("School name").fill("Alliance");
-  await dialog.getByRole("button", { name: "Continue" }).click();
-  await expect(dialog).toContainText("belongs to Alliance High School");
+test.describe("teacher", () => {
+  // Both attendance tests write to the same class's same day's register —
+  // Attendance.tsx prefills from whatever is already saved for today, so a
+  // stale row from an earlier run (or the other Playwright project) would
+  // make the roster no longer all-present. Reset before either test touches
+  // it, rather than relying on run order to keep the starting state honest.
+  test.describe.configure({ mode: "serial" });
+
+  test.beforeAll(async () => {
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const today = new Date().toISOString().slice(0, 10);
+    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", today);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signInStaffOrPlatform(page, "Staff", LOGINS.teacher.email, LOGINS.teacher.password);
+    await page.goto("/s/alliance/teacher/attendance");
+  });
+
+  test("an all-present register asks for one confirmation", async ({ page }) => {
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await expect(page.getByText(/Marking all \d+ learners present/)).toBeVisible();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText("register is in")).toBeVisible();
+  });
+
+  test("teacher submits a full register in a handful of actions", async ({ page }) => {
+    // Everyone starts present, so the count is the whole roster.
+    await expect(page.getByText(/\d+ present/)).toBeVisible();
+    await expect(page.getByText("Everyone starts present")).toBeVisible();
+
+    const rows = page.getByRole("listitem");
+    await rows.nth(0).getByRole("button", { name: "Absent" }).click();
+    await rows.nth(1).getByRole("button", { name: "Late" }).click();
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await expect(page.getByText("register is in")).toBeVisible();
+    await expect(page.getByText(/Parents of absent learners/)).toBeVisible();
+  });
+
+  test("gradebook will not publish a partial column", async ({ page }) => {
+    await page.goto("/s/alliance/teacher/gradebook");
+    const publish = page.getByRole("button", { name: /still to enter|Publish marks/ });
+    await expect(publish).toBeVisible();
+
+    // Out-of-range marks are refused in the teacher's own words.
+    const first = page.locator('[data-row="0"]');
+    await first.fill("140");
+    await expect(page.getByText("This paper is out of 100")).toBeVisible();
+
+    // "abs" is a valid entry — a missed paper is missing, not zero.
+    await first.fill("abs");
+    await expect(page.getByText("This paper is out of 100")).toHaveCount(0);
+  });
 });
 
-test("teacher submits a full register in a handful of actions", async ({ page }) => {
-  await page.goto("/s/alliance/teacher/attendance");
+test.describe("parent", () => {
+  // Supabase Auth's OTP rate limit for one number outlasts the gap between
+  // even serial tests, so signing in fresh per test isn't viable here — one
+  // real OTP sign-in for the whole block, reused via a shared context (session
+  // lives in localStorage, which is scoped per context+origin, not per page).
+  let context: import("@playwright/test").BrowserContext;
 
-  // Everyone starts present, so the count is the whole roster.
-  await expect(page.getByText(/\d+ present/)).toBeVisible();
-  await expect(page.getByText("Everyone starts present")).toBeVisible();
+  test.beforeAll(async ({ browser }) => {
+    context = await browser.newContext();
+    const page = await context.newPage();
+    await signInParent(page, LOGINS.parent.phone, LOGINS.parent.otp);
+    await page.close();
+  });
 
-  const rows = page.getByRole("listitem");
-  await rows.nth(0).getByRole("button", { name: "Absent" }).click();
-  await rows.nth(1).getByRole("button", { name: "Late" }).click();
+  test.afterAll(async () => {
+    await context.close();
+  });
 
-  await page.getByRole("button", { name: "Submit register" }).click();
-  await expect(page.getByText("register is in")).toBeVisible();
-  await expect(page.getByText(/Parents of absent learners/)).toBeVisible();
+  test("parent's M-Pesa prompt simulates a successful payment", async () => {
+    const page = await context.newPage();
+    await page.goto("/s/alliance/parent");
+
+    // There is no sandbox Daraja account wired up — the STK push is a client-side
+    // simulation, so no real receipt is created (see parent/Fees.tsx's startPay()).
+    await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
+    await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
+
+    // The waiting state tells them to expect a prompt on the handset.
+    await expect(page.getByText("Check your phone")).toBeVisible();
+    await expect(page.getByText(/received/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Method")).toBeVisible();
+    await page.close();
+  });
+
+  test("a failed payment says whether money left the account", async () => {
+    const page = await context.newPage();
+    await page.goto("/s/alliance/parent");
+
+    await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
+
+    // Overpaying triggers the failure path in the simulation.
+    await page.getByRole("button", { name: "Another amount" }).click();
+    await page.locator('input[inputmode="numeric"]').first().fill("99999");
+    await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
+
+    await expect(page.getByText("did not go through")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/No money left your account/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pay at the school office instead" })).toBeVisible();
+    await page.close();
+  });
+
+  test("switching children changes every figure on the screen", async () => {
+    const page = await context.newPage();
+    await page.goto("/s/alliance/parent");
+
+    // "Form 2 West" alone also matches an unrelated seeded announcement's text —
+    // the admission number makes this the one unambiguous "which child" marker.
+    await expect(page.getByText("ADM 4102")).toBeVisible();
+
+    // ChildSwitcher shows first names only.
+    await page.getByRole("button", { name: "Samuel" }).click();
+    await expect(page.getByText("ADM 4103")).toBeVisible();
+    await page.close();
+  });
 });
 
-test("an all-present register asks for one confirmation", async ({ page }) => {
-  await page.goto("/s/alliance/teacher/attendance");
-  await page.getByRole("button", { name: "Submit register" }).click();
-  await expect(page.getByText(/Marking all \d+ learners present/)).toBeVisible();
-  await page.getByRole("button", { name: "Yes, submit" }).click();
-  await expect(page.getByText("register is in")).toBeVisible();
-});
+test.describe("student", () => {
+  test.beforeEach(async ({ page }) => {
+    await signInStudent(page, LOGINS.student.admissionNo, LOGINS.student.pin);
+    await page.goto("/s/alliance/student");
+  });
 
-test("gradebook will not publish a partial column", async ({ page }) => {
-  await page.goto("/s/alliance/teacher/gradebook");
-  const publish = page.getByRole("button", { name: /still to enter|Publish marks/ });
-  await expect(publish).toBeVisible();
-
-  // Out-of-range marks are refused in the teacher's own words.
-  const first = page.locator('[data-row="0"]');
-  await first.fill("140");
-  await expect(page.getByText("This paper is out of 100")).toBeVisible();
-
-  // "abs" is a valid entry — a missed paper is missing, not zero.
-  await first.fill("abs");
-  await expect(page.getByText("This paper is out of 100")).toHaveCount(0);
-});
-
-test("parent pays a fee and gets a receipt", async ({ page }) => {
-  await page.goto("/s/alliance/parent");
-  await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
-  await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
-
-  // The waiting state tells them to expect a prompt on the handset.
-  await expect(page.getByText("Check your phone")).toBeVisible();
-  await expect(page.getByText(/received/)).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText("SJ91MX441")).toBeVisible();
-});
-
-test("a failed payment says whether money left the account", async ({ page }) => {
-  await page.goto("/s/alliance/parent");
-  await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
-
-  // Overpaying triggers the failure path in the mock.
-  await page.getByRole("button", { name: "Another amount" }).click();
-  await page.locator('input[inputmode="numeric"]').first().fill("99999");
-  await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
-
-  await expect(page.getByText("did not go through")).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText(/No money left your account/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Pay at the school office instead" })).toBeVisible();
-});
-
-test("switching children changes every figure on the screen", async ({ page }) => {
-  await page.goto("/s/alliance/parent");
-  await expect(page.getByText("Form 2 West")).toBeVisible();
-
-  await page.getByRole("button", { name: "Samuel Achieng" }).click();
-  await expect(page.getByText("Form 4 East")).toBeVisible();
-  // Samuel's fees are cleared, so the pay button must be gone.
-  await expect(page.getByRole("button", { name: "Pay with M-Pesa" })).toHaveCount(0);
-  await expect(page.getByText("Cleared")).toBeVisible();
-});
-
-test("a student never sees a class position", async ({ page }) => {
-  await page.goto("/s/alliance/student");
-  await page.getByRole("button", { name: /Results/ }).click();
-  await expect(page.getByText(/class mean/)).toBeVisible();
-  await expect(page.getByText(/position/i)).toContainText("not shown");
-});
-
-test("console chips cannot contradict their own stat cards", async ({ page }) => {
-  await page.goto("/platform/incidents");
-  await page.getByRole("button", { name: "Open" }).click();
-  // "Open" must include Investigating and Fix in review, not just one of them.
-  await expect(page.getByText("Investigating")).toBeVisible();
-  await expect(page.getByText("Fix in review")).toBeVisible();
-  await expect(page.getByText("Resolved")).toHaveCount(0);
+  test("a student never sees a class position", async ({ page }) => {
+    // The console nav renders NavLinks (role "link"), not buttons.
+    await page.getByRole("link", { name: /Results/ }).click();
+    // Every subject row also says "...class mean of N", so this is scoped to the
+    // one-off blurb rather than a broad match that hits all of them (or neither,
+    // if results haven't been published for this student yet).
+    await expect(page.getByText(/Marks shown against the class mean|Not published yet/)).toBeVisible();
+    await expect(page.getByText(/position/i)).toContainText("not shown");
+  });
 });
