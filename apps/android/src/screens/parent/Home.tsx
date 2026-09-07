@@ -2,7 +2,7 @@ import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { KES, gradeFor } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
-import { CHILDREN, MESSAGES, useChild } from "../../data";
+import { useChild, useChildren, useMessages } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 
 /**
@@ -12,6 +12,8 @@ import { ChildSwitcher } from "../../components/ChildSwitcher";
 export function ParentHome() {
   const nav = useNavigation<any>();
   const { child, index, setIndex, accent } = useChild();
+  const kids = useChildren();
+  const messages = useMessages();
   const a = accentFor(accent);
   /** First child takes the deep shade, second the accent itself. */
   const tint = index === 0 ? a.deep : a.hex;
@@ -24,7 +26,7 @@ export function ParentHome() {
             <Text style={s.headerTitle}>{child.first}</Text>
             <Text style={s.headerSub}>{child.cls} · ADM {child.adm}</Text>
           </View>
-          <ChildSwitcher children={CHILDREN} index={index} onChange={setIndex} tint={tint} />
+          <ChildSwitcher children={kids} index={index} onChange={setIndex} tint={tint} />
         </View>
       </View>
 
@@ -80,7 +82,7 @@ export function ParentHome() {
         )}
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>From the school</Text>
-        {MESSAGES.slice(0, 2).map((m) => (
+        {messages.slice(0, 2).map((m) => (
           <TouchableOpacity
             key={m.id}
             onPress={() => nav.navigate("Inbox", { id: m.id })}

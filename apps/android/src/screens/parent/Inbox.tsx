@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { accentFor, s } from "../../theme";
-import { MESSAGES, useChild } from "../../data";
+import { useChild, useMessages } from "../../data";
 
 export function ParentInbox() {
   const { index, accent } = useChild();
+  const messages = useMessages();
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
   const [openId, setOpenId] = useState<string | null>(null);
   const [read, setRead] = useState<Record<string, boolean>>({});
-  const open = MESSAGES.find((m) => m.id === openId);
+  const open = messages.find((m) => m.id === openId);
 
   if (open) {
     return (
@@ -36,7 +37,7 @@ export function ParentInbox() {
         <Text style={s.headerSub}>From the school and your child's teachers</Text>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        {MESSAGES.map((m) => {
+        {messages.map((m) => {
           const unread = m.unread && !read[m.id];
           return (
             <TouchableOpacity

@@ -3,11 +3,12 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
+import { ParentDataProvider } from "./src/data";
 import { Navigation } from "./src/navigation";
 import { SignIn } from "./src/screens/SignIn";
 import { accentFor } from "./src/theme";
 
-type Session = { role: "parent" | "student"; accent: string };
+type Session = { role: "parent" | "student"; accent: string; profileId: string };
 
 /**
  * Role and school come from the signed-in profile, not a baked-in constant —
@@ -40,7 +41,7 @@ export default function App() {
         if (tenant?.accent) accent = tenant.accent;
       }
 
-      if (alive) { setSession({ role: profile.role, accent }); setLoading(false); }
+      if (alive) { setSession({ role: profile.role, accent, profileId: user.id }); setLoading(false); }
     }
 
     load().catch(() => { if (alive) { setSession(null); setLoading(false); } });
@@ -63,7 +64,15 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
-      {session ? <Navigation role={session.role} accent={session.accent} /> : <SignIn />}
+      {session ? (
+        session.role === "parent" ? (
+          <ParentDataProvider profileId={session.profileId} accent={session.accent}>
+            <Navigation role="parent" accent={session.accent} />
+          </ParentDataProvider>
+        ) : (
+          <Navigation role="student" accent={session.accent} />
+        )
+      ) : <SignIn />}
     </SafeAreaProvider>
   );
 }

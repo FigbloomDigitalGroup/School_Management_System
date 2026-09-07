@@ -5,7 +5,7 @@ import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { Button } from "../../components/ui/Button";
-import { formatShortDate } from "../../lib/parentData";
+import { formatShortDate } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
 import { ChildSwitcher } from "./ChildSwitcher";
 

@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { loadParentData, type ChildInfo, type ParentData } from "./parentData";
+import { loadParentData, type ChildInfo, type ParentData } from "@figbloom/shared";
 import { useAsync } from "./useAsync";
 import { useTenantSession } from "./sessionContext";
 

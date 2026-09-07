@@ -6,5 +6,6 @@ export * from "./fees";
 export * from "./attendance";
 export * from "./queue";
 export * from "./auth";
+export * from "./parentData";
 export * from "./supabase";
 export * from "./demo";

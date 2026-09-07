@@ -3,7 +3,7 @@ import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { useParentData } from "../../lib/parentContext";
-import type { ChildSubject } from "../../lib/parentData";
+import type { ChildSubject } from "@figbloom/shared";
 import { ChildSwitcher } from "./ChildSwitcher";
 
 /**

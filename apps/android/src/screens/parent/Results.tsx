@@ -1,13 +1,14 @@
 import { ScrollView, Text, View } from "react-native";
 import { againstMean, gradeFor } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
-import { SUBJECTS, useChild } from "../../data";
+import { useChild, useSubjects } from "../../data";
 
 const CLASS_MEAN = 62;
 
 /** A mark with its context. No class position — that is a decision, see the web note. */
 export function ParentResults() {
   const { child, index, accent } = useChild();
+  const subjects = useSubjects();
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
 
@@ -31,7 +32,7 @@ export function ParentResults() {
           </Text>
         </View>
 
-        {SUBJECTS.map(([name, mark]) => (
+        {subjects.map(([name, mark]) => (
           <View key={name} style={[s.card, { marginTop: 8, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }]}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 14, fontWeight: "500" }}>{name}</Text>

@@ -1,6 +1,6 @@
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { formatPhone } from "../../lib/parentData";
+import { formatPhone } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 
