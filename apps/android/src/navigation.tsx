@@ -9,6 +9,7 @@ import { ParentFees } from "./screens/parent/Fees";
 import { ParentPay } from "./screens/parent/Pay";
 import { ParentResults } from "./screens/parent/Results";
 import { ParentInbox } from "./screens/parent/Inbox";
+import { ParentAccount } from "./screens/parent/Account";
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
 import { StudentWork } from "./screens/student/Work";
@@ -43,6 +44,7 @@ export function Navigation({ role, accent }: { role: "parent" | "student"; accen
                 <Tab.Screen name="Fees" component={ParentFees} options={glyph("\u25A6")} />
                 <Tab.Screen name="Results" component={ParentResults} options={glyph("\u25A4")} />
                 <Tab.Screen name="Inbox" component={ParentInbox} options={glyph("\u25C9")} />
+                <Tab.Screen name="Account" component={ParentAccount} options={glyph("\u25CE")} />
               </Tab.Navigator>
             )}
           </Stack.Screen>
