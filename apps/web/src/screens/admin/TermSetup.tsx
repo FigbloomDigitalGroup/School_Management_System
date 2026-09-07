@@ -7,6 +7,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { uploadTenantLogo } from "../../lib/uploads";
 
 type ClassRow = Pick<ClassGroup, "id" | "name" | "form_level" | "class_teacher_id">;
 
@@ -86,6 +87,30 @@ export function TermSetup() {
     }
   }
 
+  const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
+  const [crestFile, setCrestFile] = useState<File | null>(null);
+  const [savingCrest, setSavingCrest] = useState(false);
+
+  async function handleSaveCrest(e: FormEvent) {
+    e.preventDefault();
+    if (!crestFile) return;
+    setSavingCrest(true);
+    try {
+      const url = await uploadTenantLogo(tenant.id, crestFile);
+      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_logo_url: url });
+      if (rpcError) throw rpcError;
+      // Cache-bust: the path is stable (logo.<ext>), so a browser that already fetched it
+      // needs a new URL to notice the replacement.
+      setLogoUrl(`${url}?v=${Date.now()}`);
+      setCrestFile(null);
+      toast("Crest updated. It appears here immediately; other screens pick it up next time they load.");
+    } catch (err) {
+      toast(err instanceof Error ? `Could not update the crest: ${err.message}` : "Could not update the crest.");
+    } finally {
+      setSavingCrest(false);
+    }
+  }
+
   const unassigned = data ? data.classes.filter((c) => !c.class_teacher_id) : [];
   const assignedCount = data ? data.classes.length - unassigned.length : 0;
   const formLevels = data && data.classes.length > 0 ? data.classes.map((c) => c.form_level) : [];
@@ -119,6 +144,10 @@ export function TermSetup() {
           note: data.feeItemsCount > 0
             ? `${data.feeItemsCount} fee items set up for ${data.term?.name ?? "this term"}.`
             : "No fee items have been set up for this term yet.",
+        },
+        {
+          id: "branding", label: "School crest", done: Boolean(logoUrl),
+          note: logoUrl ? "A crest is set. Replace it any time." : "No crest uploaded yet — the school's initials are shown instead.",
         },
         {
           id: "payment", label: "Payment methods", done: paymentSet,
@@ -191,7 +220,30 @@ export function TermSetup() {
 
                     {expanded && (
                       <div className="border-t border-line-soft bg-page px-4 py-3.5">
-                        {s.id === "payment" ? (
+                        {s.id === "branding" ? (
+                          <form onSubmit={handleSaveCrest} className="flex flex-wrap items-end gap-3">
+                            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-white">
+                              {logoUrl ? (
+                                <img src={logoUrl} alt="School crest" className="h-full w-full object-contain" />
+                              ) : (
+                                <span className="text-[11px] text-ink-faint">No crest</span>
+                              )}
+                            </div>
+                            <label className="block min-w-[200px] flex-1">
+                              <span className="mb-1.5 block text-[12px] font-semibold">Replace crest</span>
+                              <input
+                                key={crestFile ? "has-file" : "no-file"}
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => setCrestFile(e.target.files?.[0] ?? null)}
+                                className="block text-[12.5px]"
+                              />
+                            </label>
+                            <Button type="submit" variant="primary" disabled={!crestFile || savingCrest}>
+                              {savingCrest ? "Uploading…" : "Save crest"}
+                            </Button>
+                          </form>
+                        ) : s.id === "payment" ? (
                           <form onSubmit={handleSavePayment} className="grid gap-3">
                             <p className="text-[12px] leading-relaxed text-ink-muted">
                               Real-time M-Pesa auto-pay isn't wired up yet — for now, parents pay to whichever of
