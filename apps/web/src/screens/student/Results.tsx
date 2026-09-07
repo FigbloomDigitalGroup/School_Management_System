@@ -1,5 +1,5 @@
 import { againstMean, GRADE_INK, gradeFor, pointsFor } from "@figbloom/shared";
-import type { ResultSubject } from "../../lib/studentData";
+import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";

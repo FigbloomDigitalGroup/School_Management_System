@@ -1,4 +1,5 @@
-import { supabase } from "@figbloom/shared";
+import { supabase } from "./supabase";
+import { formatShortDate, formatWhen } from "./parentData";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -46,22 +47,6 @@ export interface StudentData {
   notices: NoticeInfo[];
   subjects: ResultSubject[];
   examName: string | null;
-}
-
-export function formatShortDate(dateOnly: string): string {
-  return new Date(`${dateOnly}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-
-export function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 export function daysUntil(dueOn: string): number {

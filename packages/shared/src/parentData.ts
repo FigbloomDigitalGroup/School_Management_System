@@ -1,4 +1,5 @@
-import { supabase, type Audience } from "@figbloom/shared";
+import { supabase } from "./supabase";
+import type { Audience } from "./types";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile

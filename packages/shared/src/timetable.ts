@@ -1,4 +1,5 @@
-import { supabase, type TimetableSlot, type Weekday } from "@figbloom/shared";
+import { supabase } from "./supabase";
+import type { TimetableSlot, Weekday } from "./types";
 
 export const WEEKDAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 

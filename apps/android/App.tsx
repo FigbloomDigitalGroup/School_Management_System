@@ -6,6 +6,7 @@ import "./src/lib/client";
 import { ParentDataProvider } from "./src/data";
 import { Navigation } from "./src/navigation";
 import { SignIn } from "./src/screens/SignIn";
+import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
 
 type Session = { role: "parent" | "student"; accent: string; profileId: string };
@@ -70,7 +71,9 @@ export default function App() {
             <Navigation role="parent" accent={session.accent} />
           </ParentDataProvider>
         ) : (
-          <Navigation role="student" accent={session.accent} />
+          <StudentDataProvider profileId={session.profileId} accent={session.accent}>
+            <Navigation role="student" accent={session.accent} />
+          </StudentDataProvider>
         )
       ) : <SignIn />}
     </SafeAreaProvider>

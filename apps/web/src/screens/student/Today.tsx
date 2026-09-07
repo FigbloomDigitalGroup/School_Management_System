@@ -1,4 +1,4 @@
-import { daysUntil, formatDueLabel } from "../../lib/studentData";
+import { daysUntil, fetchClassTimetable, formatDueLabel } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
@@ -6,7 +6,6 @@ import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
-import { fetchClassTimetable } from "../../lib/timetable";
 
 /**
  * Desktop dashboard for a student. Mirrors the phone app's "Today" screen —

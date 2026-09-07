@@ -4,7 +4,7 @@ import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
-import { fetchClassTimetable } from "../../lib/timetable";
+import { fetchClassTimetable } from "@figbloom/shared";
 
 /**
  * The weekly timetable is real per-class data (timetable_slots), fetched

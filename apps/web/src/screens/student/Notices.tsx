@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { NoticeInfo } from "../../lib/studentData";
+import type { NoticeInfo } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { EmptyState } from "../../components/ui/DataTable";

@@ -10,7 +10,10 @@ import { ParentPay } from "./screens/parent/Pay";
 import { ParentResults } from "./screens/parent/Results";
 import { ParentInbox } from "./screens/parent/Inbox";
 import { StudentToday } from "./screens/student/Today";
+import { StudentTimetable } from "./screens/student/Timetable";
 import { StudentWork } from "./screens/student/Work";
+import { StudentResults } from "./screens/student/Results";
+import { StudentNotices } from "./screens/student/Notices";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -57,7 +60,10 @@ export function Navigation({ role, accent }: { role: "parent" | "student"; accen
           }}
         >
           <Tab.Screen name="Today" component={StudentToday} options={glyph("\u25C8")} />
+          <Tab.Screen name="Timetable" component={StudentTimetable} options={glyph("\u25F7")} />
           <Tab.Screen name="Work" component={StudentWork} options={glyph("\u270E")} />
+          <Tab.Screen name="Results" component={StudentResults} options={glyph("\u25A4")} />
+          <Tab.Screen name="Notices" component={StudentNotices} options={glyph("\u25C9")} />
         </Tab.Navigator>
       )}
     </NavigationContainer>
