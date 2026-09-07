@@ -1,6 +1,5 @@
-import {
-  supabase, type Route, type RouteStop, type Trip, type TripDirection, type Vehicle, type VehicleAlert, type VehicleAssignment,
-} from "@figbloom/shared";
+import { supabase } from "./supabase";
+import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, VehicleAssignment } from "./types";
 
 /**
  * Fleet tracking, phase 1 (see supabase/migrations/20260903000003_fleet.sql

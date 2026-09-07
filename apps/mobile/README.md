@@ -1,7 +1,7 @@
-# Figbloom mobile (Android)
+# Figbloom mobile (Android + iOS)
 
-The **parent** and **student** apps. Teachers and admins use the web console;
-these two roles are phone-first, so they are native.
+The **parent**, **student** and **driver** apps. Teachers and admins use the
+web console; these roles are phone-first, so they are native.
 
 ## Why React Native, and what is actually shared
 
@@ -19,11 +19,13 @@ across them produces something that suits neither. The screens here mirror
 
 ```bash
 npm install
-npm run android --workspace @figbloom/android   # device or emulator, API 26+
+npm run android --workspace @figbloom/mobile   # device or emulator, API 26+
+npm run ios --workspace @figbloom/mobile       # Mac + Xcode only — run `pod install` in ios/ first
 ```
 
 Android 8.0 (API 26) is the floor — it covers the low-cost handsets most
-parents actually use.
+parents actually use. iOS has no equivalent floor decision yet; whoever
+builds it should pick a minimum iOS version at that point.
 
 ## Structure
 
@@ -34,6 +36,7 @@ src/
   navigation.tsx      bottom tabs per role
   screens/parent/     Home · Fees · Pay · Results · Inbox · Account
   screens/student/    Today · Timetable · Work · Results · Notices
+  screens/driver/     Trip — start/end a trip, background GPS while it runs
 ```
 
 ## Things that differ from web on purpose

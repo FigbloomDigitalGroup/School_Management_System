@@ -1,7 +1,7 @@
 buildscript {
     ext {
         buildToolsVersion = "35.0.0"
-        // Android 8.0 — the floor the product targets (see apps/android/README.md).
+        // Android 8.0 — the floor the product targets (see apps/mobile/README.md).
         minSdkVersion = 26
         compileSdkVersion = 35
         targetSdkVersion = 34

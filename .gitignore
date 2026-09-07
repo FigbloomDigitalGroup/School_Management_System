@@ -13,7 +13,7 @@ test-results/
 supabase/.branches/
 supabase/.temp/
 
-# Native Android project (apps/android/android)
+# Native Android project (apps/mobile/android)
 .gradle/
 local.properties
 *.iml
@@ -21,4 +21,13 @@ local.properties
 .cxx/
 *.hprof
 *.keystore
-!apps/android/android/app/debug.keystore
+!apps/mobile/android/app/debug.keystore
+
+# Native iOS project (apps/mobile/ios)
+apps/mobile/ios/Pods/
+apps/mobile/ios/build/
+apps/mobile/ios/*.xcworkspace/xcuserdata/
+apps/mobile/ios/*.xcodeproj/xcuserdata/
+apps/mobile/ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+apps/mobile/ios/DerivedData/
+**/.xcode.env.local

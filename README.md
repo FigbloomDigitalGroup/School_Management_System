@@ -8,10 +8,11 @@ codebase, one deployment.
 ```
 apps/web/          React + Vite + TS + Tailwind — desktop console for every role
                    (platform, school admin, teacher, parent, student)
-apps/android/      React Native — the parent and student mobile apps. apps/web
-                   also keeps a phone-mockup preview of these (ParentApp.tsx /
-                   StudentApp.tsx, wrapped in <PhoneFrame>) for design reference —
-                   it isn't routed to; the desktop screens are the real web app
+apps/mobile/       React Native (Android + iOS) — the parent, student and driver
+                   mobile apps. apps/web also keeps a phone-mockup preview of the
+                   parent/student screens (ParentApp.tsx / StudentApp.tsx, wrapped
+                   in <PhoneFrame>) for design reference — it isn't routed to; the
+                   desktop screens are the real web app
 packages/shared/   Domain logic used by both: types, grading scale, fee maths,
                    attendance register, M-Pesa helpers, offline write queue
 supabase/          Schema, row-level security, seed script, M-Pesa edge functions
@@ -28,7 +29,7 @@ cp .env.example .env         # then fill in the values `supabase start` prints b
 npx supabase start           # Postgres, Auth, Studio etc. in Docker — first run pulls images
 npm run db:seed              # applies supabase/migrations (schema + RLS) via db reset, then seeds demo data
 npm run dev                  # web on :5173 (or the next free port — Vite will say which)
-npm run dev:android          # Metro, then `npm run android -w @figbloom/android`
+npm run dev:mobile           # Metro, then `npm run android` or `npm run ios` -w @figbloom/mobile
 ```
 
 `supabase start` prints `API_URL` and `ANON_KEY` — put those in `.env` as

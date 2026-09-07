@@ -5,7 +5,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { useOnline } from "../../lib/useOnline";
 import { queue } from "../../lib/queue";
-import { endTrip, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, type AssignmentRow } from "../../lib/fleet";
+import { endTrip, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, type AssignmentRow } from "@figbloom/shared";
 
 /** Don't write a location row on every watchPosition tick (it can fire many
  *  times a second) — only once this much time has passed since the last one. */

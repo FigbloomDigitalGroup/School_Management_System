@@ -13,9 +13,9 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace @figbloom/web",
-    "dev:android": "npm run start --workspace @figbloom/android",
+    "dev:mobile": "npm run start --workspace @figbloom/mobile",
     "build": "npm run build --workspace @figbloom/web",
-    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit --pretty && npm run typecheck --workspace @figbloom/web && npm run typecheck --workspace @figbloom/android",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit --pretty && npm run typecheck --workspace @figbloom/web && npm run typecheck --workspace @figbloom/mobile",
     "lint": "eslint .",
     "test": "playwright test",
     "test:unit": "vitest run",
