@@ -30,4 +30,10 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  {
+    // RN tooling loads these as plain CommonJS, not ESM — the rest of the repo is "type": "module".
+    files: ["apps/android/babel.config.js", "apps/android/metro.config.js"],
+    languageOptions: { sourceType: "commonjs", globals: globals.node },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 );

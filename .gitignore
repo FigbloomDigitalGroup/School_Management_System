@@ -12,3 +12,13 @@ playwright-report/
 test-results/
 supabase/.branches/
 supabase/.temp/
+
+# Native Android project (apps/android/android)
+.gradle/
+local.properties
+*.iml
+.idea/
+.cxx/
+*.hprof
+*.keystore
+!apps/android/android/app/debug.keystore
