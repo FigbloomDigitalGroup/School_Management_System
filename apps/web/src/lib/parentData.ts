@@ -1,4 +1,4 @@
-import { supabase } from "@figbloom/shared";
+import { supabase, type Audience } from "@figbloom/shared";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -201,16 +201,21 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   });
 
   const childClassIds = new Set(children.map((c) => c.classId));
+  const childFormLevels = new Set(children.map((c) => c.formLevel));
   const messages: MessageInfo[] = ((announcementRows ?? []) as unknown as {
     id: string; subject: string; body: string; created_at: string;
-    audience: { kind: string; class_id?: string } | null;
+    audience: Audience | null;
     profiles: { full_name: string; role: string } | null;
   }[])
     .filter((a) => {
-      const kind = a.audience?.kind;
-      if (kind === "whole_school") return true;
-      if (kind === "class") return !!a.audience?.class_id && childClassIds.has(a.audience.class_id);
-      return false;
+      const audience = a.audience;
+      if (!audience) return false;
+      switch (audience.kind) {
+        case "whole_school": return true;
+        case "role": return audience.role === "parent";
+        case "class": return childClassIds.has(audience.class_id);
+        case "form_level": return childFormLevels.has(audience.form_level);
+      }
     })
     .map((a) => {
       const isTeacher = a.profiles?.role === "teacher";

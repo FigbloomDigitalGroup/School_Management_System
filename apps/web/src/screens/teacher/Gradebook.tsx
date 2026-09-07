@@ -1,56 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { GRADE_INK, gradeFor, parseScoreInput, summarise, supabase, type ClassGroup, type Exam, type Student, type Subject, type Term } from "@figbloom/shared";
+import { useSearchParams } from "react-router-dom";
+import { GRADE_INK, gradeFor, parseScoreInput, summarise, supabase, type Exam, type Student } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-
-/** Classes this teacher may grade: assigned via teaching_assignments, or class-teacher of. */
-async function fetchTeacherClasses(teacherId: string): Promise<ClassGroup[]> {
-  const [{ data: assigned, error: e1 }, { data: owned, error: e2 }] = await Promise.all([
-    supabase().from("teaching_assignments").select("class_id").eq("teacher_id", teacherId),
-    supabase().from("classes").select("*").eq("class_teacher_id", teacherId),
-  ]);
-  if (e1) throw new Error(e1.message);
-  if (e2) throw new Error(e2.message);
-
-  const assignedIds = Array.from(new Set(((assigned ?? []) as { class_id: string }[]).map((r) => r.class_id)));
-  let assignedClasses: ClassGroup[] = [];
-  if (assignedIds.length) {
-    const { data, error } = await supabase().from("classes").select("*").in("id", assignedIds);
-    if (error) throw new Error(error.message);
-    assignedClasses = (data ?? []) as ClassGroup[];
-  }
-
-  const byId = new Map<string, ClassGroup>();
-  for (const c of [...assignedClasses, ...((owned ?? []) as ClassGroup[])]) byId.set(c.id, c);
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function fetchCurrentTerm(): Promise<Term | null> {
-  const { data, error } = await supabase().from("terms").select("*").eq("is_current", true).maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as Term | null) ?? null;
-}
-
-/** Subjects this teacher is assigned to teach for one specific class. */
-async function fetchTeacherSubjectsForClass(teacherId: string, classId: string): Promise<Subject[]> {
-  const { data, error } = await supabase()
-    .from("teaching_assignments")
-    .select("subject_id, subjects(*)")
-    .eq("teacher_id", teacherId)
-    .eq("class_id", classId);
-  if (error) throw new Error(error.message);
-
-  const byId = new Map<string, Subject>();
-  for (const row of (data ?? []) as { subject_id: string; subjects: Subject | Subject[] | null }[]) {
-    const subj = Array.isArray(row.subjects) ? row.subjects[0] : row.subjects;
-    if (subj) byId.set(subj.id, subj);
-  }
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
+import { fetchCurrentTerm, fetchTeacherClasses, fetchTeacherSubjectsForClass } from "../../lib/teacherData";
 
 async function fetchExams(termId: string): Promise<Exam[]> {
   const { data, error } = await supabase().from("exams").select("*").eq("term_id", termId).order("name");
@@ -89,6 +46,7 @@ export function Gradebook() {
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data: term } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
+  const [params] = useSearchParams();
 
   const [classId, setClassId] = useState<string | null>(null);
   const [subjectId, setSubjectId] = useState<string | null>(null);
@@ -97,8 +55,12 @@ export function Gradebook() {
   const [scores, setScores] = useState<Record<string, string>>({});
   const [marksVersion, setMarksVersion] = useState(0);
 
+  // "My classes" links here with ?class=<id> so the shortcut lands on the right class.
   useEffect(() => {
-    if (!classId && classesData.length > 0) setClassId(classesData[0]!.id);
+    if (classId || classesData.length === 0) return;
+    const requested = params.get("class");
+    setClassId(classesData.find((c) => c.id === requested)?.id ?? classesData[0]!.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId, classesData]);
 
   // Subjects are scoped per class — reset the selection whenever the class changes.

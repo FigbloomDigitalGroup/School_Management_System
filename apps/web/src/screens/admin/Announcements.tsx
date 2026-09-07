@@ -1,28 +1,21 @@
 import { useState } from "react";
-import { supabase } from "@figbloom/shared";
-import type { ClassGroup } from "@figbloom/shared";
+import { supabase, type Audience, type ClassGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
-const AUDIENCE_META = [
+type AudienceKind = Audience["kind"];
+
+const AUDIENCE_META: { id: AudienceKind; label: string }[] = [
   { id: "whole_school", label: "Whole school" },
-  { id: "parents", label: "All parents" },
-  { id: "form", label: "One form level (Form 2, as an example)" },
-  { id: "class", label: "One class (Form 2 West, as an example)" },
-] as const;
-
-type AudienceId = (typeof AUDIENCE_META)[number]["id"];
-
-interface AudienceCounts {
-  whole_school: number;
-  parents: number;
-  form: number;
-  class: number;
-}
+  { id: "role", label: "All parents" },
+  { id: "form_level", label: "One form level" },
+  { id: "class", label: "One class" },
+];
 
 interface RecentAnnouncement {
   id: string;
@@ -30,11 +23,20 @@ interface RecentAnnouncement {
   published_at: string | null;
 }
 
-async function fetchAnnouncementsData(): Promise<{ counts: AudienceCounts; recent: RecentAnnouncement[] }> {
+interface AnnouncementsData {
+  classes: Pick<ClassGroup, "id" | "name" | "form_level">[];
+  wholeSchoolCount: number;
+  parentsCount: number;
+  countByForm: Map<number, number>;
+  countByClass: Map<string, number>;
+  recent: RecentAnnouncement[];
+}
+
+async function fetchAnnouncementsData(): Promise<AnnouncementsData> {
   const sb = supabase();
 
   const [{ data: classRows }, { data: studentRows }, { count: staffCount }, { data: guardianRows }, { data: recent }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
+    sb.from("classes").select("id,name,form_level").order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
     sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
     sb.from("profiles").select("id", { count: "exact", head: true }).in("role", ["school_admin", "teacher"]),
     sb.from("guardians").select("profile_id").returns<{ profile_id: string }[]>(),
@@ -42,15 +44,24 @@ async function fetchAnnouncementsData(): Promise<{ counts: AudienceCounts; recen
       .order("published_at", { ascending: false }).limit(5).returns<RecentAnnouncement[]>(),
   ]);
 
-  const classById = new Map((classRows ?? []).map((c) => [c.id, c]));
+  const classes = classRows ?? [];
+  const classById = new Map(classes.map((c) => [c.id, c]));
   const students = studentRows ?? [];
-  const form2 = students.filter((s) => classById.get(s.class_id)?.form_level === 2).length;
-  const form2West = (classRows ?? []).find((c) => c.name === "Form 2 West");
-  const inForm2West = form2West ? students.filter((s) => s.class_id === form2West.id).length : 0;
-  const parents = new Set((guardianRows ?? []).map((g) => g.profile_id)).size;
+
+  const countByClass = new Map<string, number>();
+  const countByForm = new Map<number, number>();
+  for (const s of students) {
+    countByClass.set(s.class_id, (countByClass.get(s.class_id) ?? 0) + 1);
+    const form = classById.get(s.class_id)?.form_level;
+    if (form != null) countByForm.set(form, (countByForm.get(form) ?? 0) + 1);
+  }
 
   return {
-    counts: { whole_school: students.length + (staffCount ?? 0), parents, form: form2, class: inForm2West },
+    classes,
+    wholeSchoolCount: students.length + (staffCount ?? 0),
+    parentsCount: new Set((guardianRows ?? []).map((g) => g.profile_id)).size,
+    countByForm,
+    countByClass,
     recent: recent ?? [],
   };
 }
@@ -61,17 +72,61 @@ async function fetchAnnouncementsData(): Promise<{ counts: AudienceCounts; recen
  */
 export function Announcements() {
   const toast = useToast();
-  const { data, loading } = useAsync(() => fetchAnnouncementsData(), []);
-  const [audienceId, setAudienceId] = useState<AudienceId>("whole_school");
+  const { profile, tenant } = useTenantSession();
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading } = useAsync(() => fetchAnnouncementsData(), [reloadKey]);
+  const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
+  const [formLevel, setFormLevel] = useState(1);
+  const [classId, setClassId] = useState("");
   const [channels, setChannels] = useState({ in_app: true, sms: false, email: false });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
 
-  const counts: AudienceCounts = data?.counts ?? { whole_school: 0, parents: 0, form: 0, class: 0 };
-  const audiences = AUDIENCE_META.map((m) => ({ ...m, count: counts[m.id] }));
-  const audience = audiences.find((a) => a.id === audienceId)!;
+  const effectiveClassId = classId || data?.classes[0]?.id || "";
+  const reach = !data ? 0
+    : audienceId === "whole_school" ? data.wholeSchoolCount
+    : audienceId === "role" ? data.parentsCount
+    : audienceId === "form_level" ? data.countByForm.get(formLevel) ?? 0
+    : data.countByClass.get(effectiveClassId) ?? 0;
 
-  const smsCost = channels.sms ? (audience.count * 0.8).toFixed(0) : "0";
+  const smsCost = channels.sms ? (reach * 0.8).toFixed(0) : "0";
+
+  function audienceValue(): Audience {
+    switch (audienceId) {
+      case "whole_school": return { kind: "whole_school" };
+      case "role": return { kind: "role", role: "parent" };
+      case "form_level": return { kind: "form_level", form_level: formLevel };
+      case "class": return { kind: "class", class_id: effectiveClassId };
+    }
+  }
+
+  async function submit(publish: boolean) {
+    if (!subject.trim() || !body.trim()) return;
+    if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first."); return; }
+    setSending(true);
+    try {
+      const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
+      const { error } = await supabase().from("announcements").insert({
+        tenant_id: tenant.id,
+        author_id: profile.id,
+        subject: subject.trim(),
+        body: body.trim(),
+        audience: audienceValue(),
+        channels: activeChannels,
+        published_at: publish ? new Date().toISOString() : null,
+      });
+      if (error) throw error;
+      toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
+      setSubject("");
+      setBody("");
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <>
@@ -86,14 +141,35 @@ export function Announcements() {
           <fieldset>
             <legend className="mb-2 text-small font-semibold">Who should get this?</legend>
             <div className="grid gap-2">
-              {audiences.map((a) => (
-                <button key={a.id} onClick={() => setAudienceId(a.id)}
-                  className="flex items-center justify-between gap-3 rounded-xl border-[1.5px] px-4 py-3 text-left"
-                  style={{ borderColor: audienceId === a.id ? "var(--accent)" : "#E2E6E2", background: audienceId === a.id ? "#FFF8F6" : "#fff" }}>
-                  <span className="text-[13.5px] font-medium">{a.label}</span>
-                  {loading ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{a.count.toLocaleString()} people</span>}
-                </button>
-              ))}
+              {AUDIENCE_META.map((a) => {
+                const count = !data ? null
+                  : a.id === "whole_school" ? data.wholeSchoolCount
+                  : a.id === "role" ? data.parentsCount
+                  : a.id === "form_level" ? data.countByForm.get(formLevel) ?? 0
+                  : data.countByClass.get(effectiveClassId) ?? 0;
+                return (
+                  <div key={a.id}>
+                    <button onClick={() => setAudienceId(a.id)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border-[1.5px] px-4 py-3 text-left"
+                      style={{ borderColor: audienceId === a.id ? "var(--accent)" : "#E2E6E2", background: audienceId === a.id ? "#FFF8F6" : "#fff" }}>
+                      <span className="text-[13.5px] font-medium">{a.label}</span>
+                      {loading || count === null ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{count.toLocaleString()} people</span>}
+                    </button>
+                    {audienceId === a.id && a.id === "form_level" && (
+                      <select value={formLevel} onChange={(e) => setFormLevel(Number(e.target.value))}
+                        aria-label="Form level" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
+                        {[1, 2, 3, 4].map((f) => <option key={f} value={f}>Form {f}</option>)}
+                      </select>
+                    )}
+                    {audienceId === a.id && a.id === "class" && (
+                      <select value={effectiveClassId} onChange={(e) => setClassId(e.target.value)}
+                        aria-label="Class" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
+                        {(data?.classes ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </fieldset>
 
@@ -131,15 +207,15 @@ export function Announcements() {
           <div className="rounded-xl bg-sunken p-4">
             <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BEFORE YOU SEND</div>
             <dl className="mt-2.5 grid gap-2 text-[12.5px]">
-              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{audience.count.toLocaleString()} people</dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{reach.toLocaleString()} people</dd></div>
               <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">KSh {smsCost}</dd></div>
               <div className="flex justify-between"><dt className="text-ink-muted">Cannot be unsent</dt><dd className="font-mono">correct</dd></div>
             </dl>
             <div className="mt-3.5 grid gap-2">
-              <Button block onClick={() => toast("Saved as a draft")}>Save draft</Button>
-              <Button variant="accent" block disabled={!subject.trim() || !body.trim()}
-                onClick={() => toast(`Sent to ${audience.count.toLocaleString()} people`)}>
-                Send now
+              <Button block disabled={!subject.trim() || !body.trim() || sending} onClick={() => void submit(false)}>Save draft</Button>
+              <Button variant="accent" block disabled={!subject.trim() || !body.trim() || sending}
+                onClick={() => void submit(true)}>
+                {sending ? "Sending…" : "Send now"}
               </Button>
             </div>
           </div>

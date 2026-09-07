@@ -26,6 +26,8 @@ import { AdminReports } from "./screens/admin/Reports";
 import { Attendance } from "./screens/teacher/Attendance";
 import { Gradebook } from "./screens/teacher/Gradebook";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
+import { TeacherClasses } from "./screens/teacher/Classes";
+import { TeacherMessages } from "./screens/teacher/Messages";
 
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
@@ -127,8 +129,8 @@ function TenantRoutes() {
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
           <Route path="teacher/gradebook" element={<TeacherShell allow={["teacher"]}><Gradebook /></TeacherShell>} />
           <Route path="teacher/timetable" element={<TeacherShell allow={["teacher"]}><TeacherTimetable /></TeacherShell>} />
-          <Route path="teacher/classes" element={<TeacherShell allow={["teacher"]}><TeacherTimetable /></TeacherShell>} />
-          <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherTimetable /></TeacherShell>} />
+          <Route path="teacher/classes" element={<TeacherShell allow={["teacher"]}><TeacherClasses /></TeacherShell>} />
+          <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />

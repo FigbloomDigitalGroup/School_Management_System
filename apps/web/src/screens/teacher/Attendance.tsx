@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today,
   supabase,
-  type AttendanceMark, type ClassGroup, type Register, type Student, type Term,
+  type AttendanceMark, type Register, type Student,
 } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
@@ -11,34 +12,7 @@ import { useOnline } from "../../lib/useOnline";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-
-/** Classes this teacher may register: assigned via teaching_assignments, or class-teacher of. */
-async function fetchTeacherClasses(teacherId: string): Promise<ClassGroup[]> {
-  const [{ data: assigned, error: e1 }, { data: owned, error: e2 }] = await Promise.all([
-    supabase().from("teaching_assignments").select("class_id").eq("teacher_id", teacherId),
-    supabase().from("classes").select("*").eq("class_teacher_id", teacherId),
-  ]);
-  if (e1) throw new Error(e1.message);
-  if (e2) throw new Error(e2.message);
-
-  const assignedIds = Array.from(new Set(((assigned ?? []) as { class_id: string }[]).map((r) => r.class_id)));
-  let assignedClasses: ClassGroup[] = [];
-  if (assignedIds.length) {
-    const { data, error } = await supabase().from("classes").select("*").in("id", assignedIds);
-    if (error) throw new Error(error.message);
-    assignedClasses = (data ?? []) as ClassGroup[];
-  }
-
-  const byId = new Map<string, ClassGroup>();
-  for (const c of [...assignedClasses, ...((owned ?? []) as ClassGroup[])]) byId.set(c.id, c);
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function fetchCurrentTerm(): Promise<Term | null> {
-  const { data, error } = await supabase().from("terms").select("*").eq("is_current", true).maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as Term | null) ?? null;
-}
+import { fetchCurrentTerm, fetchTeacherClasses } from "../../lib/teacherData";
 
 async function fetchRoster(classId: string): Promise<Student[]> {
   const { data, error } = await supabase()
@@ -88,14 +62,19 @@ export function Attendance() {
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data: term } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
+  const [params] = useSearchParams();
 
   const [classId, setClassId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [held, setHeld] = useState(0);
 
+  // "My classes" links here with ?class=<id> so the shortcut lands on the right roster.
   useEffect(() => {
-    if (!classId && classesData.length > 0) setClassId(classesData[0]!.id);
+    if (classId || classesData.length === 0) return;
+    const requested = params.get("class");
+    setClassId(classesData.find((c) => c.id === requested)?.id ?? classesData[0]!.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId, classesData]);
 
   const { data: rosterData, loading: rosterLoading } = useAsync(
