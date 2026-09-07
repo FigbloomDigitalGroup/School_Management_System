@@ -1,12 +1,48 @@
-import { KES } from "@figbloom/shared";
+import { KES, supabase } from "@figbloom/shared";
+import type { Tenant } from "@figbloom/shared";
 import { Badge, Cell, Mono, RecordsPage, type RecordsSpec } from "./RecordsPage";
 import { Button } from "../../components/ui/Button";
+import { PageHead } from "../../components/ConsoleShell";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { useAsync } from "../../lib/useAsync";
 
 /**
  * The seven cross-tenant console pages. Each is data plus copy — the layout
  * comes from RecordsPage, so they stay consistent as more are added.
+ *
+ * Usage, Impersonation, and Audit are backed by real tables (tenants+roster
+ * counts, impersonation_sessions, audit_events — all already exist with
+ * super_admin-readable RLS). Health, Incidents, Subscriptions, and Invoices
+ * stay illustrative: they'd need real infrastructure this schema doesn't
+ * model yet (uptime/latency monitoring, an incident tracker, a billing
+ * system) — building fake tables for those would just move the fakeness
+ * into SQL, not fix it. That's a product decision, not a coding task.
  */
+
+function RecordsLoading({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <>
+      <PageHead eyebrow={eyebrow} title={title} />
+      <div className="grid gap-3 px-7 py-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+      </div>
+    </>
+  );
+}
+
+function RecordsError({ eyebrow, title, message }: { eyebrow: string; title: string; message: string }) {
+  return (
+    <>
+      <PageHead eyebrow={eyebrow} title={title} />
+      <div className="px-7 py-6">
+        <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+          <span aria-hidden>✕</span>Could not load: {message}
+        </p>
+      </div>
+    </>
+  );
+}
 
 const t = (s: string, sub?: string) => <Cell sub={sub}>{s}</Cell>;
 const m = (s: string) => <Mono>{s}</Mono>;
@@ -82,18 +118,46 @@ function ServiceCards() {
   );
 }
 
+interface UsageRow { tenant: Pick<Tenant, "id" | "name" | "slug" | "licensed_seats" | "status">; inUse: number }
+
+async function fetchUsage(): Promise<UsageRow[]> {
+  const sb = supabase();
+  const [{ data: tenants, error: e1 }, { data: students, error: e2 }, { data: staff, error: e3 }] = await Promise.all([
+    sb.from("tenants").select("id,name,slug,licensed_seats,status").order("name").returns<UsageRow["tenant"][]>(),
+    sb.from("students").select("id,tenant_id").eq("active", true).returns<{ id: string; tenant_id: string }[]>(),
+    sb.from("profiles").select("id,tenant_id").in("role", ["school_admin", "teacher"]).returns<{ id: string; tenant_id: string | null }[]>(),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  if (e3) throw e3;
+
+  const inUseByTenant = new Map<string, number>();
+  for (const s of students ?? []) inUseByTenant.set(s.tenant_id, (inUseByTenant.get(s.tenant_id) ?? 0) + 1);
+  for (const p of staff ?? []) { if (p.tenant_id) inUseByTenant.set(p.tenant_id, (inUseByTenant.get(p.tenant_id) ?? 0) + 1); }
+
+  return (tenants ?? []).map((tenant) => ({ tenant, inUse: inUseByTenant.get(tenant.id) ?? 0 }));
+}
+
 export function Usage() {
+  const { data, loading, error } = useAsync(() => fetchUsage(), []);
+  if (loading || !data) return <RecordsLoading eyebrow="Platform · current term" title="Usage & capacity" />;
+  if (error) return <RecordsError eyebrow="Platform · current term" title="Usage & capacity" message={error.message} />;
+
+  const totalLicensed = data.reduce((a, r) => a + r.tenant.licensed_seats, 0);
+  const totalInUse = data.reduce((a, r) => a + r.inUse, 0);
+  const overLicence = data.filter((r) => r.tenant.licensed_seats > 0 && r.inUse > r.tenant.licensed_seats);
+  const activeSchools = data.filter((r) => r.tenant.status === "active").length;
+
   const spec: RecordsSpec = {
     eyebrow: "Platform · current term",
     title: "Usage & capacity",
     blurb: "Seats in use against what each school licensed. Well over is an upsell conversation; well under is a churn signal.",
     stats: [
-      { label: "Licensed seats", value: "238,900", sub: "across 231 active schools" },
-      { label: "Seats in use", value: "186,402", sub: "78% utilisation" },
-      { label: "Over licence", value: "7", sub: "schools exceeding their plan", alarming: true },
-      { label: "Storage", value: "4.2 TB", sub: "68% of provisioned" },
+      { label: "Licensed seats", value: totalLicensed.toLocaleString(), sub: `across ${activeSchools} active schools` },
+      { label: "Seats in use", value: totalInUse.toLocaleString(), sub: totalLicensed > 0 ? `${Math.round((totalInUse / totalLicensed) * 100)}% utilisation` : "no seats licensed yet" },
+      { label: "Over licence", value: String(overLicence.length), sub: "schools exceeding their plan", alarming: overLicence.length > 0 },
+      { label: "Schools", value: String(data.length), sub: `${activeSchools} active` },
     ],
-    actions: [{ label: "Export CSV", onClick: () => {} }],
     columns: [
       { key: "school", header: "School", width: "1.6fr" },
       { key: "lic", header: "Licensed", align: "right" },
@@ -107,24 +171,20 @@ export function Usage() {
       { label: "Under 50%", match: ["under", "never"] },
     ],
     minWidth: "780px",
-    rows: [
-      ["Mang'u High School", "mangu", "1,900", "1,988", "105%", "Over licence", "over"],
-      ["Alliance High School", "alliance", "2,000", "1,842", "92%", "Healthy", "ok"],
-      ["Kenya High School", "kenya-high", "1,700", "1,516", "89%", "Healthy", "ok"],
-      ["Lenana School", "lenana", "1,500", "1,320", "88%", "Healthy", "ok"],
-      ["Moi Girls Eldoret", "moi-girls-eldoret", "1,300", "1,204", "93%", "Healthy", "ok"],
-      ["Kisumu Boys High", "kisumu-boys", "1,100", "412", "37%", "Under 50%", "under"],
-      ["Nakuru Girls High", "nakuru-girls", "1,200", "372", "31%", "Under 50%", "under"],
-      ["Bungoma Secondary", "bungoma-sec", "900", "0", "0%", "Never used", "never"],
-    ].map((r) => ({
-      id: r[1]!,
-      tags: [r[6]!],
-      cells: [
-        t(r[0]!, "/s/" + r[1]), m(r[2]!), m(r[3]!),
-        <span className="font-mono text-[12.5px] font-medium" style={{ color: r[6] === "ok" ? undefined : "#B8460A" }}>{r[4]}</span>,
-        <Badge tone={r[6] === "ok" ? "ok" : r[6] === "under" ? "muted" : "warn"}>{r[5]}</Badge>,
-      ],
-    })),
+    rows: data.map((r) => {
+      const pct = r.tenant.licensed_seats > 0 ? Math.round((r.inUse / r.tenant.licensed_seats) * 100) : 0;
+      const tag = r.inUse === 0 ? "never" : pct > 100 ? "over" : pct < 50 ? "under" : "ok";
+      const label = tag === "never" ? "Never used" : tag === "over" ? "Over licence" : tag === "under" ? "Under 50%" : "Healthy";
+      return {
+        id: r.tenant.id,
+        tags: [tag],
+        cells: [
+          t(r.tenant.name, "/s/" + r.tenant.slug), m(r.tenant.licensed_seats.toLocaleString()), m(r.inUse.toLocaleString()),
+          <span className="font-mono text-[12.5px] font-medium" style={{ color: tag === "ok" ? undefined : "#B8460A" }}>{pct}%</span>,
+          <Badge tone={tag === "ok" ? "ok" : tag === "under" ? "muted" : "warn"}>{label}</Badge>,
+        ],
+      };
+    }),
   };
   return <RecordsPage spec={spec} />;
 }
@@ -280,16 +340,51 @@ export function Invoices() {
   return <RecordsPage spec={spec} />;
 }
 
+interface ImpersonationRow {
+  id: string; started_at: string; ended_at: string | null; reason: string; scope: string;
+  tenant_name: string | null; staff_name: string | null;
+}
+
+async function fetchImpersonation(): Promise<ImpersonationRow[]> {
+  const { data, error } = await supabase()
+    .from("impersonation_sessions")
+    .select("id,started_at,ended_at,reason,scope,tenants(name),profiles(full_name)")
+    .order("started_at", { ascending: false })
+    .limit(100)
+    .returns<{ id: string; started_at: string; ended_at: string | null; reason: string; scope: string; tenants: { name: string } | null; profiles: { full_name: string } | null }[]>();
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id, started_at: r.started_at, ended_at: r.ended_at, reason: r.reason, scope: r.scope,
+    tenant_name: r.tenants?.name ?? null, staff_name: r.profiles?.full_name ?? null,
+  }));
+}
+
+function fmtSessionWhen(iso: string): string {
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 export function Impersonation() {
+  const { data, loading, error } = useAsync(() => fetchImpersonation(), []);
+  if (loading || !data) return <RecordsLoading eyebrow="Support · immutable record" title="Impersonation log" />;
+  if (error) return <RecordsError eyebrow="Support · immutable record" title="Impersonation log" message={error.message} />;
+
+  const now = new Date();
+  const thisMonth = data.filter((r) => { const d = new Date(r.started_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
+  const staffCount = new Set(data.map((r) => r.staff_name).filter(Boolean)).size;
+  const writeCount = data.filter((r) => r.scope === "write").length;
+  const schoolCount = new Set(data.map((r) => r.tenant_name).filter(Boolean)).size;
+  const durations = data.filter((r) => r.ended_at).map((r) => (new Date(r.ended_at!).getTime() - new Date(r.started_at).getTime()) / 60000).sort((a, b) => a - b);
+  const median = durations.length ? Math.round(durations[Math.floor(durations.length / 2)]!) : null;
+
   const spec: RecordsSpec = {
     eyebrow: "Support · immutable record",
     title: "Impersonation log",
     blurb: "Every session where Figbloom staff acted inside a school. Schools can read their own entries — that is what makes impersonation acceptable to a principal at all.",
     stats: [
-      { label: "Sessions this month", value: "34", sub: "by 6 staff members" },
-      { label: "Median length", value: "9 min", sub: "30 min hard cap" },
-      { label: "Write actions", value: "11", sub: "all reason-tagged" },
-      { label: "Schools notified", value: "34", sub: "100% of sessions" },
+      { label: "Sessions this month", value: String(thisMonth.length), sub: `by ${staffCount} staff member${staffCount === 1 ? "" : "s"}` },
+      { label: "Median length", value: median !== null ? `${median} min` : "—", sub: "among ended sessions" },
+      { label: "Write actions", value: String(writeCount), sub: "of " + data.length + " sessions" },
+      { label: "Schools entered", value: String(schoolCount), sub: "distinct tenants" },
     ],
     actions: [{ label: "Export for audit", onClick: () => {} }],
     columns: [
@@ -299,36 +394,64 @@ export function Impersonation() {
       { key: "len", header: "Length", align: "right", width: "0.8fr" },
       { key: "scope", header: "Scope", width: "0.9fr" },
     ],
-    chips: [{ label: "All" }, { label: "Write actions", match: ["Write"] }],
+    chips: [{ label: "All" }, { label: "Write actions", match: ["write"] }],
     minWidth: "880px",
-    rows: [
-      ["Joyce Kimani", "Today 07:42", "Alliance High School", "Grade export returning an empty PDF", "8 min", "Read only"],
-      ["David Otieno", "Today 06:15", "Bungoma Secondary", "Finish a stalled student import", "26 min", "Write"],
-      ["Joyce Kimani", "Yesterday 16:30", "St. Mary's Yala", "Bursar cannot see the Term 3 invoice", "5 min", "Read only"],
-      ["Amina Yusuf", "Yesterday 11:05", "Nakuru Girls High", "Walk the principal through term setup", "31 min", "Write"],
-      ["David Otieno", "30 Aug 09:20", "Kisumu Boys High", "Confirm an M-Pesa reconciliation", "12 min", "Read only"],
-    ].map((r, i) => ({
-      id: "imp" + i,
-      tags: [r[5]!],
-      cells: [
-        t(r[0]!, r[1]!), <span className="text-[13px]">{r[2]}</span>,
-        <span className="text-[13px] text-ink-muted">{r[3]}</span>, m(r[4]!),
-        <Badge tone={r[5] === "Write" ? "warn" : "muted"}>{r[5]}</Badge>,
-      ],
-    })),
+    rows: data.map((r) => {
+      const mins = r.ended_at ? Math.round((new Date(r.ended_at).getTime() - new Date(r.started_at).getTime()) / 60000) : null;
+      return {
+        id: r.id,
+        tags: [r.scope],
+        cells: [
+          t(r.staff_name ?? "—", fmtSessionWhen(r.started_at)), <span className="text-[13px]">{r.tenant_name ?? "—"}</span>,
+          <span className="text-[13px] text-ink-muted">{r.reason}</span>, m(mins !== null ? `${mins} min` : "Ongoing"),
+          <Badge tone={r.scope === "write" ? "warn" : "muted"}>{r.scope === "write" ? "Write" : "Read only"}</Badge>,
+        ],
+      };
+    }),
   };
   return <RecordsPage spec={spec} />;
 }
 
+interface AuditRow { id: string; created_at: string; actor_label: string; event: string; category: string; tenant_name: string | null }
+
+async function fetchAudit(): Promise<AuditRow[]> {
+  const { data, error } = await supabase()
+    .from("audit_events")
+    .select("id,created_at,actor_label,event,category,tenants(name)")
+    .order("created_at", { ascending: false })
+    .limit(200)
+    .returns<{ id: string; created_at: string; actor_label: string; event: string; category: string; tenants: { name: string } | null }[]>();
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ id: r.id, created_at: r.created_at, actor_label: r.actor_label, event: r.event, category: r.category, tenant_name: r.tenants?.name ?? null }));
+}
+
+function fmtAuditWhen(iso: string): string {
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const CATEGORY_LABEL: Record<string, string> = {
+  provisioning: "Provisioning", access: "Access", academic: "Academic", financial: "Financial",
+};
+
 export function Audit() {
+  const { data, loading, error } = useAsync(() => fetchAudit(), []);
+  if (loading || !data) return <RecordsLoading eyebrow="Platform · all tenants" title="Audit trail" />;
+  if (error) return <RecordsError eyebrow="Platform · all tenants" title="Audit trail" message={error.message} />;
+
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const today = data.filter((r) => new Date(r.created_at) >= startOfToday);
+  const privileged = data.filter((r) => r.category === "access" || r.category === "academic");
+  const financial = data.filter((r) => r.category === "financial");
+  const schoolCount = new Set(data.map((r) => r.tenant_name).filter(Boolean)).size;
+
   const spec: RecordsSpec = {
     eyebrow: "Platform · all tenants",
     title: "Audit trail",
     blurb: "Every change that alters money, marks or access. Retained for seven years and exportable per school on request.",
     stats: [
-      { label: "Events today", value: "18,402", sub: "across 231 schools" },
-      { label: "Privileged changes", value: "22", sub: "role or permission edits" },
-      { label: "Failed logins", value: "146", sub: "0.8% of attempts" },
+      { label: "Events today", value: today.length.toLocaleString(), sub: `across ${schoolCount} schools` },
+      { label: "Privileged changes", value: String(privileged.length), sub: "access or academic" },
+      { label: "Financial events", value: String(financial.length), sub: "fee/payment changes" },
       { label: "Retention", value: "7 yrs", sub: "immutable, append only" },
     ],
     actions: [
@@ -343,26 +466,17 @@ export function Audit() {
     ],
     chips: [
       { label: "All" },
-      { label: "Privileged", match: ["Access", "Academic"] },
-      { label: "Financial", match: ["Financial"] },
+      { label: "Privileged", match: ["access", "academic"] },
+      { label: "Financial", match: ["financial"] },
     ],
     minWidth: "880px",
-    rows: [
-      ["Today 08:14", "system", "Tenant /s/kabarak provisioned", "Provisioning"],
-      ["Today 08:14", "Joyce Kimani", "Admin invite sent to principal@kabarak.sc.ke", "Access"],
-      ["Today 07:51", "P. Mwangi · Alliance", "Grading scale changed from 12-point to 8-point", "Academic"],
-      ["Today 07:20", "A. Wanjiru · Kenya High", "Term 3 fee structure published to 1,516 parents", "Financial"],
-      ["Yesterday 17:02", "system", "Kisumu Boys High suspension scheduled for 06 Sep", "Financial"],
-      ["Yesterday 16:44", "D. Otieno · Figbloom", "Impersonation session ended, 2 records written", "Access"],
-      ["Yesterday 14:10", "S. Achieng · Lenana", "42 teacher accounts created by CSV import", "Access"],
-      ["Yesterday 09:35", "M. Kariuki · Mang'u", "Form 4 exam results locked and published", "Academic"],
-    ].map((r, i) => ({
-      id: "aud" + i,
-      tags: [r[3]!],
+    rows: data.map((r) => ({
+      id: r.id,
+      tags: [r.category],
       cells: [
-        <span className="font-mono text-[12.5px] text-ink-muted">{r[0]}</span>,
-        t(r[1]!), <span className="text-[13px]">{r[2]}</span>,
-        <Badge tone={r[3] === "Financial" ? "warn" : "info"}>{r[3]}</Badge>,
+        <span className="font-mono text-[12.5px] text-ink-muted">{fmtAuditWhen(r.created_at)}</span>,
+        t(r.actor_label, r.tenant_name ?? undefined), <span className="text-[13px]">{r.event}</span>,
+        <Badge tone={r.category === "financial" ? "warn" : "info"}>{CATEGORY_LABEL[r.category] ?? r.category}</Badge>,
       ],
     })),
   };
