@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { useTenantSession } from "../../lib/sessionContext";
 
 type ClassRow = Pick<ClassGroup, "id" | "name" | "form_level" | "class_teacher_id">;
 
@@ -52,8 +53,38 @@ const fmtDay = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "2-
  */
 export function TermSetup() {
   const toast = useToast();
+  const { tenant } = useTenantSession();
   const [open, setOpen] = useState<string | null>("teachers");
   const { data, loading, error } = useAsync(() => fetchTermSetup(), []);
+
+  const [paybill, setPaybill] = useState(tenant.payment_paybill ?? "");
+  const [till, setTill] = useState(tenant.payment_till ?? "");
+  const [bankDetails, setBankDetails] = useState(tenant.payment_bank_details ?? "");
+  const [paymentNotes, setPaymentNotes] = useState(tenant.payment_notes ?? "");
+  const [paymentSet, setPaymentSet] = useState(
+    Boolean(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details),
+  );
+  const [savingPayment, setSavingPayment] = useState(false);
+
+  async function handleSavePayment(e: FormEvent) {
+    e.preventDefault();
+    setSavingPayment(true);
+    try {
+      const { error: rpcError } = await supabase().rpc("set_school_payment_methods", {
+        p_paybill: paybill,
+        p_till: till,
+        p_bank_details: bankDetails,
+        p_notes: paymentNotes,
+      });
+      if (rpcError) throw rpcError;
+      setPaymentSet(Boolean(paybill.trim() || till.trim() || bankDetails.trim()));
+      toast("Payment methods saved — parents will see these on the Fees screen.");
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save payment methods: ${err.message}` : "Could not save payment methods.");
+    } finally {
+      setSavingPayment(false);
+    }
+  }
 
   const unassigned = data ? data.classes.filter((c) => !c.class_teacher_id) : [];
   const assignedCount = data ? data.classes.length - unassigned.length : 0;
@@ -88,6 +119,12 @@ export function TermSetup() {
           note: data.feeItemsCount > 0
             ? `${data.feeItemsCount} fee items set up for ${data.term?.name ?? "this term"}.`
             : "No fee items have been set up for this term yet.",
+        },
+        {
+          id: "payment", label: "Payment methods", done: paymentSet,
+          note: paymentSet
+            ? "Parents see these on the Fees screen and pay externally, then upload proof."
+            : "No paybill, till, or bank details set up yet — parents can't see how to pay.",
         },
         {
           id: "roll", label: "Roll learners forward", done: false,
@@ -154,7 +191,57 @@ export function TermSetup() {
 
                     {expanded && (
                       <div className="border-t border-line-soft bg-page px-4 py-3.5">
-                        {s.id === "teachers" ? (
+                        {s.id === "payment" ? (
+                          <form onSubmit={handleSavePayment} className="grid gap-3">
+                            <p className="text-[12px] leading-relaxed text-ink-muted">
+                              Real-time M-Pesa auto-pay isn't wired up yet — for now, parents pay to whichever of
+                              these the school uses and upload proof for the bursar to confirm.
+                            </p>
+                            <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Paybill number</span>
+                                <input
+                                  value={paybill}
+                                  onChange={(e) => setPaybill(e.target.value)}
+                                  placeholder="e.g. 522533"
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
+                                />
+                              </label>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Till number</span>
+                                <input
+                                  value={till}
+                                  onChange={(e) => setTill(e.target.value)}
+                                  placeholder="e.g. 5028417"
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <label className="block">
+                              <span className="mb-1.5 block text-[12px] font-semibold">Bank details</span>
+                              <input
+                                value={bankDetails}
+                                onChange={(e) => setBankDetails(e.target.value)}
+                                placeholder="e.g. Equity Bank, Acc 0123456789"
+                                className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1.5 block text-[12px] font-semibold">Notes for parents (optional)</span>
+                              <input
+                                value={paymentNotes}
+                                onChange={(e) => setPaymentNotes(e.target.value)}
+                                placeholder="e.g. Use your child's admission number as the account reference"
+                                className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                              />
+                            </label>
+                            <div>
+                              <Button type="submit" variant="primary" disabled={savingPayment}>
+                                {savingPayment ? "Saving…" : "Save payment methods"}
+                              </Button>
+                            </div>
+                          </form>
+                        ) : s.id === "teachers" ? (
                           unassigned.length === 0 ? (
                             <p className="text-[12.5px] leading-relaxed text-ink-muted">Every class already has a class teacher assigned.</p>
                           ) : (

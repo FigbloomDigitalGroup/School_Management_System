@@ -16,6 +16,10 @@ export interface Tenant {
   accent: string;            // hex, school-chosen
   logo_url: string | null;
   licensed_seats: number;
+  payment_paybill: string | null;
+  payment_till: string | null;
+  payment_bank_details: string | null;
+  payment_notes: string | null;
   created_at: string;
 }
 

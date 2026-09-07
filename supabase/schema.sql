@@ -305,7 +305,7 @@ create table invites (
   full_name  text not null,
   email      text,
   phone      text,
-  token      text not null unique default encode(gen_random_bytes(24), 'hex'),
+  token      text not null unique default encode(extensions.gen_random_bytes(24), 'hex'),
   sent_email_at timestamptz,
   sent_sms_at   timestamptz,
   accepted_at   timestamptz,

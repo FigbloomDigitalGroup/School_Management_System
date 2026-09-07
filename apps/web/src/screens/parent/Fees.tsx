@@ -221,6 +221,38 @@ export function ParentFees() {
               />
             </div>
 
+            {(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details) && (
+              <section className="mt-4 overflow-hidden rounded-lg border border-line bg-white">
+                <header className="border-b border-line px-4 py-3">
+                  <h2 className="text-body font-semibold">How to pay</h2>
+                  <p className="mt-0.5 text-[12px] text-ink-faint">Pay using any of the school's options below, then upload proof underneath.</p>
+                </header>
+                <div className="grid gap-2 px-4 py-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                  {tenant.payment_paybill && (
+                    <div className="rounded-lg bg-page px-3.5 py-2.5">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Paybill</span>
+                      <Mono>{tenant.payment_paybill}</Mono>
+                    </div>
+                  )}
+                  {tenant.payment_till && (
+                    <div className="rounded-lg bg-page px-3.5 py-2.5">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Till number</span>
+                      <Mono>{tenant.payment_till}</Mono>
+                    </div>
+                  )}
+                  {tenant.payment_bank_details && (
+                    <div className="rounded-lg bg-page px-3.5 py-2.5">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Bank</span>
+                      <span className="text-[13px]">{tenant.payment_bank_details}</span>
+                    </div>
+                  )}
+                </div>
+                {tenant.payment_notes && (
+                  <p className="border-t border-line-soft px-4 py-2.5 text-[12px] leading-relaxed text-ink-muted">{tenant.payment_notes}</p>
+                )}
+              </section>
+            )}
+
             <section className="mt-4 overflow-hidden rounded-lg border border-line bg-white">
               <header className="border-b border-line px-4 py-3">
                 <h2 className="text-body font-semibold">Payment proof</h2>
