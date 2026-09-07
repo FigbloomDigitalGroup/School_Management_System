@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* overwritten per tenant by TenantThemeProvider */
+    --accent: #1b4d2e;
+    --accent-deep: #123420;
+  }
+
+  html, body, #root { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: "Figtree", system-ui, sans-serif;
+    color: #16201a;
+    background: #f6f8f6;
+    -webkit-font-smoothing: antialiased;
+    text-wrap: pretty;
+  }
+
+  a { color: #1b4d2e; text-decoration: none; }
+  a:hover { color: #f26a1b; }
+
+  ::selection { background: #e3efe7; }
+
+  /* Visible focus everywhere. Half our users navigate by keyboard or need
+     large, obvious affordances — never remove this. */
+  :focus-visible {
+    outline: 2px solid #f26a1b;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d3dad5; border-radius: 6px; border: 3px solid #fff; }
+}
+
+@layer utilities {
+  /* Minimum 44px touch target on anything tappable in the parent/student web views. */
+  .hit { min-height: 44px; min-width: 44px; }
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-rise { animation: rise 0.2s ease; }

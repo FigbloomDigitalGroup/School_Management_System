@@ -1,0 +1,68 @@
+project_id = "figbloom"
+
+# Ports moved off the 54278-54377 / 54411-54510 ranges, which Windows reserves
+# for Hyper-V/WSL NAT on this machine (`netsh interface ipv4 show excludedportrange
+# protocol=tcp`) and refuses to let Docker bind to.
+[api]
+enabled = true
+port = 58321
+schemas = ["public"]
+
+[db]
+port = 58322
+major_version = 15
+
+[db.pooler]
+enabled = false
+
+[studio]
+enabled = true
+port = 58323
+
+[local_smtp]
+enabled = true
+port = 58324
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/**", "figbloom://"]
+jwt_expiry = 3600
+# The public /auth/v1/signup endpoint is off (accounts are created by invite,
+# via auth.admin.createUser in supabase/seed.ts) — but auth.email/auth.sms
+# "enable_signup" is actually the toggle for the whole email/phone provider in
+# this CLI's config->env mapping (GOTRUE_EXTERNAL_EMAIL/PHONE_ENABLED), so
+# those stay true or *no one* can sign in, invited or not.
+enable_signup = false
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+
+[auth.sms]
+enable_signup = true
+enable_confirmations = true
+template = "Your Figbloom code is {{ .Code }}. It expires in 5 minutes."
+
+# No real SMS provider locally — fixed OTPs for the seeded demo parents instead,
+# via signInWithOtp()/verifyOtp() (see homeRouteFor's parent_otp method in auth.ts).
+[auth.sms.test_otp]
+254722118004 = "000000"
+
+[auth.sms.twilio]
+enabled = true
+account_sid = "test"
+message_service_sid = "test"
+auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
+
+[functions.invite-admin]
+verify_jwt = true
+
+[functions.mpesa-stk-push]
+verify_jwt = true
+
+[functions.mpesa-callback]
+verify_jwt = false             # Safaricom cannot send a JWT

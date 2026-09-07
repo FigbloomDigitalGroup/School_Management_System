@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.DS_Store
+*.log
+.expo/
+android/app/build/
+playwright-report/
+test-results/
+supabase/.branches/
+supabase/.temp/

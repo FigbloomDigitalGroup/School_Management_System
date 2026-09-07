@@ -1,0 +1,35 @@
+{
+  "name": "figbloom-school-systems",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Figbloom School Systems — multi-tenant school management for Kenyan secondary schools",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @figbloom/web",
+    "dev:android": "npm run start --workspace @figbloom/android",
+    "build": "npm run build --workspace @figbloom/web",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit --pretty && npm run typecheck --workspace @figbloom/web && npm run typecheck --workspace @figbloom/android",
+    "lint": "eslint .",
+    "test": "playwright test",
+    "db:reset": "supabase db reset",
+    "db:seed": "tsx --env-file=.env supabase/seed.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.10.0",
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^22.5.0",
+    "eslint": "^9.10.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.9.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.18.0"
+  }
+}

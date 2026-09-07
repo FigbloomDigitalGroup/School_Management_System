@@ -1,0 +1,398 @@
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { supabase } from "@figbloom/shared";
+import type { ClassGroup, Profile, Student } from "@figbloom/shared";
+import { PageHead } from "../../components/ConsoleShell";
+import { Badge, RoleBadge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
+import { Modal } from "../../components/ui/Modal";
+import { TableSkeleton } from "../../components/ui/Skeleton";
+import { useToast } from "../../components/ui/Toast";
+import { useTenantSession } from "../../lib/sessionContext";
+import { useAsync } from "../../lib/useAsync";
+import { listStudentDocuments, privateDocUrl, uploadAvatar, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
+
+type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding"> & { avatar_url: string | null };
+type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone"> & { avatar_url: string | null };
+
+const DOC_TYPES: { value: string; label: string }[] = [
+  { value: "birth_certificate", label: "Birth certificate" },
+  { value: "kcpe_certificate", label: "KCPE certificate" },
+  { value: "medical_form", label: "Medical form" },
+  { value: "transfer_letter", label: "Transfer letter" },
+  { value: "other", label: "Other" },
+];
+
+const AVATAR_TONES = [
+  { bg: "#E3EFE7", ink: "#1B4D2E" },
+  { bg: "#FDECD8", ink: "#8A4B12" },
+  { bg: "#E7E9FB", ink: "#3B3F8C" },
+  { bg: "#FBE7EC", ink: "#8C2F49" },
+  { bg: "#E7F6FB", ink: "#175C74" },
+];
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+
+function toneFor(id: string): { bg: string; ink: string } {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length]!;
+}
+
+/** A photo if one's set, else the initials-in-a-colored-box placeholder used across the console. */
+function Avatar({ id, name, url, size = 30 }: { id: string; name: string; url?: string | null; size?: number }) {
+  if (url) {
+    return <img src={url} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
+  }
+  const { bg, ink } = toneFor(id);
+  return (
+    <span
+      aria-hidden
+      className="grid shrink-0 place-items-center rounded-full font-bold"
+      style={{ width: size, height: size, background: bg, color: ink, fontSize: Math.round(size * 0.4) }}
+    >
+      {initialsOf(name)}
+    </span>
+  );
+}
+
+interface PeopleData {
+  classes: Pick<ClassGroup, "id" | "name">[];
+  students: StudentRow[];
+  staff: StaffRow[];
+  feeByStudent: Map<string, { total: number; paid: number }>;
+}
+
+async function fetchPeople(): Promise<PeopleData> {
+  const sb = supabase();
+  const { data: term } = await sb.from("terms").select("id").eq("is_current", true).maybeSingle<{ id: string }>();
+
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
+    sb.from("classes").select("id,name").order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
+    sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url").eq("active", true).order("full_name").returns<StudentRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,avatar_url").in("role", ["school_admin", "teacher"]).order("full_name").returns<StaffRow[]>(),
+    term
+      ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
+      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
+  ]);
+
+  const feeByStudent = new Map<string, { total: number; paid: number }>();
+  for (const inv of invoicesRes.data ?? []) feeByStudent.set(inv.student_id, { total: inv.total_cents, paid: inv.paid_cents });
+
+  return { classes: classRows ?? [], students: studentRows ?? [], staff: staffRows ?? [], feeByStudent };
+}
+
+/**
+ * Bulk actions matter more than search here — an admin's real job is moving
+ * forty learners at once, not finding one. Selection is sticky across filtering
+ * so a class change can be built up in two passes.
+ */
+export function People() {
+  const toast = useToast();
+  const { profile, tenant } = useTenantSession();
+  const [tab, setTab] = useState<"students" | "staff">("students");
+  const [query, setQuery] = useState("");
+  const [classId, setClassId] = useState("all");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [manage, setManage] = useState<{ kind: "students" | "staff"; row: StudentRow | StaffRow } | null>(null);
+  const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
+
+  const { data, loading, error } = useAsync(() => fetchPeople(), []);
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.students ?? [])
+      .filter((s) => classId === "all" || s.class_id === classId)
+      .filter((s) => !q || s.full_name.toLowerCase().includes(q) || s.admission_no.includes(q))
+      .slice(0, 60);
+  }, [data, query, classId]);
+
+  const staffRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.staff ?? []).filter((s) => !q || s.full_name.toLowerCase().includes(q));
+  }, [data, query]);
+
+  const classesById = useMemo(() => new Map((data?.classes ?? []).map((c) => [c.id, c.name])), [data]);
+
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+
+  const switchTab = (t: "students" | "staff") => { setTab(t); setPicked(new Set()); };
+
+  const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, row });
+
+  return (
+    <>
+      <PageHead
+        eyebrow="School · people"
+        title="Students & staff"
+        blurb={
+          data
+            ? `${data.students.length.toLocaleString()} learners and ${data.staff.length.toLocaleString()} staff. Import from a spreadsheet at the start of a term; after that, add one at a time.`
+            : "Loading the roster…"
+        }
+        actions={
+          <>
+            <Button onClick={() => toast("Downloaded the import template")}>Import from CSV</Button>
+            <Button variant="accent" onClick={() => toast("Add a learner")}>Add a learner</Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-page px-7 py-3">
+        <div className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
+          {(["students", "staff"] as const).map((t) => (
+            <button key={t} onClick={() => switchTab(t)} className="rounded px-3 py-1.5 text-small capitalize"
+              style={tab === t ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name or admission number"
+          aria-label="Search people"
+          className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
+        {tab === "students" && (
+          <select value={classId} onChange={(e) => setClassId(e.target.value)} aria-label="Class"
+            className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
+            <option value="all">Every class</option>
+            {(data?.classes ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+        <span className="ml-auto font-mono text-[11px] text-ink-faint">
+          {loading ? "…" : `${tab === "students" ? rows.length : staffRows.length} shown`}
+        </span>
+      </div>
+
+      {tab === "students" && picked.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-line bg-sunken px-7 py-2.5">
+          <span className="text-small font-semibold">{picked.size} selected</span>
+          <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>
+          <Button onClick={() => toast(`Invited the guardians of ${picked.size} learners`)}>Invite guardians</Button>
+          <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
+          <button onClick={() => setPicked(new Set())} className="text-small font-semibold text-leaf">Clear</button>
+        </div>
+      )}
+
+      <div className="px-7 py-6">
+        {error ? (
+          <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+            <span aria-hidden>✕</span>Could not load people: {error.message}
+          </p>
+        ) : loading || !data ? (
+          <TableSkeleton rows={8} />
+        ) : tab === "students" ? (
+          <DataTable
+            columns={[
+              {
+                key: "pick", header: "", width: "40px",
+                render: (s) => (
+                  <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Select ${s.full_name}`} style={{ accentColor: "#17402A" }} />
+                ),
+              },
+              { key: "name", header: "Learner", width: "1.8fr", render: (s) => (
+                <div className="flex items-center gap-2.5">
+                  <Avatar id={s.id} name={s.full_name} url={avatarOverrides[s.id] ?? s.avatar_url} />
+                  <Cell sub={`ADM ${s.admission_no}`}>{s.full_name}</Cell>
+                </div>
+              ) },
+              { key: "class", header: "Class", render: (s) => <span className="text-[13px]">{classesById.get(s.class_id)}</span> },
+              { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
+              { key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> },
+              { key: "fees", header: "Fees", align: "right", render: (s) => {
+                const inv = data.feeByStudent.get(s.id);
+                if (!inv) return <Badge tone="muted">No invoice</Badge>;
+                const owes = inv.paid < inv.total;
+                return <Badge tone={owes ? "warn" : "ok"}>{owes ? "Balance due" : "Cleared"}</Badge>;
+              } },
+            ]}
+            rows={rows}
+            rowKey={(s) => s.id}
+            onRowClick={(s) => openManage("students", s)}
+            minWidth="880px"
+            empty={{
+              title: "No learner matches that",
+              body: "Try the admission number instead. If they were admitted this week, an import may still be running.",
+              action: <Button variant="primary" onClick={() => toast("Add a learner")}>Add a learner</Button>,
+            }}
+          />
+        ) : (
+          <DataTable
+            columns={[
+              { key: "name", header: "Staff", width: "1.8fr", render: (s: StaffRow) => (
+                <div className="flex items-center gap-2.5">
+                  <Avatar id={s.id} name={s.full_name} url={avatarOverrides[s.id] ?? s.avatar_url} />
+                  <Cell sub={s.staff_title ?? undefined}>{s.full_name}</Cell>
+                </div>
+              ) },
+              { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} /> },
+              { key: "email", header: "Email", width: "1.4fr", render: (s: StaffRow) => <Mono>{s.email ?? "—"}</Mono> },
+              { key: "phone", header: "Phone", render: (s: StaffRow) => <Mono>{s.phone ?? "—"}</Mono> },
+            ]}
+            rows={staffRows}
+            rowKey={(s) => s.id}
+            onRowClick={(s) => openManage("staff", s)}
+            minWidth="720px"
+            empty={{
+              title: "No staff match that",
+              body: "Admins and teachers appear here once their accounts are created.",
+            }}
+          />
+        )}
+      </div>
+
+      {manage && (
+        <Modal
+          key={manage.row.id}
+          open
+          onClose={() => setManage(null)}
+          eyebrow={manage.kind === "students" ? "Learner" : "Staff"}
+          title={`Manage ${manage.row.full_name}`}
+          blurb={manage.kind === "students" ? "Photo and records for this learner." : "Photo for this staff member."}
+          actions={<Button variant="primary" onClick={() => setManage(null)}>Done</Button>}
+        >
+          <AvatarEditor
+            id={manage.row.id}
+            name={manage.row.full_name}
+            kind={manage.kind}
+            tenantId={tenant.id}
+            url={avatarOverrides[manage.row.id] ?? manage.row.avatar_url}
+            onUploaded={(url) => setAvatarOverrides((m) => ({ ...m, [manage.row.id]: url }))}
+            toast={toast}
+          />
+          {manage.kind === "students" && (
+            <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manage.row.id} toast={toast} />
+          )}
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function AvatarEditor({ id, name, kind, tenantId, url, onUploaded, toast }: {
+  id: string; name: string; kind: "students" | "staff"; tenantId: string; url?: string | null;
+  onUploaded: (url: string) => void; toast: (m: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+
+  async function onChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const newUrl = await uploadAvatar(tenantId, kind, id, file);
+      const table = kind === "students" ? "students" : "profiles";
+      const { error } = await supabase().from(table).update({ avatar_url: newUrl }).eq("id", id);
+      if (error) throw error;
+      onUploaded(newUrl);
+      toast("Photo updated");
+    } catch (err) {
+      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3.5">
+      <Avatar id={id} name={name} url={url} size={56} />
+      <label className="text-small font-medium text-leaf">
+        <span className="hit inline-block cursor-pointer rounded-md border border-[#D3DAD5] bg-white px-3 py-1.5 hover:bg-page">
+          {uploading ? "Uploading…" : "Change photo"}
+        </span>
+        <input type="file" accept="image/*" className="hidden" onChange={onChange} disabled={uploading} aria-label="Upload photo" />
+      </label>
+    </div>
+  );
+}
+
+function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
+  tenantId: string; uploaderId: string; studentId: string; toast: (m: string) => void;
+}) {
+  const [docs, setDocs] = useState<StudentDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [docType, setDocType] = useState("birth_certificate");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    listStudentDocuments(studentId)
+      .then((d) => { if (alive) setDocs(d); })
+      .catch((err: Error) => { if (alive) toast("Could not load documents: " + err.message); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId]);
+
+  async function openDoc(doc: StudentDocument) {
+    try {
+      const url = await privateDocUrl(doc.file_path);
+      window.open(url, "_blank");
+    } catch (err) {
+      toast("Could not open document: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }
+
+  async function addDocument(e: FormEvent) {
+    e.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadStudentDocument({ tenantId, studentId, uploadedBy: uploaderId, docType, file });
+      setDocs(await listStudentDocuments(studentId));
+      toast("Document added");
+      if (fileRef.current) fileRef.current.value = "";
+    } catch (err) {
+      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-line-soft pt-4">
+      <h3 className="text-[13px] font-semibold">Documents</h3>
+      {loading ? (
+        <p className="mt-2 text-small text-ink-faint">Loading…</p>
+      ) : docs.length === 0 ? (
+        <p className="mt-2 text-small text-ink-faint">No documents on file yet.</p>
+      ) : (
+        <ul className="mt-2 grid gap-1.5">
+          {docs.map((d) => (
+            <li key={d.id}>
+              <button type="button" onClick={() => openDoc(d)}
+                className="flex w-full items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
+                <span className="min-w-0 truncate text-small font-medium">{d.file_name}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Badge tone="muted">{DOC_TYPES.find((t) => t.value === d.doc_type)?.label ?? d.doc_type}</Badge>
+                  <span className="font-mono text-[10.5px] text-ink-faint">{new Date(d.uploaded_at).toLocaleDateString()}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={addDocument} className="mt-3 flex flex-wrap items-center gap-2">
+        <select value={docType} onChange={(e) => setDocType(e.target.value)} aria-label="Document type"
+          className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
+          {DOC_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <input ref={fileRef} type="file" aria-label="Document file" className="text-small" />
+        <Button type="submit" variant="primary" disabled={uploading}>{uploading ? "Uploading…" : "Add document"}</Button>
+      </form>
+    </div>
+  );
+}

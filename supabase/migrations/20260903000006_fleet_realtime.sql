@@ -1,0 +1,11 @@
+-- Fleet tracking, phase 3: live positions on the admin map need Postgres
+-- changes streamed over Realtime, which only broadcasts tables explicitly
+-- added to the supabase_realtime publication — nothing is included by
+-- default, and no table has been added to it before this.
+--
+-- Streaming `vehicles` (not the raw `vehicle_locations` history) is enough:
+-- every ping already writes through to vehicles.last_lat/last_lng via
+-- pingLocation() in apps/web/src/lib/fleet.ts, so an UPDATE on that row is
+-- exactly the "this bus moved" event the map needs, at a small fraction of
+-- vehicle_locations' write volume.
+alter publication supabase_realtime add table vehicles;
