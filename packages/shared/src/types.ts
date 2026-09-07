@@ -55,6 +55,18 @@ export interface ClassGroup {
   room: string | null;
 }
 
+export type Weekday = "Mon" | "Tue" | "Wed" | "Thu" | "Fri";
+
+export interface TimetableSlot {
+  id: string;
+  tenant_id: string;
+  class_id: string;
+  day: Weekday;
+  start_time: string;        // "08:00"
+  label: string;             // subject name, or "Games"/"Library"/"Class meeting" etc.
+  room: string | null;
+}
+
 export interface Subject {
   id: string;
   tenant_id: string;

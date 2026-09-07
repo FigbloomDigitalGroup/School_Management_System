@@ -1,4 +1,3 @@
-import { DEMO_TIMETABLE as timetable } from "@figbloom/shared";
 import { daysUntil, formatDueLabel } from "../../lib/studentData";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -6,12 +5,14 @@ import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
+import { useAsync } from "../../lib/useAsync";
+import { fetchClassTimetable } from "../../lib/timetable";
 
 /**
  * Desktop dashboard for a student. Mirrors the phone app's "Today" screen —
- * same NOW=2 hardcoded period (the mock timetable has no real "current
- * period" concept, and Tuesday is the day StudentApp.tsx has always shown)
- * — but laid out as a console page instead of a scrolling phone card stack.
+ * same NOW=2 hardcoded period (there's no real "current period" concept
+ * yet, and Tuesday is the day StudentApp.tsx has always shown) — but laid
+ * out as a console page instead of a scrolling phone card stack.
  */
 const NOW = 2;
 const DAY = "Tue";
@@ -19,6 +20,10 @@ const DAY = "Tue";
 export function StudentToday() {
   const { profile } = useTenantSession();
   const { data, loading, error } = useStudentData();
+  const { data: timetable } = useAsync(
+    () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
+    [data?.classId],
+  );
   const firstName = profile.full_name.split(" ")[0];
 
   if (error) {
@@ -69,7 +74,7 @@ export function StudentToday() {
   const open = work.filter((w) => w.state !== "done").slice().sort((a, b) => a.dueOn.localeCompare(b.dueOn));
   const overdue = work.filter((w) => w.state === "late");
 
-  const todayRows = timetable[DAY] ?? [];
+  const todayRows = timetable?.[DAY] ?? [];
   const nowP = todayRows[NOW];
   const nextP = todayRows[NOW + 1];
   const restOfDay = todayRows.slice(NOW + 1);

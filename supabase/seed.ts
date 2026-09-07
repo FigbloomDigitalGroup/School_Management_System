@@ -9,7 +9,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import {
-  DEMO_TENANTS, DEMO_SUBJECTS, DEMO_CLASSES, DEMO_FEE_ITEMS,
+  DEMO_TENANTS, DEMO_SUBJECTS, DEMO_CLASSES, DEMO_FEE_ITEMS, DEMO_TIMETABLE,
   FIRST_NAMES, LAST_NAMES, DEMO_LOGINS,
 } from "../packages/shared/src/demo";
 import { itemsForStudent, totalCents } from "../packages/shared/src/fees";
@@ -202,6 +202,15 @@ async function main() {
   );
   await db.from("attendance").insert(attendance);
   console.log(`  ${attendance.length} attendance records`);
+
+  // ---------------------------------------------------------------- timetable, Form 2 West only
+  const timetableSlots = Object.entries(DEMO_TIMETABLE).flatMap(([day, periods]) =>
+    periods.map(([start_time, label, room]) => ({
+      tenant_id: alliance.id, class_id: form2west.id, day, start_time, label, room,
+    })),
+  );
+  await db.from("timetable_slots").insert(timetableSlots);
+  console.log(`  ${timetableSlots.length} timetable slots (Form 2 West)`);
 
   // ---------------------------------------------------------------- announcements + work
   await db.from("announcements").insert([

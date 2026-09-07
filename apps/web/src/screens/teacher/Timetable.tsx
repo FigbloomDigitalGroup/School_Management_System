@@ -1,49 +1,100 @@
-import { useState } from "react";
-import { DEMO_TIMETABLE as timetable } from "@figbloom/shared";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import type { Weekday } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { TableSkeleton } from "../../components/ui/Skeleton";
+import { useAsync } from "../../lib/useAsync";
+import { useTenantSession } from "../../lib/sessionContext";
+import { fetchTeacherClasses } from "../../lib/teacherData";
+import { fetchClassTimetable, WEEKDAYS } from "../../lib/timetable";
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
 const NOW = 2;
+const NOW_DAY: Weekday = "Tue";
 
 export function TeacherTimetable() {
-  const [day, setDay] = useState<string>("Tue");
-  const rows = timetable[day] ?? [];
+  const { profile } = useTenantSession();
+  const [params] = useSearchParams();
+  const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
+  const classesData = useMemo(() => classListData ?? [], [classListData]);
+  const [classId, setClassId] = useState<string | null>(null);
+  const [day, setDay] = useState<Weekday>("Tue");
+
+  useEffect(() => {
+    if (classId || classesData.length === 0) return;
+    const requested = params.get("class");
+    setClassId(classesData.find((c) => c.id === requested)?.id ?? classesData[0]!.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classId, classesData]);
+
+  const cls = classesData.find((c) => c.id === classId) ?? null;
+  const { data: timetable, loading: timetableLoading } = useAsync(
+    () => (classId ? fetchClassTimetable(classId) : Promise.resolve(null)),
+    [classId],
+  );
+
+  const rows = timetable?.[day] ?? [];
 
   return (
     <>
       <PageHead
         eyebrow="Timetable · term 3, 2026"
-        title="Your week"
-        blurb="Your teaching load, not the whole school's. Free periods are shown because knowing when you are free is half the reason to open this."
+        title={cls ? cls.name : "Your week"}
+        blurb="The classes you teach — pick one to see its weekly timetable."
+        actions={
+          classesData.length > 1 ? (
+            <select
+              value={classId ?? ""}
+              onChange={(e) => setClassId(e.target.value)}
+              aria-label="Class"
+              className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
+            >
+              {classesData.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          ) : undefined
+        }
       />
       <div className="px-7 py-6">
-        <div className="mb-4 flex gap-1.5">
-          {DAYS.map((d) => (
-            <button key={d} onClick={() => setDay(d)} className="rounded-full px-3.5 py-2 text-small"
-              style={day === d ? { background: "var(--accent-deep)", color: "#fff", fontWeight: 600 } : { background: "#EEF1EE", color: "#5F6B62" }}>
-              {d}
-            </button>
-          ))}
-        </div>
+        {classesLoading ? (
+          <TableSkeleton rows={6} />
+        ) : classesData.length === 0 ? (
+          <p className="text-[13px] text-ink-muted">You aren't assigned to any classes yet.</p>
+        ) : (
+          <>
+            <div className="mb-4 flex gap-1.5">
+              {WEEKDAYS.map((d) => (
+                <button key={d} onClick={() => setDay(d)} className="rounded-full px-3.5 py-2 text-small"
+                  style={day === d ? { background: "var(--accent-deep)", color: "#fff", fontWeight: 600 } : { background: "#EEF1EE", color: "#5F6B62" }}>
+                  {d}
+                </button>
+              ))}
+            </div>
 
-        <div className="grid max-w-[720px] gap-2">
-          {rows.map(([time, subject, room], i) => {
-            const isNow = day === "Tue" && i === NOW;
-            const free = subject === "Games" || subject === "Library";
-            return (
-              <div key={time} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
-                style={{ borderColor: isNow ? "var(--accent)" : "#E2E6E2", background: isNow ? "#FFF8F6" : "#fff" }}>
-                <span className="w-12 shrink-0 font-mono text-[11.5px] text-ink-muted">{time}</span>
-                <span className="h-8 w-[3px] shrink-0 rounded" style={{ background: isNow ? "var(--accent)" : free ? "#E7EBE8" : "#2E7D4F" }} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-medium">{subject}</span>
-                  <span className="text-[12px] text-ink-faint">{room} · Form 2 West</span>
-                </span>
-                {isNow && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ background: "var(--accent)" }}>NOW</span>}
+            {timetableLoading ? (
+              <TableSkeleton rows={6} />
+            ) : rows.length === 0 ? (
+              <p className="text-[13px] text-ink-muted">No timetable set for {cls?.name ?? "this class"} yet — ask the school office to set one up under School settings.</p>
+            ) : (
+              <div className="grid max-w-[720px] gap-2">
+                {rows.map(([time, subject, room], i) => {
+                  const isNow = day === NOW_DAY && i === NOW;
+                  const free = subject === "Games" || subject === "Library";
+                  return (
+                    <div key={time} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
+                      style={{ borderColor: isNow ? "var(--accent)" : "#E2E6E2", background: isNow ? "#FFF8F6" : "#fff" }}>
+                      <span className="w-12 shrink-0 font-mono text-[11.5px] text-ink-muted">{time}</span>
+                      <span className="h-8 w-[3px] shrink-0 rounded" style={{ background: isNow ? "var(--accent)" : free ? "#E7EBE8" : "#2E7D4F" }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14px] font-medium">{subject}</span>
+                        <span className="text-[12px] text-ink-faint">{room}{cls ? ` · ${cls.name}` : ""}</span>
+                      </span>
+                      {isNow && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ background: "var(--accent)" }}>NOW</span>}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            )}
+          </>
+        )}
       </div>
     </>
   );

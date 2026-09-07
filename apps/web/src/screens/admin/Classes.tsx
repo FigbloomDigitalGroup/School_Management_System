@@ -9,6 +9,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { TimetableEditor } from "./TimetableEditor";
 
 interface TeacherOption { id: string; full_name: string }
 
@@ -44,10 +45,11 @@ const FORM_LEVELS = [1, 2, 3, 4] as const;
  */
 export function AdminClasses() {
   const toast = useToast();
-  useTenantSession();
+  const { tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClasses(), [reloadKey]);
   const [creating, setCreating] = useState(false);
+  const [editingTimetableFor, setEditingTimetableFor] = useState<ClassGroup | null>(null);
   const reload = () => setReloadKey((k) => k + 1);
 
   async function setClassTeacher(classId: string, teacherId: string) {
@@ -107,15 +109,24 @@ export function AdminClasses() {
                 render: (c: ClassGroup) => <Mono>{data.studentCountByClass.get(c.id) ?? 0}</Mono>,
               },
               {
-                key: "actions", header: "", align: "right", width: "0.6fr",
+                key: "actions", header: "", align: "right", width: "1.1fr",
                 render: (c: ClassGroup) => (
-                  <button
-                    type="button"
-                    onClick={() => void deleteClass(c)}
-                    className="text-[12px] font-semibold text-warn-ink hover:underline"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingTimetableFor(c)}
+                      className="text-[12px] font-semibold text-leaf hover:underline"
+                    >
+                      Timetable
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteClass(c)}
+                      className="text-[12px] font-semibold text-warn-ink hover:underline"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 ),
               },
             ]}
@@ -137,6 +148,15 @@ export function AdminClasses() {
           onClose={() => setCreating(false)}
           onCreated={() => { setCreating(false); reload(); }}
           toast={toast}
+        />
+      )}
+
+      {editingTimetableFor && (
+        <TimetableEditor
+          tenantId={tenant.id}
+          classId={editingTimetableFor.id}
+          className={editingTimetableFor.name}
+          onClose={() => setEditingTimetableFor(null)}
         />
       )}
     </>

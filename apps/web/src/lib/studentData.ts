@@ -40,6 +40,7 @@ export interface NoticeInfo {
 
 export interface StudentData {
   studentId: string;
+  classId: string;
   className: string;
   work: WorkItem[];
   notices: NoticeInfo[];
@@ -168,6 +169,7 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
 
   return {
     studentId: studentRow.id,
+    classId: studentRow.class_id,
     className: studentRow.classes?.name ?? "",
     work,
     notices,

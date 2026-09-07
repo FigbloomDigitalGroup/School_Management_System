@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
-import { againstMean, DEMO_TIMETABLE as timetable, gradeFor, pointsFor } from "@figbloom/shared";
+import { againstMean, gradeFor, pointsFor, type Weekday } from "@figbloom/shared";
 import { daysUntil, formatDueLabel, loadStudentData } from "../../lib/studentData";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
+import { fetchClassTimetable } from "../../lib/timetable";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
@@ -23,6 +24,10 @@ type Screen = "today" | "timetable" | "work" | "task" | "results" | "notices" | 
 export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: string }) {
   const { profile, tenant } = useTenantSession();
   const { data, loading } = useAsync(() => loadStudentData(profile.id), [profile.id]);
+  const { data: timetable } = useAsync(
+    () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
+    [data?.classId],
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [screen, setScreen] = useState<Screen>("today");
@@ -88,9 +93,9 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
   const notice = notices.find((n) => n.id === noticeId) ?? notices[0] ?? null;
   const unread = notices.filter((n) => n.unread && !read[n.id]).length;
 
-  const todayRows = timetable.Tue!;
-  const nowP = todayRows[NOW]!;
-  const nextP = todayRows[NOW + 1]!;
+  const todayRows = timetable?.Tue ?? [];
+  const nowP = todayRows[NOW];
+  const nextP = todayRows[NOW + 1];
 
   const studentId = data.studentId;
 
@@ -141,20 +146,28 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
         {screen === "today" && (
           <>
             <div className="-mt-2.5 rounded-2xl border border-app-line bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">NOW · PERIOD 3</span>
-                <span className="font-mono text-[11px]" style={{ color: tint }}>18 min left</span>
-              </div>
-              <div className="mt-2 text-[19px] font-semibold tracking-tight">{nowP[1]}</div>
-              <div className="mt-0.5 text-[12.5px] text-app-muted">{nowP[2]} · ends 10:00</div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded bg-app-line-soft">
-                <div className="h-1.5 rounded" style={{ width: "62%", background: tint }} />
-              </div>
-              <div className="mt-3 flex items-center gap-2.5 border-t border-app-line-soft pt-3">
-                <span className="font-mono text-[10px] tracking-[0.1em] text-app-faint">NEXT</span>
-                <span className="text-[13px] font-medium">{nextP[1]}</span>
-                <span className="ml-auto text-[12.5px] text-app-muted">{nextP[0]} · {nextP[2]}</span>
-              </div>
+              {nowP ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">NOW · PERIOD 3</span>
+                    <span className="font-mono text-[11px]" style={{ color: tint }}>18 min left</span>
+                  </div>
+                  <div className="mt-2 text-[19px] font-semibold tracking-tight">{nowP[1]}</div>
+                  <div className="mt-0.5 text-[12.5px] text-app-muted">{nowP[2]} · ends 10:00</div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded bg-app-line-soft">
+                    <div className="h-1.5 rounded" style={{ width: "62%", background: tint }} />
+                  </div>
+                </>
+              ) : (
+                <div className="py-1 text-[13px] text-app-muted">No lesson recorded for this period.</div>
+              )}
+              {nextP && (
+                <div className="mt-3 flex items-center gap-2.5 border-t border-app-line-soft pt-3">
+                  <span className="font-mono text-[10px] tracking-[0.1em] text-app-faint">NEXT</span>
+                  <span className="text-[13px] font-medium">{nextP[1]}</span>
+                  <span className="ml-auto text-[12.5px] text-app-muted">{nextP[0]} · {nextP[2]}</span>
+                </div>
+              )}
             </div>
 
             {overdue && (
@@ -227,7 +240,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
               ))}
             </div>
             <div className="mt-3.5 grid gap-2">
-              {(timetable[day] ?? []).map(([time, subject, room], i) => {
+              {(timetable?.[day as Weekday] ?? []).map(([time, subject, room], i) => {
                 const isNow = day === "Tue" && i === NOW;
                 return (
                   <div key={time} className="flex items-center gap-3 rounded-2xl border px-4 py-3"

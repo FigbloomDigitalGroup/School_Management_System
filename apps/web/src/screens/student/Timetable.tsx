@@ -1,15 +1,15 @@
-import { DEMO_TIMETABLE as timetable } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
+import { useAsync } from "../../lib/useAsync";
+import { fetchClassTimetable } from "../../lib/timetable";
 
 /**
- * The weekly timetable has no backing table — it's genuinely static
- * reference content, the same `timetable` mock StudentApp.tsx (the phone
- * preview) reads from. Desktop gets the whole week as one grid instead of a
- * single scrollable day.
+ * The weekly timetable is real per-class data (timetable_slots), fetched
+ * once the student's class is known. Desktop gets the whole week as one
+ * grid instead of a single scrollable day.
  */
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
 const DAY_LABEL: Record<(typeof DAYS)[number], string> = {
@@ -25,6 +25,10 @@ interface PeriodRow {
 
 export function StudentTimetable() {
   const { data, loading, error } = useStudentData();
+  const { data: timetable, loading: timetableLoading } = useAsync(
+    () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
+    [data?.classId],
+  );
 
   if (error) {
     return (
@@ -39,7 +43,7 @@ export function StudentTimetable() {
     );
   }
 
-  if (loading) {
+  if (loading || (data && timetableLoading)) {
     return (
       <>
         <PageHead eyebrow="Timetable" title="Loading…" />
@@ -59,10 +63,11 @@ export function StudentTimetable() {
     );
   }
 
-  const periodCount = Math.max(...DAYS.map((d) => (timetable[d] ?? []).length), 0);
+  const week = timetable ?? { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] };
+  const periodCount = Math.max(...DAYS.map((d) => week[d].length), 0);
   const rows: PeriodRow[] = Array.from({ length: periodCount }, (_, i) => ({
     i,
-    time: timetable.Mon?.[i]?.[0] ?? timetable[NOW_DAY]?.[i]?.[0] ?? "",
+    time: week.Mon[i]?.[0] ?? week[NOW_DAY][i]?.[0] ?? "",
   }));
 
   return (
@@ -80,7 +85,7 @@ export function StudentTimetable() {
               header: DAY_LABEL[d],
               width: "1fr",
               render: (r: PeriodRow) => {
-                const period = (timetable[d] ?? [])[r.i];
+                const period = week[d][r.i];
                 const isNow = d === NOW_DAY && r.i === NOW;
                 if (!period) return <span className="text-[12px] text-ink-faint">—</span>;
                 return (
