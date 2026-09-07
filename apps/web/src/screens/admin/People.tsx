@@ -101,6 +101,7 @@ export function People() {
   const [manage, setManage] = useState<{ kind: "students" | "staff"; row: StudentRow | StaffRow } | null>(null);
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const { data, loading, error } = useAsync(() => fetchPeople(), [reloadKey]);
@@ -144,7 +145,7 @@ export function People() {
         actions={
           <>
             <Button onClick={() => setImportOpen(true)}>Import from CSV</Button>
-            <Button variant="accent" onClick={() => toast("Add a learner")}>Add a learner</Button>
+            <Button variant="accent" onClick={() => setAddOpen(true)}>Add a learner</Button>
           </>
         }
       />
@@ -224,7 +225,7 @@ export function People() {
             empty={{
               title: "No learner matches that",
               body: "Try the admission number instead. If they were admitted this week, an import may still be running.",
-              action: <Button variant="primary" onClick={() => toast("Add a learner")}>Add a learner</Button>,
+              action: <Button variant="primary" onClick={() => setAddOpen(true)}>Add a learner</Button>,
             }}
           />
         ) : (
@@ -277,6 +278,21 @@ export function People() {
         </Modal>
       )}
 
+      {addOpen && data && (
+        <AddStudentModal
+          tenantId={tenant.id}
+          classes={data.classes}
+          existingAdmissionNos={new Set(data.students.map((s) => s.admission_no))}
+          onClose={() => setAddOpen(false)}
+          onAdded={(name) => {
+            setAddOpen(false);
+            setReloadKey((k) => k + 1);
+            toast(`${name} added.`);
+          }}
+          toast={toast}
+        />
+      )}
+
       {importOpen && data && (
         <ImportStudentsModal
           tenantId={tenant.id}
@@ -292,6 +308,118 @@ export function People() {
         />
       )}
     </>
+  );
+}
+
+function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onAdded, toast }: {
+  tenantId: string;
+  classes: Pick<ClassGroup, "id" | "name">[];
+  existingAdmissionNos: Set<string>;
+  onClose: () => void;
+  onAdded: (name: string) => void;
+  toast: (m: string) => void;
+}) {
+  const [admissionNo, setAdmissionNo] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [classId, setClassId] = useState(classes[0]?.id ?? "");
+  const [boarding, setBoarding] = useState(false);
+  const [dob, setDob] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleAdd() {
+    if (!admissionNo.trim() || !fullName.trim() || !classId) {
+      toast("Admission number, name and class are all required.");
+      return;
+    }
+    if (existingAdmissionNos.has(admissionNo.trim())) {
+      toast(`Admission ${admissionNo.trim()} is already on the roster.`);
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("students").insert({
+        tenant_id: tenantId,
+        admission_no: admissionNo.trim(),
+        full_name: fullName.trim(),
+        class_id: classId,
+        boarding,
+        date_of_birth: dob || null,
+        active: true,
+      });
+      if (error) throw error;
+      onAdded(fullName.trim());
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add the learner: ${err.message}` : "Could not add the learner.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Students"
+      title="Add a learner"
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void handleAdd()} disabled={saving}>
+            {saving ? "Adding…" : "Add learner"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Admission number</span>
+            <input
+              value={admissionNo}
+              onChange={(e) => setAdmissionNo(e.target.value)}
+              placeholder="e.g. 4501"
+              autoFocus
+              className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Class</span>
+            <select
+              value={classId}
+              onChange={(e) => setClassId(e.target.value)}
+              className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+            >
+              {classes.length === 0 && <option value="">No classes yet</option>}
+              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="block">
+          <span className="mb-1.5 block text-[12.5px] font-semibold">Full name</span>
+          <input
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="e.g. Wanjiku Kamau"
+            className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+          />
+        </label>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Date of birth (optional)</span>
+            <input
+              type="date"
+              value={dob}
+              onChange={(e) => setDob(e.target.value)}
+              className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+            />
+          </label>
+          <label className="mt-6 flex items-center gap-2">
+            <input type="checkbox" checked={boarding} onChange={(e) => setBoarding(e.target.checked)} style={{ accentColor: "#17402A" }} />
+            <span className="text-[13px]">Boarder</span>
+          </label>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
