@@ -1,4 +1,4 @@
-import { timetable } from "../../lib/mock";
+import { DEMO_TIMETABLE as timetable } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";

@@ -1,4 +1,4 @@
-import { timetable } from "../../lib/mock";
+import { DEMO_TIMETABLE as timetable } from "@figbloom/shared";
 import { daysUntil, formatDueLabel } from "../../lib/studentData";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";

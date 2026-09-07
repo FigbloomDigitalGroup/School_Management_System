@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
-import { againstMean, gradeFor, pointsFor } from "@figbloom/shared";
-import { timetable } from "../../lib/mock";
+import { againstMean, DEMO_TIMETABLE as timetable, gradeFor, pointsFor } from "@figbloom/shared";
 import { daysUntil, formatDueLabel, loadStudentData } from "../../lib/studentData";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";

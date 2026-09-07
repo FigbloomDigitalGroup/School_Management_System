@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { timetable } from "../../lib/mock";
+import { DEMO_TIMETABLE as timetable } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
