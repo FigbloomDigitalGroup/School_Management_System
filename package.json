@@ -18,6 +18,7 @@
     "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit --pretty && npm run typecheck --workspace @figbloom/web && npm run typecheck --workspace @figbloom/android",
     "lint": "eslint .",
     "test": "playwright test",
+    "test:unit": "vitest run",
     "db:reset": "supabase db reset",
     "db:seed": "tsx --env-file=.env supabase/seed.ts"
   },
@@ -30,6 +31,7 @@
     "globals": "^15.9.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8.18.0"
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.9"
   }
 }
