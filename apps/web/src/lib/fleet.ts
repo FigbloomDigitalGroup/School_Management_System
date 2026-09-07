@@ -248,3 +248,35 @@ export function subscribeVehicleAlerts(tenantId: string, onInsert: (alert: Vehic
     .subscribe();
   return () => { void supabase().removeChannel(channel); };
 }
+
+// ---------------------------------------------------------------- trip history / replay
+
+export interface TripRow extends Trip {
+  vehicle: Pick<Vehicle, "plate_number"> | null;
+  driver: Pick<DriverOption, "full_name"> | null;
+  route: Pick<Route, "name"> | null;
+}
+
+/** Most recent trips first, across the whole fleet or just one vehicle. */
+export async function listTrips(vehicleId?: string, limitTo = 50): Promise<TripRow[]> {
+  let query = supabase()
+    .from("trips")
+    .select("*, vehicle:vehicles(plate_number), driver:profiles(full_name), route:routes(name)")
+    .order("started_at", { ascending: false })
+    .limit(limitTo);
+  if (vehicleId) query = query.eq("vehicle_id", vehicleId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as TripRow[];
+}
+
+export interface TripPoint { lat: number; lng: number; speed_kmh: number | null; recorded_at: string }
+
+/** The recorded path for one trip, oldest first — what a replay scrubs across. */
+export async function fetchTripPath(tripId: string): Promise<TripPoint[]> {
+  const { data, error } = await supabase()
+    .from("vehicle_locations").select("lat,lng,speed_kmh,recorded_at").eq("trip_id", tripId)
+    .order("recorded_at", { ascending: true }).returns<TripPoint[]>();
+  if (error) throw error;
+  return data ?? [];
+}

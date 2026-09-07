@@ -29,6 +29,7 @@ import {
   type AssignmentRow,
   type DriverOption,
 } from "../../lib/fleet";
+import { TripHistory } from "./TripHistory";
 
 interface FleetData {
   vehicles: Vehicle[];
@@ -230,6 +231,8 @@ export function Fleet() {
                 </ol>
               )}
             </section>
+
+            <TripHistory />
 
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Assign a driver</h2>
