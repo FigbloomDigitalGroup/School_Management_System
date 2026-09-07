@@ -3,7 +3,7 @@ import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "reac
 import { OTP_LENGTH, studentLoginEmail, supabase, validateOtp, validatePin } from "@figbloom/shared";
 import { HIT, s, t } from "../theme";
 
-type Tab = "parent" | "student";
+type Tab = "parent" | "student" | "driver";
 
 /** "07xx xxx xxx" or "+254 7xx xxx xxx" → the +254… form Supabase auth stores. */
 function normalizePhone(raw: string): string {
@@ -18,9 +18,10 @@ function normalizePhone(raw: string): string {
 const STUDENT_SLUG = "alliance";
 
 /**
- * The mobile app has two doors, not four — teachers and admins use the web
- * console. Parents get phone + SMS code because most have no working email;
- * students get an admission number and PIN because they have neither.
+ * The mobile app has three doors, not the web console's four — school admins
+ * and teachers use the web console. Parents get phone + SMS code because most
+ * have no working email; students get an admission number and PIN because
+ * they have neither; drivers sign in the same way staff do, email + password.
  */
 export function SignIn() {
   const [tab, setTab] = useState<Tab>("parent");
@@ -56,13 +57,16 @@ export function SignIn() {
         if (!v.ok) { setError(v.message || `The code is ${OTP_LENGTH} numbers.`); return; }
         const { error: err } = await supabase().auth.verifyOtp({ phone, token: code, type: "sms" });
         if (err) { setError("That code is wrong or has expired."); return; }
-      } else {
+      } else if (tab === "student") {
         const v = validatePin(code);
         if (!v.ok) { setError(v.message); return; }
         const { error: err } = await supabase().auth.signInWithPassword({
           email: studentLoginEmail(value.trim(), STUDENT_SLUG), password: code,
         });
         if (err) { setError("Check the admission number and PIN."); return; }
+      } else {
+        const { error: err } = await supabase().auth.signInWithPassword({ email: value.trim(), password: code });
+        if (err) { setError("Check the email and password."); return; }
       }
       // No navigation call here — App.tsx listens for the auth state change
       // and swaps in the signed-in screens itself.
@@ -79,7 +83,7 @@ export function SignIn() {
       </Text>
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-        {(["parent", "student"] as const).map((k) => (
+        {(["parent", "student", "driver"] as const).map((k) => (
           <TouchableOpacity
             key={k}
             accessibilityRole="button"
@@ -91,7 +95,7 @@ export function SignIn() {
             }}
           >
             <Text style={{ fontSize: 14, fontWeight: "600", color: tab === k ? "#fff" : t.appSurface.inkMuted }}>
-              {k === "parent" ? "Parent" : "Student"}
+              {k === "parent" ? "Parent" : k === "student" ? "Student" : "Driver"}
             </Text>
           </TouchableOpacity>
         ))}
@@ -121,7 +125,7 @@ export function SignIn() {
             </>
           )}
         </>
-      ) : (
+      ) : tab === "student" ? (
         <>
           <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Admission number</Text>
           <TextInput
@@ -135,6 +139,26 @@ export function SignIn() {
           <TextInput
             placeholder="••••"
             keyboardType="number-pad"
+            secureTextEntry
+            value={code}
+            onChangeText={setCode}
+            style={fieldStyle(!!error)}
+          />
+        </>
+      ) : (
+        <>
+          <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Email</Text>
+          <TextInput
+            placeholder="you@school.sc.ke"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={value}
+            onChangeText={setValue}
+            style={fieldStyle(false)}
+          />
+          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Password</Text>
+          <TextInput
+            placeholder="••••••••"
             secureTextEntry
             value={code}
             onChangeText={setCode}

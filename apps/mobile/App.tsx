@@ -9,7 +9,10 @@ import { SignIn } from "./src/screens/SignIn";
 import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
 
-type Session = { role: "parent" | "student"; accent: string; profileId: string };
+type Session =
+  | { role: "parent"; accent: string; profileId: string }
+  | { role: "student"; accent: string; profileId: string }
+  | { role: "driver"; accent: string; profileId: string; tenantId: string; fullName: string };
 
 /**
  * Role and school come from the signed-in profile, not a baked-in constant —
@@ -28,9 +31,11 @@ export default function App() {
       if (!user) { if (alive) { setSession(null); setLoading(false); } return; }
 
       const { data: profile } = await supabase()
-        .from("profiles").select("role, tenant_id").eq("id", user.id).maybeSingle();
-      if (!profile || (profile.role !== "parent" && profile.role !== "student")) {
+        .from("profiles").select("role, tenant_id, full_name").eq("id", user.id).maybeSingle();
+      const isSupportedRole = profile && (profile.role === "parent" || profile.role === "student" || profile.role === "driver");
+      if (!isSupportedRole || (profile.role === "driver" && !profile.tenant_id)) {
         // Staff and platform roles have no home here — the web console is theirs.
+        // A driver with no tenant is a data problem, not a session this app can serve.
         if (alive) { setSession(null); setLoading(false); }
         return;
       }
@@ -42,7 +47,10 @@ export default function App() {
         if (tenant?.accent) accent = tenant.accent;
       }
 
-      if (alive) { setSession({ role: profile.role, accent, profileId: user.id }); setLoading(false); }
+      const session: Session = profile.role === "driver"
+        ? { role: "driver", accent, profileId: user.id, tenantId: profile.tenant_id!, fullName: profile.full_name }
+        : { role: profile.role, accent, profileId: user.id };
+      if (alive) { setSession(session); setLoading(false); }
     }
 
     load().catch(() => { if (alive) { setSession(null); setLoading(false); } });
@@ -70,10 +78,16 @@ export default function App() {
           <ParentDataProvider profileId={session.profileId} accent={session.accent}>
             <Navigation role="parent" accent={session.accent} />
           </ParentDataProvider>
-        ) : (
+        ) : session.role === "student" ? (
           <StudentDataProvider profileId={session.profileId} accent={session.accent}>
             <Navigation role="student" accent={session.accent} />
           </StudentDataProvider>
+        ) : (
+          <Navigation
+            role="driver"
+            accent={session.accent}
+            driver={{ driverId: session.profileId, tenantId: session.tenantId, fullName: session.fullName }}
+          />
         )
       ) : <SignIn />}
     </SafeAreaProvider>

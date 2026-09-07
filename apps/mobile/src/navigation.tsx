@@ -15,15 +15,29 @@ import { StudentTimetable } from "./screens/student/Timetable";
 import { StudentWork } from "./screens/student/Work";
 import { StudentResults } from "./screens/student/Results";
 import { StudentNotices } from "./screens/student/Notices";
+import { DriverTrip } from "./screens/driver/Trip";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const glyph = (g: string) => ({ tabBarIcon: () => <Text style={{ fontSize: 17 }}>{g}</Text> });
 
+interface NavigationProps {
+  role: "parent" | "student" | "driver";
+  accent: string;
+  /** Only present (and only needed) when role is "driver". */
+  driver?: { driverId: string; tenantId: string; fullName: string };
+}
+
 /** Which app opens is decided by the signed-in role, not by a picker. */
-export function Navigation({ role, accent }: { role: "parent" | "student"; accent: string }) {
+export function Navigation({ role, accent, driver }: NavigationProps) {
   const a = accentFor(accent);
+
+  if (role === "driver" && driver) {
+    // A driver's screen is a single full-screen page (start/end trip), not a
+    // console — no tabs, nothing else to navigate to.
+    return <DriverTrip driverId={driver.driverId} tenantId={driver.tenantId} accent={accent} fullName={driver.fullName} />;
+  }
 
   return (
     <NavigationContainer>
