@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, type Trip, type TripDirection } from "@figbloom/shared";
+import { supabase, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-import { endTrip, myActiveTrip, myAssignment, pingLocation, startTrip, type AssignmentRow } from "../../lib/fleet";
+import { useOnline } from "../../lib/useOnline";
+import { queue } from "../../lib/queue";
+import { endTrip, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, type AssignmentRow } from "../../lib/fleet";
 
 /** Don't write a location row on every watchPosition tick (it can fire many
  *  times a second) — only once this much time has passed since the last one. */
@@ -48,6 +50,7 @@ const DIRECTION_LABEL: Record<TripDirection, string> = {
 export function DriverTrip() {
   const { profile, tenant } = useTenantSession();
   const navigate = useNavigate();
+  const online = useOnline();
   const { data, loading, error } = useAsync(() => loadDriverState(profile.id), [profile.id]);
 
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -57,9 +60,21 @@ export function DriverTrip() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [lastPing, setLastPing] = useState<{ at: Date; lat: number; lng: number } | null>(null);
+  const [queuedPings, setQueuedPings] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
   const lastPingAtRef = useRef(0);
+
+  // Pick up any pings held from a dead zone (this session or an earlier one where the tab
+  // was closed offline), and keep watching while any are queued — queue.ts drains them via
+  // its own "online" listener, this just reflects that draining on screen as it happens.
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => void queue.pendingFor("vehicle_locations").then((p) => { if (!cancelled) setQueuedPings(p.length); });
+    check();
+    const id = window.setInterval(check, 4_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
 
   // Resume an in-progress trip found on load (e.g. the driver refreshed mid-trip).
   useEffect(() => {
@@ -94,7 +109,7 @@ export function DriverTrip() {
 
         const { latitude, longitude, speed, heading } = position.coords;
         // The Geolocation API reports speed in metres/second — convert to km/h at the boundary.
-        pingLocation({
+        const pingInput = {
           tenantId: tenant.id,
           vehicleId: trip.vehicle_id,
           tripId: trip.id,
@@ -102,18 +117,29 @@ export function DriverTrip() {
           lng: longitude,
           speedKmh: speed != null ? speed * 3.6 : undefined,
           heading: heading ?? undefined,
-        })
-          .then(() => setLastPing({ at: new Date(), lat: latitude, lng: longitude }))
-          .catch((err: unknown) => {
-            setActionError(err instanceof Error ? `Could not send a location update: ${err.message}` : "Could not send a location update.");
-          });
+        };
+
+        if (online) {
+          pingLocation(pingInput)
+            .then(() => setLastPing({ at: new Date(), lat: latitude, lng: longitude }))
+            .catch((err: unknown) => {
+              setActionError(err instanceof Error ? `Could not send a location update: ${err.message}` : "Could not send a location update.");
+            });
+        } else {
+          // No signal — hold the ping on the phone rather than drop it. History still needs
+          // it even though the live map's "where is it now" cache only resumes once we're back.
+          void queue.enqueue("vehicle_locations", [locationPingRow(pingInput)])
+            .then(() => queue.pendingFor("vehicle_locations"))
+            .then((p) => setQueuedPings(p.length));
+          setLastPing({ at: new Date(), lat: latitude, lng: longitude });
+        }
       },
       (err) => setGeoError(err.message || "Location permission was denied. Allow location access to keep tracking this trip."),
       { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 },
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [trip, tenant.id]);
+  }, [trip, tenant.id, online]);
 
   async function handleStart() {
     if (!data?.assignment) return;
@@ -257,9 +283,13 @@ export function DriverTrip() {
 
             {geoError && <p className="text-small leading-relaxed text-warn-ink">{geoError}</p>}
 
+            {queuedPings > 0 && (
+              <p className="text-small leading-relaxed text-warn-ink">{syncLabel(queuedPings, online)}</p>
+            )}
+
             <div className="text-small text-ink-muted">
               {lastPing
-                ? `Last sent: ${lastPing.at.toLocaleTimeString()} · ${lastPing.lat.toFixed(4)}, ${lastPing.lng.toFixed(4)}`
+                ? `${queuedPings > 0 ? "Last fix" : "Last sent"}: ${lastPing.at.toLocaleTimeString()} · ${lastPing.lat.toFixed(4)}, ${lastPing.lng.toFixed(4)}`
                 : "Waiting for the first location fix…"}
             </div>
 

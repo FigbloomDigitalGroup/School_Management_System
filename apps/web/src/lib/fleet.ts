@@ -162,14 +162,22 @@ export async function endTrip(tripId: string): Promise<void> {
   if (error) throw error;
 }
 
-/** One GPS reading: recorded to history and mirrored onto vehicles.last_lat/last_lng for a cheap "where is it now" read. */
-export async function pingLocation(input: {
+export interface LocationPingInput {
   tenantId: string; vehicleId: string; tripId: string; lat: number; lng: number; speedKmh?: number; heading?: number;
-}): Promise<void> {
-  const { error: insertErr } = await supabase().from("vehicle_locations").insert({
+}
+
+/** The exact `vehicle_locations` row shape — shared with the offline queue (lib/queue.ts) so a
+ *  ping written while offline lands in the same shape as one sent live. */
+export function locationPingRow(input: LocationPingInput) {
+  return {
     tenant_id: input.tenantId, vehicle_id: input.vehicleId, trip_id: input.tripId,
     lat: input.lat, lng: input.lng, speed_kmh: input.speedKmh ?? null, heading: input.heading ?? null,
-  });
+  };
+}
+
+/** One GPS reading: recorded to history and mirrored onto vehicles.last_lat/last_lng for a cheap "where is it now" read. */
+export async function pingLocation(input: LocationPingInput): Promise<void> {
+  const { error: insertErr } = await supabase().from("vehicle_locations").insert(locationPingRow(input));
   if (insertErr) throw insertErr;
   const { error: updateErr } = await supabase().from("vehicles").update({
     last_lat: input.lat, last_lng: input.lng, last_ping_at: new Date().toISOString(),
