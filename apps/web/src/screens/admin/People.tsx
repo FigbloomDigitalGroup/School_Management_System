@@ -11,6 +11,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listStudentDocuments, privateDocUrl, uploadAvatar, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
+import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding"> & { avatar_url: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone"> & { avatar_url: string | null };
@@ -99,8 +100,10 @@ export function People() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [manage, setManage] = useState<{ kind: "students" | "staff"; row: StudentRow | StaffRow } | null>(null);
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
+  const [importOpen, setImportOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const { data, loading, error } = useAsync(() => fetchPeople(), []);
+  const { data, loading, error } = useAsync(() => fetchPeople(), [reloadKey]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -140,7 +143,7 @@ export function People() {
         }
         actions={
           <>
-            <Button onClick={() => toast("Downloaded the import template")}>Import from CSV</Button>
+            <Button onClick={() => setImportOpen(true)}>Import from CSV</Button>
             <Button variant="accent" onClick={() => toast("Add a learner")}>Add a learner</Button>
           </>
         }
@@ -273,7 +276,125 @@ export function People() {
           )}
         </Modal>
       )}
+
+      {importOpen && data && (
+        <ImportStudentsModal
+          tenantId={tenant.id}
+          classes={data.classes}
+          existingAdmissionNos={new Set(data.students.map((s) => s.admission_no))}
+          onClose={() => setImportOpen(false)}
+          onImported={(count) => {
+            setImportOpen(false);
+            setReloadKey((k) => k + 1);
+            toast(`Imported ${count} learner${count === 1 ? "" : "s"}.`);
+          }}
+          toast={toast}
+        />
+      )}
     </>
+  );
+}
+
+function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose, onImported, toast }: {
+  tenantId: string;
+  classes: Pick<ClassGroup, "id" | "name">[];
+  existingAdmissionNos: Set<string>;
+  onClose: () => void;
+  onImported: (count: number) => void;
+  toast: (m: string) => void;
+}) {
+  const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  const classIdByName = useMemo(
+    () => new Map(classes.map((c) => [c.name.trim().toLowerCase(), c.id])),
+    [classes],
+  );
+
+  function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      setRows(parseStudentCsv(text, { classIdByName, existingAdmissionNos }));
+    };
+    reader.readAsText(file);
+  }
+
+  const validCount = rows?.filter((r) => r.errors.length === 0).length ?? 0;
+  const errorCount = (rows?.length ?? 0) - validCount;
+
+  async function handleImport() {
+    if (!rows) return;
+    setImporting(true);
+    try {
+      const count = await importStudents(tenantId, classIdByName, rows);
+      onImported(count);
+    } catch (err) {
+      toast(err instanceof Error ? `Import failed: ${err.message}` : "Import failed.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Students"
+      title="Import from CSV"
+      blurb="Columns: admission_no, full_name, class, boarding, date_of_birth. Class must match one of this school's existing classes."
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void handleImport()} disabled={!rows || validCount === 0 || importing}>
+            {importing ? "Importing…" : `Import ${validCount || ""} learner${validCount === 1 ? "" : "s"}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={downloadCsvTemplate}>Download template</Button>
+          <label className="text-small font-medium text-leaf">
+            <span className="hit inline-block cursor-pointer rounded-md border border-[#D3DAD5] bg-white px-3 py-1.5 hover:bg-page">
+              {fileName || "Choose CSV file"}
+            </span>
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} aria-label="CSV file" />
+          </label>
+        </div>
+
+        {rows && (
+          <>
+            <p className="text-[12.5px] text-ink-muted">
+              {validCount} of {rows.length} row{rows.length === 1 ? "" : "s"} ready to import
+              {errorCount > 0 ? ` · ${errorCount} need fixing (fix the file and re-upload)` : ""}.
+            </p>
+            <div className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
+              {rows.map((r) => (
+                <div key={r.line} className="flex items-start gap-3 border-b border-line-soft px-3 py-2 last:border-0">
+                  <span className="w-8 shrink-0 font-mono text-[11px] text-ink-faint">L{r.line}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12.5px] font-medium">
+                      {r.full_name || "—"} <span className="text-ink-faint">· ADM {r.admission_no || "—"} · {r.className || "—"}</span>
+                    </div>
+                    {r.errors.length > 0 && (
+                      <ul className="mt-0.5 text-[11.5px] leading-relaxed text-warn-ink">
+                        {r.errors.map((e, i) => <li key={i}>{e}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                  <Badge tone={r.errors.length === 0 ? "ok" : "warn"}>{r.errors.length === 0 ? "Ready" : "Fix"}</Badge>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 
