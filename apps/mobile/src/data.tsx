@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, type ChildInfo, type MessageInfo, type ParentData } from "@figbloom/shared";
+import { loadParentData, type ChildInfo, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -21,6 +21,10 @@ interface Child {
   adm: string;
   balance: number;
   billed: number;
+  dueOn: string | null;
+  boarding: boolean;
+  formLevel: number;
+  receipts: Receipt[];
   /** No register taken yet reads as nothing to report, not as absent. */
   attendance: number;
   /** No mark published yet reads as no mean, not as zero achievement. */
@@ -30,7 +34,8 @@ interface Child {
 function toChild(c: ChildInfo): Child {
   return {
     id: c.id, name: c.name, first: c.first, cls: c.cls, adm: c.adm,
-    balance: c.balance, billed: c.billed,
+    balance: c.balance, billed: c.billed, dueOn: c.dueOn,
+    boarding: c.boarding, formLevel: c.formLevel, receipts: c.receipts,
     attendance: c.attendancePct ?? 100,
     mean: c.mean ?? 0,
   };
@@ -39,6 +44,8 @@ function toChild(c: ChildInfo): Child {
 interface Ctx {
   children: Child[];
   messages: MessageInfo[];
+  feeItems: ParentData["feeItems"];
+  termLabel: string | null;
   subjectsFor: (childId: string) => [string, number][];
   index: number;
   setIndex: (i: number) => void;
@@ -94,6 +101,8 @@ export function ParentDataProvider({ profileId, accent, children }: { profileId:
   const value: Ctx = {
     children: data.children.map(toChild),
     messages: data.messages,
+    feeItems: data.feeItems,
+    termLabel: data.termLabel,
     subjectsFor: (childId) => (data.children.find((c) => c.id === childId)?.subjects ?? []).map((s) => [s.name, s.score]),
     index,
     setIndex,
@@ -126,4 +135,13 @@ export function useSubjects(): [string, number][] {
   const { children, index, subjectsFor } = useParentData();
   const child = children[index] ?? children[0]!;
   return subjectsFor(child.id);
+}
+
+/** Raw term fee items — filter with itemsForStudent(items, child, child.formLevel) for one child. */
+export function useFeeItems(): FeeItem[] {
+  return useParentData().feeItems as unknown as FeeItem[];
+}
+
+export function useTermLabel(): string | null {
+  return useParentData().termLabel;
 }
