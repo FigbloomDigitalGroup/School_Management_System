@@ -12,6 +12,7 @@ import { ParentDataProvider } from "./lib/parentContext";
 import { StudentDataProvider } from "./lib/studentContext";
 
 import { SignIn } from "./screens/SignIn";
+import { ResetPassword } from "./screens/ResetPassword";
 import { Tenants } from "./screens/platform/Tenants";
 import { Audit, Health, Impersonation, Incidents, Invoices, Subscriptions, Usage } from "./screens/platform/pages";
 
@@ -56,6 +57,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/signin" replace />} />
         <Route path="/signin" element={<SignIn />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         <Route path="/platform" element={<Navigate to="/platform/tenants" replace />} />
         <Route path="/platform/:page" element={<PlatformShell />} />
