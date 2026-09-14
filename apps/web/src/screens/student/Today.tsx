@@ -1,4 +1,4 @@
-import { daysUntil, fetchClassTimetable, formatDueLabel } from "@figbloom/shared";
+import { currentPeriodIndex, daysUntil, fetchClassTimetable, formatDueLabel, todayWeekday } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
@@ -8,14 +8,9 @@ import { EmptyState } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
 
 /**
- * Desktop dashboard for a student. Mirrors the phone app's "Today" screen —
- * same NOW=2 hardcoded period (there's no real "current period" concept
- * yet, and Tuesday is the day StudentApp.tsx has always shown) — but laid
- * out as a console page instead of a scrolling phone card stack.
+ * Desktop dashboard for a student. Mirrors the phone app's "Today" screen,
+ * laid out as a console page instead of a scrolling phone card stack.
  */
-const NOW = 2;
-const DAY = "Tue";
-
 export function StudentToday() {
   const { profile } = useTenantSession();
   const { data, loading, error } = useStudentData();
@@ -73,10 +68,12 @@ export function StudentToday() {
   const open = work.filter((w) => w.state !== "done").slice().sort((a, b) => a.dueOn.localeCompare(b.dueOn));
   const overdue = work.filter((w) => w.state === "late");
 
-  const todayRows = timetable?.[DAY] ?? [];
-  const nowP = todayRows[NOW];
-  const nextP = todayRows[NOW + 1];
-  const restOfDay = todayRows.slice(NOW + 1);
+  const day = todayWeekday();
+  const todayRows = day ? (timetable?.[day] ?? []) : [];
+  const nowIdx = currentPeriodIndex(todayRows);
+  const nowP = todayRows[nowIdx];
+  const nextP = todayRows[nowIdx + 1];
+  const restOfDay = todayRows.slice(nowIdx + 1);
   const dueNext = open.slice(0, 3);
 
   return (
@@ -96,7 +93,7 @@ export function StudentToday() {
       <div className="px-7 py-6">
         <StatRow
           stats={[
-            { label: "Now", value: nowP ? nowP[1] : "—", sub: nowP ? nowP[2] : "No lesson recorded" },
+            { label: "Now", value: nowP ? nowP[1] : "—", sub: nowP ? nowP[2] : day ? "No lesson recorded" : "No school today" },
             { label: "To hand in", value: String(open.length), sub: "across all subjects" },
             { label: "Overdue", value: String(overdue.length), sub: overdue.length ? "needs handing in" : "all clear", alarming: overdue.length > 0 },
           ]}

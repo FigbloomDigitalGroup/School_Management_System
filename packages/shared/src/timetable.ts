@@ -22,6 +22,23 @@ export async function fetchClassTimetable(classId: string): Promise<Record<Weekd
   return byDay;
 }
 
+/** Today's timetable key, or null on a weekend when there's no school day to show. */
+export function todayWeekday(now: Date = new Date()): Weekday | null {
+  const short = now.toLocaleDateString("en-US", { weekday: "short" });
+  return (WEEKDAYS as string[]).includes(short) ? (short as Weekday) : null;
+}
+
+/** Index of the last period whose start_time has passed — -1 before the first period starts. */
+export function currentPeriodIndex(rows: TimetableRow[], now: Date = new Date()): number {
+  const hhmmss = now.toTimeString().slice(0, 8);
+  let idx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i]![0] <= hhmmss) idx = i;
+    else break;
+  }
+  return idx;
+}
+
 /** Replaces every slot for this class — simplest correct model for a short weekly grid (same pattern as fleet's replaceRouteStops). */
 export async function saveClassTimetable(
   tenantId: string,
