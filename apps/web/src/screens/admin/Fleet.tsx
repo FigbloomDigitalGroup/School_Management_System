@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Route, Vehicle } from "@figbloom/shared";
-import { PageHead } from "../../components/ConsoleShell";
-import { VehicleMap } from "../../components/VehicleMap";
-import { Badge } from "../../components/ui/Badge";
-import { Button } from "../../components/ui/Button";
-import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
-import { TextArea, TextField } from "../../components/ui/Field";
-import { Modal } from "../../components/ui/Modal";
-import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
-import { StatRow } from "../../components/ui/StatCard";
-import { useToast } from "../../components/ui/Toast";
-import { useTenantSession } from "../../lib/sessionContext";
-import { useAsync } from "../../lib/useAsync";
 import {
   acknowledgeAlert,
   assignDriver,
@@ -28,7 +16,19 @@ import {
   type AlertRow,
   type AssignmentRow,
   type DriverOption,
-} from "../../lib/fleet";
+} from "@figbloom/shared";
+import { PageHead } from "../../components/ConsoleShell";
+import { VehicleMap } from "../../components/VehicleMap";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
+import { TextArea, TextField } from "../../components/ui/Field";
+import { Modal } from "../../components/ui/Modal";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
+import { StatRow } from "../../components/ui/StatCard";
+import { useToast } from "../../components/ui/Toast";
+import { useTenantSession } from "../../lib/sessionContext";
+import { useAsync } from "../../lib/useAsync";
 import { TripHistory } from "./TripHistory";
 
 interface FleetData {

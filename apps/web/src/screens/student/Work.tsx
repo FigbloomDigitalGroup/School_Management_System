@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { formatDueLabel, type WorkItem } from "../../lib/studentData";
+import { formatDueLabel, type WorkItem } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadAssignmentSubmission } from "../../lib/uploads";

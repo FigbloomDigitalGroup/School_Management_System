@@ -10,8 +10,8 @@ export default tseslint.config(
       "**/dist/**",
       "**/build/**",
       "**/.expo/**",
-      "apps/android/android/**",
-      "apps/android/ios/**",
+      "apps/mobile/android/**",
+      "apps/mobile/ios/**",
       "supabase/.temp/**",
       "playwright-report/**",
     ],
@@ -29,5 +29,11 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "off",
     },
+  },
+  {
+    // RN tooling loads these as plain CommonJS, not ESM — the rest of the repo is "type": "module".
+    files: ["apps/mobile/babel.config.js", "apps/mobile/metro.config.js"],
+    languageOptions: { sourceType: "commonjs", globals: globals.node },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   },
 );

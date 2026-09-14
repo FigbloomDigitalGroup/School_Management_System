@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import {
   KES, PAYMENT_FAILURES, againstMean, gradeFor, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase,
 } from "@figbloom/shared";
-import { formatPhone, formatShortDate, loadParentData } from "../../lib/parentData";
+import { formatPhone, formatShortDate, loadParentData } from "@figbloom/shared";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";

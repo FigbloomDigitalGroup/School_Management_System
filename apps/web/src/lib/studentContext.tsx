@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { loadStudentData, type StudentData } from "./studentData";
+import { loadStudentData, type StudentData } from "@figbloom/shared";
 import { useAsync } from "./useAsync";
 import { useTenantSession } from "./sessionContext";
 

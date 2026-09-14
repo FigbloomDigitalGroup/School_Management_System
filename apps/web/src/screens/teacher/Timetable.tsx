@@ -6,7 +6,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { fetchTeacherClasses } from "../../lib/teacherData";
-import { fetchClassTimetable, WEEKDAYS } from "../../lib/timetable";
+import { fetchClassTimetable, WEEKDAYS } from "@figbloom/shared";
 
 const NOW = 2;
 const NOW_DAY: Weekday = "Tue";

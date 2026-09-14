@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { APIProvider, InfoWindow, Map as GoogleMap, Marker, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import type { Vehicle } from "@figbloom/shared";
-import { subscribeVehiclePositions } from "../lib/fleet";
+import { subscribeVehiclePositions } from "@figbloom/shared";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 

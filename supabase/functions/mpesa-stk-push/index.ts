@@ -33,19 +33,14 @@ function timestamp(): string {
   return nairobi.toISOString().replace(/[-:T.]/g, "").slice(0, 14);
 }
 
-Deno.serve(async (req) => {
+// deno-lint-ignore no-explicit-any
+export interface Deps { admin: any; asUser: any }
+
+export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
   const auth = req.headers.get("Authorization");
   if (!auth) return new Response("Unauthorized", { status: 401 });
-
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-  const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: auth } },
-  });
 
   const { data: { user } } = await asUser.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
@@ -125,7 +120,21 @@ Deno.serve(async (req) => {
     }).eq("id", payment.id);
     return json({ error: err instanceof Error ? err.message : "Payment could not start." }, 502);
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve((req) => {
+    const auth = req.headers.get("Authorization") ?? "";
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: auth } },
+    });
+    return handle(req, { admin, asUser });
+  });
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

@@ -1,8 +1,6 @@
 import { useRef, useState } from "react";
-import { againstMean, gradeFor, pointsFor, type Weekday } from "@figbloom/shared";
-import { daysUntil, formatDueLabel, loadStudentData } from "../../lib/studentData";
+import { againstMean, daysUntil, fetchClassTimetable, formatDueLabel, gradeFor, loadStudentData, pointsFor, type Weekday } from "@figbloom/shared";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
-import { fetchClassTimetable } from "../../lib/timetable";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
