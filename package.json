@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "test": "playwright test",
     "test:unit": "vitest run",
+    "test:edge": "deno test --allow-env --config supabase/functions/deno.json supabase/functions",
     "db:reset": "supabase db reset",
     "db:seed": "tsx --env-file=.env supabase/seed.ts"
   },

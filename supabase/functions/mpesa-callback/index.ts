@@ -20,12 +20,8 @@ const REASON: Record<number, string> = {
   1001: "duplicate",
 };
 
-Deno.serve(async (req) => {
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-
+// deno-lint-ignore no-explicit-any
+export async function handle(req: Request, admin: any): Promise<Response> {
   let body: any;
   try { body = await req.json(); } catch { return ok(); }
 
@@ -77,7 +73,17 @@ Deno.serve(async (req) => {
   }).eq("id", payment.id).eq("status", "pending");
 
   return ok();
-});
+}
+
+if (import.meta.main) {
+  Deno.serve((req) => {
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    return handle(req, admin);
+  });
+}
 
 /** Safaricom expects a 200 whatever happens, or it retries forever. */
 const ok = () =>
