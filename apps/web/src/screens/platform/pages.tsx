@@ -10,6 +10,7 @@ import { Modal } from "../../components/ui/Modal";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { checkServices } from "../../lib/platformAdmin";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -64,75 +65,121 @@ function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-export function Health() {
-  const spec: RecordsSpec = {
-    eyebrow: "Platform · last 24 hours",
-    title: "System health",
-    blurb: "Everything that has to be up for a teacher to take attendance at 08:00. Schools sit on unreliable links, so degraded is normal and worth watching before it becomes down.",
-    stats: [
-      { label: "Uptime 30d", value: "99.97%", sub: "SLA is 99.9%" },
-      { label: "API p95", value: "212 ms", sub: "Nairobi edge" },
-      { label: "Queue depth", value: "1,204", sub: "attendance sync jobs", alarming: true },
-      { label: "Open incidents", value: "2", sub: "1 degraded, 1 investigating", alarming: true },
-    ],
-    actions: [
-      { label: "Status page", onClick: () => {} },
-      { label: "Declare incident", primary: true, onClick: () => {} },
-    ],
-    columns: [
-      { key: "region", header: "Region", width: "1.4fr" },
-      { key: "schools", header: "Schools", align: "right" },
-      { key: "p95", header: "p95", align: "right" },
-      { key: "err", header: "Error rate", align: "right" },
-      { key: "status", header: "Status", width: "0.9fr" },
-    ],
-    chips: [{ label: "All" }, { label: "Degraded", match: ["degraded"] }],
-    rows: [
-      ["Nairobi metro", "94", "188 ms", "0.02%", "Healthy"],
-      ["Central", "51", "204 ms", "0.03%", "Healthy"],
-      ["Rift Valley", "48", "412 ms", "0.31%", "Degraded"],
-      ["Nyanza", "27", "236 ms", "0.04%", "Healthy"],
-      ["Western", "18", "298 ms", "0.09%", "Healthy"],
-      ["Coast", "10", "521 ms", "0.44%", "Degraded"],
-    ].map((r) => ({
-      id: r[0]!,
-      tags: [r[4] === "Degraded" ? "degraded" : "healthy"],
-      cells: [
-        t(r[0]!), m(r[1]!), m(r[2]!),
-        <span className="font-mono text-[12.5px]" style={{ color: r[4] === "Degraded" ? "#B8460A" : undefined }}>{r[3]}</span>,
-        <Badge tone={r[4] === "Degraded" ? "warn" : "ok"}>{r[4]}</Badge>,
-      ],
-    })),
-    extra: <ServiceCards />,
-  };
-  return <RecordsPage spec={spec} />;
+interface ServiceStatusRow {
+  id: string;
+  service: string;
+  status: "ok" | "degraded" | "down" | "not_configured";
+  latency_ms: number | null;
+  detail: string | null;
+  checked_at: string;
 }
 
-function ServiceCards() {
-  const services = [
-    { name: "API", value: "212 ms", note: "p95 latency", ok: true },
-    { name: "Attendance sync", value: "backed up", note: "queue draining", ok: false },
-    { name: "M-Pesa callbacks", value: "99.4%", note: "success rate", ok: true },
-    { name: "SMS gateway", value: "97.1%", note: "delivery rate", ok: true },
-    { name: "Report card render", value: "1.8 s", note: "median job", ok: true },
-    { name: "File storage", value: "68%", note: "of provisioned", ok: true },
-  ];
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-      {services.map((s) => (
-        <div key={s.name} className="min-w-0 rounded-lg border border-line px-4 py-3.5">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.ok ? "#2E7D4F" : "#F26A1B" }} />
-            <span className="truncate text-[13px] font-semibold">{s.name}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[11.5px] text-ink-faint">{s.note}</span>
-            <span className="font-mono text-[11.5px]" style={{ color: s.ok ? "#2E7D4F" : "#B8460A" }}>{s.value}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+async function fetchServiceHistory(): Promise<ServiceStatusRow[]> {
+  const { data, error } = await supabase()
+    .from("service_status")
+    .select("*")
+    .order("checked_at", { ascending: false })
+    .limit(200)
+    .returns<ServiceStatusRow[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
+const SERVICE_LABEL: Record<string, string> = { supabase: "Supabase", mpesa: "M-Pesa Daraja" };
+const SERVICE_STATUS: Record<ServiceStatusRow["status"], { label: string; tone: Tone }> = {
+  ok: { label: "OK", tone: "ok" },
+  degraded: { label: "Degraded", tone: "warn" },
+  down: { label: "Down", tone: "warn" },
+  not_configured: { label: "Not configured", tone: "muted" },
+};
+
+/**
+ * No cron/pg_net monitoring infra — a super_admin opening this page (or
+ * clicking "Check now") triggers a live check via the check-services edge
+ * function, which logs to service_status. History is only as complete as
+ * how often staff look; that's the honest tradeoff for not running a
+ * scheduled job, and it beats a fabricated multi-region uptime dashboard.
+ */
+export function Health() {
+  const toast = useToast();
+  const [reloadKey, setReloadKey] = useState(0);
+  const [checking, setChecking] = useState(false);
+  const { data, loading, error } = useAsync(() => fetchServiceHistory(), [reloadKey]);
+
+  async function runCheck() {
+    setChecking(true);
+    try {
+      await checkServices();
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not check services: ${err.message}` : "Could not check services.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (loading || !data) return <RecordsLoading eyebrow="Platform · live checks" title="System health" />;
+  if (error) return <RecordsError eyebrow="Platform · live checks" title="System health" message={error.message} />;
+
+  const byService = new Map<string, ServiceStatusRow[]>();
+  for (const row of data) byService.set(row.service, [...(byService.get(row.service) ?? []), row]);
+  const services = [...byService.entries()].map(([service, rows]) => ({
+    service,
+    latest: rows[0]!,
+    reliabilityPct: Math.round((rows.filter((r) => r.status === "ok").length / rows.length) * 100),
+    checkedCount: rows.length,
+  }));
+  const notOk = services.filter((s) => s.latest.status === "down" || s.latest.status === "degraded");
+
+  const spec: RecordsSpec = {
+    eyebrow: "Platform · live checks",
+    title: "System health",
+    blurb: "The services this app actually depends on, checked live rather than on a fabricated uptime dashboard. No monitoring cron yet, so history only builds up as staff open this page.",
+    stats: [
+      {
+        label: "Services checked", value: String(services.length),
+        sub: services.length ? services.map((s) => SERVICE_LABEL[s.service] ?? s.service).join(", ") : "none yet",
+      },
+      {
+        label: "Not OK", value: String(notOk.length),
+        sub: notOk.length ? notOk.map((s) => SERVICE_LABEL[s.service] ?? s.service).join(", ") : "all clear",
+        alarming: notOk.length > 0,
+      },
+      {
+        label: "Last checked", value: services[0] ? fmtWhen(services[0].latest.checked_at) : "never",
+        sub: services.length ? "most recent check" : "click Check now",
+      },
+    ],
+    actions: [{ label: checking ? "Checking…" : "Check now", primary: true, onClick: () => void runCheck() }],
+    columns: [
+      { key: "service", header: "Service", width: "1.4fr" },
+      { key: "status", header: "Status", width: "1fr" },
+      { key: "latency", header: "Latency", align: "right" },
+      { key: "reliability", header: "Reliability", align: "right" },
+      { key: "checked", header: "Last checked", align: "right", width: "1.2fr" },
+    ],
+    minWidth: "760px",
+    empty: {
+      title: "No checks yet",
+      body: "Click \"Check now\" to run the first live check against Supabase and M-Pesa.",
+      action: <Button variant="accent" onClick={() => void runCheck()}>Check now</Button>,
+    },
+    rows: services.map(({ service, latest, reliabilityPct, checkedCount }) => {
+      const meta = SERVICE_STATUS[latest.status];
+      return {
+        id: service,
+        tags: [latest.status],
+        cells: [
+          t(SERVICE_LABEL[service] ?? service, latest.detail ?? undefined),
+          <Badge tone={meta.tone}>{meta.label}</Badge>,
+          m(latest.latency_ms !== null ? `${latest.latency_ms} ms` : "—"),
+          m(`${reliabilityPct}% of ${checkedCount}`),
+          <span className="font-mono text-[12.5px] text-ink-muted">{fmtWhen(latest.checked_at)}</span>,
+        ],
+      };
+    }),
+  };
+  return <RecordsPage spec={spec} />;
 }
 
 interface UsageRow { tenant: Pick<Tenant, "id" | "name" | "slug" | "licensed_seats" | "status">; inUse: number }

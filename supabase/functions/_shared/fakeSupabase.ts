@@ -13,22 +13,35 @@ export type Row = Record<string, any>;
 
 type Filter = { col: string; op: "eq" | "gte"; val: unknown };
 
+type OpKind = "select" | "insert" | "update";
+
 class FakeTable {
   rows: Row[];
-  /** One-shot error for the next insert/update, set by `failNext`. */
-  private pendingError: string | null = null;
+  /** One-shot errors, set by failNextRead/failNextWrite — scoped by op kind so
+   *  failing an insert doesn't also fail an earlier select on the same table. */
+  private pendingReadError: string | null = null;
+  private pendingWriteError: string | null = null;
 
   constructor(rows: Row[] = []) {
     this.rows = rows.map((r) => ({ ...r }));
   }
 
-  failNext(message: string) {
-    this.pendingError = message;
+  failNextRead(message: string) {
+    this.pendingReadError = message;
   }
 
-  consumeError(): string | null {
-    const err = this.pendingError;
-    this.pendingError = null;
+  failNextWrite(message: string) {
+    this.pendingWriteError = message;
+  }
+
+  consumeError(op: OpKind): string | null {
+    if (op === "select") {
+      const err = this.pendingReadError;
+      this.pendingReadError = null;
+      return err;
+    }
+    const err = this.pendingWriteError;
+    this.pendingWriteError = null;
     return err;
   }
 
@@ -51,8 +64,8 @@ class FakeTable {
 
 class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message: string } | null }> {
   private filters: Filter[] = [];
-  private op: "select" | "insert" | "update" | null = null;
-  private payload?: Row;
+  private op: OpKind | null = null;
+  private payload?: Row | Row[];
 
   constructor(private table: FakeTable) {}
 
@@ -60,7 +73,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     if (!this.op) this.op = "select";
     return this;
   }
-  insert(payload: Row) {
+  insert(payload: Row | Row[]) {
     this.op = "insert";
     this.payload = payload;
     return this;
@@ -78,6 +91,14 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.filters.push({ col, op: "gte", val });
     return this;
   }
+  /** No-op, same as supabase-js .limit(n) — the fake never paginates. */
+  limit(_n: number) {
+    return this;
+  }
+  /** No-op, same as supabase-js .order(col) — insertion order is fine for tests. */
+  order(_col: string) {
+    return this;
+  }
 
   private matches(row: Row): boolean {
     return this.filters.every((f) =>
@@ -86,13 +107,14 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   }
 
   private run(): { rows: Row[]; error: { message: string } | null } {
-    if (this.op === "insert" || this.op === "update") {
-      const err = this.table.consumeError();
-      if (err) return { rows: [], error: { message: err } };
+    const err = this.table.consumeError(this.op ?? "select");
+    if (err) return { rows: [], error: { message: err } };
+    if (this.op === "insert") {
+      const payloads = Array.isArray(this.payload) ? this.payload : [this.payload!];
+      return { rows: payloads.map((p) => this.table.insert(p)), error: null };
     }
-    if (this.op === "insert") return { rows: [this.table.insert(this.payload!)], error: null };
     if (this.op === "update") {
-      return { rows: this.table.update(this.payload!, (r) => this.matches(r)), error: null };
+      return { rows: this.table.update(this.payload as Row, (r) => this.matches(r)), error: null };
     }
     return { rows: this.table.rows.filter((r) => this.matches(r)).map((r) => ({ ...r })), error: null };
   }
@@ -154,9 +176,14 @@ export class FakeSupabaseClient {
     return this.tables.get(table)!;
   }
 
+  /** Makes the next select against `table` resolve with this error. */
+  failNextRead(table: string, message: string) {
+    this.table(table).failNextRead(message);
+  }
+
   /** Makes the next insert/update against `table` resolve with this error. */
   failNextWrite(table: string, message: string) {
-    this.table(table).failNext(message);
+    this.table(table).failNextWrite(message);
   }
 
   from(table: string) {
