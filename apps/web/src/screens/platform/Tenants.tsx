@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import { KES, needsAttention, supabase, type Tenant } from "@figbloom/shared";
+import { needsAttention, supabase, type Tenant } from "@figbloom/shared";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { StatRow } from "../../components/ui/StatCard";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
@@ -163,20 +162,3 @@ export function Tenants() {
     </>
   );
 }
-
-/** Header figures for the platform overview, shared with Subscriptions. MRR and
- * learner seats have no billing/usage tables behind them yet, so they stay as
- * illustrative figures; tenant counts are real. */
-export function platformStats(tenants: Tenant[]) {
-  const attention = tenants.filter(needsAttention);
-  const overdue = attention.filter((t) => t.status === "overdue").length;
-  const stalled = attention.filter((t) => t.status === "setup_stalled").length;
-  return [
-    { label: "Active tenants", value: String(tenants.length), sub: `${tenants.filter((t) => t.status === "active").length} live` },
-    { label: "MRR", value: KES(412_000_00), sub: "+3.1% vs August" },
-    { label: "Learner seats", value: "186,402", sub: "78% of licensed" },
-    { label: "Needs attention", value: String(attention.length), sub: `${overdue} overdue · ${stalled} stalled setup`, alarming: true },
-  ];
-}
-
-export const PlatformStatRow = ({ tenants }: { tenants: Tenant[] }) => <StatRow stats={platformStats(tenants)} />;
