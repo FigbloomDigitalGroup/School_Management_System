@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
-import { fetchClassTimetableSlots, saveClassTimetable, WEEKDAYS } from "../../lib/timetable";
+import { fetchClassTimetableSlots, saveClassTimetable, WEEKDAYS } from "@figbloom/shared";
 
 interface Cell { label: string; room: string }
 interface PeriodRow { time: string; cells: Record<Weekday, Cell> }

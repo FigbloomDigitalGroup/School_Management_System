@@ -9,7 +9,7 @@ import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/Toast";
-import { formatPhone, formatShortDate, type Receipt } from "../../lib/parentData";
+import { formatPhone, formatShortDate, type Receipt } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";

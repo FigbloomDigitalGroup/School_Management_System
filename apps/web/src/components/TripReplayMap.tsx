@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { APIProvider, Map as GoogleMap, Marker, Polyline, useMap } from "@vis.gl/react-google-maps";
-import type { TripPoint } from "../lib/fleet";
+import type { TripPoint } from "@figbloom/shared";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 

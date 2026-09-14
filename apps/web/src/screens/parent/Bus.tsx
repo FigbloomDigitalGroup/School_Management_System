@@ -4,7 +4,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-import { myChildBus } from "../../lib/fleet";
+import { myChildBus } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
 import { ChildSwitcher } from "./ChildSwitcher";
 

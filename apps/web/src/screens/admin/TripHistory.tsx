@@ -5,7 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { TripReplayMap } from "../../components/TripReplayMap";
 import { useAsync } from "../../lib/useAsync";
-import { fetchTripPath, listTrips, type TripRow } from "../../lib/fleet";
+import { fetchTripPath, listTrips, type TripRow } from "@figbloom/shared";
 
 const STATUS_TONE: Record<TripRow["status"], Tone> = { active: "ok", completed: "muted", cancelled: "warn" };
 const DIRECTION_LABEL: Record<TripRow["direction"], string> = { to_school: "To school", from_school: "From school" };

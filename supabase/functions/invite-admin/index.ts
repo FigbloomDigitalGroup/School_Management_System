@@ -28,19 +28,14 @@ interface Body {
   phone?: string;
 }
 
-Deno.serve(async (req) => {
+// deno-lint-ignore no-explicit-any
+export interface Deps { admin: any; asUser: any }
+
+export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const auth = req.headers.get("Authorization");
   if (!auth) return json({ error: "Unauthorized" }, 401);
-
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-  const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: auth } },
-  });
 
   const { data: { user } } = await asUser.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
@@ -101,10 +96,24 @@ Deno.serve(async (req) => {
   });
 
   return json({ ok: true, email: email.trim(), password: DEV_PASSWORD });
-});
+}
+
+if (import.meta.main) {
+  Deno.serve((req) => {
+    const auth = req.headers.get("Authorization") ?? "";
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: auth } },
+    });
+    return handle(req, { admin, asUser });
+  });
+}
 
 /** "07xx xxx xxx" → "+2547xxxxxxxx"; leaves an already-international number alone. */
-function normalisePhone(raw: string): string {
+export function normalisePhone(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (digits.startsWith("254")) return `+${digits}`;
   if (digits.startsWith("0")) return `+254${digits.slice(1)}`;
