@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
-import { homeRouteFor, type Role } from "@figbloom/shared";
+import { homeRouteFor, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
 import { Skeleton } from "./components/ui/Skeleton";
+import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
 import { SessionCtx, useTenantSession } from "./lib/sessionContext";
 import { ParentDataProvider } from "./lib/parentContext";
@@ -78,9 +79,25 @@ const PLATFORM_PAGES: Record<string, JSX.Element> = {
   audit: <Audit />,
 };
 
+/** Counts, not fake round numbers — a badge is omitted rather than shown as "0". */
+async function fetchNavBadges(): Promise<Record<string, string>> {
+  const sb = supabase();
+  const [{ count: tenantCount }, { count: openIncidents }, { count: dueInvoices }] = await Promise.all([
+    sb.from("tenants").select("id", { count: "exact", head: true }),
+    sb.from("platform_incidents").select("id", { count: "exact", head: true }).neq("status", "resolved"),
+    sb.from("platform_invoices").select("id", { count: "exact", head: true }).eq("status", "due"),
+  ]);
+  const badges: Record<string, string> = {};
+  if (tenantCount) badges["/platform/tenants"] = String(tenantCount);
+  if (openIncidents) badges["/platform/incidents"] = String(openIncidents);
+  if (dueInvoices) badges["/platform/invoices"] = String(dueInvoices);
+  return badges;
+}
+
 function PlatformShell() {
   const { page = "tenants" } = useParams();
   const session = useSession(null);
+  const { data: badges } = useAsync(() => fetchNavBadges(), []);
 
   if (session.loading) return <FullPageSkeleton />;
   if (!session.profile) return <Navigate to="/signin" replace />;
@@ -94,7 +111,7 @@ function PlatformShell() {
       <ConsoleShell
         role="super_admin"
         user={{ name: session.profile.full_name, roleLabel: "Super admin" }}
-        badges={{ "/platform/tenants": "248", "/platform/incidents": "2", "/platform/invoices": "7" }}
+        badges={badges ?? {}}
       >
         {bare ? <div className="h-screen">{body}</div> : body}
       </ConsoleShell>
