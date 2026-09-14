@@ -61,3 +61,31 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
   if (data && "error" in data) throw new Error(data.error);
   return data as InviteAdminResult;
 }
+
+export interface ServiceCheckResult {
+  service: string;
+  status: "ok" | "degraded" | "down" | "not_configured";
+  latency_ms: number | null;
+  detail: string | null;
+}
+
+/** Triggers a fresh, live check of the services the Health page tracks — see supabase/functions/check-services. */
+export async function checkServices(): Promise<ServiceCheckResult[]> {
+  const { data, error } = await supabase().functions.invoke<{ results: ServiceCheckResult[] } | { error: string }>(
+    "check-services",
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return (data as { results: ServiceCheckResult[] }).results;
+}

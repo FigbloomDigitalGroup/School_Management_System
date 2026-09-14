@@ -17,6 +17,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { CORS_HEADERS } from "../_shared/cors.ts";
 
 const DEV_PASSWORD = "figbloom-dev";
 
@@ -32,6 +33,7 @@ interface Body {
 export interface Deps { admin: any; asUser: any }
 
 export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const auth = req.headers.get("Authorization");
@@ -121,4 +123,4 @@ export function normalisePhone(raw: string): string {
 }
 
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });

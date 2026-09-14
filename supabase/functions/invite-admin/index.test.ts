@@ -54,6 +54,13 @@ const validBody = {
 };
 
 describe("invite-admin handle", () => {
+  it("answers an OPTIONS preflight with CORS headers, no auth required", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request(validBody, { method: "OPTIONS", auth: null }), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
+  });
+
   it("rejects non-POST requests", async () => {
     const { admin, asUser } = makeClients();
     const res = await handle(request(validBody, { method: "GET" }), { admin, asUser });
