@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { KES, supabase } from "@figbloom/shared";
+import { effectivePriceCents, isBilled, KES, supabase } from "@figbloom/shared";
 import type {
   IncidentSeverity, IncidentStatus, PlatformIncident, PlatformInvoice, Tenant, TenantStatus,
 } from "@figbloom/shared";
@@ -407,7 +407,7 @@ async function fetchSubscriptions(): Promise<SubscriptionRow[]> {
   const listPrice = new Map((pricing ?? []).map((p) => [p.plan, p.price_cents]));
   return (tenants ?? []).map((tenant) => ({
     tenant,
-    priceCents: tenant.price_cents_override ?? listPrice.get(tenant.plan) ?? 0,
+    priceCents: effectivePriceCents(tenant, listPrice),
   }));
 }
 
@@ -425,7 +425,7 @@ export function Subscriptions() {
   if (loading || !data) return <RecordsLoading eyebrow="Commercial · current term" title="Subscriptions" />;
   if (error) return <RecordsError eyebrow="Commercial · current term" title="Subscriptions" message={error.message} />;
 
-  const billed = data.filter((r) => r.tenant.status === "active" || r.tenant.status === "overdue");
+  const billed = data.filter((r) => isBilled(r.tenant));
   const mrr = billed.reduce((a, r) => a + r.priceCents, 0);
   const activeCount = data.filter((r) => r.tenant.status === "active").length;
   const trials = data.filter((r) => r.tenant.status === "trial");
