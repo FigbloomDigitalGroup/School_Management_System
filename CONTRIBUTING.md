@@ -39,9 +39,9 @@ gh pr create --base dev-francis --title "..." --body "..."   # 4. PR: dev-franci
 gh pr merge --auto --squash                                   # 5. merges automatically, no approval needed
                                                                #    (it's his own branch)
 
-git checkout dev-francis && git pull   # 6. sync back up, then delete the topic branch
-git branch -d dev-francis-topic
-git push origin --delete dev-francis-topic
+git checkout dev-francis && git pull   # 6. sync back up
+git branch -d dev-francis-topic         #    delete your LOCAL copy of the topic branch
+# no need to delete it on GitHub -- it's auto-deleted the moment the PR merges
 ```
 
 You don't need a new topic branch per commit — just per chunk of work you're ready to land on your branch. Keep committing to the same topic branch while you're mid-task, open the PR when it's ready, then start a fresh topic branch for the next chunk.
