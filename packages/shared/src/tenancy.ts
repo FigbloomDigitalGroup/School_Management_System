@@ -46,3 +46,15 @@ export function suggestSlug(schoolName: string): string {
 
 export const needsAttention = (t: Tenant): boolean =>
   t.status === "overdue" || t.status === "setup_stalled" || t.status === "suspended";
+
+/** A tenant's real per-term price: their negotiated override, or their plan's list price. */
+export function effectivePriceCents(
+  tenant: Pick<Tenant, "plan" | "price_cents_override">,
+  listPriceByPlan: Map<string, number>,
+): number {
+  return tenant.price_cents_override ?? listPriceByPlan.get(tenant.plan) ?? 0;
+}
+
+/** A tenant counts toward MRR once it's actually being billed. */
+export const isBilled = (t: Pick<Tenant, "status">): boolean =>
+  t.status === "active" || t.status === "overdue";
