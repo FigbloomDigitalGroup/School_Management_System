@@ -6,9 +6,8 @@ import { accentFor, t } from "./theme";
 
 /**
  * Real student data — the same query web's student screens use, plus the
- * class timetable, cached to AsyncStorage so Timetable/Results/Notices stay
- * readable with no network. Today.tsx and Work.tsx are unaffected; they keep
- * their own placeholder data until a separate pass wires them up too.
+ * class timetable, cached to AsyncStorage so every student screen stays
+ * readable with no network.
  */
 
 const CACHE_KEY = "figbloom.studentData.v1";
