@@ -1,14 +1,41 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { KES, tenantPath, type Tenant } from "@figbloom/shared";
+import { formatShortDate, KES, supabase, tenantPath, type Tenant } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
+import { useAsync } from "../../lib/useAsync";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
 const TABS = ["Overview", "Usage", "Billing", "Branding", "Audit log"] as const;
 type Tab = (typeof TABS)[number];
+
+interface TenantOverview {
+  learners: number;
+  staff: number;
+  parents: number;
+  outstandingCents: number;
+  nextDueOn: string | null;
+}
+
+async function fetchTenantOverview(tenantId: string): Promise<TenantOverview> {
+  const sb = supabase();
+  const [{ count: learners }, { count: staff }, { count: parents }, { data: due }] = await Promise.all([
+    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("role", "parent"),
+    sb.from("platform_invoices").select("amount_cents,due_date").eq("tenant_id", tenantId).eq("status", "due").order("due_date"),
+  ]);
+  const rows = due ?? [];
+  return {
+    learners: learners ?? 0,
+    staff: staff ?? 0,
+    parents: parents ?? 0,
+    outstandingCents: rows.reduce((a, i) => a + i.amount_cents, 0),
+    nextDueOn: rows[0]?.due_date ?? null,
+  };
+}
 
 const ALERTS: Partial<Record<Tenant["status"], { title: string; body: string; action: string }>> = {
   overdue: {
@@ -35,6 +62,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
   const nav = useNavigate();
   const alert = ALERTS[tenant.status];
   const low = tenant.status !== "active";
+  const { data: overview } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
 
   return (
     <>
@@ -101,13 +129,23 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
 
           <StatRow
             stats={[
-              { label: "Learners", value: low ? "0" : "1,842", sub: `of ${tenant.licensed_seats.toLocaleString()} licensed` },
-              { label: "Staff accounts", value: low ? "3" : "118", sub: "active in the last 7 days" },
-              { label: "Parent accounts", value: low ? "0" : "1,610", sub: "invites activated" },
-              { label: "Billing", value: tenant.status === "overdue" ? "Overdue" : "Current", sub: tenant.status === "overdue" ? KES(182_000_00) + " outstanding" : "Next invoice 01 Oct", alarming: tenant.status === "overdue" },
+              { label: "Learners", value: (overview?.learners ?? 0).toLocaleString(), sub: `of ${tenant.licensed_seats.toLocaleString()} licensed` },
+              { label: "Staff accounts", value: (overview?.staff ?? 0).toLocaleString(), sub: "school admin + teacher logins" },
+              { label: "Parent accounts", value: (overview?.parents ?? 0).toLocaleString(), sub: "with a login" },
+              {
+                label: "Billing",
+                value: (overview?.outstandingCents ?? 0) > 0 ? "Outstanding" : "Current",
+                sub: (overview?.outstandingCents ?? 0) > 0
+                  ? `${KES(overview!.outstandingCents)} outstanding${overview?.nextDueOn ? ` · due ${formatShortDate(overview.nextDueOn)}` : ""}`
+                  : "nothing outstanding",
+                alarming: (overview?.outstandingCents ?? 0) > 0,
+              },
             ]}
           />
 
+          {/* Daily active users and role adoption stay illustrative — they need real
+              session/action tracking this schema doesn't have yet (FIG-294). Learners,
+              staff, parents and billing above are real as of FIG-294's first pass. */}
           <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)" }}>
             <section className="overflow-hidden rounded-lg border border-line">
               <header className="flex items-center justify-between border-b border-line px-4 py-3">
