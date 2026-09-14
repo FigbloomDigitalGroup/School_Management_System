@@ -58,3 +58,11 @@ gh pr merge --auto --squash
 ```
 
 It sits until someone runs `gh pr review <number> --approve` (or approves from the GitHub web UI), then merges automatically.
+
+## Common mistake: "No commits between X and Y"
+
+If you commit directly to your own branch out of habit (before making the topic branch), then create the topic branch *afterward*, it starts out identical to your branch — there's nothing to diff, so `gh pr create` fails with something like:
+```
+pull request create failed: GraphQL: No commits between dev-francis and dev-francis-topic
+```
+The fix: create the topic branch **first**, then make your changes and commit **on the topic branch** — never commit directly to your own named branch (`dev-francis`, `dev-mike`, etc.), even though old habit makes that tempting. If you've already hit this, just make an actual change on the topic branch (edit a file, commit again) before opening the PR.
