@@ -35,6 +35,25 @@ export function SignIn() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function sendReset() {
+    if (!value.trim()) { setError("Enter your email first."); return; }
+    setError("");
+    setResetBusy(true);
+    try {
+      const { error: err } = await supabase().auth.resetPasswordForEmail(value.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (err) throw err;
+      setResetSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the reset link.");
+    } finally {
+      setResetBusy(false);
+    }
+  }
 
   // The student tab still assumes a single school — an admission number only
   // resolves to a login email once the school it belongs to is known, and
@@ -116,7 +135,7 @@ export function SignIn() {
                 key={t.role}
                 role="tab"
                 aria-selected={t.role === tab.role}
-                onClick={() => { setTab(t); setSent(false); setError(""); }}
+                onClick={() => { setTab(t); setSent(false); setError(""); setResetSent(false); }}
                 className="hit flex-1 rounded-md px-2 py-2 text-[12.5px]"
                 style={{
                   background: t.role === tab.role ? "#fff" : "transparent",
@@ -157,6 +176,20 @@ export function SignIn() {
               <>
                 <TextField id="email" label="Email" type="email" placeholder="you@school.sc.ke" value={value} onChange={(e) => setValue(e.target.value)} />
                 <TextField id="pw" label="Password" type="password" value={code} error={error} onChange={(e) => setCode(e.target.value)} />
+                {resetSent ? (
+                  <p className="text-[12px] leading-relaxed text-ok-ink">
+                    If that email has an account, a reset link is on its way.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void sendReset()}
+                    disabled={resetBusy}
+                    className="text-left text-[12px] font-medium text-forest hover:underline disabled:opacity-50"
+                  >
+                    {resetBusy ? "Sending…" : "Forgot password?"}
+                  </button>
+                )}
               </>
             )}
 

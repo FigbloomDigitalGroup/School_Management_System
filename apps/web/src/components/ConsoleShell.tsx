@@ -1,8 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { NAV, supabase, type Role } from "@figbloom/shared";
 import { Icon } from "./Icon";
 import { useTenant } from "./TenantTheme";
+import { Button } from "./ui/Button";
+import { TextField } from "./ui/Field";
+import { Modal } from "./ui/Modal";
+import { useToast } from "./ui/Toast";
 
 interface Props {
   role: Role;
@@ -20,6 +24,7 @@ interface Props {
  */
 export function ConsoleShell({ role, user, aside, children, badges = {} }: Props) {
   const [open, setOpen] = useState(true);
+  const [changingPw, setChangingPw] = useState(false);
   const { slug } = useParams();
   const tenant = useTenant();
   const nav = useNavigate();
@@ -105,6 +110,15 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
             )}
           </div>
           <button
+            onClick={() => setChangingPw(true)}
+            title="Change password"
+            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
+            style={{ height: 34 }}
+          >
+            <Icon name="gear" size={13} />
+            {open && <span className="text-small">Change password</span>}
+          </button>
+          <button
             onClick={() => { void signOut(); }}
             title="Sign out"
             className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
@@ -118,7 +132,60 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
 
       {aside && <div className="flex w-[320px] shrink-0 flex-col overflow-hidden border-r border-line bg-[#FAFBFA]">{aside}</div>}
       <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+
+      {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
     </div>
+  );
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setError("");
+    if (password.length < 8) { setError("At least 8 characters."); return; }
+    if (password !== confirm) { setError("The passwords don't match."); return; }
+    setBusy(true);
+    try {
+      const { error: err } = await supabase().auth.updateUser({ password });
+      if (err) throw err;
+      toast("Password changed.");
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change the password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void submit();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Change password"
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void submit()} disabled={busy}>
+            {busy ? "Saving…" : "Change password"}
+          </Button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="grid gap-3.5">
+        <TextField id="new-pw" label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} hint="At least 8 characters." />
+        <TextField id="new-pw2" label="Confirm password" type="password" value={confirm} error={error} onChange={(e) => setConfirm(e.target.value)} />
+      </form>
+    </Modal>
   );
 }
 
