@@ -24,7 +24,7 @@ export interface RecordsSpec {
   chips?: { label: string; match?: string[] }[];
   minWidth?: string;
   extra?: ReactNode;
-  empty?: { title: string; body: string };
+  empty?: { title: string; body: string; action?: ReactNode };
 }
 
 /**
