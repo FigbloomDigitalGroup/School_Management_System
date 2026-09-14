@@ -20,6 +20,38 @@ export interface Tenant {
   payment_till: string | null;
   payment_bank_details: string | null;
   payment_notes: string | null;
+  price_cents_override: number | null;
+  trial_ends_at: string | null;
+  renews_on: string | null;
+  created_at: string;
+}
+
+export type IncidentSeverity = "SEV-1" | "SEV-2" | "SEV-3";
+export type IncidentStatus = "investigating" | "fix_in_review" | "resolved";
+
+export interface PlatformIncident {
+  id: string;
+  severity: IncidentSeverity;
+  title: string;
+  summary: string;
+  affected_schools: number;
+  status: IncidentStatus;
+  opened_at: string;
+  resolved_at: string | null;
+  created_by: string | null;
+}
+
+/** "Overdue" isn't stored — nothing flips it on a schedule, so it's derived
+ *  from due_date at read time instead of drifting stale. */
+export type PlatformInvoiceStatus = "due" | "paid";
+
+export interface PlatformInvoice {
+  id: string;
+  tenant_id: string;
+  amount_cents: number;
+  due_date: string;
+  status: PlatformInvoiceStatus;
+  paid_at: string | null;
   created_at: string;
 }
 
