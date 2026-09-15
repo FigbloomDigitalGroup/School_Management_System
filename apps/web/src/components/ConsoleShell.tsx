@@ -29,13 +29,19 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
   const tenant = useTenant();
   const nav = useNavigate();
   // "Classes"/"My classes" are the K-12 homeroom concept (classes.form_level,
-  // class_teacher_id); "Courses" is its higher-ed equivalent (semesters,
-  // course catalogue, section rosters) — each institution type only ever
-  // sees its own, rather than an empty screen shaped for the other one.
+  // class_teacher_id); "Courses"/"My sections" are the higher-ed equivalent
+  // (semesters, course catalogue, section rosters) — each institution type
+  // only ever sees its own, rather than an empty screen shaped for the other.
+  // Attendance/Gradebook/Timetable/Messages are all keyed off
+  // teaching_assignments/class_id too, which no higher-ed tenant populates,
+  // so they'd only ever show "no classes" for a lecturer — hidden for the
+  // same reason, not because the underlying capability doesn't matter (it's
+  // simply not built for course sections yet, one screen at a time).
   const higherEd = tenant?.institution_type === "higher_ed";
+  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/gradebook", "teacher/timetable", "teacher/messages"]);
   const items = NAV[role].filter((item) => {
-    if (item.to === "admin/classes" || item.to === "teacher/classes") return !higherEd;
-    if (item.to === "admin/courses") return higherEd;
+    if (item.to === "admin/classes" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
+    if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     return true;
   });
   const tenantScoped = role !== "super_admin";

@@ -30,6 +30,7 @@ import { Attendance } from "./screens/teacher/Attendance";
 import { Gradebook } from "./screens/teacher/Gradebook";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
+import { TeacherMySections } from "./screens/teacher/MySections";
 import { TeacherMessages } from "./screens/teacher/Messages";
 
 import { ParentHome } from "./screens/parent/Home";
@@ -104,7 +105,7 @@ function PlatformShell() {
 
   if (session.loading) return <FullPageSkeleton />;
   if (!session.profile) return <Navigate to="/signin" replace />;
-  if (session.profile.role !== "super_admin") return <Navigate to={homeRouteFor(session.profile.role, session.tenant?.slug ?? null)} replace />;
+  if (session.profile.role !== "super_admin") return <Navigate to={homeRouteFor(session.profile.role, session.tenant?.slug ?? null, session.tenant?.institution_type)} replace />;
 
   const body = PLATFORM_PAGES[page] ?? <NotFound />;
   const bare = page === "tenants";
@@ -151,6 +152,7 @@ function TenantRoutes() {
           <Route path="teacher/gradebook" element={<TeacherShell allow={["teacher"]}><Gradebook /></TeacherShell>} />
           <Route path="teacher/timetable" element={<TeacherShell allow={["teacher"]}><TeacherTimetable /></TeacherShell>} />
           <Route path="teacher/classes" element={<TeacherShell allow={["teacher"]}><TeacherClasses /></TeacherShell>} />
+          <Route path="teacher/sections" element={<TeacherShell allow={["teacher"]}><TeacherMySections /></TeacherShell>} />
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
@@ -180,7 +182,7 @@ function TenantRoutes() {
 function RoleGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
   const session = useTenantSession();
   if (!allow.includes(session.profile.role)) {
-    return <Navigate to={homeRouteFor(session.profile.role, session.tenant.slug)} replace />;
+    return <Navigate to={homeRouteFor(session.profile.role, session.tenant.slug, session.tenant.institution_type)} replace />;
   }
   return <>{children}</>;
 }

@@ -70,6 +70,37 @@ export async function fetchCourseSections(tenantId: string, semesterId: string):
   }));
 }
 
+export interface InstructorSectionRow extends CourseSection {
+  course_code: string;
+  course_name: string;
+  semester_name: string;
+  enrolled_count: number;
+}
+
+/**
+ * A lecturer's own sections, across however many courses/semesters they
+ * teach — the higher-ed analogue of teacherData.ts's fetchTeacherClasses(),
+ * but simpler: one source (instructor_id), not a union with a
+ * class_teacher_id-style homeroom-owner concept, since higher-ed has none.
+ */
+export async function fetchInstructorSections(tenantId: string, instructorId: string): Promise<InstructorSectionRow[]> {
+  const { data, error } = await supabase()
+    .from("course_sections")
+    .select("*, courses(code, name), semesters(name), enrollments(count)")
+    .eq("tenant_id", tenantId)
+    .eq("instructor_id", instructorId)
+    .order("section_label")
+    .returns<(CourseSection & { courses: { code: string; name: string } | null; semesters: { name: string } | null; enrollments: { count: number }[] })[]>();
+  if (error) throw error;
+  return (data ?? []).map((s) => ({
+    ...s,
+    course_code: s.courses?.code ?? "",
+    course_name: s.courses?.name ?? "",
+    semester_name: s.semesters?.name ?? "",
+    enrolled_count: s.enrollments?.[0]?.count ?? 0,
+  }));
+}
+
 export async function createCourseSection(input: Omit<CourseSection, "id">): Promise<CourseSection> {
   const { data, error } = await supabase().from("course_sections").insert(input).select("*").single<CourseSection>();
   if (error) throw error;

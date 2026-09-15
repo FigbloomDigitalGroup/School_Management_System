@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  DEMO_LOGINS, OTP_LENGTH, homeRouteFor, studentLoginEmail, supabase, validateOtp, validatePin, type Role,
+  DEMO_LOGINS, OTP_LENGTH, homeRouteFor, studentLoginEmail, supabase, validateOtp, validatePin, type Role, type Tenant,
 } from "@figbloom/shared";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
@@ -104,12 +104,14 @@ export function SignIn() {
       if (!profile) { setError("Your account isn't fully set up yet. Contact the school office."); return; }
 
       let destSlug: string | null = null;
+      let institutionType: Tenant["institution_type"] | undefined;
       if (profile.tenant_id) {
-        const { data: tenant } = await supabase().from("tenants").select("slug").eq("id", profile.tenant_id).maybeSingle();
+        const { data: tenant } = await supabase().from("tenants").select("slug, institution_type").eq("id", profile.tenant_id).maybeSingle();
         destSlug = tenant?.slug ?? null;
+        institutionType = tenant?.institution_type;
       }
       if (profile.role !== "super_admin" && !destSlug) { setError("Could not find your school. Contact Figbloom support."); return; }
-      nav(homeRouteFor(profile.role as Role, destSlug));
+      nav(homeRouteFor(profile.role as Role, destSlug, institutionType));
     } finally {
       setBusy(false);
     }
