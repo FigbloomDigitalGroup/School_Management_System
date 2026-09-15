@@ -101,6 +101,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "student/timetable", label: "Timetable", icon: "clock" },
     { to: "student/work", label: "Work", icon: "pencil" },
     { to: "student/results", label: "Results", icon: "chart" },
+    { to: "student/fees", label: "Fees", icon: "receipt" },
     { to: "student/notices", label: "Notices", icon: "bell" },
   ],
   // A driver's screen is a single full-screen page (start/end trip), not a

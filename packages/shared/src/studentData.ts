@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { formatShortDate, formatWhen } from "./parentData";
+import { formatShortDate, formatWhen, type Receipt } from "./parentData";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -63,6 +63,79 @@ export function formatDueLabel(dueOn: string, late: boolean): string {
   if (diff === 1) return "Tomorrow";
   if (diff > 1 && diff < 7) return new Date(`${dueOn}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long" });
   return formatShortDate(dueOn);
+}
+
+/**
+ * A student's own fee balance and payment history — only reachable at all
+ * once a student has no guardian (FIG-329) or simply wants to pay for
+ * themselves. Kept as a separate loader from loadStudentData(), the same way
+ * ParentFees.tsx fetches its own invoice beyond loadParentData() — Fees is a
+ * separate route, no reason to pay its query cost on every student screen.
+ */
+export interface StudentFeeData {
+  studentId: string;
+  invoiceId: string | null;
+  name: string;
+  admissionNo: string;
+  className: string;
+  formLevel: number;
+  boarding: boolean;
+  balance: number;
+  billed: number;
+  dueOn: string | null;
+  termLabel: string | null;
+  feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null }[];
+  receipts: Receipt[];
+}
+
+export async function loadStudentFeeData(profileId: string): Promise<StudentFeeData | null> {
+  const { data: studentRow } = await supabase()
+    .from("students")
+    .select("id, full_name, admission_no, boarding, classes(name, form_level)")
+    .eq("profile_id", profileId)
+    .maybeSingle<{ id: string; full_name: string; admission_no: string; boarding: boolean; classes: { name: string; form_level: number } | null }>();
+  if (!studentRow) return null;
+
+  const { data: term } = await supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle<{ id: string; name: string }>();
+
+  const [{ data: invoice }, { data: feeItemRows }, { data: paymentRows }] = await Promise.all([
+    term
+      ? supabase().from("fee_invoices").select("id, total_cents, paid_cents, due_on").eq("student_id", studentRow.id).eq("term_id", term.id).maybeSingle<{ id: string; total_cents: number; paid_cents: number; due_on: string }>()
+      : Promise.resolve({ data: null }),
+    term
+      ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level").eq("term_id", term.id)
+      : Promise.resolve({ data: [] as StudentFeeData["feeItems"] }),
+    supabase()
+      .from("payments")
+      .select("id, amount_cents, mpesa_receipt, completed_at, created_at, fee_invoices!inner(student_id)")
+      .eq("fee_invoices.student_id", studentRow.id)
+      .eq("status", "success")
+      .order("completed_at", { ascending: false })
+      .returns<{ id: string; amount_cents: number; mpesa_receipt: string | null; completed_at: string | null; created_at: string }[]>(),
+  ]);
+
+  const receipts: Receipt[] = (paymentRows ?? []).map((p) => ({
+    id: p.id,
+    amount: p.amount_cents,
+    when: formatShortDate((p.completed_at ?? p.created_at).slice(0, 10)),
+    ref: p.mpesa_receipt ?? "M-Pesa",
+  }));
+
+  return {
+    studentId: studentRow.id,
+    invoiceId: invoice?.id ?? null,
+    name: studentRow.full_name,
+    admissionNo: studentRow.admission_no,
+    className: studentRow.classes?.name ?? "",
+    formLevel: studentRow.classes?.form_level ?? 1,
+    boarding: studentRow.boarding,
+    balance: invoice ? Math.max(invoice.total_cents - invoice.paid_cents, 0) : 0,
+    billed: invoice ? invoice.total_cents : 0,
+    dueOn: invoice?.due_on ?? null,
+    termLabel: term?.name ?? null,
+    feeItems: (feeItemRows ?? []) as StudentFeeData["feeItems"],
+    receipts,
+  };
 }
 
 export async function loadStudentData(profileId: string): Promise<StudentData | null> {

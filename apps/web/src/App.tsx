@@ -42,6 +42,7 @@ import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
 import { StudentWork } from "./screens/student/Work";
 import { StudentResults } from "./screens/student/Results";
+import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
 
 import { DriverTrip } from "./screens/driver/Trip";
@@ -162,6 +163,7 @@ function TenantRoutes() {
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
           <Route path="student/work" element={<StudentShell><StudentWork /></StudentShell>} />
           <Route path="student/results" element={<StudentShell><StudentResults /></StudentShell>} />
+          <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
