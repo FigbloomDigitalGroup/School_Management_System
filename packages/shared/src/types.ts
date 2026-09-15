@@ -4,12 +4,16 @@ export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "stud
 
 export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
 
+export type InstitutionType = "k12" | "higher_ed";
+
 export interface Tenant {
   id: string;
   name: string;
   slug: string;              // path segment: /s/<slug>
   county: string;
   level: "primary" | "secondary" | "combined";
+  institution_type: InstitutionType;
+  role_labels: Partial<Record<"teacher" | "class_teacher" | "student" | "parent", string>>;
   moe_registration: string | null;
   plan: "standard" | "institution" | "county";
   status: TenantStatus;
@@ -112,7 +116,7 @@ export interface Student {
   tenant_id: string;
   admission_no: string;
   full_name: string;
-  class_id: string;
+  class_id: string | null;   // null only for higher_ed students, who enroll into course_sections instead
   date_of_birth: string | null;
   boarding: boolean;
   active: boolean;

@@ -1,4 +1,5 @@
-import { status } from "@figbloom/shared";
+import { roleLabel, status } from "@figbloom/shared";
+import type { Tenant } from "@figbloom/shared";
 import type { ReactNode } from "react";
 
 export type Tone = "ok" | "warn" | "info" | "muted";
@@ -31,6 +32,11 @@ const ROLE_LABEL = {
   super_admin: "Platform", school_admin: "Admin", teacher: "Teacher", parent: "Parent", student: "Student", driver: "Driver",
 } as const;
 
-export function RoleBadge({ role }: { role: keyof typeof ROLE_LABEL }) {
-  return <Badge tone={ROLE_TONE[role]}>{ROLE_LABEL[role]}</Badge>;
+/** `tenant` is only needed to resolve "Teacher"->"Lecturer" etc for higher-ed
+ *  tenants; platform-wide screens with no tenant in scope get the K-12 default. */
+export function RoleBadge({ role, tenant }: { role: keyof typeof ROLE_LABEL; tenant?: Pick<Tenant, "institution_type" | "role_labels"> }) {
+  const label = tenant && (role === "teacher" || role === "student" || role === "parent")
+    ? roleLabel(tenant, role)
+    : ROLE_LABEL[role];
+  return <Badge tone={ROLE_TONE[role]}>{label}</Badge>;
 }

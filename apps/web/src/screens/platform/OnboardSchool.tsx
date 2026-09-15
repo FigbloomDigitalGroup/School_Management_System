@@ -10,14 +10,14 @@ import { uploadTenantLogo } from "../../lib/uploads";
 const STEPS = ["School", "Workspace", "Plan", "Administrator", "Review"] as const;
 
 interface Form {
-  name: string; moe: string; county: string; level: string; seats: string;
+  name: string; moe: string; county: string; level: string; institutionType: string; seats: string;
   slug: string; accent: string;
   plan: string; trial: string; cycle: string;
   adminName: string; adminRole: string; email: string; phone: string;
 }
 
 const BLANK: Form = {
-  name: "", moe: "", county: "Nakuru", level: "secondary", seats: "1200",
+  name: "", moe: "", county: "Nakuru", level: "secondary", institutionType: "k12", seats: "1200",
   slug: "", accent: "#1B4D2E",
   plan: "institution", trial: "30", cycle: "term",
   adminName: "", adminRole: "Principal", email: "", phone: "",
@@ -85,6 +85,7 @@ export function OnboardSchool({
         slug: slugValue,
         county: form.county,
         level: form.level as Tenant["level"],
+        institution_type: form.institutionType as Tenant["institution_type"],
         moe_registration: form.moe.trim() || null,
         plan: form.plan as Tenant["plan"],
         accent: form.accent,
@@ -181,13 +182,18 @@ export function OnboardSchool({
           <div className="grid gap-3.5 sm:grid-cols-3">
             <SelectField id="county" label="County" value={form.county} onChange={(e) => set("county", e.target.value)}
               options={["Nakuru", "Nairobi", "Kiambu", "Kisumu", "Uasin Gishu", "Siaya", "Bungoma", "Kakamega"].map((c) => ({ value: c, label: c }))} />
-            <SelectField id="level" label="Level" value={form.level} onChange={(e) => set("level", e.target.value)}
-              options={[{ value: "secondary", label: "Secondary" }, { value: "primary", label: "Primary" }, { value: "combined", label: "Combined" }]} />
+            <SelectField id="institutionType" label="Institution type" value={form.institutionType} onChange={(e) => set("institutionType", e.target.value)}
+              options={[{ value: "k12", label: "K-12 school" }, { value: "higher_ed", label: "Higher education" }]} />
             <TextField id="seats" label="Expected learners" mono value={form.seats} onChange={(e) => set("seats", e.target.value)} />
           </div>
+          {form.institutionType === "k12" && (
+            <SelectField id="level" label="Level" value={form.level} onChange={(e) => set("level", e.target.value)}
+              options={[{ value: "secondary", label: "Secondary" }, { value: "primary", label: "Primary" }, { value: "combined", label: "Combined" }]} />
+          )}
           <p className="rounded-md bg-page px-3.5 py-3 text-small leading-relaxed text-ink-muted">
-            The registration number is checked against the Ministry list. A mismatch is a warning, not a blocker — you
-            can proceed and flag it for follow-up.
+            {form.institutionType === "higher_ed"
+              ? "Higher-ed institutions manage courses and enrollment rather than fixed classes — set up after onboarding."
+              : "The registration number is checked against the Ministry list. A mismatch is a warning, not a blocker — you can proceed and flag it for follow-up."}
           </p>
         </div>
       )}

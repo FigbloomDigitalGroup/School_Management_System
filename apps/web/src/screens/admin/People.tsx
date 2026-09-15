@@ -208,7 +208,7 @@ export function People() {
                   <Cell sub={`ADM ${s.admission_no}`}>{s.full_name}</Cell>
                 </div>
               ) },
-              { key: "class", header: "Class", render: (s) => <span className="text-[13px]">{classesById.get(s.class_id)}</span> },
+              { key: "class", header: "Class", render: (s) => <span className="text-[13px]">{s.class_id ? classesById.get(s.class_id) : "—"}</span> },
               { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
               { key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> },
               { key: "fees", header: "Fees", align: "right", render: (s) => {
@@ -237,7 +237,7 @@ export function People() {
                   <Cell sub={s.staff_title ?? undefined}>{s.full_name}</Cell>
                 </div>
               ) },
-              { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} /> },
+              { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} tenant={tenant} /> },
               { key: "email", header: "Email", width: "1.4fr", render: (s: StaffRow) => <Mono>{s.email ?? "—"}</Mono> },
               { key: "phone", header: "Phone", render: (s: StaffRow) => <Mono>{s.phone ?? "—"}</Mono> },
             ]}
