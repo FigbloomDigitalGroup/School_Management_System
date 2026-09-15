@@ -45,7 +45,9 @@ export function StudentDataProvider({ profileId, accent, children }: { profileId
         const data = await loadStudentData(profileId);
         if (!alive) return;
         if (!data) { setState({ status: "empty" }); return; }
-        const timetable = await fetchClassTimetable(data.classId);
+        const timetable = data.classId
+          ? await fetchClassTimetable(data.classId)
+          : { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] };
         if (!alive) return;
         const fresh: Cached = { data, timetable };
         setState({ status: "ready", cached: fresh });

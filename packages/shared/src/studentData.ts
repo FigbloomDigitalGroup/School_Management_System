@@ -41,7 +41,7 @@ export interface NoticeInfo {
 
 export interface StudentData {
   studentId: string;
-  classId: string;
+  classId: string | null; // null for a higher-ed student (FIG-327): they enroll into course_sections instead of one fixed class
   className: string;
   work: WorkItem[];
   notices: NoticeInfo[];
@@ -143,15 +143,20 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
     .from("students")
     .select("id, class_id, classes(name)")
     .eq("profile_id", profileId)
-    .maybeSingle<{ id: string; class_id: string; classes: { name: string } | null }>();
+    .maybeSingle<{ id: string; class_id: string | null; classes: { name: string } | null }>();
   if (!studentRow) return null;
 
+  // A higher-ed student (FIG-327) has class_id = null — class-scoped queries
+  // are skipped rather than run with .eq("class_id", null), which PostgREST
+  // rejects outright (400) rather than treating as an IS NULL filter.
   const [{ data: assignmentRows }, { data: subRows }, { data: examRows }, { data: announcementRows }] = await Promise.all([
-    supabase()
-      .from("assignments")
-      .select("id, title, body, due_on, hand_in, subjects(name), profiles(full_name)")
-      .eq("class_id", studentRow.class_id)
-      .order("due_on", { ascending: true }),
+    studentRow.class_id
+      ? supabase()
+          .from("assignments")
+          .select("id, title, body, due_on, hand_in, subjects(name), profiles(full_name)")
+          .eq("class_id", studentRow.class_id)
+          .order("due_on", { ascending: true })
+      : Promise.resolve({ data: [] as unknown[] }),
     supabase().from("assignment_submissions").select("assignment_id, marked_done_at").eq("student_id", studentRow.id),
     supabase().from("exams").select("id, name, published_at").not("published_at", "is", null).order("published_at", { ascending: false }).limit(1),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
@@ -163,7 +168,7 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
     exam
       ? supabase().from("marks").select("score, subject_id, subjects(name)").eq("exam_id", exam.id).eq("student_id", studentRow.id)
       : Promise.resolve({ data: [] as { score: number | null; subject_id: string; subjects: { name: string } | null }[] }),
-    exam
+    exam && studentRow.class_id
       ? supabase().from("marks").select("subject_id, score, students!inner(class_id)").eq("exam_id", exam.id).eq("students.class_id", studentRow.class_id)
       : Promise.resolve({ data: [] as { subject_id: string; score: number | null; students: { class_id: string } | null }[] }),
   ]);

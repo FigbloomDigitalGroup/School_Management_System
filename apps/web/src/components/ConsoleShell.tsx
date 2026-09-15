@@ -29,12 +29,15 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
   const tenant = useTenant();
   const nav = useNavigate();
   // "Classes"/"My classes" are the K-12 homeroom concept (classes.form_level,
-  // class_teacher_id) — higher-ed tenants manage sections/enrollment instead
-  // (a separate screen, not built yet), so hide rather than show an empty
-  // K-12-shaped page.
-  const items = tenant?.institution_type === "higher_ed"
-    ? NAV[role].filter((item) => item.to !== "admin/classes" && item.to !== "teacher/classes")
-    : NAV[role];
+  // class_teacher_id); "Courses" is its higher-ed equivalent (semesters,
+  // course catalogue, section rosters) — each institution type only ever
+  // sees its own, rather than an empty screen shaped for the other one.
+  const higherEd = tenant?.institution_type === "higher_ed";
+  const items = NAV[role].filter((item) => {
+    if (item.to === "admin/classes" || item.to === "teacher/classes") return !higherEd;
+    if (item.to === "admin/courses") return higherEd;
+    return true;
+  });
   const tenantScoped = role !== "super_admin";
 
   async function signOut() {

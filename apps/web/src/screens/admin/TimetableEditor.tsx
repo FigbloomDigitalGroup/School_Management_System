@@ -4,10 +4,11 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
-import { fetchClassTimetableSlots, saveClassTimetable, WEEKDAYS } from "@figbloom/shared";
+import { WEEKDAYS } from "@figbloom/shared";
 
 interface Cell { label: string; room: string }
 interface PeriodRow { time: string; cells: Record<Weekday, Cell> }
+interface Slot { day: Weekday; start_time: string; label: string; room: string | null }
 
 const emptyCells = (): Record<Weekday, Cell> =>
   Object.fromEntries(WEEKDAYS.map((d) => [d, { label: "", room: "" }])) as Record<Weekday, Cell>;
@@ -15,10 +16,15 @@ const emptyCells = (): Record<Weekday, Cell> =>
 /**
  * A small weekly grid — time down the side, days across the top. Deliberately
  * period-based rather than a drag-and-drop calendar: the school's day is a
- * fixed sequence of periods, not arbitrary appointments.
+ * fixed sequence of periods, not arbitrary appointments. Generic over what
+ * it's a timetable FOR (a K-12 class or a higher-ed course section) — the
+ * grid shape is identical, only the fetch/save calls differ.
  */
-export function TimetableEditor({ tenantId, classId, className, onClose }: {
-  tenantId: string; classId: string; className: string; onClose: () => void;
+export function TimetableEditor({ entityId, title, fetchSlots, saveSlots, onClose }: {
+  entityId: string; title: string;
+  fetchSlots: (id: string) => Promise<Slot[]>;
+  saveSlots: (id: string, slots: { day: Weekday; start_time: string; label: string; room: string | null }[]) => Promise<void>;
+  onClose: () => void;
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<PeriodRow[] | null>(null);
@@ -27,7 +33,7 @@ export function TimetableEditor({ tenantId, classId, className, onClose }: {
 
   useEffect(() => {
     let alive = true;
-    fetchClassTimetableSlots(classId)
+    fetchSlots(entityId)
       .then((slots) => {
         if (!alive) return;
         const times = Array.from(new Set(slots.map((s) => s.start_time))).sort();
@@ -41,7 +47,7 @@ export function TimetableEditor({ tenantId, classId, className, onClose }: {
       .catch((err: Error) => { if (alive) toast(`Could not load the timetable: ${err.message}`); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classId]);
+  }, [entityId]);
 
   function setCell(time: string, day: Weekday, field: keyof Cell, value: string) {
     setRows((rs) => (rs ?? []).map((r) => (r.time !== time ? r : { ...r, cells: { ...r.cells, [day]: { ...r.cells[day], [field]: value } } })));
@@ -69,8 +75,8 @@ export function TimetableEditor({ tenantId, classId, className, onClose }: {
       const slots = rows.flatMap((r) =>
         WEEKDAYS.map((d) => ({ day: d, start_time: r.time, label: r.cells[d].label, room: r.cells[d].room || null })),
       );
-      await saveClassTimetable(tenantId, classId, slots);
-      toast(`Timetable saved for ${className}.`);
+      await saveSlots(entityId, slots);
+      toast(`Timetable saved for ${title}.`);
       onClose();
     } catch (err) {
       toast(err instanceof Error ? `Could not save the timetable: ${err.message}` : "Could not save the timetable.");
@@ -83,8 +89,8 @@ export function TimetableEditor({ tenantId, classId, className, onClose }: {
     <Modal
       open
       onClose={onClose}
-      eyebrow="Classes"
-      title={`Timetable · ${className}`}
+      eyebrow="Timetable"
+      title={`Timetable · ${title}`}
       blurb="Leave a cell blank for a free period. Non-subject periods (Games, Library, Class meeting) work the same as any other."
       actions={
         <>

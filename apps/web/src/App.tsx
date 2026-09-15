@@ -23,6 +23,7 @@ import { Announcements } from "./screens/admin/Announcements";
 import { TermSetup } from "./screens/admin/TermSetup";
 import { Fleet } from "./screens/admin/Fleet";
 import { AdminClasses } from "./screens/admin/Classes";
+import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
 
 import { Attendance } from "./screens/teacher/Attendance";
@@ -143,6 +144,7 @@ function TenantRoutes() {
           <Route path="admin/fleet" element={<AdminShell allow={["school_admin"]}><Fleet /></AdminShell>} />
           <Route path="admin/settings" element={<AdminShell allow={["school_admin"]}><TermSetup /></AdminShell>} />
           <Route path="admin/classes" element={<AdminShell allow={["school_admin"]}><AdminClasses /></AdminShell>} />
+          <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />

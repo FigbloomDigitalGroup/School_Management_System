@@ -75,6 +75,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin", label: "Dashboard", icon: "home" },
     { to: "admin/people", label: "Students & staff", icon: "people" },
     { to: "admin/classes", label: "Classes", icon: "grid" },
+    { to: "admin/courses", label: "Courses", icon: "grid" },
     { to: "admin/fees", label: "Fees", icon: "receipt" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },

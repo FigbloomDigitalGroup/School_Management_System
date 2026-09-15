@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { supabase } from "@figbloom/shared";
+import { fetchClassTimetableSlots, saveClassTimetable, supabase } from "@figbloom/shared";
 import type { ClassGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -153,9 +153,10 @@ export function AdminClasses() {
 
       {editingTimetableFor && (
         <TimetableEditor
-          tenantId={tenant.id}
-          classId={editingTimetableFor.id}
-          className={editingTimetableFor.name}
+          entityId={editingTimetableFor.id}
+          title={editingTimetableFor.name}
+          fetchSlots={fetchClassTimetableSlots}
+          saveSlots={(id, slots) => saveClassTimetable(tenant.id, id, slots)}
           onClose={() => setEditingTimetableFor(null)}
         />
       )}

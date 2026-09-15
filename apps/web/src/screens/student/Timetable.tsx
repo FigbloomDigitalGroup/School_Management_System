@@ -1,10 +1,11 @@
 import { useStudentData } from "../../lib/studentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
-import { fetchClassTimetable } from "@figbloom/shared";
+import { fetchClassTimetable, fetchStudentSchedule } from "@figbloom/shared";
 
 /**
  * The weekly timetable is real per-class data (timetable_slots), fetched
@@ -24,10 +25,16 @@ interface PeriodRow {
 }
 
 export function StudentTimetable() {
+  const { tenant } = useTenantSession();
+  const higherEd = tenant.institution_type === "higher_ed";
   const { data, loading, error } = useStudentData();
   const { data: timetable, loading: timetableLoading } = useAsync(
-    () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
-    [data?.classId],
+    () => {
+      if (!data) return Promise.resolve(null);
+      if (higherEd) return fetchStudentSchedule(data.studentId);
+      return data.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null);
+    },
+    [data?.studentId, data?.classId, higherEd],
   );
 
   if (error) {
