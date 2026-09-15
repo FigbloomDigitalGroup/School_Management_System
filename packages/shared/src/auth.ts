@@ -1,4 +1,4 @@
-import type { Role } from "./types";
+import type { InstitutionType, Role } from "./types";
 
 /**
  * Four ways in, matched to who is signing in:
@@ -48,12 +48,18 @@ export function validatePin(raw: string): { ok: boolean; message: string } {
   return { ok: true, message: "" };
 }
 
-/** Landing route per role. Tenant-scoped roles get the /s/<slug> prefix. */
-export function homeRouteFor(role: Role, slug: string | null): string {
+/**
+ * Landing route per role. Tenant-scoped roles get the /s/<slug> prefix.
+ * A higher-ed teacher (lecturer) lands on "my sections" rather than
+ * Attendance — class-based screens (Attendance/Gradebook/Timetable/
+ * Messages) are all keyed off teaching_assignments/class_id, which no
+ * higher-ed tenant ever populates, so Attendance would just be empty.
+ */
+export function homeRouteFor(role: Role, slug: string | null, institutionType?: InstitutionType): string {
   switch (role) {
     case "super_admin": return "/platform/tenants";
     case "school_admin": return `/s/${slug}/admin`;
-    case "teacher": return `/s/${slug}/teacher/attendance`;
+    case "teacher": return institutionType === "higher_ed" ? `/s/${slug}/teacher/sections` : `/s/${slug}/teacher/attendance`;
     case "parent": return `/s/${slug}/parent`;
     case "student": return `/s/${slug}/student`;
     case "driver": return `/s/${slug}/driver`;
@@ -87,6 +93,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/gradebook", label: "Gradebook", icon: "table" },
     { to: "teacher/timetable", label: "Timetable", icon: "clock" },
     { to: "teacher/classes", label: "My classes", icon: "people" },
+    { to: "teacher/sections", label: "My sections", icon: "people" },
     { to: "teacher/messages", label: "Messages", icon: "chat" },
   ],
   parent: [

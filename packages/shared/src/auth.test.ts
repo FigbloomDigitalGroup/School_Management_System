@@ -52,4 +52,8 @@ describe("homeRouteFor", () => {
     expect(homeRouteFor("student", "alliance")).toBe("/s/alliance/student");
     expect(homeRouteFor("driver", "alliance")).toBe("/s/alliance/driver");
   });
+  it("a k12 teacher lands on Attendance; a higher-ed teacher (lecturer) lands on their sections instead", () => {
+    expect(homeRouteFor("teacher", "alliance", "k12")).toBe("/s/alliance/teacher/attendance");
+    expect(homeRouteFor("teacher", "some-college", "higher_ed")).toBe("/s/some-college/teacher/sections");
+  });
 });
