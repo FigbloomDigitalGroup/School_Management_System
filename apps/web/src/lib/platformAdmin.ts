@@ -6,6 +6,7 @@ export interface NewSchoolInput {
   slug: string;
   county: string;
   level: Tenant["level"];
+  institution_type: Tenant["institution_type"];
   moe_registration: string | null;
   plan: Tenant["plan"];
   accent: string;

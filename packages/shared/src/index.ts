@@ -9,6 +9,7 @@ export * from "./auth";
 export * from "./parentData";
 export * from "./studentData";
 export * from "./timetable";
+export * from "./roleLabels";
 export * from "./fleet";
 export * from "./supabase";
 export * from "./demo";

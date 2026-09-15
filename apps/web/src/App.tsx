@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
-import { homeRouteFor, supabase, type Role } from "@figbloom/shared";
+import { homeRouteFor, roleLabel, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -198,7 +198,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
   const session = useTenantSession();
   return (
     <RoleGate allow={allow}>
-      <ConsoleShell role="teacher" user={{ name: session.profile.full_name, roleLabel: session.profile.staff_title ?? "Teacher" }}>
+      <ConsoleShell role="teacher" user={{ name: session.profile.full_name, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}>
         {children}
       </ConsoleShell>
     </RoleGate>
@@ -210,7 +210,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
   return (
     <RoleGate allow={["parent"]}>
       <ParentDataProvider>
-        <ConsoleShell role="parent" user={{ name: session.profile.full_name, roleLabel: "Parent" }}>
+        <ConsoleShell role="parent" user={{ name: session.profile.full_name, roleLabel: roleLabel(session.tenant, "parent") }}>
           {children}
         </ConsoleShell>
       </ParentDataProvider>
@@ -223,7 +223,7 @@ const StudentShell = ({ children }: { children: ReactNode }) => {
   return (
     <RoleGate allow={["student"]}>
       <StudentDataProvider>
-        <ConsoleShell role="student" user={{ name: session.profile.full_name, roleLabel: "Student" }}>
+        <ConsoleShell role="student" user={{ name: session.profile.full_name, roleLabel: roleLabel(session.tenant, "student") }}>
           {children}
         </ConsoleShell>
       </StudentDataProvider>
