@@ -78,7 +78,7 @@ export function Announcements() {
   const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
   const [formLevel, setFormLevel] = useState(1);
   const [classId, setClassId] = useState("");
-  const [channels, setChannels] = useState({ in_app: true, sms: false, email: false });
+  const [channels, setChannels] = useState({ in_app: true, push: true, sms: false, email: false });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -107,7 +107,7 @@ export function Announcements() {
     setSending(true);
     try {
       const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
-      const { error } = await supabase().from("announcements").insert({
+      const { data: created, error } = await supabase().from("announcements").insert({
         tenant_id: tenant.id,
         author_id: profile.id,
         subject: subject.trim(),
@@ -115,9 +115,15 @@ export function Announcements() {
         audience: audienceValue(),
         channels: activeChannels,
         published_at: publish ? new Date().toISOString() : null,
-      });
+      }).select("id").single();
       if (error) throw error;
       toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
+
+      if (publish && channels.push) {
+        const { error: pushErr } = await supabase().functions.invoke("send-push", { body: { announcement_id: created.id } });
+        if (pushErr) toast(`Sent, but push notifications failed: ${pushErr.message}`);
+      }
+
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
@@ -188,6 +194,7 @@ export function Announcements() {
             {(
               [
                 ["in_app", "In the app", "Free. Everyone with an account sees it."],
+                ["push", "Push notification", "Free. Android only for now — reaches the phone even if the app is closed."],
                 ["sms", "SMS", "Charged per recipient. Reaches parents with no smartphone."],
                 ["email", "Email", "Free, but many parents have no working address."],
               ] as [keyof typeof channels, string, string][]
