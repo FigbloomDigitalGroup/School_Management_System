@@ -82,10 +82,10 @@ function fakeFetch(sendResult: (token: string) => Response | Promise<Response>):
 }
 
 beforeEach(() => {
-  Deno.env.set("FCM_SERVICE_ACCOUNT_JSON", SERVICE_ACCOUNT);
+  Deno.env.set("FCM_SERVICE_ACCOUNT_JSON_B64", btoa(SERVICE_ACCOUNT));
 });
 afterEach(() => {
-  Deno.env.delete("FCM_SERVICE_ACCOUNT_JSON");
+  Deno.env.delete("FCM_SERVICE_ACCOUNT_JSON_B64");
 });
 
 describe("send-push handle", () => {
@@ -137,8 +137,8 @@ describe("send-push handle", () => {
     assertEquals(typeof out.skipped, "string");
   });
 
-  it("500s with a clear message when FCM_SERVICE_ACCOUNT_JSON is not set", async () => {
-    Deno.env.delete("FCM_SERVICE_ACCOUNT_JSON");
+  it("500s with a clear message when FCM_SERVICE_ACCOUNT_JSON_B64 is not set", async () => {
+    Deno.env.delete("FCM_SERVICE_ACCOUNT_JSON_B64");
     const { admin, asUser } = makeClients();
     seedAnnouncement(admin);
     const res = await handle(request(), { admin, asUser });
@@ -205,6 +205,23 @@ describe("send-push handle", () => {
     const res = await handle(request(), { admin, asUser }, fetchImpl);
     const out = await res.json();
     assertEquals(out.sent, 1);
+  });
+
+  it("returns a clean 502 instead of crashing when the FCM call throws", async () => {
+    const { admin, asUser } = makeClients();
+    seedAnnouncement(admin);
+    admin.seed("profiles", [
+      { id: SCHOOL_ADMIN_ID, role: "school_admin", tenant_id: TENANT_ID },
+      { id: "parent-1", role: "parent", tenant_id: TENANT_ID },
+    ]);
+    admin.seed("device_tokens", [{ id: "dt1", profile_id: "parent-1", token: "tok-1", platform: "android" }]);
+
+    const throwingFetch = (() => { throw new Error("network down"); }) as unknown as typeof fetch;
+    const res = await handle(request(), { admin, asUser }, throwingFetch);
+    assertEquals(res.status, 502);
+    assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
+    const out = await res.json();
+    assertEquals(out.error, "network down");
   });
 
   it("counts a failed send and removes the token when FCM reports it as unregistered", async () => {
