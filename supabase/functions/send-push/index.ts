@@ -5,9 +5,10 @@
  * announcement with "push" in its channels is published.
  *
  * Deploy: supabase functions deploy send-push
- * Needs the FCM_SERVICE_ACCOUNT_JSON secret (a Firebase service-account key)
- * set — see supabase/functions/README or FIG-293. Without it, this returns
- * a clear 500 rather than silently doing nothing.
+ * Needs the FCM_SERVICE_ACCOUNT_JSON_B64 secret — a Firebase service-account
+ * key JSON file, base64-encoded (`base64 -w0 key.json`), so shell/dotenv
+ * quoting of the embedded multi-line PEM can never mangle it. Without it,
+ * this returns a clear 500 rather than silently doing nothing.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -152,32 +153,40 @@ export async function handle(req: Request, { admin, asUser }: Deps, fetchImpl: t
     return json({ sent: 0, failed: 0, skipped: "push is not one of this announcement's channels" });
   }
 
-  const serviceAccountJson = Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
-  if (!serviceAccountJson) return json({ error: "Push is not configured on this project (FCM_SERVICE_ACCOUNT_JSON not set)." }, 500);
-  const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
+  // Base64, not raw JSON: a multi-line PEM inside a JSON string is exactly
+  // the kind of secret value that shell/dotenv quoting mangles silently —
+  // base64 has no characters either of those treats specially.
+  const serviceAccountB64 = Deno.env.get("FCM_SERVICE_ACCOUNT_JSON_B64");
+  if (!serviceAccountB64) return json({ error: "Push is not configured on this project (FCM_SERVICE_ACCOUNT_JSON_B64 not set)." }, 500);
 
-  const profileIds = await resolveAudienceProfileIds(admin, announcement.tenant_id, announcement.audience as Audience);
-  if (profileIds.length === 0) return json({ sent: 0, failed: 0 });
+  try {
+    const serviceAccount = JSON.parse(atob(serviceAccountB64)) as ServiceAccount;
 
-  const { data: tokenRows } = await admin.from("device_tokens").select("id, token").in("profile_id", profileIds);
-  const tokens = (tokenRows ?? []) as { id: string; token: string }[];
-  if (tokens.length === 0) return json({ sent: 0, failed: 0 });
+    const profileIds = await resolveAudienceProfileIds(admin, announcement.tenant_id, announcement.audience as Audience);
+    if (profileIds.length === 0) return json({ sent: 0, failed: 0 });
 
-  const accessToken = await fcmAccessToken(serviceAccount, fetchImpl);
-  let sent = 0;
-  let failed = 0;
-  const staleIds: string[] = [];
-  for (const t of tokens) {
-    const result = await sendToToken(fetchImpl, serviceAccount.project_id, accessToken, t.token, announcement.subject, announcement.body);
-    if (result.ok) sent++;
-    else {
-      failed++;
-      if (result.invalid) staleIds.push(t.id);
+    const { data: tokenRows } = await admin.from("device_tokens").select("id, token").in("profile_id", profileIds);
+    const tokens = (tokenRows ?? []) as { id: string; token: string }[];
+    if (tokens.length === 0) return json({ sent: 0, failed: 0 });
+
+    const accessToken = await fcmAccessToken(serviceAccount, fetchImpl);
+    let sent = 0;
+    let failed = 0;
+    const staleIds: string[] = [];
+    for (const t of tokens) {
+      const result = await sendToToken(fetchImpl, serviceAccount.project_id, accessToken, t.token, announcement.subject, announcement.body);
+      if (result.ok) sent++;
+      else {
+        failed++;
+        if (result.invalid) staleIds.push(t.id);
+      }
     }
-  }
-  if (staleIds.length) await admin.from("device_tokens").delete().in("id", staleIds);
+    if (staleIds.length) await admin.from("device_tokens").delete().in("id", staleIds);
 
-  return json({ sent, failed });
+    return json({ sent, failed });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : "Could not send push notifications." }, 502);
+  }
 }
 
 if (import.meta.main) {
