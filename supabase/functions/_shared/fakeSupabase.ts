@@ -1,8 +1,8 @@
 /**
  * A minimal in-memory stand-in for @supabase/supabase-js, used only in tests.
  * Supports the slice of the query-builder and auth APIs the edge functions
- * actually call: .from(table).select/insert/update, .eq/.gte, .single/
- * .maybeSingle, and auth.getUser / auth.admin.createUser / deleteUser.
+ * actually call: .from(table).select/insert/update/delete, .eq/.gte/.in,
+ * .single/.maybeSingle, and auth.getUser / auth.admin.createUser / deleteUser.
  *
  * Not published (the "_shared" prefix keeps the Supabase CLI from deploying
  * it as its own function).
@@ -11,9 +11,9 @@
 // deno-lint-ignore no-explicit-any
 export type Row = Record<string, any>;
 
-type Filter = { col: string; op: "eq" | "gte"; val: unknown };
+type Filter = { col: string; op: "eq" | "gte" | "in"; val: unknown };
 
-type OpKind = "select" | "insert" | "update";
+type OpKind = "select" | "insert" | "update" | "delete";
 
 class FakeTable {
   rows: Row[];
@@ -60,6 +60,11 @@ class FakeTable {
     });
     return updated;
   }
+  delete(matches: (r: Row) => boolean): Row[] {
+    const deleted = this.rows.filter(matches);
+    this.rows = this.rows.filter((r) => !matches(r));
+    return deleted.map((r) => ({ ...r }));
+  }
 }
 
 class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message: string } | null }> {
@@ -83,12 +88,20 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.payload = payload;
     return this;
   }
+  delete() {
+    this.op = "delete";
+    return this;
+  }
   eq(col: string, val: unknown) {
     this.filters.push({ col, op: "eq", val });
     return this;
   }
   gte(col: string, val: unknown) {
     this.filters.push({ col, op: "gte", val });
+    return this;
+  }
+  in(col: string, vals: unknown[]) {
+    this.filters.push({ col, op: "in", val: vals });
     return this;
   }
   /** No-op, same as supabase-js .limit(n) — the fake never paginates. */
@@ -101,9 +114,11 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   }
 
   private matches(row: Row): boolean {
-    return this.filters.every((f) =>
-      f.op === "eq" ? row[f.col] === f.val : (row[f.col] as never) >= (f.val as never)
-    );
+    return this.filters.every((f) => {
+      if (f.op === "eq") return row[f.col] === f.val;
+      if (f.op === "in") return (f.val as unknown[]).includes(row[f.col]);
+      return (row[f.col] as never) >= (f.val as never);
+    });
   }
 
   private run(): { rows: Row[]; error: { message: string } | null } {
@@ -115,6 +130,9 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     }
     if (this.op === "update") {
       return { rows: this.table.update(this.payload as Row, (r) => this.matches(r)), error: null };
+    }
+    if (this.op === "delete") {
+      return { rows: this.table.delete((r) => this.matches(r)), error: null };
     }
     return { rows: this.table.rows.filter((r) => this.matches(r)).map((r) => ({ ...r })), error: null };
   }

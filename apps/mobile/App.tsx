@@ -5,6 +5,7 @@ import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
 import { ParentDataProvider } from "./src/data";
 import { Navigation } from "./src/navigation";
+import { registerPushToken } from "./src/pushNotifications";
 import { SignIn } from "./src/screens/SignIn";
 import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
@@ -57,6 +58,10 @@ export default function App() {
     const { data: sub } = supabase().auth.onAuthStateChange(() => { load().catch(() => {}); });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
+
+  useEffect(() => {
+    if (session) void registerPushToken();
+  }, [session]);
 
   const a = accentFor(session?.accent ?? "#7A1F2B");
 
