@@ -329,6 +329,60 @@ export interface VehicleLocation {
   recorded_at: string;
 }
 
+// ---------------------------------------------------------------- higher-ed
+
+export interface Semester {
+  id: string;
+  tenant_id: string;
+  name: string;
+  year: number;
+  index: 1 | 2 | 3;
+  starts_on: string;
+  ends_on: string;
+  is_current: boolean;
+}
+
+export interface Course {
+  id: string;
+  tenant_id: string;
+  code: string;
+  name: string;
+  credits: number;
+  department: string | null;
+}
+
+export interface CourseSection {
+  id: string;
+  tenant_id: string;
+  course_id: string;
+  semester_id: string;
+  section_label: string;
+  instructor_id: string | null;
+  room: string | null;
+  capacity: number | null;
+}
+
+export type EnrollmentStatus = "enrolled" | "dropped" | "completed";
+
+export interface Enrollment {
+  id: string;
+  tenant_id: string;
+  student_id: string;
+  course_section_id: string;
+  status: EnrollmentStatus;
+  enrolled_at: string;
+}
+
+export interface CourseSectionTimetableSlot {
+  id: string;
+  tenant_id: string;
+  course_section_id: string;
+  day: Weekday;
+  start_time: string;
+  label: string;
+  room: string | null;
+}
+
 export type AlertKind = "speed" | "geofence";
 
 export interface VehicleAlert {
