@@ -252,8 +252,15 @@ const OrgShell = ({ children }: { children: ReactNode }) => {
 /** A signed-in user who wanders into a shell that is not theirs goes home, not to a 404. */
 function RoleGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
   const session = useTenantSession();
-  if (!allow.includes(session.profile.role)) {
-    return <Navigate to={homeRouteFor(session.profile.role, session.tenant.slug, session.tenant.institution_type)} replace />;
+  // An org_admin acting inside a member school (FIG-391/392) gets treated as
+  // that school's own school_admin for gating purposes — their real
+  // profile.role stays "org_admin" in the database always, this is purely a
+  // route-gating concept. Without it, homeRouteFor(session.profile.role, ...)
+  // would build /org/<TENANT-slug>/dashboard on any mismatch — wrong, since
+  // a tenant's slug is never the same as its owning organization's slug.
+  const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
+  if (!allow.includes(effectiveRole)) {
+    return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
   }
   return <>{children}</>;
 }
@@ -264,7 +271,8 @@ function RoleGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
 function DeliveryModeGate({ children }: { children: ReactNode }) {
   const session = useTenantSession();
   if (session.tenant.delivery_mode === "online") {
-    return <Navigate to={homeRouteFor(session.profile.role, session.tenant.slug, session.tenant.institution_type)} replace />;
+    const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
+    return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
   }
   return <>{children}</>;
 }
@@ -273,7 +281,15 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
   const session = useTenantSession();
   return (
     <RoleGate allow={allow}>
-      <ConsoleShell role="school_admin" user={{ name: session.profile.full_name, roleLabel: session.profile.staff_title ?? "Principal" }}>
+      <ConsoleShell
+        role="school_admin"
+        user={{ name: session.profile.full_name, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? "Principal" }}
+        actingBanner={session.actingForTenant && session.actingOrganization ? {
+          orgName: session.actingOrganization.name,
+          schoolName: session.tenant.name,
+          exitTo: `/org/${session.actingOrganization.slug}/schools/${session.tenant.id}`,
+        } : undefined}
+      >
         {children}
       </ConsoleShell>
     </RoleGate>
