@@ -1,11 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchOrganizationTenantSummaries, logOrganizationAccess, KES, type OrganizationTenantSummary } from "@figbloom/shared";
+import {
+  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, KES,
+  type OrganizationTenantSummary, type Tenant,
+} from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
 import { Mono } from "../../components/ui/DataTable";
+import { SelectField, TextField } from "../../components/ui/Field";
+import { Modal } from "../../components/ui/Modal";
+import { useToast } from "../../components/ui/Toast";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
+import { createTenantSelfService } from "../../lib/orgSelfService";
+import { inviteAdmin } from "../../lib/platformAdmin";
 
 const STATUS_TONE: Record<OrganizationTenantSummary["status"], "ok" | "warn" | "info" | "muted"> = {
   active: "ok", trial: "muted", onboarding: "info", overdue: "warn", suspended: "warn", setup_stalled: "warn",
@@ -15,7 +24,10 @@ const STATUS_TONE: Record<OrganizationTenantSummary["status"], "ok" | "warn" | "
 export function OrgSchools() {
   const { profile, organization } = useOrgSessionCtx();
   const nav = useNavigate();
-  const { data, loading, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id]);
+  const [adding, setAdding] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
+  const toast = useToast();
 
   useEffect(() => {
     void logOrganizationAccess(organization.id, profile.id, "viewed_schools_list");
@@ -39,6 +51,7 @@ export function OrgSchools() {
     eyebrow: organization.name,
     title: "Schools",
     blurb: "Every school in this organization, at a glance — aggregate figures only.",
+    actions: [{ label: "+ Add school", primary: true, onClick: () => setAdding(true) }],
     stats: [
       { label: "Schools", value: String(data.length) },
       { label: "Active students", value: data.reduce((a, s) => a + s.active_students, 0).toLocaleString() },
@@ -76,5 +89,142 @@ export function OrgSchools() {
     })),
   };
 
-  return <RecordsPage spec={spec} />;
+  return (
+    <>
+      <RecordsPage spec={spec} />
+      {adding && (
+        <AddSchoolModal
+          organizationId={organization.id}
+          onClose={() => setAdding(false)}
+          onCreated={(name) => { setAdding(false); setReloadKey((k) => k + 1); toast(`${name} created.`); }}
+          toast={toast}
+        />
+      )}
+    </>
+  );
+}
+
+const COUNTRY_OPTIONS = [{ value: "KE", label: "Kenya" }];
+
+function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
+  organizationId: string;
+  onClose: () => void;
+  onCreated: (name: string) => void;
+  toast: (m: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [county, setCounty] = useState("Nairobi");
+  const [country] = useState("KE");
+  const [institutionType, setInstitutionType] = useState<Tenant["institution_type"]>("k12");
+  const [level, setLevel] = useState<Tenant["level"]>("secondary");
+  const [higherEdSubtype, setHigherEdSubtype] = useState<NonNullable<Tenant["higher_ed_subtype"]>>("university");
+  const [deliveryMode, setDeliveryMode] = useState<Tenant["delivery_mode"]>("in_person");
+  const [adminName, setAdminName] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const slugValue = slug || (name ? suggestSlug(name) : "");
+  const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
+
+  async function create() {
+    setError("");
+    if (!name.trim()) { setError("Give the school a name."); return; }
+    if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid address."); return; }
+    if (!adminName.trim() || !adminEmail.trim()) { setError("The school's own administrator name and email are required."); return; }
+
+    setSaving(true);
+    try {
+      const tenant = await createTenantSelfService({
+        name: name.trim(),
+        slug: slugValue,
+        county: county.trim(),
+        country,
+        level,
+        institution_type: institutionType,
+        higher_ed_subtype: institutionType === "higher_ed" ? higherEdSubtype : null,
+        delivery_mode: deliveryMode,
+        organization_id: organizationId,
+        moe_registration: null,
+        plan: "standard",
+        accent: "#1B4D2E",
+        licensed_seats: 0,
+      });
+
+      await inviteAdmin({
+        tenant_id: tenant.id,
+        full_name: adminName.trim(),
+        staff_title: "Principal",
+        email: adminEmail.trim(),
+      });
+
+      onCreated(tenant.name);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add the school: ${err.message}` : "Could not add the school.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) { e.preventDefault(); void create(); }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Schools"
+      title="Add a school"
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void create()} disabled={saving}>{saving ? "Creating…" : "Add school"}</Button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="grid gap-3.5">
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <TextField id="school-name" label="School name" placeholder="e.g. Riverside Primary" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField
+            id="school-slug" label="Address" mono placeholder={slugValue || "riverside-primary"}
+            value={slug} hint={slugCheck.ok ? `figbloom.co.ke/s/${slugValue}` : undefined}
+            error={slug && !slugCheck.ok ? slugCheck.message : undefined}
+            onChange={(e) => setSlug(e.target.value)}
+          />
+        </div>
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <SelectField id="school-country" label="Country" value={country} options={COUNTRY_OPTIONS} disabled />
+          <TextField id="school-county" label="County" value={county} onChange={(e) => setCounty(e.target.value)} />
+        </div>
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <SelectField
+            id="school-institution-type" label="Institution type" value={institutionType}
+            onChange={(e) => setInstitutionType(e.target.value as Tenant["institution_type"])}
+            options={[{ value: "k12", label: "K-12 school" }, { value: "higher_ed", label: "Higher education" }]}
+          />
+          <SelectField id="school-delivery-mode" label="Delivery" value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value as Tenant["delivery_mode"])}
+            options={[{ value: "in_person", label: "In-person" }, { value: "online", label: "Online" }, { value: "hybrid", label: "Hybrid" }]} />
+        </div>
+        {institutionType === "k12" ? (
+          <SelectField id="school-level" label="Level" value={level} onChange={(e) => setLevel(e.target.value as Tenant["level"])}
+            options={[{ value: "secondary", label: "Secondary" }, { value: "primary", label: "Primary" }, { value: "combined", label: "Combined" }]} />
+        ) : (
+          <SelectField id="school-higher-ed-subtype" label="Type" value={higherEdSubtype} onChange={(e) => setHigherEdSubtype(e.target.value as NonNullable<Tenant["higher_ed_subtype"]>)}
+            options={[
+              { value: "university", label: "University" },
+              { value: "college", label: "College" },
+              { value: "short_course", label: "Short-course school" },
+              { value: "tvet", label: "TVET" },
+            ]} />
+        )}
+        <div className="mt-1 border-t border-line-soft pt-3.5">
+          <p className="mb-3 text-[12.5px] font-semibold text-ink">This school's own administrator</p>
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <TextField id="school-admin-name" label="Name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+            <TextField id="school-admin-email" label="Email" type="email" error={error} value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
 }
