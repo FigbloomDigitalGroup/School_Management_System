@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { formatShortDate, KES, supabase, tenantPath, type Tenant } from "@figbloom/shared";
+import { formatShortDate, KES, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { assignTenantOrganization, fetchOrganizations } from "../../lib/platformAdmin";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
 const TABS = ["Overview", "Usage", "Billing", "Branding", "Audit log"] as const;
@@ -63,6 +64,22 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
   const alert = ALERTS[tenant.status];
   const low = tenant.status !== "active";
   const { data: overview } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
+  const { data: organizations } = useAsync(() => fetchOrganizations(), []);
+  const [orgId, setOrgId] = useState(tenant.organization_id ?? "");
+  const [orgSaving, setOrgSaving] = useState(false);
+
+  async function setOrganization(organizationId: string) {
+    setOrgSaving(true);
+    try {
+      await assignTenantOrganization(tenant.id, organizationId || null);
+      setOrgId(organizationId);
+      toast(organizationId ? "School assigned to organization." : "School removed from its organization.");
+    } catch (err) {
+      toast(err instanceof Error ? `Could not update the organization: ${err.message}` : "Could not update the organization.");
+    } finally {
+      setOrgSaving(false);
+    }
+  }
 
   return (
     <>
@@ -142,6 +159,25 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
               },
             ]}
           />
+
+          <div className="mt-4 flex items-center gap-3 rounded-lg border border-line bg-white px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-body font-semibold">Organization</div>
+              <p className="mt-0.5 text-[12px] text-ink-faint">
+                A county, constituency or group-owner this school reports into for cross-school visibility. Optional.
+              </p>
+            </div>
+            <select
+              value={orgId}
+              disabled={orgSaving}
+              onChange={(e) => void setOrganization(e.target.value)}
+              aria-label="Organization"
+              className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
+            >
+              <option value="">Not assigned</option>
+              {(organizations ?? []).map((o: Organization) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
 
           {/* Daily active users and role adoption stay illustrative — they need real
               session/action tracking this schema doesn't have yet (FIG-294). Learners,

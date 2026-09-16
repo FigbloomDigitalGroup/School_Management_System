@@ -25,11 +25,11 @@ export function Badge({ tone = "muted", children }: { tone?: Tone; children: Rea
 }
 
 const ROLE_TONE = {
-  super_admin: "info", school_admin: "info", teacher: "ok", parent: "muted", student: "muted", driver: "ok",
+  super_admin: "info", school_admin: "info", teacher: "ok", parent: "muted", student: "muted", driver: "ok", org_admin: "info",
 } as const;
 
 const ROLE_LABEL = {
-  super_admin: "Platform", school_admin: "Admin", teacher: "Teacher", parent: "Parent", student: "Student", driver: "Driver",
+  super_admin: "Platform", school_admin: "Admin", teacher: "Teacher", parent: "Parent", student: "Student", driver: "Driver", org_admin: "Org admin",
 } as const;
 
 /** `tenant` is only needed to resolve "Teacher"->"Lecturer" etc for higher-ed
