@@ -53,6 +53,37 @@ export function validatePin(raw: string): { ok: boolean; message: string } {
 }
 
 /**
+ * FIG-396/397: a short, school-assigned alphanumeric login_id (e.g.
+ * "TC-0001") is replacing email/phone/admission-number as the sign-in
+ * credential for every role except org_admin/super_admin. One prefix per
+ * role, scoped per tenant (profiles.login_id is unique(tenant_id, login_id),
+ * the same shape students.admission_no already used) -- two schools can
+ * each assign their own "TC-0001".
+ */
+export const ROLE_ID_PREFIX: Partial<Record<Role, string>> = {
+  school_admin: "AD",
+  teacher: "TC",
+  parent: "PT",
+  student: "ST",
+  driver: "BD",
+};
+
+/** Zero-pads to 4 digits, e.g. formatLoginId("TC", 1) -> "TC-0001". */
+export function formatLoginId(prefix: string, n: number): string {
+  return `${prefix}-${String(n).padStart(4, "0")}`;
+}
+
+/**
+ * Generalizes studentLoginEmail() to every login_id-based role: none of them
+ * have a real email on file, so sign-in derives a synthetic Supabase auth
+ * address from the assigned ID instead of looking one up. Tenant-scoped for
+ * the same reason login_id itself is -- two schools can each have "TC-0001".
+ */
+export function loginIdEmail(loginId: string, tenantSlug: string): string {
+  return `${loginId.toLowerCase()}@login.${tenantSlug}.figbloom.internal`;
+}
+
+/**
  * Landing route per role. Tenant-scoped roles get the /s/<slug> prefix.
  * A higher-ed teacher (lecturer) lands on "my sections" rather than
  * Attendance — class-based screens (Attendance/Gradebook/Timetable/
