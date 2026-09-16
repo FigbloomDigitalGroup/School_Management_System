@@ -5,6 +5,7 @@ export interface NewSchoolInput {
   name: string;
   slug: string;
   county: string;
+  country: string;
   level: Tenant["level"];
   institution_type: Tenant["institution_type"];
   organization_id?: string | null;

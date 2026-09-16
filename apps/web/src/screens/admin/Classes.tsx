@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { fetchClassTimetableSlots, saveClassTimetable, supabase } from "@figbloom/shared";
-import type { ClassGroup } from "@figbloom/shared";
+import type { ClassGroup, ClassLevel } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
@@ -36,7 +36,16 @@ async function fetchClasses(): Promise<ClassesData> {
   return { classes: classRows ?? [], teachers: teacherRows ?? [], studentCountByClass };
 }
 
-const FORM_LEVELS = [1, 2, 3, 4] as const;
+// A class's own grading band (FIG-356) — independent of tenant.level, which
+// only matters for a 'combined' tenant where individual classes differ from
+// each other. The range and label ("Grade" vs "Form") both depend on it.
+const FORM_LEVEL_RANGE_BY_LEVEL: Record<ClassLevel, number[]> = {
+  primary: [1, 2, 3, 4, 5, 6],
+  junior_secondary: [7, 8, 9],
+  secondary: [1, 2, 3, 4],
+};
+const LEVEL_LABEL: Record<ClassLevel, string> = { primary: "Grade", junior_secondary: "Grade", secondary: "Form" };
+const LEVEL_OPTION_LABEL: Record<ClassLevel, string> = { primary: "Primary", junior_secondary: "Junior secondary", secondary: "Secondary" };
 
 /**
  * The list every other class-teacher assignment shortcut (TermSetup's
@@ -46,6 +55,7 @@ const FORM_LEVELS = [1, 2, 3, 4] as const;
 export function AdminClasses() {
   const toast = useToast();
   const { tenant } = useTenantSession();
+  const combined = tenant.level === "combined";
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClasses(), [reloadKey]);
   const [creating, setCreating] = useState(false);
@@ -73,7 +83,7 @@ export function AdminClasses() {
       <PageHead
         eyebrow="School · classes"
         title="Classes"
-        blurb={data ? `${data.classes.length} classes across Forms ${FORM_LEVELS[0]}–${FORM_LEVELS.at(-1)}.` : "Loading classes…"}
+        blurb={data ? `${data.classes.length} classes.` : "Loading classes…"}
         actions={<Button variant="accent" onClick={() => setCreating(true)}>Add class</Button>}
       />
 
@@ -88,6 +98,9 @@ export function AdminClasses() {
           <DataTable
             columns={[
               { key: "name", header: "Class", width: "1.4fr", render: (c: ClassGroup) => <Cell sub={c.stream ?? undefined}>{c.name}</Cell> },
+              ...(combined
+                ? [{ key: "level", header: "Level", render: (c: ClassGroup) => <span className="text-[13px]">{LEVEL_OPTION_LABEL[c.level]}</span> }]
+                : []),
               { key: "form", header: "Form", render: (c: ClassGroup) => <Mono>{c.form_level}</Mono> },
               { key: "room", header: "Room", render: (c: ClassGroup) => <span className="text-[13px]">{c.room ?? "—"}</span> },
               {
@@ -171,12 +184,24 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
   toast: (m: string) => void;
 }) {
   const { tenant } = useTenantSession();
+  const combined = tenant.level === "combined";
+  // A non-combined tenant's classes always match the tenant's own level —
+  // no reason to make every admin think about a field that's never anything
+  // else. tenant.level's 'primary'/'secondary' map directly onto ClassLevel;
+  // 'combined' has no ClassLevel equivalent, so it only ever reaches here as
+  // the picker's starting point, never as the stored value.
+  const [level, setLevel] = useState<ClassLevel>(tenant.level === "primary" ? "primary" : "secondary");
   const [name, setName] = useState("");
-  const [formLevel, setFormLevel] = useState<number>(1);
+  const [formLevel, setFormLevel] = useState<number>(FORM_LEVEL_RANGE_BY_LEVEL[level][0]!);
   const [stream, setStream] = useState("");
   const [room, setRoom] = useState("");
   const [classTeacherId, setClassTeacherId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function changeLevel(next: ClassLevel) {
+    setLevel(next);
+    setFormLevel(FORM_LEVEL_RANGE_BY_LEVEL[next][0]!);
+  }
 
   async function createClass() {
     if (!name.trim()) { toast("Give the class a name."); return; }
@@ -185,6 +210,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
       const { error } = await supabase().from("classes").insert({
         tenant_id: tenant.id,
         name: name.trim(),
+        level,
         form_level: formLevel,
         stream: stream.trim() || null,
         room: room.trim() || null,
@@ -231,15 +257,27 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
             className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
           />
         </label>
+        {combined && (
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Level</span>
+            <select
+              value={level}
+              onChange={(e) => changeLevel(e.target.value as ClassLevel)}
+              className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+            >
+              {(Object.keys(LEVEL_OPTION_LABEL) as ClassLevel[]).map((l) => <option key={l} value={l}>{LEVEL_OPTION_LABEL[l]}</option>)}
+            </select>
+          </label>
+        )}
         <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">
-            <span className="mb-1.5 block text-[12.5px] font-semibold">Form</span>
+            <span className="mb-1.5 block text-[12.5px] font-semibold">{LEVEL_LABEL[level]}</span>
             <select
               value={formLevel}
               onChange={(e) => setFormLevel(Number(e.target.value))}
               className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
             >
-              {FORM_LEVELS.map((f) => <option key={f} value={f}>Form {f}</option>)}
+              {FORM_LEVEL_RANGE_BY_LEVEL[level].map((f) => <option key={f} value={f}>{LEVEL_LABEL[level]} {f}</option>)}
             </select>
           </label>
           <label className="block">
