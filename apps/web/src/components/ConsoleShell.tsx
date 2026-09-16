@@ -15,6 +15,8 @@ interface Props {
   aside?: ReactNode;
   children: ReactNode;
   badges?: Record<string, string>;
+  /** org_admin only — there's no `tenant` to read a name/logo from, so OrgShell passes the organization's own name. */
+  workspaceName?: string;
 }
 
 /**
@@ -22,10 +24,10 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {} }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName }: Props) {
   const [open, setOpen] = useState(true);
   const [changingPw, setChangingPw] = useState(false);
-  const { slug } = useParams();
+  const { slug, orgSlug } = useParams();
   const tenant = useTenant();
   const nav = useNavigate();
   // "Classes"/"My classes" are the K-12 homeroom concept (classes.form_level,
@@ -44,7 +46,13 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     return true;
   });
-  const tenantScoped = role !== "super_admin";
+  // Three link-prefix regimes, not two: /platform/* (super_admin, absolute
+  // paths as-is), /org/:orgSlug/* (org_admin), /s/:slug/* (everyone else).
+  // org_admin was previously falling into the tenant-scoped bucket by
+  // elimination (role !== "super_admin"), building hrefs like /s/undefined/schools
+  // since useParams() on an /org/* route has no `slug` — nav was completely broken.
+  const tenantScoped = role !== "super_admin" && role !== "org_admin";
+  const orgScoped = role === "org_admin";
 
   async function signOut() {
     await supabase().auth.signOut();
@@ -62,24 +70,28 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-white p-1">
             <img
               src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/logo-mark.png"}
-              alt={tenantScoped ? tenant?.name ?? "School" : "Figbloom"}
+              alt={tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
               className="h-full w-full object-contain"
             />
           </div>
           {open && (
             <div className="overflow-hidden whitespace-nowrap">
               <div className="text-[14.5px] font-semibold tracking-tight text-white">
-                {tenantScoped ? tenant?.name ?? "School" : "Figbloom"}
+                {tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
               </div>
               <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">
-                {tenantScoped ? "SCHOOL WORKSPACE" : "PLATFORM CONSOLE"}
+                {tenantScoped ? "SCHOOL WORKSPACE" : orgScoped ? "ORGANIZATION CONSOLE" : "PLATFORM CONSOLE"}
               </div>
             </div>
           )}
         </div>
 
         {items.map((it) => {
-          const to = tenantScoped ? `/s/${slug}/${it.to.replace(/^\//, "")}` : it.to;
+          const to = tenantScoped
+            ? `/s/${slug}/${it.to.replace(/^\//, "")}`
+            : orgScoped
+              ? `/org/${orgSlug}/${it.to.replace(/^\//, "")}`
+              : it.to;
           return (
             <NavLink
               key={it.to}

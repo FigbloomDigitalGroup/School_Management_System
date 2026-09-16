@@ -109,8 +109,19 @@ export function SignIn() {
         const { data: tenant } = await supabase().from("tenants").select("slug, institution_type").eq("id", profile.tenant_id).maybeSingle();
         destSlug = tenant?.slug ?? null;
         institutionType = tenant?.institution_type;
+      } else if (profile.role === "org_admin") {
+        // Not tenant-scoped at all — resolve which organization(s) this
+        // profile administers via organization_admins instead (the same
+        // mapping-table pattern guardians uses for parents), then reuse
+        // homeRouteFor's `slug` param for the organization's own slug.
+        const { data: link } = await supabase()
+          .from("organization_admins").select("organizations(slug)").eq("profile_id", userId).maybeSingle<{ organizations: { slug: string } | null }>();
+        destSlug = link?.organizations?.slug ?? null;
       }
-      if (profile.role !== "super_admin" && !destSlug) { setError("Could not find your school. Contact Figbloom support."); return; }
+      if (profile.role !== "super_admin" && !destSlug) {
+        setError(profile.role === "org_admin" ? "Could not find your organization. Contact Figbloom support." : "Could not find your school. Contact Figbloom support.");
+        return;
+      }
       nav(homeRouteFor(profile.role as Role, destSlug, institutionType));
     } finally {
       setBusy(false);
