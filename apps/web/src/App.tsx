@@ -24,6 +24,7 @@ import { Audit, Health, Impersonation, Incidents, Invoices, Subscriptions, Usage
 import { OrgDashboard } from "./screens/org/OrgDashboard";
 import { OrgSchools } from "./screens/org/OrgSchools";
 import { OrgSchoolDetail } from "./screens/org/OrgSchoolDetail";
+import { OrgAdmins } from "./screens/org/OrgAdmins";
 import { OrgAudit } from "./screens/org/OrgAudit";
 
 import { AdminDashboard } from "./screens/admin/Dashboard";
@@ -224,6 +225,7 @@ function OrgRoutes() {
           <Route path="dashboard" element={<OrgShell><OrgDashboard /></OrgShell>} />
           <Route path="schools" element={<OrgShell><OrgSchools /></OrgShell>} />
           <Route path="schools/:tenantId" element={<OrgShell><OrgSchoolDetail /></OrgShell>} />
+          <Route path="admins" element={<OrgShell><OrgAdmins /></OrgShell>} />
           <Route path="audit" element={<OrgShell><OrgAudit /></OrgShell>} />
           <Route path="*" element={<NotFound />} />
         </Routes>

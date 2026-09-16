@@ -134,6 +134,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   org_admin: [
     { to: "dashboard", label: "Dashboard", icon: "home" },
     { to: "schools", label: "Schools", icon: "table" },
+    { to: "admins", label: "Admins", icon: "people" },
     { to: "audit", label: "Audit log", icon: "gear" },
   ],
 };
