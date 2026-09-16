@@ -24,11 +24,14 @@ export function OrgAudit() {
   const { organization } = useOrgSessionCtx();
   const { data, loading, error } = useAsync(() => fetchOrganizationAccessLog(organization.id), [organization.id]);
 
-  if (loading || !data) {
-    return <RecordsPage spec={{ eyebrow: organization.name, title: "Audit log", blurb: "Loading…", stats: [], columns: [], rows: [] }} />;
-  }
-  if (error) {
-    return <RecordsPage spec={{ eyebrow: organization.name, title: "Audit log", blurb: `Could not load: ${error.message}`, stats: [], columns: [], rows: [] }} />;
+  if (loading || !data || error) {
+    return (
+      <RecordsPage
+        spec={{ eyebrow: organization.name, title: "Audit log", blurb: "", stats: [], columns: [], rows: [] }}
+        loading={loading || !data}
+        error={error?.message}
+      />
+    );
   }
 
   const now = new Date();
