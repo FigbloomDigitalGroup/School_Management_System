@@ -1,4 +1,4 @@
-import { againstMean, GRADE_INK, gradeFor, pointsFor } from "@figbloom/shared";
+import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, pointsFor } from "@figbloom/shared";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -56,9 +56,10 @@ export function StudentResults() {
     );
   }
 
+  const scheme = gradingSchemeFor(tenant.country, data.classLevel ?? "secondary");
   const subjects = data.subjects;
   const meanMark = subjects.length ? Math.round(subjects.reduce((a, s) => a + s.score, 0) / subjects.length) : null;
-  const points = subjects.reduce((a, s) => a + pointsFor(s.score), 0);
+  const points = subjects.reduce((a, s) => a + pointsFor(s.score, scheme), 0);
 
   return (
     <>
@@ -75,7 +76,7 @@ export function StudentResults() {
           <>
             <StatRow
               stats={[
-                { label: data.examName ?? "Latest exam", value: gradeFor(meanMark), sub: `${meanMark} marks · ${points} points` },
+                { label: data.examName ?? "Latest exam", value: gradeFor(meanMark, scheme), sub: `${meanMark} marks · ${points} points` },
                 { label: "Subjects assessed", value: String(subjects.length) },
               ]}
             />
@@ -101,8 +102,8 @@ export function StudentResults() {
                   {
                     key: "grade", header: "Grade", align: "right", width: "0.7fr",
                     render: (s: ResultSubject) => (
-                      <span className="font-mono text-[13px] font-semibold" style={{ color: GRADE_INK[gradeFor(s.score)] }}>
-                        {gradeFor(s.score)}
+                      <span className="font-mono text-[13px] font-semibold" style={{ color: GRADE_INK[gradeFor(s.score, scheme)] }}>
+                        {gradeFor(s.score, scheme)}
                       </span>
                     ),
                   },

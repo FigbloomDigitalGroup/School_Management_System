@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Audience } from "./types";
+import type { Audience, ClassLevel } from "./types";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -27,6 +27,7 @@ export interface ChildInfo {
   cls: string;
   adm: string;
   classId: string;
+  classLevel: ClassLevel; // picks the grading scheme (FIG-356) via gradingSchemeFor()
   formLevel: number;
   boarding: boolean;
   balance: number;
@@ -85,11 +86,11 @@ export function formatPhone(raw: string | null): string {
 export async function loadParentData(profileId: string): Promise<ParentData> {
   const { data: guardianRows, error: gErr } = await supabase()
     .from("guardians")
-    .select("students(id, full_name, admission_no, class_id, boarding, classes(name, form_level))")
+    .select("students(id, full_name, admission_no, class_id, boarding, classes(name, form_level, level))")
     .eq("profile_id", profileId);
   if (gErr) throw gErr;
 
-  const kids = ((guardianRows ?? []) as unknown as { students: { id: string; full_name: string; admission_no: string; class_id: string; boarding: boolean; classes: { name: string; form_level: number } } | null }[])
+  const kids = ((guardianRows ?? []) as unknown as { students: { id: string; full_name: string; admission_no: string; class_id: string; boarding: boolean; classes: { name: string; form_level: number; level: ClassLevel } } | null }[])
     .map((g) => g.students)
     .filter((s): s is NonNullable<typeof s> => s !== null)
     .sort((a, b) => a.admission_no.localeCompare(b.admission_no));
@@ -187,6 +188,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       cls: k.classes?.name ?? "",
       adm: k.admission_no,
       classId: k.class_id,
+      classLevel: k.classes?.level ?? "secondary",
       formLevel: k.classes?.form_level ?? 1,
       boarding: k.boarding,
       balance: inv ? Math.max(inv.total_cents - inv.paid_cents, 0) : 0,

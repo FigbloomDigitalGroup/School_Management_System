@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { againstMean, gradeFor, parseScoreInput, pointsFor, summarise } from "./grading";
 
-describe("gradeFor / pointsFor", () => {
+describe("gradeFor / pointsFor (kcse)", () => {
   it.each([
     [80, "A", 12],
     [79, "A-", 11],
@@ -12,14 +12,37 @@ describe("gradeFor / pointsFor", () => {
     [1, "E", 1],
     [0, "E", 1],
   ])("scores %i as %s (%i points)", (score, grade, points) => {
-    expect(gradeFor(score)).toBe(grade);
-    expect(pointsFor(score)).toBe(points);
+    expect(gradeFor(score, "kcse")).toBe(grade);
+    expect(pointsFor(score, "kcse")).toBe(points);
+  });
+});
+
+describe("gradeFor / pointsFor (cbc)", () => {
+  it.each([
+    [95, "EE1", 8],
+    [90, "EE1", 8],
+    [80, "EE2", 7],
+    [60, "ME1", 6],
+    [45, "ME2", 5],
+    [35, "AE1", 4],
+    [25, "AE2", 3],
+    [15, "BE1", 2],
+    [5, "BE2", 1],
+    [0, "BE2", 1],
+  ])("scores %i as %s (%i points)", (score, grade, points) => {
+    expect(gradeFor(score, "cbc")).toBe(grade);
+    expect(pointsFor(score, "cbc")).toBe(points);
+  });
+
+  it("the same score renders differently under each scheme", () => {
+    expect(gradeFor(85, "kcse")).toBe("A");
+    expect(gradeFor(85, "cbc")).toBe("EE2");
   });
 });
 
 describe("summarise", () => {
   it("never invents a mean from an empty roster", () => {
-    const s = summarise([{ subject: "Math", score: null }, { subject: "English", score: null }]);
+    const s = summarise([{ subject: "Math", score: null }, { subject: "English", score: null }], "kcse");
     expect(s).toEqual({ entered: 0, total: 2, meanScore: null, meanGrade: null, totalPoints: 0 });
   });
 
@@ -28,12 +51,18 @@ describe("summarise", () => {
       { subject: "Math", score: 80 },
       { subject: "English", score: 60 },
       { subject: "Kiswahili", score: null },
-    ]);
+    ], "kcse");
     expect(s.entered).toBe(2);
     expect(s.total).toBe(3);
     expect(s.meanScore).toBe(70);
     expect(s.meanGrade).toBe("B+");
     expect(s.totalPoints).toBe(12 + 8);
+  });
+
+  it("uses the cbc scale when asked", () => {
+    const s = summarise([{ subject: "Math", score: 92 }, { subject: "English", score: 88 }], "cbc");
+    expect(s.meanScore).toBe(90);
+    expect(s.meanGrade).toBe("EE1");
   });
 });
 

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import {
-  KES, PAYMENT_FAILURES, againstMean, gradeFor, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase,
+  GRADE_INK, KES, PAYMENT_FAILURES, againstMean, gradeFor, gradingSchemeFor, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase,
 } from "@figbloom/shared";
 import { formatPhone, formatShortDate, loadParentData } from "@figbloom/shared";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
@@ -127,6 +127,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
   }
 
   const feeItems = itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel);
+  const scheme = gradingSchemeFor(tenant.country, child.classLevel);
   const statCards = [
     {
       label: "Attendance",
@@ -135,7 +136,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
     },
     {
       label: "Mean grade",
-      value: child.mean === null ? "—" : gradeFor(child.mean),
+      value: child.mean === null ? "—" : gradeFor(child.mean, scheme),
       note: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
     },
   ];
@@ -492,7 +493,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 <div className="rounded-2xl p-4 text-white" style={{ background: tint }}>
                   <div className="font-mono text-[9.5px] tracking-[0.12em] text-white/70">MEAN GRADE{child.examName ? ` · ${child.examName.toUpperCase()}` : ""}</div>
                   <div className="mt-1.5 flex items-baseline gap-3">
-                    <span className="text-[38px] font-bold tracking-tight">{gradeFor(child.mean)}</span>
+                    <span className="text-[38px] font-bold tracking-tight">{gradeFor(child.mean, scheme)}</span>
                     <span className="font-mono text-[14px] text-white/80">{child.mean} marks</span>
                   </div>
                   <p className="mt-2 text-[12.5px] leading-relaxed text-white/85">
@@ -519,7 +520,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="font-mono text-[18px]">{s.score}</div>
-                        <div className="text-[12px] font-bold" style={{ color: s.score >= 75 ? "#1B4D2E" : s.score >= 65 ? "#2E7D4F" : "#8A3D08" }}>{gradeFor(s.score)}</div>
+                        <div className="text-[12px] font-bold" style={{ color: GRADE_INK[gradeFor(s.score, scheme)] }}>{gradeFor(s.score, scheme)}</div>
                       </div>
                     </div>
                   ))}

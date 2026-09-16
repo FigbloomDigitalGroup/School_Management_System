@@ -1,8 +1,9 @@
-import { GRADE_INK, againstMean, gradeFor } from "@figbloom/shared";
+import { GRADE_INK, againstMean, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { useParentData } from "../../lib/parentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import type { ChildSubject } from "@figbloom/shared";
 import { ChildSwitcher } from "./ChildSwitcher";
 
@@ -11,7 +12,9 @@ import { ChildSwitcher } from "./ChildSwitcher";
  * row, each measured against the class mean rather than a class rank.
  */
 export function ParentResults() {
+  const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
+  const scheme = gradingSchemeFor(tenant.country, child?.classLevel ?? "secondary");
 
   const strongestWeakest = child && child.subjects.length > 0
     ? (() => {
@@ -56,7 +59,7 @@ export function ParentResults() {
                 MEAN GRADE{child.examName ? ` · ${child.examName.toUpperCase()}` : ""}
               </div>
               <div className="mt-1.5 flex items-baseline gap-3">
-                <span className="text-[34px] font-bold tracking-tight">{gradeFor(child.mean)}</span>
+                <span className="text-[34px] font-bold tracking-tight">{gradeFor(child.mean, scheme)}</span>
                 <span className="font-mono text-[14px] text-white/80">{child.mean} marks</span>
               </div>
               {strongestWeakest && (
@@ -75,8 +78,8 @@ export function ParentResults() {
                   {
                     key: "grade", header: "Grade", align: "right", width: "0.7fr",
                     render: (r: ChildSubject) => (
-                      <span className="font-mono text-[12.5px] font-semibold" style={{ color: GRADE_INK[gradeFor(r.score)] }}>
-                        {gradeFor(r.score)}
+                      <span className="font-mono text-[12.5px] font-semibold" style={{ color: GRADE_INK[gradeFor(r.score, scheme)] }}>
+                        {gradeFor(r.score, scheme)}
                       </span>
                     ),
                   },
