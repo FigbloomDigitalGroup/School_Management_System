@@ -112,7 +112,11 @@ export interface OrgAdminInviteInput {
 export interface OrgAdminInviteResult {
   ok: true;
   email: string;
-  password: string;
+  /** True when this invite linked an existing org_admin account to a new
+   *  organization instead of creating a new login — no password to show,
+   *  they already have working credentials. */
+  linkedExisting: boolean;
+  password?: string;
 }
 
 export async function inviteOrgAdmin(input: OrgAdminInviteInput): Promise<OrgAdminInviteResult> {

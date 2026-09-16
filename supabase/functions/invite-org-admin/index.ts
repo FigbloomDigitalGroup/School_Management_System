@@ -1,16 +1,28 @@
 /**
  * Creates an org-admin account for a cross-tenant "organization" (FIG-331) —
  * a county/national government body, a constituency, or a private
- * group-owner spanning several otherwise-independent tenants.
+ * group-owner spanning several otherwise-independent tenants. Also the
+ * "invite a co-admin" path for an org that already exists (FIG-386): the
+ * same organization can now be administered by more than one person, and a
+ * person invited into a second organization keeps their one existing login
+ * rather than getting a second account.
  *
  * Deploy: supabase functions deploy invite-org-admin
  *
- * A direct copy of invite-admin/index.ts's pattern: only a real platform
- * super_admin may call this (checked against the service-role client, never
- * the caller's own claim), the auth account is created outright with a
- * fixed dev password (no email/SMS provider wired up locally — see
- * invite-admin's own docstring for why), and a failed profile insert rolls
- * back the orphaned auth account rather than leaving a login with no profile.
+ * Caller must be a real platform super_admin, OR an existing org_admin
+ * inviting someone into an organization they themselves administer (checked
+ * against the service-role client, never the caller's own claim) — mirrors
+ * invite-admin/index.ts's caller-check shape exactly.
+ *
+ * Create-or-link: if the invited email already belongs to an org_admin
+ * profile, no new auth account is created — just a new organization_admins
+ * link row, so that person's one login now covers both organizations. If
+ * the email belongs to some OTHER role (school_admin/parent/student/etc.),
+ * that account can't be repurposed and the invite is rejected. Only a
+ * genuinely new email creates a new account, with a fixed dev password (no
+ * email/SMS provider wired up locally — see invite-admin's own docstring
+ * for why) — a failed profile insert rolls back the orphaned auth account
+ * rather than leaving a login with no profile.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -39,8 +51,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: callerProfile } = await admin
     .from("profiles").select("role, full_name").eq("id", user.id).maybeSingle();
-  if (callerProfile?.role !== "super_admin") {
-    return json({ error: "Only Figbloom staff can create an organization admin." }, 403);
+  if (callerProfile?.role !== "super_admin" && callerProfile?.role !== "org_admin") {
+    return json({ error: "Only Figbloom staff, or an organization's own admin, can invite an organization admin." }, 403);
   }
 
   let body: Partial<Body>;
@@ -54,6 +66,50 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const { data: organization, error: orgErr } = await admin
     .from("organizations").select("id, name").eq("id", organization_id).maybeSingle();
   if (orgErr || !organization) return json({ error: "That organization could not be found." }, 404);
+
+  let authorized = callerProfile.role === "super_admin";
+  if (!authorized) {
+    const { data: link } = await admin.from("organization_admins")
+      .select("id").eq("profile_id", user.id).eq("organization_id", organization_id).maybeSingle();
+    authorized = !!link;
+  }
+  if (!authorized) {
+    return json({ error: "You do not administer this organization." }, 403);
+  }
+
+  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : "org admin";
+
+  // Create-or-link: does this email already have an account?
+  const { data: existingProfile } = await admin
+    .from("profiles").select("id, role, full_name").eq("email", email.trim()).maybeSingle();
+
+  if (existingProfile) {
+    if (existingProfile.role !== "org_admin") {
+      return json({ error: "That email already has a Figbloom account that isn't an organization admin — it can't be reused for this." }, 409);
+    }
+    const { data: existingLink } = await admin.from("organization_admins")
+      .select("id").eq("profile_id", existingProfile.id).eq("organization_id", organization_id).maybeSingle();
+    if (existingLink) {
+      return json({ error: `${existingProfile.full_name} already administers this organization.` }, 409);
+    }
+
+    const { error: linkErr } = await admin.from("organization_admins").insert({
+      profile_id: existingProfile.id,
+      organization_id,
+      added_by: user.id,
+    });
+    if (linkErr) return json({ error: linkErr.message }, 500);
+
+    await admin.from("audit_events").insert({
+      tenant_id: null,
+      actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Figbloom ${actorSuffix}`,
+      event: `${existingProfile.full_name} added as an existing admin for ${organization.name}`,
+      category: "provisioning",
+    });
+
+    // Already has working credentials elsewhere — nothing new to hand over.
+    return json({ ok: true, linkedExisting: true, email: email.trim() });
+  }
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: email.trim(),
@@ -97,12 +153,12 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   await admin.from("audit_events").insert({
     tenant_id: null,
-    actor_label: callerProfile.full_name ? `${callerProfile.full_name} · Figbloom` : "Figbloom staff",
+    actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Figbloom ${actorSuffix}`,
     event: `Org admin ${full_name.trim()} added for ${organization.name}`,
     category: "provisioning",
   });
 
-  return json({ ok: true, email: email.trim(), password: DEV_PASSWORD });
+  return json({ ok: true, linkedExisting: false, email: email.trim(), password: DEV_PASSWORD });
 }
 
 if (import.meta.main) {
