@@ -16,3 +16,4 @@ export * from "./courseGrades";
 export * from "./fleet";
 export * from "./supabase";
 export * from "./demo";
+export * from "./organizations";

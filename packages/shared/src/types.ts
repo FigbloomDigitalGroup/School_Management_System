@@ -55,6 +55,33 @@ export interface OrganizationAdmin {
   added_by: string | null;
 }
 
+/**
+ * Aggregate-only, never a row of students/marks/attendance/fee_invoices
+ * itself — trigger-maintained (FIG-332) rather than a live view, so an
+ * org_admin's RLS grant on this table can never turn into a path back to PII.
+ */
+export interface OrganizationTenantSummary {
+  tenant_id: string;
+  organization_id: string | null;
+  name: string;
+  institution_type: InstitutionType;
+  status: TenantStatus;
+  active_students: number;
+  present_today: number;
+  fees_billed_cents: number;
+  fees_collected_cents: number;
+  updated_at: string;
+}
+
+export interface OrganizationAccessLog {
+  id: string;
+  organization_id: string;
+  profile_id: string;
+  tenant_id: string | null; // null = an org-wide view, not one school
+  action: string;
+  accessed_at: string;
+}
+
 export type IncidentSeverity = "SEV-1" | "SEV-2" | "SEV-3";
 export type IncidentStatus = "investigating" | "fix_in_review" | "resolved";
 
