@@ -41,10 +41,15 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // sections yet). Gradebook is the exception: FIG-330 gave it a real
   // higher-ed branch (GpaGradebook), so it stays visible for both.
   const higherEd = tenant?.institution_type === "higher_ed";
+  // Transport is meaningless for a fully-online tenant (FIG-358) — hidden
+  // here, and the underlying routes are gated the same way in App.tsx, since
+  // hiding a nav item alone never blocks the route itself.
+  const online = tenant?.delivery_mode === "online";
   const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages"]);
   const items = NAV[role].filter((item) => {
     if (item.to === "admin/classes" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
+    if (item.to === "admin/fleet" || item.to === "parent/bus") return !online;
     return true;
   });
   // Three link-prefix regimes, not two: /platform/* (super_admin, absolute

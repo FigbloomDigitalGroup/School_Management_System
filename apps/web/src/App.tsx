@@ -154,7 +154,7 @@ function TenantRoutes() {
           <Route path="admin/people" element={<AdminShell allow={["school_admin"]}><People /></AdminShell>} />
           <Route path="admin/fees" element={<AdminShell allow={["school_admin"]}><Fees /></AdminShell>} />
           <Route path="admin/announcements" element={<AdminShell allow={["school_admin"]}><Announcements /></AdminShell>} />
-          <Route path="admin/fleet" element={<AdminShell allow={["school_admin"]}><Fleet /></AdminShell>} />
+          <Route path="admin/fleet" element={<AdminShell allow={["school_admin"]}><DeliveryModeGate><Fleet /></DeliveryModeGate></AdminShell>} />
           <Route path="admin/settings" element={<AdminShell allow={["school_admin"]}><TermSetup /></AdminShell>} />
           <Route path="admin/classes" element={<AdminShell allow={["school_admin"]}><AdminClasses /></AdminShell>} />
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
@@ -171,7 +171,7 @@ function TenantRoutes() {
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
           <Route path="parent/results" element={<ParentShell><ParentResults /></ParentShell>} />
-          <Route path="parent/bus" element={<ParentShell><ParentBus /></ParentShell>} />
+          <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
 
@@ -236,6 +236,17 @@ const OrgShell = ({ children }: { children: ReactNode }) => {
 function RoleGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
   const session = useTenantSession();
   if (!allow.includes(session.profile.role)) {
+    return <Navigate to={homeRouteFor(session.profile.role, session.tenant.slug, session.tenant.institution_type)} replace />;
+  }
+  return <>{children}</>;
+}
+
+/** Fleet/Bus are meaningless for a fully-online tenant (FIG-358) — previously
+ *  reachable by direct URL for any tenant regardless of institution_type,
+ *  since only the nav item was ever hidden, never the route itself. */
+function DeliveryModeGate({ children }: { children: ReactNode }) {
+  const session = useTenantSession();
+  if (session.tenant.delivery_mode === "online") {
     return <Navigate to={homeRouteFor(session.profile.role, session.tenant.slug, session.tenant.institution_type)} replace />;
   }
   return <>{children}</>;

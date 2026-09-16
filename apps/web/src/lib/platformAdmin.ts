@@ -9,6 +9,7 @@ export interface NewSchoolInput {
   level: Tenant["level"];
   institution_type: Tenant["institution_type"];
   higher_ed_subtype: Tenant["higher_ed_subtype"];
+  delivery_mode: Tenant["delivery_mode"];
   organization_id?: string | null;
   moe_registration: string | null;
   plan: Tenant["plan"];

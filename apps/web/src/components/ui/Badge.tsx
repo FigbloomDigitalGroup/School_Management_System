@@ -37,6 +37,12 @@ export const HIGHER_ED_SUBTYPE_LABEL: Record<HigherEdSubtype, string> = {
   university: "University", college: "College", short_course: "Short-course school", tvet: "TVET",
 };
 
+/** Descriptive + real nav/route gating for Fleet/Bus (FIG-358 v1) — attendance
+ *  and timetable stay roll-call/fixed-grid regardless of this value. */
+export const DELIVERY_MODE_LABEL: Record<"in_person" | "online" | "hybrid", string> = {
+  in_person: "In-person", online: "Online", hybrid: "Hybrid",
+};
+
 /** `tenant` is only needed to resolve "Teacher"->"Lecturer" etc for higher-ed
  *  tenants; platform-wide screens with no tenant in scope get the K-12 default. */
 export function RoleBadge({ role, tenant }: { role: keyof typeof ROLE_LABEL; tenant?: Pick<Tenant, "institution_type" | "role_labels"> }) {
