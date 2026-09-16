@@ -60,7 +60,7 @@ export interface Organization {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
-  status: "active" | "suspended";
+  status: "pending" | "active" | "suspended";
   created_at: string;
   created_by: string | null;
 }
