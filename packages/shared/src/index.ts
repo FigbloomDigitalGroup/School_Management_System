@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./tokens";
 export * from "./tenancy";
 export * from "./grading";
+export * from "./gradingSchemes";
 export * from "./fees";
 export * from "./attendance";
 export * from "./queue";

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { againstMean, daysUntil, fetchClassTimetable, formatDueLabel, gradeFor, loadStudentData, pointsFor, type Weekday } from "@figbloom/shared";
+import { againstMean, daysUntil, fetchClassTimetable, formatDueLabel, GRADE_INK, gradeFor, gradingSchemeFor, loadStudentData, pointsFor, type Weekday } from "@figbloom/shared";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -112,8 +112,9 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
     }
   }
 
+  const scheme = gradingSchemeFor(tenant.country, data.classLevel ?? "secondary");
   const meanMark = data.subjects.length ? Math.round(data.subjects.reduce((a, s) => a + s.score, 0) / data.subjects.length) : null;
-  const points = data.subjects.reduce((a, s) => a + pointsFor(s.score), 0);
+  const points = data.subjects.reduce((a, s) => a + pointsFor(s.score, scheme), 0);
 
   const heads: Record<Screen, [string, string]> = {
     today: ["Tuesday", "2 September · week 8"],
@@ -379,7 +380,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
                 <div className="rounded-2xl p-4 text-white" style={{ background: tint }}>
                   <div className="font-mono text-[9.5px] tracking-[0.12em] text-white/70">MEAN GRADE{data.examName ? ` · ${data.examName.toUpperCase()}` : ""}</div>
                   <div className="mt-1.5 flex items-baseline gap-3">
-                    <span className="text-[38px] font-bold tracking-tight">{gradeFor(meanMark)}</span>
+                    <span className="text-[38px] font-bold tracking-tight">{gradeFor(meanMark, scheme)}</span>
                     <span className="font-mono text-[14px] text-white/80">{meanMark} marks · {points} points</span>
                   </div>
                   <p className="mt-2 text-[12.5px] leading-relaxed text-white/85">
@@ -406,7 +407,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="font-mono text-[18px]">{s.score}</div>
-                        <div className="text-[12px] font-bold" style={{ color: s.score >= 75 ? "#1B4D2E" : s.score >= 65 ? "#2E7D4F" : "#8A3D08" }}>{gradeFor(s.score)}</div>
+                        <div className="text-[12px] font-bold" style={{ color: GRADE_INK[gradeFor(s.score, scheme)] }}>{gradeFor(s.score, scheme)}</div>
                       </div>
                     </div>
                   ))}

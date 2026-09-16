@@ -1,6 +1,6 @@
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { KES, gradeFor } from "@figbloom/shared";
+import { KES, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren, useMessages } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
@@ -11,7 +11,7 @@ import { ChildSwitcher } from "../../components/ChildSwitcher";
  */
 export function ParentHome() {
   const nav = useNavigation<any>();
-  const { child, index, setIndex, accent } = useChild();
+  const { child, index, setIndex, accent, country } = useChild();
   const kids = useChildren();
   const messages = useMessages();
   const a = accentFor(accent);
@@ -55,7 +55,7 @@ export function ParentHome() {
         <View style={[s.row, { marginTop: 16, gap: 10 }]}>
           {[
             { label: "ATTENDANCE", value: `${child.attendance}%`, note: "this term" },
-            { label: "MEAN GRADE", value: gradeFor(child.mean), note: `${child.mean} marks, Mock 1` },
+            { label: "MEAN GRADE", value: gradeFor(child.mean, gradingSchemeFor(country, child.classLevel)), note: `${child.mean} marks, Mock 1` },
           ].map((k) => (
             <View key={k.label} style={[s.card, { flex: 1, padding: 14 }]}>
               <Text style={s.eyebrow}>{k.label}</Text>

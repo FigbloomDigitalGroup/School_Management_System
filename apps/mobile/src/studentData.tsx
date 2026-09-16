@@ -21,6 +21,7 @@ interface Ctx {
   data: StudentData;
   timetable: Record<Weekday, [string, string, string][]>;
   accent: string;
+  country: string;
 }
 
 type State =
@@ -30,7 +31,7 @@ type State =
 
 const StudentDataCtx = createContext<Ctx | null>(null);
 
-export function StudentDataProvider({ profileId, accent, children }: { profileId: string; accent: string; children: ReactNode }) {
+export function StudentDataProvider({ profileId, accent, country, children }: { profileId: string; accent: string; country: string; children: ReactNode }) {
   const [state, setState] = useState<State>({ status: "loading" });
 
   useEffect(() => {
@@ -80,7 +81,7 @@ export function StudentDataProvider({ profileId, accent, children }: { profileId
   }
 
   return (
-    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, accent }}>
+    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, accent, country }}>
       {children}
     </StudentDataCtx.Provider>
   );

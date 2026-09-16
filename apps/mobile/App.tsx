@@ -11,8 +11,8 @@ import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
 
 type Session =
-  | { role: "parent"; accent: string; profileId: string }
-  | { role: "student"; accent: string; profileId: string }
+  | { role: "parent"; accent: string; profileId: string; country: string }
+  | { role: "student"; accent: string; profileId: string; country: string }
   | { role: "driver"; accent: string; profileId: string; tenantId: string; fullName: string };
 
 /**
@@ -42,15 +42,17 @@ export default function App() {
       }
 
       let accent = "#7A1F2B";
+      let country = "KE";
       if (profile.tenant_id) {
         const { data: tenant } = await supabase()
-          .from("tenants").select("accent").eq("id", profile.tenant_id).maybeSingle();
+          .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
         if (tenant?.accent) accent = tenant.accent;
+        if (tenant?.country) country = tenant.country;
       }
 
       const session: Session = profile.role === "driver"
         ? { role: "driver", accent, profileId: user.id, tenantId: profile.tenant_id!, fullName: profile.full_name }
-        : { role: profile.role, accent, profileId: user.id };
+        : { role: profile.role, accent, profileId: user.id, country };
       if (alive) { setSession(session); setLoading(false); }
     }
 
@@ -80,11 +82,11 @@ export default function App() {
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
       {session ? (
         session.role === "parent" ? (
-          <ParentDataProvider profileId={session.profileId} accent={session.accent}>
+          <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country}>
             <Navigation role="parent" accent={session.accent} />
           </ParentDataProvider>
         ) : session.role === "student" ? (
-          <StudentDataProvider profileId={session.profileId} accent={session.accent}>
+          <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country}>
             <Navigation role="student" accent={session.accent} />
           </StudentDataProvider>
         ) : (

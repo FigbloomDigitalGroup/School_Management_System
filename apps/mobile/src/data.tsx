@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, type ChildInfo, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
+import { loadParentData, type ChildInfo, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -24,6 +24,7 @@ interface Child {
   dueOn: string | null;
   boarding: boolean;
   formLevel: number;
+  classLevel: ClassLevel;
   receipts: Receipt[];
   /** No register taken yet reads as nothing to report, not as absent. */
   attendance: number;
@@ -35,7 +36,7 @@ function toChild(c: ChildInfo): Child {
   return {
     id: c.id, name: c.name, first: c.first, cls: c.cls, adm: c.adm,
     balance: c.balance, billed: c.billed, dueOn: c.dueOn,
-    boarding: c.boarding, formLevel: c.formLevel, receipts: c.receipts,
+    boarding: c.boarding, formLevel: c.formLevel, classLevel: c.classLevel, receipts: c.receipts,
     attendance: c.attendancePct ?? 100,
     mean: c.mean ?? 0,
   };
@@ -50,11 +51,12 @@ interface Ctx {
   index: number;
   setIndex: (i: number) => void;
   accent: string;
+  country: string;
 }
 
 const ParentDataCtx = createContext<Ctx | null>(null);
 
-export function ParentDataProvider({ profileId, accent, children }: { profileId: string; accent: string; children: ReactNode }) {
+export function ParentDataProvider({ profileId, accent, country, children }: { profileId: string; accent: string; country: string; children: ReactNode }) {
   const [data, setData] = useState<ParentData | null>(null);
   const [index, setIndex] = useState(0);
 
@@ -107,6 +109,7 @@ export function ParentDataProvider({ profileId, accent, children }: { profileId:
     index,
     setIndex,
     accent,
+    country,
   };
 
   return <ParentDataCtx.Provider value={value}>{children}</ParentDataCtx.Provider>;
@@ -119,8 +122,8 @@ function useParentData(): Ctx {
 }
 
 export function useChild() {
-  const { children, index, setIndex, accent } = useParentData();
-  return { child: children[index] ?? children[0]!, index, setIndex, accent };
+  const { children, index, setIndex, accent, country } = useParentData();
+  return { child: children[index] ?? children[0]!, index, setIndex, accent, country };
 }
 
 export function useChildren(): Child[] {

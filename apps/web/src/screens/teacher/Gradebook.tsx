@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { GRADE_INK, gradeFor, parseScoreInput, summarise, supabase, type Exam, type Student } from "@figbloom/shared";
+import { GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, summarise, supabase, type Exam, type Student } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
@@ -99,6 +99,8 @@ export function Gradebook() {
 
   const subject = subjectsData.find((s) => s.id === subjectId);
   const exam = examsData.find((e) => e.id === examId);
+  const selectedClass = classesData.find((c) => c.id === classId);
+  const scheme = gradingSchemeFor(tenant.country, selectedClass?.level ?? "secondary");
 
   const value = (id: string) => {
     const key = `${classId}|${examId}|${subjectId}|${id}`;
@@ -125,7 +127,7 @@ export function Gradebook() {
   const summary = summarise(roster.map((s) => {
     const v = parseScoreInput(value(s.id));
     return { subject: s.id, score: v.ok ? v.score : null };
-  }));
+  }), scheme);
   const mean = useMemo(() => {
     const vals = Object.values(existingMarks).filter((v): v is number => v !== null);
     if (!vals.length) return null;
@@ -233,7 +235,7 @@ export function Gradebook() {
               const raw = value(s.id);
               const parsed = parseScoreInput(raw);
               const score = parsed.ok ? parsed.score : null;
-              const grade = score === null ? null : gradeFor(score);
+              const grade = score === null ? null : gradeFor(score, scheme);
               const err = errors[s.id];
               return (
                 <div key={s.id} className="grid items-center gap-3.5 border-b border-line-soft px-4 py-2"

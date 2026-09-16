@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { formatShortDate, formatWhen, type Receipt } from "./parentData";
+import type { ClassLevel } from "./types";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -42,6 +43,7 @@ export interface NoticeInfo {
 export interface StudentData {
   studentId: string;
   classId: string | null; // null for a higher-ed student (FIG-327): they enroll into course_sections instead of one fixed class
+  classLevel: ClassLevel | null; // null alongside classId — picks the grading scheme (FIG-356) via gradingSchemeFor()
   className: string;
   work: WorkItem[];
   notices: NoticeInfo[];
@@ -141,9 +143,9 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
 export async function loadStudentData(profileId: string): Promise<StudentData | null> {
   const { data: studentRow } = await supabase()
     .from("students")
-    .select("id, class_id, classes(name)")
+    .select("id, class_id, classes(name, level)")
     .eq("profile_id", profileId)
-    .maybeSingle<{ id: string; class_id: string | null; classes: { name: string } | null }>();
+    .maybeSingle<{ id: string; class_id: string | null; classes: { name: string; level: ClassLevel } | null }>();
   if (!studentRow) return null;
 
   // A higher-ed student (FIG-327) has class_id = null — class-scoped queries
@@ -233,6 +235,7 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
   return {
     studentId: studentRow.id,
     classId: studentRow.class_id,
+    classLevel: studentRow.classes?.level ?? null,
     className: studentRow.classes?.name ?? "",
     work,
     notices,
