@@ -321,11 +321,16 @@ function InviteOrgAdminModal({ organizationId, onClose, onInvited, toast }: {
   }
 
   return (
-    <Modal open onClose={onClose} eyebrow="Organizations" title={result ? "Org admin created" : "Invite an org admin"}
+    <Modal open onClose={onClose} eyebrow="Organizations" title={result ? (result.linkedExisting ? "Admin added" : "Org admin created") : "Invite an org admin"}
       actions={result ? <Button variant="accent" onClick={onClose}>Done</Button> : (
         <><Button onClick={onClose}>Cancel</Button><Button variant="accent" onClick={() => void invite()} disabled={saving}>{saving ? "Creating…" : "Create account"}</Button></>
       )}>
-      {result ? (
+      {result ? result.linkedExisting ? (
+        <p className="text-[13px] leading-relaxed text-ink-muted">
+          <span className="font-medium text-ink">{result.email}</span> already has a Figbloom login as an organization
+          admin elsewhere — they've been added here too, with their existing sign-in.
+        </p>
+      ) : (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
             No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.

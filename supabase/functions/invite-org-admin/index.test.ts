@@ -67,7 +67,7 @@ describe("invite-org-admin handle", () => {
     assertEquals(res.status, 401);
   });
 
-  it("rejects a caller who is not a super_admin", async () => {
+  it("rejects a caller who is neither super_admin nor org_admin", async () => {
     const { admin, asUser } = makeClients({ role: "school_admin" });
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 403);
@@ -92,6 +92,7 @@ describe("invite-org-admin handle", () => {
     const out = await res.json();
     assertEquals(out.ok, true);
     assertEquals(out.email, validBody.email);
+    assertEquals(out.linkedExisting, false);
 
     const profiles = admin.rowsIn("profiles");
     const created = profiles.find((p) => p.id === "new-org-admin-1");
@@ -134,5 +135,89 @@ describe("invite-org-admin handle", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.deletedUserIds, ["new-org-admin-1"]);
     assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-org-admin-1"), undefined);
+  });
+
+  describe("org_admin caller (FIG-389)", () => {
+    const ORG_ADMIN_ID = "org-admin-1";
+    const OTHER_ORG_ID = "org-2";
+
+    function makeOrgAdminClients(opts: { linkedOrgId?: string } = {}) {
+      const admin = new FakeSupabaseClient();
+      admin.seed("profiles", [{ id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" }]);
+      admin.seed("organizations", [{ id: ORG_ID, name: "Nakuru County" }]);
+      if (opts.linkedOrgId !== undefined) {
+        admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: opts.linkedOrgId }]);
+      }
+      admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-org-admin-1", email: attrs.email } }, error: null });
+
+      const asUser = new FakeSupabaseClient();
+      asUser.authUser = { id: ORG_ADMIN_ID };
+      return { admin, asUser };
+    }
+
+    it("allows an org_admin to invite a co-admin into their own organization", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ linkedOrgId: ORG_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 200);
+      const audit = admin.rowsIn("audit_events")[0];
+      assertMatch(audit.actor_label, /Grace Wambui · org admin/);
+    });
+
+    it("rejects an org_admin inviting into a DIFFERENT organization they don't administer", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ linkedOrgId: OTHER_ORG_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("rejects an org_admin who administers no organization at all", async () => {
+      const { admin, asUser } = makeOrgAdminClients();
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+  });
+
+  describe("create-or-link an existing account (FIG-389)", () => {
+    it("links an existing org_admin to a second organization instead of creating a new account", async () => {
+      const { admin, asUser } = makeClients();
+      admin.seed("profiles", [
+        { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+        { id: "existing-org-admin-1", role: "org_admin", full_name: "Peter Otieno", email: validBody.email },
+      ]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 200);
+      const out = await res.json();
+      assertEquals(out.linkedExisting, true);
+      assertEquals(out.password, undefined);
+
+      // no new account was created for this invite
+      assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-org-admin-1"), undefined);
+
+      const links = admin.rowsIn("organization_admins");
+      assertEquals(links.length, 1);
+      assertEquals(links[0].profile_id, "existing-org-admin-1");
+      assertEquals(links[0].organization_id, ORG_ID);
+    });
+
+    it("rejects re-inviting someone who already administers this exact organization", async () => {
+      const { admin, asUser } = makeClients();
+      admin.seed("profiles", [
+        { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+        { id: "existing-org-admin-1", role: "org_admin", full_name: "Peter Otieno", email: validBody.email },
+      ]);
+      admin.seed("organization_admins", [{ id: "link-1", profile_id: "existing-org-admin-1", organization_id: ORG_ID }]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 409);
+    });
+
+    it("rejects reusing an email that belongs to a non-org_admin account", async () => {
+      const { admin, asUser } = makeClients();
+      admin.seed("profiles", [
+        { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+        { id: "some-school-admin-1", role: "school_admin", full_name: "Someone Else", email: validBody.email },
+      ]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 409);
+      assertEquals(admin.rowsIn("organization_admins").length, 0);
+    });
   });
 });
