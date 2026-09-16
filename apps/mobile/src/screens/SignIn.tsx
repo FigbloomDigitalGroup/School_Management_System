@@ -1,17 +1,13 @@
 import { useState } from "react";
 import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { OTP_LENGTH, studentLoginEmail, supabase, validateOtp, validatePin } from "@figbloom/shared";
+import { OTP_LENGTH, countryProfile, normalisePhoneForCountry, studentLoginEmail, supabase, validateOtp, validatePin } from "@figbloom/shared";
 import { HIT, s, t } from "../theme";
 
 type Tab = "parent" | "student" | "driver";
 
-/** "07xx xxx xxx" or "+254 7xx xxx xxx" → the +254… form Supabase auth stores. */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.startsWith("254")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+254${digits.slice(1)}`;
-  return `+254${digits}`;
-}
+// A parent hasn't been identified with a school yet at sign-in time, so
+// there is no tenant.country in scope — "KE" is every real account today.
+const SIGNIN_COUNTRY = "KE";
 
 // Mirrors the web sign-in's same simplification: there is no "choose your
 // school" step yet, so an admission number only resolves against one tenant.
@@ -44,7 +40,7 @@ export function SignIn() {
     setBusy(true);
     try {
       if (tab === "parent") {
-        const phone = normalizePhone(value);
+        const phone = normalisePhoneForCountry(value, SIGNIN_COUNTRY);
         if (!sent) {
           const { error: err } = await supabase().auth.signInWithOtp({
             phone, options: { shouldCreateUser: false },
@@ -105,7 +101,7 @@ export function SignIn() {
         <>
           <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Mobile number</Text>
           <TextInput
-            placeholder="07xx xxx xxx"
+            placeholder={countryProfile(SIGNIN_COUNTRY).phonePlaceholder}
             keyboardType="phone-pad"
             value={value}
             onChangeText={setValue}

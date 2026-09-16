@@ -18,6 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 
 const DEV_PASSWORD = "figbloom-dev";
 
@@ -65,7 +66,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   }
 
   const { data: tenant, error: tenantErr } = await admin
-    .from("tenants").select("id, name, organization_id").eq("id", tenant_id).maybeSingle();
+    .from("tenants").select("id, name, organization_id, country").eq("id", tenant_id).maybeSingle();
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
@@ -82,7 +83,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     email: email.trim(),
     password: DEV_PASSWORD,
     email_confirm: true,
-    phone: phone ? normalisePhone(phone) : undefined,
+    phone: phone ? normalisePhone(phone, tenant.country) : undefined,
     phone_confirm: phone ? true : undefined,
   });
   if (createErr || !created.user) {
@@ -98,7 +99,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     role: "school_admin",
     full_name: full_name.trim(),
     email: email.trim(),
-    phone: phone ? normalisePhone(phone) : null,
+    phone: phone ? normalisePhone(phone, tenant.country) : null,
     staff_title: staff_title?.trim() || "Principal",
   });
   if (profileErr) {
@@ -132,12 +133,15 @@ if (import.meta.main) {
   });
 }
 
-/** "07xx xxx xxx" → "+2547xxxxxxxx"; leaves an already-international number alone. */
-export function normalisePhone(raw: string): string {
+/** "07xx xxx xxx" → "+2547xxxxxxxx"; leaves an already-international number alone.
+ *  Defaults to Kenya, matching every real account today. */
+export function normalisePhone(raw: string, country?: string | null): string {
+  const { dialCode, localPrefixes } = dialCodeFor(country);
   const digits = raw.replace(/\D/g, "");
-  if (digits.startsWith("254")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+254${digits.slice(1)}`;
-  return `+254${digits}`;
+  if (digits.startsWith(dialCode)) return `+${digits}`;
+  const prefix = localPrefixes.find((p) => digits.startsWith(p));
+  if (prefix) return `+${dialCode}${digits.slice(prefix.length)}`;
+  return `+${dialCode}${digits}`;
 }
 
 const json = (body: unknown, status = 200) =>
