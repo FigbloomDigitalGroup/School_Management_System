@@ -1,7 +1,7 @@
 /**
  * A minimal in-memory stand-in for @supabase/supabase-js, used only in tests.
  * Supports the slice of the query-builder and auth APIs the edge functions
- * actually call: .from(table).select/insert/update/delete, .eq/.gte/.in,
+ * actually call: .from(table).select/insert/update/delete, .eq/.gte/.in/.ilike,
  * .single/.maybeSingle, and auth.getUser / auth.admin.createUser / deleteUser.
  *
  * Not published (the "_shared" prefix keeps the Supabase CLI from deploying
@@ -11,7 +11,22 @@
 // deno-lint-ignore no-explicit-any
 export type Row = Record<string, any>;
 
-type Filter = { col: string; op: "eq" | "gte" | "in"; val: unknown };
+type Filter = { col: string; op: "eq" | "gte" | "in" | "ilike"; val: unknown };
+
+/** Turns a SQL LIKE/ILIKE pattern (%, _, backslash-escaped literals) into a
+ *  case-insensitive RegExp -- just enough for search-schools' `%query%`
+ *  usage, not a full LIKE implementation. */
+function ilikeToRegExp(pattern: string): RegExp {
+  let out = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "\\" && i + 1 < pattern.length) { out += pattern[++i]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); continue; }
+    if (c === "%") { out += ".*"; continue; }
+    if (c === "_") { out += "."; continue; }
+    out += c!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${out}$`, "i");
+}
 
 type OpKind = "select" | "insert" | "update" | "delete";
 
@@ -71,9 +86,15 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   private filters: Filter[] = [];
   private op: OpKind | null = null;
   private payload?: Row | Row[];
+  private limitN: number | null = null;
 
   constructor(private table: FakeTable) {}
 
+  // _cols is intentionally unused -- the fake always returns the full row
+  // regardless of the column list. Real supabase-js's embedded-relation
+  // select syntax ("classes(form_level)") makes column projection genuinely
+  // hard to replicate correctly here; the real Postgres API is what
+  // actually enforces "only these columns come back", not this fake.
   select(_cols?: string) {
     if (!this.op) this.op = "select";
     return this;
@@ -104,8 +125,12 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.filters.push({ col, op: "in", val: vals });
     return this;
   }
-  /** No-op, same as supabase-js .limit(n) — the fake never paginates. */
-  limit(_n: number) {
+  ilike(col: string, pattern: string) {
+    this.filters.push({ col, op: "ilike", val: pattern });
+    return this;
+  }
+  limit(n: number) {
+    this.limitN = n;
     return this;
   }
   /** No-op, same as supabase-js .order(col) — insertion order is fine for tests. */
@@ -117,6 +142,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     return this.filters.every((f) => {
       if (f.op === "eq") return row[f.col] === f.val;
       if (f.op === "in") return (f.val as unknown[]).includes(row[f.col]);
+      if (f.op === "ilike") return ilikeToRegExp(f.val as string).test(String(row[f.col] ?? ""));
       return (row[f.col] as never) >= (f.val as never);
     });
   }
@@ -134,7 +160,8 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     if (this.op === "delete") {
       return { rows: this.table.delete((r) => this.matches(r)), error: null };
     }
-    return { rows: this.table.rows.filter((r) => this.matches(r)).map((r) => ({ ...r })), error: null };
+    const rows = this.table.rows.filter((r) => this.matches(r)).map((r) => ({ ...r }));
+    return { rows: this.limitN !== null ? rows.slice(0, this.limitN) : rows, error: null };
   }
 
   async maybeSingle() {
