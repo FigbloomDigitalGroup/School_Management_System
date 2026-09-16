@@ -1,69 +1,84 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { OTP_LENGTH, countryProfile, normalisePhoneForCountry, studentLoginEmail, supabase, validateOtp, validatePin } from "@figbloom/shared";
+import { resolveLoginId, searchSchools, supabase, type SchoolSearchResult } from "@figbloom/shared";
 import { HIT, s, t } from "../theme";
 
-type Tab = "parent" | "student" | "driver";
-
-// A parent hasn't been identified with a school yet at sign-in time, so
-// there is no tenant.country in scope — "KE" is every real account today.
-const SIGNIN_COUNTRY = "KE";
-
-// Mirrors the web sign-in's same simplification: there is no "choose your
-// school" step yet, so an admission number only resolves against one tenant.
-const STUDENT_SLUG = "alliance";
-
 /**
- * The mobile app has three doors, not the web console's four — school admins
- * and teachers use the web console. Parents get phone + SMS code because most
- * have no working email; students get an admission number and PIN because
- * they have neither; drivers sign in the same way staff do, email + password.
+ * Unified sign-in (FIG-396/403) — no parent/student/driver tabs. The mobile
+ * app never had a staff/platform door to begin with (school admins and
+ * teachers use the web console), so it only ever needs the school+ID+
+ * password path: search for a school, pick it, type the school-assigned
+ * login_id ("PT-0029"), see the real name come back as confirmation, then
+ * a password. Replaces phone+SMS-OTP for parents and admission+PIN for
+ * students with the exact same flow every role now uses.
  */
 export function SignIn() {
-  const [tab, setTab] = useState<Tab>("parent");
-  const [sent, setSent] = useState(false);
-  const [value, setValue] = useState("");
-  const [code, setCode] = useState("");
+  const [school, setSchool] = useState<SchoolSearchResult | null>(null);
+  const [schoolQuery, setSchoolQuery] = useState("");
+  const [schoolResults, setSchoolResults] = useState<SchoolSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const [loginId, setLoginId] = useState("");
+  const [resolved, setResolved] = useState<{ full_name: string; email: string } | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [idHint, setIdHint] = useState("");
+
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  function switchTab(next: Tab) {
-    setTab(next);
-    setSent(false);
-    setValue("");
-    setCode("");
-    setError("");
+  useEffect(() => {
+    const q = schoolQuery.trim();
+    if (q.length < 2) { setSchoolResults([]); return; }
+    setSearching(true);
+    const timer = setTimeout(() => {
+      searchSchools(q)
+        .then(setSchoolResults)
+        .catch(() => setSchoolResults([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [schoolQuery]);
+
+  function selectSchool(picked: SchoolSearchResult) {
+    setSchool(picked);
+    setSchoolQuery("");
+    setSchoolResults([]);
+    setLoginId("");
+    setResolved(null);
+    setIdHint("");
+  }
+
+  function changeSchool() {
+    setSchool(null);
+    setLoginId("");
+    setResolved(null);
+    setIdHint("");
+  }
+
+  async function resolveId() {
+    if (!school || !loginId.trim()) return;
+    setResolving(true);
+    try {
+      const r = await resolveLoginId(school.id, loginId.trim());
+      setResolved(r);
+      setIdHint("");
+    } catch (err) {
+      setResolved(null);
+      setIdHint(err instanceof Error ? err.message : "Could not find that ID.");
+    } finally {
+      setResolving(false);
+    }
   }
 
   async function submit() {
+    if (!resolved) return;
     setError("");
     setBusy(true);
     try {
-      if (tab === "parent") {
-        const phone = normalisePhoneForCountry(value, SIGNIN_COUNTRY);
-        if (!sent) {
-          const { error: err } = await supabase().auth.signInWithOtp({
-            phone, options: { shouldCreateUser: false },
-          });
-          if (err) { setError("We don't have that number on file. Check with the school office."); return; }
-          setSent(true);
-          return;
-        }
-        const v = validateOtp(code);
-        if (!v.ok) { setError(v.message || `The code is ${OTP_LENGTH} numbers.`); return; }
-        const { error: err } = await supabase().auth.verifyOtp({ phone, token: code, type: "sms" });
-        if (err) { setError("That code is wrong or has expired."); return; }
-      } else if (tab === "student") {
-        const v = validatePin(code);
-        if (!v.ok) { setError(v.message); return; }
-        const { error: err } = await supabase().auth.signInWithPassword({
-          email: studentLoginEmail(value.trim(), STUDENT_SLUG), password: code,
-        });
-        if (err) { setError("Check the admission number and PIN."); return; }
-      } else {
-        const { error: err } = await supabase().auth.signInWithPassword({ email: value.trim(), password: code });
-        if (err) { setError("Check the email and password."); return; }
-      }
+      const { error: err } = await supabase().auth.signInWithPassword({ email: resolved.email, password });
+      if (err) { setError("Check your ID and password."); return; }
       // No navigation call here — App.tsx listens for the auth state change
       // and swaps in the signed-in screens itself.
     } finally {
@@ -78,88 +93,81 @@ export function SignIn() {
         Sign in to see fees, results and messages.
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-        {(["parent", "student", "driver"] as const).map((k) => (
-          <TouchableOpacity
-            key={k}
-            accessibilityRole="button"
-            accessibilityState={{ selected: tab === k }}
-            onPress={() => switchTab(k)}
-            style={{
-              ...HIT, flex: 1, borderRadius: 12, alignItems: "center", justifyContent: "center",
-              backgroundColor: tab === k ? t.brand.orange : t.appSurface.lineSoft,
-            }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: "600", color: tab === k ? "#fff" : t.appSurface.inkMuted }}>
-              {k === "parent" ? "Parent" : k === "student" ? "Student" : "Driver"}
-            </Text>
+      {school ? (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", ...fieldStyle(false), paddingVertical: 12 }}>
+          <View>
+            <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.appSurface.inkFaint, letterSpacing: 0.6 }}>SCHOOL</Text>
+            <Text style={{ fontSize: 15, fontWeight: "600" }}>{school.name}</Text>
+          </View>
+          <TouchableOpacity accessibilityRole="button" onPress={changeSchool} style={HIT}>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Change</Text>
           </TouchableOpacity>
-        ))}
-      </View>
-
-      {tab === "parent" ? (
-        <>
-          <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Mobile number</Text>
-          <TextInput
-            placeholder={countryProfile(SIGNIN_COUNTRY).phonePlaceholder}
-            keyboardType="phone-pad"
-            value={value}
-            onChangeText={setValue}
-            editable={!sent}
-            style={fieldStyle(false)}
-          />
-          {sent && (
-            <>
-              <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>The six-digit code</Text>
-              <TextInput
-                placeholder="000000"
-                keyboardType="number-pad"
-                value={code}
-                onChangeText={setCode}
-                style={fieldStyle(!!error)}
-              />
-            </>
-          )}
-        </>
-      ) : tab === "student" ? (
-        <>
-          <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Admission number</Text>
-          <TextInput
-            placeholder="4102"
-            keyboardType="number-pad"
-            value={value}
-            onChangeText={setValue}
-            style={fieldStyle(false)}
-          />
-          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>PIN</Text>
-          <TextInput
-            placeholder="••••"
-            keyboardType="number-pad"
-            secureTextEntry
-            value={code}
-            onChangeText={setCode}
-            style={fieldStyle(!!error)}
-          />
-        </>
+        </View>
       ) : (
         <>
-          <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Email</Text>
+          <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>School</Text>
           <TextInput
-            placeholder="you@school.sc.ke"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={value}
-            onChangeText={setValue}
+            placeholder="Start typing your school's name"
+            autoCapitalize="words"
+            value={schoolQuery}
+            onChangeText={setSchoolQuery}
             style={fieldStyle(false)}
           />
-          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Password</Text>
+          {searching && <Text style={[s.faint, { marginTop: 6 }]}>Searching…</Text>}
+          {!searching && schoolResults.length > 0 && (
+            <View style={{ marginTop: 6, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, overflow: "hidden" }}>
+              {schoolResults.map((r) => (
+                <TouchableOpacity
+                  key={r.id}
+                  accessibilityRole="button"
+                  onPress={() => selectSchool(r)}
+                  style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.appSurface.lineSoft }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: "600" }}>{r.name}</Text>
+                  {r.county && <Text style={s.faint}>{r.county}</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+
+      {school && (
+        <>
+          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Your ID</Text>
           <TextInput
-            placeholder="••••••••"
-            secureTextEntry
-            value={code}
-            onChangeText={setCode}
-            style={fieldStyle(!!error)}
+            placeholder="e.g. PT-0029"
+            autoCapitalize="characters"
+            value={loginId}
+            onChangeText={(v) => { setLoginId(v); setResolved(null); setIdHint(""); }}
+            onBlur={() => void resolveId()}
+            style={fieldStyle(!!idHint)}
           />
+          {resolving ? (
+            <Text style={[s.faint, { marginTop: 6 }]}>Checking…</Text>
+          ) : resolved ? (
+            <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.full_name}.</Text>
+          ) : idHint ? (
+            <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{idHint}</Text>
+          ) : null}
+        </>
+      )}
+
+      {resolved && (
+        <>
+          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Password</Text>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TextInput
+              placeholder="••••••••"
+              secureTextEntry={!showPassword}
+              value={password}
+              onChangeText={setPassword}
+              style={[fieldStyle(!!error), { flex: 1 }]}
+            />
+            <TouchableOpacity accessibilityRole="button" onPress={() => setShowPassword((v) => !v)} style={{ ...HIT, marginLeft: 8, justifyContent: "center" }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.appSurface.inkMuted }}>{showPassword ? "Hide" : "Show"}</Text>
+            </TouchableOpacity>
+          </View>
         </>
       )}
 
@@ -167,13 +175,11 @@ export function SignIn() {
 
       <TouchableOpacity
         accessibilityRole="button"
-        disabled={busy}
+        disabled={busy || !resolved || !password}
         onPress={submit}
-        style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 20, opacity: busy ? 0.6 : 1 }]}
+        style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 20, opacity: busy || !resolved || !password ? 0.6 : 1 }]}
       >
-        {busy
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={s.primaryLabel}>{tab === "parent" && !sent ? "Text me a code" : "Sign in"}</Text>}
+        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Sign in</Text>}
       </TouchableOpacity>
     </View>
   );
