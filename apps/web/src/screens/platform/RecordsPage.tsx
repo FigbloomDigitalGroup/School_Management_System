@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono, type Column } from "../../components/ui/DataTable";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow, type Stat } from "../../components/ui/StatCard";
 import { PageHead } from "../../components/ConsoleShell";
 import { useToast } from "../../components/ui/Toast";
@@ -31,11 +32,45 @@ export interface RecordsSpec {
  * Every cross-tenant list in the console is this shape: figures, optional
  * detail band, then one table. Consistency here is what lets a support agent
  * move between Invoices and Incidents without re-reading the page.
+ *
+ * `loading`/`error` are separate from `spec` on purpose — a caller mid-fetch
+ * has no real stats/columns/rows yet, and passing empty arrays for those used
+ * to fall straight through to the table's "nothing matches" empty state
+ * (wrong: that copy means "you filtered everything out", not "still
+ * loading"). While `loading` is true, only `eyebrow`/`title` from `spec` are
+ * read — the rest can be empty placeholders.
  */
-export function RecordsPage({ spec }: { spec: RecordsSpec }) {
+export function RecordsPage({ spec, loading, error }: { spec: RecordsSpec; loading?: boolean; error?: string }) {
   const chips = spec.chips ?? [];
   const [active, setActive] = useState(chips[0]?.label ?? "All");
   const toast = useToast();
+
+  if (loading) {
+    return (
+      <>
+        <PageHead eyebrow={spec.eyebrow} title={spec.title} />
+        <div className="px-7 py-6">
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+            {Array.from({ length: spec.stats.length || 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+          </div>
+          <div className="mt-5"><TableSkeleton rows={6} /></div>
+        </div>
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <PageHead eyebrow={spec.eyebrow} title={spec.title} />
+        <div className="px-7 py-6">
+          <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+            <span aria-hidden>✕</span>Could not load: {error}
+          </p>
+        </div>
+      </>
+    );
+  }
 
   const chip = chips.find((c) => c.label === active);
   const rows = !chip || !chip.match ? spec.rows : spec.rows.filter((r) => chip.match!.some((m) => r.tags.includes(m)));

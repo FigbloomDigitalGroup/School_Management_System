@@ -34,14 +34,13 @@ export function OrgSchools() {
     void logOrganizationAccess(organization.id, profile.id, "viewed_schools_list");
   }, [organization.id, profile.id]);
 
-  if (loading || !data) {
+  if (loading || !data || error) {
     return (
-      <RecordsPage spec={{ eyebrow: organization.name, title: "Schools", blurb: "Loading…", stats: [], columns: [], rows: [] }} />
-    );
-  }
-  if (error) {
-    return (
-      <RecordsPage spec={{ eyebrow: organization.name, title: "Schools", blurb: `Could not load: ${error.message}`, stats: [], columns: [], rows: [] }} />
+      <RecordsPage
+        spec={{ eyebrow: organization.name, title: "Schools", blurb: "", stats: [], columns: [], rows: [] }}
+        loading={loading || !data}
+        error={error?.message}
+      />
     );
   }
 
