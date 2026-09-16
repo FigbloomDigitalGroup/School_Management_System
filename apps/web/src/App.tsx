@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { fetchMyOrganizations, homeRouteFor, roleLabel, supabase, type Role } from "@figbloom/shared";
+import { fetchMyOrganizations, homeRouteFor, logOrganizationAccess, roleLabel, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -279,6 +279,12 @@ function DeliveryModeGate({ children }: { children: ReactNode }) {
 
 const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode }) => {
   const session = useTenantSession();
+  const nav = useNavigate();
+  async function exitToOrganization() {
+    const org = session.actingOrganization;
+    if (org) await logOrganizationAccess(org.id, session.profile.id, "exited_school_console", session.tenant.id).catch(() => {});
+    nav(org ? `/org/${org.slug}/schools/${session.tenant.id}` : "/signin");
+  }
   return (
     <RoleGate allow={allow}>
       <ConsoleShell
@@ -287,7 +293,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
         actingBanner={session.actingForTenant && session.actingOrganization ? {
           orgName: session.actingOrganization.name,
           schoolName: session.tenant.name,
-          exitTo: `/org/${session.actingOrganization.slug}/schools/${session.tenant.id}`,
+          onExit: () => void exitToOrganization(),
         } : undefined}
       >
         {children}
