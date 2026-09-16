@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { homeRouteFor, roleLabel, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
@@ -209,6 +209,11 @@ function OrgRoutes() {
   // actually administer this org — a null result here means "not authorized",
   // not "not found", the same way TenantRoutes reads a null tenant.
   if (!session.organization || session.organization.slug !== orgSlug) return <Navigate to="/signin" replace />;
+  // A self-registered org (FIG-371) sits here until a super_admin approves it
+  // (FIG-375) — no dashboard/schools/audit/add-a-school until then, same as
+  // tenant_write_org_admin's RLS already enforces server-side for the "add a
+  // school" case (FIG-369); this is just the honest UI for that same gate.
+  if (session.organization.status === "pending") return <PendingOrgHold name={session.organization.name} />;
 
   return (
     <OrgSessionCtx.Provider value={session}>
@@ -322,6 +327,30 @@ function FullPageSkeleton() {
         <div className="grid grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Where a self-registered org's own admin lands until a super_admin approves them. */
+function PendingOrgHold({ name }: { name: string }) {
+  const nav = useNavigate();
+  async function signOut() {
+    await supabase().auth.signOut();
+    nav("/signin", { replace: true });
+  }
+  return (
+    <div className="grid min-h-screen place-items-center bg-page p-6 text-center">
+      <div className="max-w-[420px]">
+        <div className="mx-auto mb-3.5 grid h-11 w-11 place-items-center rounded-xl bg-sunken text-lg text-ink-muted">◷</div>
+        <h1 className="text-[17px] font-semibold">{name} is under review</h1>
+        <p className="mx-auto mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+          A member of our team reviews every new organization before it goes live, usually within a day. Sign in
+          again once it's approved — there's nothing else to do here in the meantime.
+        </p>
+        <button type="button" onClick={() => void signOut()} className="mt-4 text-[13px] font-semibold text-forest hover:underline">
+          Sign out
+        </button>
       </div>
     </div>
   );
