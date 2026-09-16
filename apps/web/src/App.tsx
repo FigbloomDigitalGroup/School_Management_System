@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { homeRouteFor, roleLabel, supabase, type Role } from "@figbloom/shared";
+import { fetchMyOrganizations, homeRouteFor, roleLabel, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -234,8 +234,14 @@ function OrgRoutes() {
 
 const OrgShell = ({ children }: { children: ReactNode }) => {
   const session = useOrgSessionCtx();
+  const { data: myOrgs } = useAsync(() => fetchMyOrganizations(session.profile.id), [session.profile.id]);
   return (
-    <ConsoleShell role="org_admin" user={{ name: session.profile.full_name, roleLabel: "Org admin" }} workspaceName={session.organization.name}>
+    <ConsoleShell
+      role="org_admin"
+      user={{ name: session.profile.full_name, roleLabel: "Org admin" }}
+      workspaceName={session.organization.name}
+      workspaceOptions={myOrgs?.map((o) => ({ slug: o.slug, name: o.name }))}
+    >
       {children}
     </ConsoleShell>
   );

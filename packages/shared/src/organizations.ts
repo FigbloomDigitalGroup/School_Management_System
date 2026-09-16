@@ -31,6 +31,20 @@ export async function fetchOrganizationTenantSummaries(organizationId: string): 
   return data ?? [];
 }
 
+/**
+ * Every school across every organization a profile administers, combined —
+ * same organization_tenant_summary table as fetchOrganizationTenantSummaries,
+ * just without the organization_id filter. RLS's my_organization_tenant_ids()
+ * already unions across every org membership, so this is otherwise identical.
+ */
+export async function fetchAllMyOrganizationTenantSummaries(): Promise<OrganizationTenantSummary[]> {
+  const { data, error } = await supabase()
+    .from("organization_tenant_summary").select("*")
+    .order("name").returns<OrganizationTenantSummary[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
 /** Every /org/* page view logs itself — the same trust-but-verify pattern impersonation_sessions already gives Figbloom staff, extended to an owning organization. */
 export async function logOrganizationAccess(organizationId: string, profileId: string, action: string, tenantId: string | null = null): Promise<void> {
   const { error } = await supabase().from("organization_access_log").insert({
