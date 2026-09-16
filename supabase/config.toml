@@ -69,3 +69,9 @@ verify_jwt = false             # Safaricom cannot send a JWT
 
 [functions.signup-organization]
 verify_jwt = false             # public self-service signup — the caller has no account yet, so no JWT to verify
+
+[functions.search-schools]
+verify_jwt = false             # pre-auth "choose your school" step of sign-in — no JWT yet
+
+[functions.resolve-login-id]
+verify_jwt = false             # pre-auth login_id -> email lookup, the other half of sign-in — no JWT yet
