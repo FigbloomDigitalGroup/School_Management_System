@@ -140,6 +140,51 @@ export async function inviteOrgAdmin(input: OrgAdminInviteInput): Promise<OrgAdm
   return data as OrgAdminInviteResult;
 }
 
+export interface NewMyOrganizationInput {
+  name: string;
+  slug: string;
+  kind: Organization["kind"];
+  county?: string;
+  contact_email?: string;
+  contact_phone?: string;
+}
+
+export interface NewMyOrganizationResult {
+  ok: true;
+  slug: string;
+}
+
+/**
+ * The in-app "+ Create new organization" action (FIG-394) — an already
+ * signed-in org_admin spinning up an ADDITIONAL workspace for themselves.
+ * Unlike createOrganization() above (staff-only, direct RLS insert), org_admin
+ * has no insert policy on organizations at all, so this goes through the
+ * create-organization edge function the same way invite-org-admin does —
+ * it links the caller's own existing profile rather than making a new one,
+ * and the new organization starts 'pending', same approval gate as any
+ * other self-registered org.
+ */
+export async function createMyOrganization(input: NewMyOrganizationInput): Promise<NewMyOrganizationResult> {
+  const { data, error } = await supabase().functions.invoke<NewMyOrganizationResult | { error: string }>(
+    "create-organization",
+    { body: input },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as NewMyOrganizationResult;
+}
+
 export interface ServiceCheckResult {
   service: string;
   status: "ok" | "degraded" | "down" | "not_configured";
