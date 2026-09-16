@@ -21,6 +21,10 @@ interface Props {
    *  the current one. Rendered as a switcher when there's more than one;
    *  falls back to the plain static name (previous behavior) otherwise. */
   workspaceOptions?: { slug: string; name: string }[];
+  /** Set when an org_admin is acting inside a member school (FIG-391/392) —
+   *  a persistent reminder that they are not this school's own admin, with
+   *  a way back out. Never set for a school's own school_admin. */
+  actingBanner?: { orgName: string; schoolName: string; exitTo: string };
 }
 
 /**
@@ -28,7 +32,7 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner }: Props) {
   const [open, setOpen] = useState(true);
   const [changingPw, setChangingPw] = useState(false);
   const { slug, orgSlug } = useParams();
@@ -172,7 +176,24 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
       </nav>
 
       {aside && <div className="flex w-[320px] shrink-0 flex-col overflow-hidden border-r border-line bg-[#FAFBFA]">{aside}</div>}
-      <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {actingBanner && (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-orange-line bg-orange-soft px-5 py-2 text-[12.5px] text-orange-ink">
+            <span>
+              Acting for <span className="font-semibold">{actingBanner.orgName}</span> inside{" "}
+              <span className="font-semibold">{actingBanner.schoolName}</span> — you are not this school's own admin.
+            </span>
+            <button
+              type="button"
+              onClick={() => nav(actingBanner.exitTo)}
+              className="hit shrink-0 font-semibold underline decoration-orange-ink/40 underline-offset-2"
+            >
+              Exit to organization
+            </button>
+          </div>
+        )}
+        <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+      </div>
 
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
     </div>
