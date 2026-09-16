@@ -134,4 +134,50 @@ describe("invite-admin handle", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.deletedUserIds, ["new-admin-1"]);
   });
+
+  describe("org_admin caller (FIG-373)", () => {
+    const ORG_ADMIN_ID = "org-admin-1";
+    const ORG_ID = "org-1";
+    const OTHER_ORG_ID = "org-2";
+
+    function makeOrgAdminClients(opts: { tenantOrgId?: string | null; linkedOrgId?: string } = {}) {
+      const admin = new FakeSupabaseClient();
+      admin.seed("profiles", [{ id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" }]);
+      admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", organization_id: opts.tenantOrgId === undefined ? ORG_ID : opts.tenantOrgId }]);
+      if (opts.linkedOrgId !== undefined) {
+        admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: opts.linkedOrgId }]);
+      }
+      admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-admin-1", email: attrs.email } }, error: null });
+
+      const asUser = new FakeSupabaseClient();
+      asUser.authUser = { id: ORG_ADMIN_ID };
+      return { admin, asUser };
+    }
+
+    it("allows an org_admin to invite an admin for a school in their own organization", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ tenantOrgId: ORG_ID, linkedOrgId: ORG_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 200);
+      const audit = admin.rowsIn("audit_events")[0];
+      assertMatch(audit.actor_label, /Grace Wambui · org admin/);
+    });
+
+    it("rejects an org_admin inviting into a school belonging to a DIFFERENT organization", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ tenantOrgId: OTHER_ORG_ID, linkedOrgId: ORG_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("rejects an org_admin who administers no organization at all", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ tenantOrgId: ORG_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("rejects an org_admin when the school belongs to no organization", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ tenantOrgId: null, linkedOrgId: ORG_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+  });
 });
