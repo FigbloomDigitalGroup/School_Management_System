@@ -3,6 +3,7 @@ export * from "./tokens";
 export * from "./tenancy";
 export * from "./grading";
 export * from "./gradingSchemes";
+export * from "./countries";
 export * from "./fees";
 export * from "./attendance";
 export * from "./queue";
