@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { NAV, supabase, type Role } from "@figbloom/shared";
 import { Icon } from "./Icon";
@@ -17,6 +17,10 @@ interface Props {
   badges?: Record<string, string>;
   /** org_admin only — there's no `tenant` to read a name/logo from, so OrgShell passes the organization's own name. */
   workspaceName?: string;
+  /** org_admin only — every organization this profile administers, including
+   *  the current one. Rendered as a switcher when there's more than one;
+   *  falls back to the plain static name (previous behavior) otherwise. */
+  workspaceOptions?: { slug: string; name: string }[];
 }
 
 /**
@@ -24,7 +28,7 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions }: Props) {
   const [open, setOpen] = useState(true);
   const [changingPw, setChangingPw] = useState(false);
   const { slug, orgSlug } = useParams();
@@ -80,15 +84,19 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
               className="h-full w-full object-contain"
             />
           </div>
-          {open && (
-            <div className="overflow-hidden whitespace-nowrap">
-              <div className="text-[14.5px] font-semibold tracking-tight text-white">
-                {tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
+          {open && orgScoped && workspaceOptions && workspaceOptions.length > 1 ? (
+            <WorkspaceSwitcher current={workspaceName ?? "Figbloom"} options={workspaceOptions} />
+          ) : (
+            open && (
+              <div className="overflow-hidden whitespace-nowrap">
+                <div className="text-[14.5px] font-semibold tracking-tight text-white">
+                  {tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
+                </div>
+                <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">
+                  {tenantScoped ? "SCHOOL WORKSPACE" : orgScoped ? "ORGANIZATION CONSOLE" : "PLATFORM CONSOLE"}
+                </div>
               </div>
-              <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">
-                {tenantScoped ? "SCHOOL WORKSPACE" : orgScoped ? "ORGANIZATION CONSOLE" : "PLATFORM CONSOLE"}
-              </div>
-            </div>
+            )
           )}
         </div>
 
@@ -167,6 +175,69 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
       <main className="min-w-0 flex-1 overflow-auto">{children}</main>
 
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
+    </div>
+  );
+}
+
+/** A profile administering more than one organization gets this instead of
+ *  the plain static workspace name — jump between orgs without signing out. */
+function WorkspaceSwitcher({ current, options }: { current: string; options: { slug: string; name: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const nav = useNavigate();
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey, { capture: true }); };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="flex w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-md text-left hover:bg-white/10"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14.5px] font-semibold tracking-tight text-white">{current}</div>
+          <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">ORGANIZATION CONSOLE</div>
+        </div>
+        <span aria-hidden className="shrink-0 pr-1 text-[10px] text-white/50">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1.5 w-64 overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg">
+          {options.map((o) => (
+            <button
+              key={o.slug}
+              type="button"
+              onClick={() => { setOpen(false); nav(`/org/${o.slug}/dashboard`); }}
+              className={`block w-full truncate px-3 py-2 text-left text-[13px] hover:bg-page ${o.name === current ? "font-semibold text-forest" : "text-ink"}`}
+            >
+              {o.name}
+            </button>
+          ))}
+          <div className="mt-1 border-t border-line-soft pt-1">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); nav("/org-picker"); }}
+              className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-ink-muted hover:bg-page"
+            >
+              All organizations
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
