@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { homeRouteFor, studentLoginEmail, validateOtp, validatePin } from "./auth";
+import { formatLoginId, homeRouteFor, loginIdEmail, ROLE_ID_PREFIX, studentLoginEmail, validateOtp, validatePin } from "./auth";
 
 describe("validateOtp", () => {
   it("accepts a plain 6-digit code", () => {
@@ -20,6 +20,29 @@ describe("studentLoginEmail", () => {
   it("is deterministic and tenant-scoped", () => {
     expect(studentLoginEmail("4102", "alliance")).toBe("adm4102@students.alliance.figbloom.internal");
     expect(studentLoginEmail("4102", "kenya-high")).not.toBe(studentLoginEmail("4102", "alliance"));
+  });
+});
+
+describe("formatLoginId", () => {
+  it("zero-pads to 4 digits", () => {
+    expect(formatLoginId("TC", 1)).toBe("TC-0001");
+    expect(formatLoginId("ST", 42)).toBe("ST-0042");
+  });
+  it("does not truncate a number already 4+ digits", () => {
+    expect(formatLoginId("PT", 12345)).toBe("PT-12345");
+  });
+});
+
+describe("ROLE_ID_PREFIX", () => {
+  it("has one prefix per non-org-owner role, and no entry for org_admin/super_admin", () => {
+    expect(ROLE_ID_PREFIX).toEqual({ school_admin: "AD", teacher: "TC", parent: "PT", student: "ST", driver: "BD" });
+  });
+});
+
+describe("loginIdEmail", () => {
+  it("is deterministic, tenant-scoped, and lowercases the id", () => {
+    expect(loginIdEmail("TC-0001", "alliance")).toBe("tc-0001@login.alliance.figbloom.internal");
+    expect(loginIdEmail("TC-0001", "kenya-high")).not.toBe(loginIdEmail("TC-0001", "alliance"));
   });
 });
 
