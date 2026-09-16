@@ -246,25 +246,30 @@ export function TermSetup() {
                         ) : s.id === "payment" ? (
                           <form onSubmit={handleSavePayment} className="grid gap-3">
                             <p className="text-[12px] leading-relaxed text-ink-muted">
-                              Real-time M-Pesa auto-pay isn't wired up yet — for now, parents pay to whichever of
-                              these the school uses and upload proof for the bursar to confirm.
+                              {tenant.country === "KE"
+                                ? "Real-time M-Pesa auto-pay isn't wired up yet — for now, parents pay to whichever of these the school uses and upload proof for the bursar to confirm."
+                                : "Automated payment isn't wired up yet — for now, parents pay to whichever of these the school uses and upload proof for the bursar to confirm."}
                             </p>
                             <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
                               <label className="block">
-                                <span className="mb-1.5 block text-[12px] font-semibold">Paybill number</span>
+                                {/* "Paybill"/"Till" are Safaricom-specific terms — the columns
+                                    themselves are plain free text, so a non-Kenyan school gets
+                                    a generic label over the same field rather than confusing
+                                    M-Pesa terminology. */}
+                                <span className="mb-1.5 block text-[12px] font-semibold">{tenant.country === "KE" ? "Paybill number" : "Payment reference 1"}</span>
                                 <input
                                   value={paybill}
                                   onChange={(e) => setPaybill(e.target.value)}
-                                  placeholder="e.g. 522533"
+                                  placeholder={tenant.country === "KE" ? "e.g. 522533" : "e.g. account or reference number"}
                                   className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
                                 />
                               </label>
                               <label className="block">
-                                <span className="mb-1.5 block text-[12px] font-semibold">Till number</span>
+                                <span className="mb-1.5 block text-[12px] font-semibold">{tenant.country === "KE" ? "Till number" : "Payment reference 2"}</span>
                                 <input
                                   value={till}
                                   onChange={(e) => setTill(e.target.value)}
-                                  placeholder="e.g. 5028417"
+                                  placeholder={tenant.country === "KE" ? "e.g. 5028417" : "e.g. a second reference number"}
                                   className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
                                 />
                               </label>
