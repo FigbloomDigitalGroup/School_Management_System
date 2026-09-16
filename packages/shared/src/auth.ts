@@ -1,11 +1,14 @@
 import type { InstitutionType, Role } from "./types";
+import { supabase } from "./supabase";
 
 /**
- * Four ways in, matched to who is signing in:
- *  - staff    email + password
- *  - parent   phone + 6-digit SMS code (most have no working email)
- *  - student  admission number + PIN (issued by the school, no email at all)
- *  - platform email + password + TOTP
+ * Two ways in (FIG-396, replacing the four-tab/SMS-OTP scheme below, which
+ * SignInMethod/METHOD_FOR/validateOtp/validatePin/studentLoginEmail still
+ * describe until FIG-402/403/404 finish removing them):
+ *  - org_admin/super_admin  real email + password (the only two roles ever
+ *    provisioned by email -- self-service signup or a formal staff invite)
+ *  - everyone else          pick their school, then a school-assigned
+ *    login_id (e.g. "TC-0001") + password -- no email, no SMS OTP
  */
 
 export type SignInMethod = "staff_password" | "parent_otp" | "student_pin" | "platform";
@@ -81,6 +84,67 @@ export function formatLoginId(prefix: string, n: number): string {
  */
 export function loginIdEmail(loginId: string, tenantSlug: string): string {
   return `${loginId.toLowerCase()}@login.${tenantSlug}.figbloom.internal`;
+}
+
+export interface SchoolSearchResult {
+  id: string;
+  name: string;
+  slug: string;
+  county: string | null;
+}
+
+/** The unified sign-in's "type your school's name" step — calls the
+ *  anonymous search-schools edge function, since RLS has no pre-auth SELECT
+ *  on tenants. Shared between web and mobile, which both need it. */
+export async function searchSchools(query: string): Promise<SchoolSearchResult[]> {
+  const { data, error } = await supabase().functions.invoke<{ schools: SchoolSearchResult[] } | { error: string }>(
+    "search-schools",
+    { body: { query } },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return (data as { schools: SchoolSearchResult[] }).schools;
+}
+
+export interface ResolvedLogin {
+  full_name: string;
+  email: string;
+}
+
+/** The unified sign-in's login_id -> account lookup, once a school is
+ *  picked — calls the anonymous resolve-login-id edge function. Never
+ *  handles a password; the caller still authenticates via the returned
+ *  email through Supabase's own signInWithPassword. */
+export async function resolveLoginId(tenantId: string, loginId: string): Promise<ResolvedLogin> {
+  const { data, error } = await supabase().functions.invoke<(ResolvedLogin & { ok: true }) | { error: string }>(
+    "resolve-login-id",
+    { body: { tenant_id: tenantId, login_id: loginId } },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as ResolvedLogin;
 }
 
 /**
