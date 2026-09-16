@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
-import { NAV, supabase, type Role } from "@figbloom/shared";
+import { NAV, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { createMyOrganization } from "../lib/platformAdmin";
 import { Icon } from "./Icon";
 import { useTenant } from "./TenantTheme";
 import { Button } from "./ui/Button";
-import { TextField } from "./ui/Field";
+import { SelectField, TextField } from "./ui/Field";
 import { Modal } from "./ui/Modal";
 import { useToast } from "./ui/Toast";
 
@@ -90,7 +91,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
               className="h-full w-full object-contain"
             />
           </div>
-          {open && orgScoped && workspaceOptions && workspaceOptions.length > 1 ? (
+          {open && orgScoped && workspaceOptions ? (
             <WorkspaceSwitcher current={workspaceName ?? "Figbloom"} options={workspaceOptions} />
           ) : (
             open && (
@@ -202,10 +203,11 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   );
 }
 
-/** A profile administering more than one organization gets this instead of
- *  the plain static workspace name — jump between orgs without signing out. */
+/** Every org_admin gets this instead of the plain static workspace name —
+ *  jump between orgs without signing out, and spin up an additional one. */
 function WorkspaceSwitcher({ current, options }: { current: string; options: { slug: string; name: string }[] }) {
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const nav = useNavigate();
 
@@ -251,17 +253,111 @@ function WorkspaceSwitcher({ current, options }: { current: string; options: { s
             </button>
           ))}
           <div className="mt-1 border-t border-line-soft pt-1">
+            {options.length > 1 && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); nav("/org-picker"); }}
+                className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-ink-muted hover:bg-page"
+              >
+                All organizations
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => { setOpen(false); nav("/org-picker"); }}
-              className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-ink-muted hover:bg-page"
+              onClick={() => { setOpen(false); setCreating(true); }}
+              className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-forest hover:bg-page"
             >
-              All organizations
+              + Create new organization
             </button>
           </div>
         </div>
       )}
+
+      {creating && <CreateOrganizationModal onClose={() => setCreating(false)} />}
     </div>
+  );
+}
+
+const ORG_KIND_OPTIONS: { value: Organization["kind"]; label: string }[] = [
+  { value: "group_owner", label: "I own/manage a group of schools" },
+  { value: "government", label: "National government body" },
+  { value: "county", label: "County government" },
+  { value: "constituency", label: "Constituency" },
+];
+
+const ORG_SLUG_RE = /^[a-z0-9-]{3,40}$/;
+
+/** The in-app "+ Create new organization" flow (FIG-394) — same shape as the
+ *  public Signup.tsx form, minus the account fields: this org_admin already
+ *  has a login, so create-organization just links it to a new org rather
+ *  than making a second account. Lands 'pending', same one-click staff
+ *  approval every self-registered org goes through — navigating there shows
+ *  App.tsx's existing PendingOrgHold screen, no new "success" state needed. */
+function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
+  const nav = useNavigate();
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [kind, setKind] = useState<Organization["kind"]>("group_owner");
+  const [county, setCounty] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const slugValue = slugTouched ? slug : (name ? suggestSlug(name) : "");
+  const slugOk = ORG_SLUG_RE.test(slugValue);
+
+  async function submit() {
+    if (!name.trim()) { toast("Give the organization a name."); return; }
+    if (!slugOk) { toast("Pick a valid address — 3-40 lowercase letters, numbers and hyphens."); return; }
+    setSaving(true);
+    try {
+      const result = await createMyOrganization({
+        name: name.trim(),
+        slug: slugValue,
+        kind,
+        county: county.trim() || undefined,
+      });
+      onClose();
+      nav(`/org/${result.slug}/dashboard`);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not create the organization: ${err.message}` : "Could not create the organization.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="New workspace"
+      title="Create an organization"
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void submit()} disabled={saving}>
+            {saving ? "Creating…" : "Create organization"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3.5">
+        <p className="text-[12.5px] leading-relaxed text-ink-muted">
+          A separate workspace with its own schools — useful for a distinct group, region, or program you run
+          alongside this one. It starts pending review, same as any new organization.
+        </p>
+        <TextField id="new-org-name" label="Organization name" placeholder="e.g. Riverside Schools Trust" value={name} onChange={(e) => setName(e.target.value)} />
+        <TextField
+          id="new-org-slug" label="Address" mono placeholder={slugValue || "riverside-schools-trust"}
+          value={slugTouched ? slug : slugValue}
+          hint={slugOk ? `figbloom.co.ke/org/${slugValue}` : undefined}
+          error={slugTouched && slug && !slugOk ? "3-40 characters, lowercase letters, numbers and hyphens only." : undefined}
+          onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
+        />
+        <SelectField id="new-org-kind" label="What best describes it?" value={kind} onChange={(e) => setKind(e.target.value as Organization["kind"])} options={ORG_KIND_OPTIONS} />
+        <TextField id="new-org-county" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
+      </div>
+    </Modal>
   );
 }
 
