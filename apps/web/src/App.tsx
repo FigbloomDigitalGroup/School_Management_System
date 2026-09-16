@@ -14,6 +14,7 @@ import { ParentDataProvider } from "./lib/parentContext";
 import { StudentDataProvider } from "./lib/studentContext";
 
 import { SignIn } from "./screens/SignIn";
+import { OrgPicker } from "./screens/OrgPicker";
 import { Signup } from "./screens/Signup";
 import { ResetPassword } from "./screens/ResetPassword";
 import { Tenants } from "./screens/platform/Tenants";
@@ -70,6 +71,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/signin" replace />} />
         <Route path="/signin" element={<SignIn />} />
+        <Route path="/org-picker" element={<OrgPicker />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 

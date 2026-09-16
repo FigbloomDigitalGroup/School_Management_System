@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { OrganizationAccessLog, OrganizationTenantSummary } from "./types";
+import type { Organization, OrganizationAccessLog, OrganizationTenantSummary } from "./types";
 
 /**
  * Data access for the org-admin read-only aggregation layer (FIG-332). The
@@ -8,6 +8,20 @@ import type { OrganizationAccessLog, OrganizationTenantSummary } from "./types";
  * directly, only to organization_tenant_summary (trigger-maintained, never
  * a live view — see that migration's header).
  */
+
+/**
+ * Every organization a profile administers — a profile can belong to more
+ * than one (organization_admins only unique-constrains profile+org, not
+ * profile alone), the way SignIn.tsx's workspace picker needs when there's
+ * more than one to choose from.
+ */
+export async function fetchMyOrganizations(profileId: string): Promise<Organization[]> {
+  const { data, error } = await supabase()
+    .from("organization_admins").select("organizations(*)").eq("profile_id", profileId)
+    .returns<{ organizations: Organization | null }[]>();
+  if (error) throw error;
+  return (data ?? []).map((r) => r.organizations).filter((o): o is Organization => o !== null);
+}
 
 export async function fetchOrganizationTenantSummaries(organizationId: string): Promise<OrganizationTenantSummary[]> {
   const { data, error } = await supabase()
