@@ -23,8 +23,10 @@ interface Props {
   workspaceOptions?: { slug: string; name: string }[];
   /** Set when an org_admin is acting inside a member school (FIG-391/392) —
    *  a persistent reminder that they are not this school's own admin, with
-   *  a way back out. Never set for a school's own school_admin. */
-  actingBanner?: { orgName: string; schoolName: string; exitTo: string };
+   *  a way back out. Never set for a school's own school_admin. onExit is a
+   *  callback rather than a plain URL so the caller can log the exit before
+   *  navigating away. */
+  actingBanner?: { orgName: string; schoolName: string; onExit: () => void };
 }
 
 /**
@@ -185,7 +187,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </span>
             <button
               type="button"
-              onClick={() => nav(actingBanner.exitTo)}
+              onClick={actingBanner.onExit}
               className="hit shrink-0 font-semibold underline decoration-orange-ink/40 underline-offset-2"
             >
               Exit to organization
