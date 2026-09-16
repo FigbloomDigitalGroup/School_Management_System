@@ -133,13 +133,46 @@ export function Organizations() {
 function OrganizationDetail({ organization, onChanged }: { organization: Organization; onChanged: () => void }) {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
+  const [approving, setApproving] = useState(false);
   const { data: tenants, loading: tenantsLoading } = useAsync(() => fetchMemberTenants(organization.id), [organization.id, reloadKey]);
   const { data: admins, loading: adminsLoading, error: adminsError } = useAsync(() => fetchOrgAdmins(organization.id), [organization.id, reloadKey]);
   const [invitingAdmin, setInvitingAdmin] = useState(false);
 
+  // One-click approve (FIG-375) — a self-registered org (FIG-370/371) sits
+  // 'pending' until this fires; once active, tenant_write_org_admin (FIG-369)
+  // lets the org's own admin start self-service-adding schools with no
+  // further staff involvement per school.
+  async function approve() {
+    setApproving(true);
+    try {
+      const { error } = await supabase().from("organizations").update({ status: "active" }).eq("id", organization.id);
+      if (error) throw error;
+      toast(`${organization.name} approved.`);
+      onChanged();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not approve: ${err.message}` : "Could not approve.");
+    } finally {
+      setApproving(false);
+    }
+  }
+
   return (
     <>
       <div className="border-b border-line bg-white px-7 pt-6">
+        {organization.status === "pending" && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-orange-line bg-orange-soft p-4">
+            <div className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md bg-orange text-[13px] font-bold text-white">!</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-semibold text-orange-ink">Pending approval</div>
+              <p className="mt-0.5 text-[12.5px] leading-relaxed text-orange-ink">
+                Self-registered — nothing is visible to its own admin until you approve it.
+              </p>
+            </div>
+            <Button variant="accent" onClick={() => void approve()} disabled={approving}>
+              {approving ? "Approving…" : "Approve organization"}
+            </Button>
+          </div>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
           <div>
             <div className="flex items-center gap-2.5">
