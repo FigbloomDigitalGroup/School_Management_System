@@ -42,12 +42,17 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const { data: { user } } = await asUser.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  // Only a real platform super_admin may create accounts in other tenants —
-  // checked against the service-role client, never trusting the caller's claim.
+  // A real platform super_admin may always call this. An org_admin may too,
+  // but only for a school that belongs to an organization they themselves
+  // administer (FIG-373) — checked below once we know which tenant this is,
+  // never trusting the caller's own claim either way. Every other role is
+  // rejected immediately, before any tenant lookup, same as before this
+  // ticket — the narrower org_admin path only adds a possibility, it never
+  // removes the instant-403 for a role that could never qualify.
   const { data: callerProfile } = await admin
     .from("profiles").select("role, full_name").eq("id", user.id).maybeSingle();
-  if (callerProfile?.role !== "super_admin") {
-    return json({ error: "Only Figbloom staff can onboard a school." }, 403);
+  if (callerProfile?.role !== "super_admin" && callerProfile?.role !== "org_admin") {
+    return json({ error: "Only Figbloom staff, or an organization's own admin, can add a school administrator." }, 403);
   }
 
   let body: Partial<Body>;
@@ -60,8 +65,18 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   }
 
   const { data: tenant, error: tenantErr } = await admin
-    .from("tenants").select("id, name").eq("id", tenant_id).maybeSingle();
+    .from("tenants").select("id, name, organization_id").eq("id", tenant_id).maybeSingle();
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
+
+  let authorized = callerProfile.role === "super_admin";
+  if (!authorized && tenant.organization_id) {
+    const { data: link } = await admin.from("organization_admins")
+      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
+    authorized = !!link;
+  }
+  if (!authorized) {
+    return json({ error: "You do not administer this school's organization." }, 403);
+  }
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: email.trim(),
@@ -92,9 +107,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: profileErr.message }, 500);
   }
 
+  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : "org admin";
   await admin.from("audit_events").insert({
     tenant_id,
-    actor_label: callerProfile.full_name ? `${callerProfile.full_name} · Figbloom` : "Figbloom staff",
+    actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: `First administrator ${full_name.trim()} added for ${tenant.name}`,
     category: "provisioning",
   });
