@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { COUNTRIES, countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
+import { CountrySelect } from "../../components/ui/CountrySelect";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/Toast";
@@ -25,12 +26,6 @@ const BLANK: Form = {
   adminName: "", adminRole: "Principal", email: "", phone: "",
   organizationId: "",
 };
-
-// Sourced from the country registry (FIG-378) — Kenya-only today because
-// that's the only country with validated currency/phone/grading data, not
-// because the picker itself is hardcoded. Adding a country is now a
-// registry data entry, not a change here.
-const COUNTRY_OPTIONS = Object.entries(COUNTRIES).map(([value, p]) => ({ value, label: p.label }));
 
 /**
  * Five steps, nothing created until the last one.
@@ -194,8 +189,7 @@ export function OnboardSchool({
             <TextField id="moe" label="MoE registration number" mono placeholder="e.g. 31/1/0071" value={form.moe} onChange={(e) => set("moe", e.target.value)} />
           </div>
           <div className="grid gap-3.5 sm:grid-cols-2">
-            <SelectField id="country" label="Country" value={form.country} onChange={(e) => set("country", e.target.value)}
-              options={COUNTRY_OPTIONS} />
+            <CountrySelect id="country" label="Country" value={form.country} onChange={(v) => set("country", v)} />
             <SelectField id="county" label="County" value={form.county} onChange={(e) => set("county", e.target.value)}
               options={["Nakuru", "Nairobi", "Kiambu", "Kisumu", "Uasin Gishu", "Siaya", "Bungoma", "Kakamega"].map((c) => ({ value: c, label: c }))} />
           </div>

@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney, COUNTRIES,
+  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney,
   type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { CountrySelect } from "../../components/ui/CountrySelect";
 import { Mono } from "../../components/ui/DataTable";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
@@ -108,12 +109,6 @@ export function OrgSchools() {
   );
 }
 
-// Sourced from the country registry (FIG-378) — Kenya-only today because
-// that's the only country with validated currency/phone/grading data, not
-// because the picker itself is hardcoded. Adding a country is now a
-// registry data entry, not a change here.
-const COUNTRY_OPTIONS = Object.entries(COUNTRIES).map(([value, p]) => ({ value, label: p.label }));
-
 function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   organizationId: string;
   onClose: () => void;
@@ -123,7 +118,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [county, setCounty] = useState("Nairobi");
-  const [country] = useState("KE");
+  const [country, setCountry] = useState("KE");
   const [institutionType, setInstitutionType] = useState<Tenant["institution_type"]>("k12");
   const [level, setLevel] = useState<Tenant["level"]>("secondary");
   const [higherEdSubtype, setHigherEdSubtype] = useState<NonNullable<Tenant["higher_ed_subtype"]>>("university");
@@ -201,7 +196,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
           />
         </div>
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <SelectField id="school-country" label="Country" value={country} options={COUNTRY_OPTIONS} disabled />
+          <CountrySelect id="school-country" label="Country" value={country} onChange={setCountry} />
           <TextField id="school-county" label="County" value={county} onChange={(e) => setCounty(e.target.value)} />
         </div>
         <div className="grid gap-3.5 sm:grid-cols-2">
