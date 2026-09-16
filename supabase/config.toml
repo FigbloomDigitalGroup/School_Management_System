@@ -66,3 +66,6 @@ verify_jwt = true
 
 [functions.mpesa-callback]
 verify_jwt = false             # Safaricom cannot send a JWT
+
+[functions.signup-organization]
+verify_jwt = false             # public self-service signup — the caller has no account yet, so no JWT to verify
