@@ -32,13 +32,14 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
   // class_teacher_id); "Courses"/"My sections" are the higher-ed equivalent
   // (semesters, course catalogue, section rosters) — each institution type
   // only ever sees its own, rather than an empty screen shaped for the other.
-  // Attendance/Gradebook/Timetable/Messages are all keyed off
-  // teaching_assignments/class_id too, which no higher-ed tenant populates,
-  // so they'd only ever show "no classes" for a lecturer — hidden for the
-  // same reason, not because the underlying capability doesn't matter (it's
-  // simply not built for course sections yet, one screen at a time).
+  // Attendance/Timetable/Messages are still keyed off teaching_assignments/
+  // class_id, which no higher-ed tenant populates, so they'd only ever show
+  // "no classes" for a lecturer — hidden for the same reason, not because the
+  // underlying capability doesn't matter (it's simply not built for course
+  // sections yet). Gradebook is the exception: FIG-330 gave it a real
+  // higher-ed branch (GpaGradebook), so it stays visible for both.
   const higherEd = tenant?.institution_type === "higher_ed";
-  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/gradebook", "teacher/timetable", "teacher/messages"]);
+  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages"]);
   const items = NAV[role].filter((item) => {
     if (item.to === "admin/classes" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;

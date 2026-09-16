@@ -28,6 +28,7 @@ import { AdminReports } from "./screens/admin/Reports";
 
 import { Attendance } from "./screens/teacher/Attendance";
 import { Gradebook } from "./screens/teacher/Gradebook";
+import { GpaGradebook } from "./screens/teacher/GpaGradebook";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherMySections } from "./screens/teacher/MySections";
@@ -150,7 +151,7 @@ function TenantRoutes() {
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
-          <Route path="teacher/gradebook" element={<TeacherShell allow={["teacher"]}><Gradebook /></TeacherShell>} />
+          <Route path="teacher/gradebook" element={<TeacherShell allow={["teacher"]}><GradebookRouter /></TeacherShell>} />
           <Route path="teacher/timetable" element={<TeacherShell allow={["teacher"]}><TeacherTimetable /></TeacherShell>} />
           <Route path="teacher/classes" element={<TeacherShell allow={["teacher"]}><TeacherClasses /></TeacherShell>} />
           <Route path="teacher/sections" element={<TeacherShell allow={["teacher"]}><TeacherMySections /></TeacherShell>} />
@@ -210,6 +211,12 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     </RoleGate>
   );
 };
+
+/** One "Gradebook" nav entry, two different screens underneath — K-12's letter-grade/class-mean model vs higher-ed's credit/GPA one (FIG-330). */
+function GradebookRouter() {
+  const { tenant } = useTenantSession();
+  return tenant.institution_type === "higher_ed" ? <GpaGradebook /> : <Gradebook />;
+}
 
 const ParentShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
