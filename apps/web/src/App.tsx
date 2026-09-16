@@ -14,6 +14,7 @@ import { StudentDataProvider } from "./lib/studentContext";
 import { SignIn } from "./screens/SignIn";
 import { ResetPassword } from "./screens/ResetPassword";
 import { Tenants } from "./screens/platform/Tenants";
+import { Organizations } from "./screens/platform/Organizations";
 import { Audit, Health, Impersonation, Incidents, Invoices, Subscriptions, Usage } from "./screens/platform/pages";
 
 import { AdminDashboard } from "./screens/admin/Dashboard";
@@ -76,6 +77,7 @@ export function App() {
 
 const PLATFORM_PAGES: Record<string, JSX.Element> = {
   tenants: <Tenants />,
+  organizations: <Organizations />,
   health: <Health />,
   usage: <Usage />,
   incidents: <Incidents />,
@@ -110,7 +112,7 @@ function PlatformShell() {
   if (session.profile.role !== "super_admin") return <Navigate to={homeRouteFor(session.profile.role, session.tenant?.slug ?? null, session.tenant?.institution_type)} replace />;
 
   const body = PLATFORM_PAGES[page] ?? <NotFound />;
-  const bare = page === "tenants";
+  const bare = page === "tenants" || page === "organizations";
 
   return (
     <TenantTheme tenant={null}>

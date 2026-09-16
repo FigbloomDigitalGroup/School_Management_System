@@ -17,6 +17,10 @@ export const METHOD_FOR: Record<Role, SignInMethod> = {
   driver: "staff_password",
   parent: "parent_otp",
   student: "student_pin",
+  // A customer-held credential that can see data across several schools
+  // (FIG-331) warrants at least the bar Figbloom's own staff meet, not the
+  // weaker staff_password every other staff role gets.
+  org_admin: "platform",
 };
 
 export const OTP_LENGTH = 6;
@@ -63,12 +67,18 @@ export function homeRouteFor(role: Role, slug: string | null, institutionType?: 
     case "parent": return `/s/${slug}/parent`;
     case "student": return `/s/${slug}/student`;
     case "driver": return `/s/${slug}/driver`;
+    // The org-admin console (/org/:orgSlug/*, FIG-333) doesn't exist yet —
+    // this role isn't tenant-scoped at all (no `slug` applies), so there's
+    // nowhere real to send them until that ticket lands. Not /platform/*:
+    // that's staff-only and would just bounce them straight back here.
+    case "org_admin": return "/signin";
   }
 }
 
 export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = {
   super_admin: [
     { to: "/platform/tenants", label: "Tenants", icon: "table" },
+    { to: "/platform/organizations", label: "Organizations", icon: "people" },
     { to: "/platform/health", label: "System health", icon: "pulse" },
     { to: "/platform/usage", label: "Usage & capacity", icon: "gauge" },
     { to: "/platform/incidents", label: "Incidents", icon: "flag" },
@@ -117,4 +127,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   driver: [
     { to: "driver", label: "Trip", icon: "pulse" },
   ],
+  // The org-admin console (FIG-333) isn't built yet — empty for the same
+  // reason, not because org_admin will never need nav.
+  org_admin: [],
 };

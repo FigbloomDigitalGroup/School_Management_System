@@ -1,6 +1,6 @@
 /** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
 
-export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver";
+export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin";
 
 export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
 
@@ -27,7 +27,32 @@ export interface Tenant {
   price_cents_override: number | null;
   trial_ends_at: string | null;
   renews_on: string | null;
+  organization_id: string | null;
   created_at: string;
+}
+
+export type OrganizationKind = "government" | "county" | "constituency" | "group_owner";
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  kind: OrganizationKind;
+  county: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  status: "active" | "suspended";
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface OrganizationAdmin {
+  id: string;
+  profile_id: string;
+  organization_id: string;
+  added_at: string;
+  added_by: string | null;
 }
 
 export type IncidentSeverity = "SEV-1" | "SEV-2" | "SEV-3";

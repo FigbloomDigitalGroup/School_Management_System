@@ -4,8 +4,9 @@ import { Button } from "../../components/ui/Button";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/Toast";
-import { createTenant, inviteAdmin, type InviteAdminResult } from "../../lib/platformAdmin";
+import { createTenant, fetchOrganizations, inviteAdmin, type InviteAdminResult } from "../../lib/platformAdmin";
 import { uploadTenantLogo } from "../../lib/uploads";
+import { useAsync } from "../../lib/useAsync";
 
 const STEPS = ["School", "Workspace", "Plan", "Administrator", "Review"] as const;
 
@@ -14,6 +15,7 @@ interface Form {
   slug: string; accent: string;
   plan: string; trial: string; cycle: string;
   adminName: string; adminRole: string; email: string; phone: string;
+  organizationId: string;
 }
 
 const BLANK: Form = {
@@ -21,6 +23,7 @@ const BLANK: Form = {
   slug: "", accent: "#1B4D2E",
   plan: "institution", trial: "30", cycle: "term",
   adminName: "", adminRole: "Principal", email: "", phone: "",
+  organizationId: "",
 };
 
 /**
@@ -56,6 +59,7 @@ export function OnboardSchool({
   const [crestPreview, setCrestPreview] = useState<string | null>(null);
   const toast = useToast();
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const { data: organizations } = useAsync(() => fetchOrganizations(), []);
 
   const slugValue = form.slug || (form.name ? suggestSlug(form.name) : "");
   const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "Suggested from the school name." };
@@ -86,6 +90,7 @@ export function OnboardSchool({
         county: form.county,
         level: form.level as Tenant["level"],
         institution_type: form.institutionType as Tenant["institution_type"],
+        organization_id: form.organizationId || null,
         moe_registration: form.moe.trim() || null,
         plan: form.plan as Tenant["plan"],
         accent: form.accent,
@@ -211,6 +216,13 @@ export function OnboardSchool({
               {takenBy ? "That address is already taken by another school." : slugCheck.message}
             </p>
           </div>
+          {organizations && organizations.length > 0 && (
+            <SelectField
+              id="organization" label="Part of an organization? (optional)"
+              value={form.organizationId} onChange={(e) => set("organizationId", e.target.value)}
+              options={[{ value: "", label: "Not part of one" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
+            />
+          )}
           <div>
             <span className="mb-2 block text-small font-semibold">Accent colour</span>
             <div className="flex gap-2.5">
@@ -317,6 +329,7 @@ export function OnboardSchool({
             {[
               ["School", form.name || "—"],
               ["Address", `figbloom.co.ke/s/${slugValue || "—"}`],
+              ...(form.organizationId ? [["Organization", organizations?.find((o) => o.id === form.organizationId)?.name ?? "—"]] : []),
               ["Plan", `${form.plan} · ${form.cycle === "term" ? "per term" : "annual"}`],
               ["Trial", form.trial === "0" ? "No trial" : `${form.trial} days`],
               ["First administrator", `${form.adminName || "—"} · ${form.adminRole}`],
