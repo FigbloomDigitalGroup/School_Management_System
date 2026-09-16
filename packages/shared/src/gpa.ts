@@ -10,18 +10,22 @@ import type { LetterGrade } from "./types";
  * from or writes into grading.ts's world.
  */
 
+// Cutoffs follow Kenyan university convention (e.g. Kenyatta University: A =
+// 70-100%), not the ~90%=A scale common in the US — a Kenyan institution
+// using the American cutoffs unmodified would under-grade nearly every
+// student, so these are the actual default rather than a placeholder.
 export const GPA_SCALE: { min: number; grade: LetterGrade; points: number }[] = [
-  { min: 90, grade: "A", points: 4.0 },
-  { min: 85, grade: "A-", points: 3.7 },
-  { min: 80, grade: "B+", points: 3.3 },
-  { min: 75, grade: "B", points: 3.0 },
-  { min: 70, grade: "B-", points: 2.7 },
-  { min: 65, grade: "C+", points: 2.3 },
-  { min: 60, grade: "C", points: 2.0 },
-  { min: 55, grade: "C-", points: 1.7 },
-  { min: 50, grade: "D+", points: 1.3 },
-  { min: 45, grade: "D", points: 1.0 },
-  { min: 40, grade: "D-", points: 0.7 },
+  { min: 70, grade: "A", points: 4.0 },
+  { min: 65, grade: "A-", points: 3.7 },
+  { min: 60, grade: "B+", points: 3.3 },
+  { min: 55, grade: "B", points: 3.0 },
+  { min: 50, grade: "B-", points: 2.7 },
+  { min: 45, grade: "C+", points: 2.3 },
+  { min: 40, grade: "C", points: 2.0 },
+  { min: 35, grade: "C-", points: 1.7 },
+  { min: 30, grade: "D+", points: 1.3 },
+  { min: 25, grade: "D", points: 1.0 },
+  { min: 20, grade: "D-", points: 0.7 },
   { min: 0, grade: "F", points: 0.0 },
 ];
 

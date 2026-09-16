@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { creditWeightedGpa, letterAndPoints, weightedScore } from "./gpa";
 
 describe("letterAndPoints", () => {
+  // Kenyan university convention (e.g. Kenyatta University: A = 70-100%),
+  // not the ~90%=A scale common in the US.
   it.each([
     [95, "A", 4.0],
-    [90, "A", 4.0],
-    [82, "B+", 3.3],
-    [60, "C", 2.0],
-    [40, "D-", 0.7],
+    [70, "A", 4.0],
+    [62, "B+", 3.3],
+    [42, "C", 2.0],
+    [22, "D-", 0.7],
     [10, "F", 0.0],
   ])("scores %i%% as %s (%s points)", (score, grade, points) => {
     const r = letterAndPoints(score as number);
