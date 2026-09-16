@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   DEMO_LOGINS, OTP_LENGTH, homeRouteFor, studentLoginEmail, supabase, validateOtp, validatePin, type Role, type Tenant,
 } from "@figbloom/shared";
@@ -211,6 +211,10 @@ export function SignIn() {
             </Button>
           </div>
         </div>
+
+        <p className="mt-4 text-center text-small text-ink-muted">
+          New organization? <Link to="/signup" className="font-medium text-forest hover:underline">Get started</Link>
+        </p>
 
         <details className="mt-4 rounded-xl border border-line bg-white p-4">
           <summary className="cursor-pointer text-small font-semibold">Development logins</summary>
