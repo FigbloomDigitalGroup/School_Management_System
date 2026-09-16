@@ -84,6 +84,7 @@ export interface OrganizationTenantSummary {
   name: string;
   institution_type: InstitutionType;
   higher_ed_subtype: HigherEdSubtype | null;
+  delivery_mode: DeliveryMode;
   status: TenantStatus;
   active_students: number;
   present_today: number;
