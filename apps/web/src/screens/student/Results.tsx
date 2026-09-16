@@ -1,18 +1,27 @@
 import { againstMean, GRADE_INK, gradeFor, pointsFor } from "@figbloom/shared";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
+import { StudentCourseResults } from "./CourseResults";
 
 /**
  * No class position anywhere — the same product decision StudentApp.tsx (the
  * phone preview) makes. Marks are shown against the class mean instead, and
  * the footer note carries the same copy forward onto desktop.
+ *
+ * A higher-ed tenant has no class mean or KCSE letter grade at all — it gets
+ * the credit/GPA equivalent (CourseResults) instead, under this same "Results"
+ * nav entry rather than a second one.
  */
 export function StudentResults() {
+  const { tenant } = useTenantSession();
   const { data, loading, error } = useStudentData();
+
+  if (tenant.institution_type === "higher_ed") return <StudentCourseResults />;
 
   if (error) {
     return (

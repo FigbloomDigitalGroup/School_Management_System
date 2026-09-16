@@ -383,6 +383,39 @@ export interface CourseSectionTimetableSlot {
   room: string | null;
 }
 
+export interface CourseAssessment {
+  id: string;
+  tenant_id: string;
+  course_section_id: string;
+  name: string;              // "Midterm", "Assignment 3", "Final"
+  weight_pct: number;
+  out_of: number;
+  published_at: string | null;
+}
+
+export interface CourseMark {
+  id: string;
+  tenant_id: string;
+  assessment_id: string;
+  student_id: string;
+  score: number | null;
+  entered_by: string;
+  entered_at: string;
+}
+
+export type LetterGrade = "A" | "A-" | "B+" | "B" | "B-" | "C+" | "C" | "C-" | "D+" | "D" | "D-" | "F";
+
+export interface CourseGrade {
+  id: string;
+  tenant_id: string;
+  student_id: string;
+  course_section_id: string;
+  weighted_score: number | null;
+  letter_grade: LetterGrade | null;
+  grade_points: number | null;
+  finalized_at: string;
+}
+
 export type AlertKind = "speed" | "geofence";
 
 export interface VehicleAlert {

@@ -11,6 +11,8 @@ export * from "./studentData";
 export * from "./timetable";
 export * from "./roleLabels";
 export * from "./courses";
+export * from "./gpa";
+export * from "./courseGrades";
 export * from "./fleet";
 export * from "./supabase";
 export * from "./demo";
