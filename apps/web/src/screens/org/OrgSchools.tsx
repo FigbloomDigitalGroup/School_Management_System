@@ -124,6 +124,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   const [deliveryMode, setDeliveryMode] = useState<Tenant["delivery_mode"]>("in_person");
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
+  const [adminTitle, setAdminTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -157,7 +158,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
       await inviteAdmin({
         tenant_id: tenant.id,
         full_name: adminName.trim(),
-        staff_title: "Principal",
+        staff_title: adminTitle.trim() || "Principal",
         email: adminEmail.trim(),
       });
 
@@ -224,6 +225,13 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
           <div className="grid gap-3.5 sm:grid-cols-2">
             <TextField id="school-admin-name" label="Name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
             <TextField id="school-admin-email" label="Email" type="email" error={error} value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+          </div>
+          <div className="mt-3.5">
+            <TextField
+              id="school-admin-title" label="Their role at this school" placeholder="e.g. Principal, Director, Owner"
+              hint="Whatever they actually are — not every school's lead admin is a Principal."
+              value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)}
+            />
           </div>
         </div>
       </form>
