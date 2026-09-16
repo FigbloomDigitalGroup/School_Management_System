@@ -52,6 +52,9 @@ describe("homeRouteFor", () => {
     expect(homeRouteFor("student", "alliance")).toBe("/s/alliance/student");
     expect(homeRouteFor("driver", "alliance")).toBe("/s/alliance/driver");
   });
+  it("sends org_admin to their organization's own console, not /s/<slug> or /platform", () => {
+    expect(homeRouteFor("org_admin", "nakuru-county")).toBe("/org/nakuru-county/dashboard");
+  });
   it("a k12 teacher lands on Attendance; a higher-ed teacher (lecturer) lands on their sections instead", () => {
     expect(homeRouteFor("teacher", "alliance", "k12")).toBe("/s/alliance/teacher/attendance");
     expect(homeRouteFor("teacher", "some-college", "higher_ed")).toBe("/s/some-college/teacher/sections");

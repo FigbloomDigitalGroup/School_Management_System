@@ -67,11 +67,11 @@ export function homeRouteFor(role: Role, slug: string | null, institutionType?: 
     case "parent": return `/s/${slug}/parent`;
     case "student": return `/s/${slug}/student`;
     case "driver": return `/s/${slug}/driver`;
-    // The org-admin console (/org/:orgSlug/*, FIG-333) doesn't exist yet —
-    // this role isn't tenant-scoped at all (no `slug` applies), so there's
-    // nowhere real to send them until that ticket lands. Not /platform/*:
-    // that's staff-only and would just bounce them straight back here.
-    case "org_admin": return "/signin";
+    // Not tenant-scoped at all — `slug` here is actually the org's own slug
+    // (SignIn.tsx resolves it from organization_admins, not tenants, for
+    // this role). Not /platform/*: that's staff-only and would just bounce
+    // them straight back here.
+    case "org_admin": return `/org/${slug}/dashboard`;
   }
 }
 
@@ -127,7 +127,13 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   driver: [
     { to: "driver", label: "Trip", icon: "pulse" },
   ],
-  // The org-admin console (FIG-333) isn't built yet — empty for the same
-  // reason, not because org_admin will never need nav.
-  org_admin: [],
+  // Relative, same as every tenant-scoped role's items — NavLink resolves
+  // them against the current /org/<slug>/ location, so no manual slug
+  // substitution is needed (mirrors how "admin", "teacher/attendance" etc.
+  // resolve under /s/<slug>/ for the tenant-scoped roles above).
+  org_admin: [
+    { to: "dashboard", label: "Dashboard", icon: "home" },
+    { to: "schools", label: "Schools", icon: "table" },
+    { to: "audit", label: "Audit log", icon: "gear" },
+  ],
 };

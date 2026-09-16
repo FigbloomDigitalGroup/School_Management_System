@@ -8,6 +8,8 @@ import { Skeleton } from "./components/ui/Skeleton";
 import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
 import { SessionCtx, useTenantSession } from "./lib/sessionContext";
+import { useOrgSession } from "./lib/useOrgSession";
+import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
 import { ParentDataProvider } from "./lib/parentContext";
 import { StudentDataProvider } from "./lib/studentContext";
 
@@ -16,6 +18,11 @@ import { ResetPassword } from "./screens/ResetPassword";
 import { Tenants } from "./screens/platform/Tenants";
 import { Organizations } from "./screens/platform/Organizations";
 import { Audit, Health, Impersonation, Incidents, Invoices, Subscriptions, Usage } from "./screens/platform/pages";
+
+import { OrgDashboard } from "./screens/org/OrgDashboard";
+import { OrgSchools } from "./screens/org/OrgSchools";
+import { OrgSchoolDetail } from "./screens/org/OrgSchoolDetail";
+import { OrgAudit } from "./screens/org/OrgAudit";
 
 import { AdminDashboard } from "./screens/admin/Dashboard";
 import { People } from "./screens/admin/People";
@@ -68,6 +75,8 @@ export function App() {
         <Route path="/platform/:page" element={<PlatformShell />} />
 
         <Route path="/s/:slug/*" element={<TenantRoutes />} />
+
+        <Route path="/org/:orgSlug/*" element={<OrgRoutes />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -182,6 +191,46 @@ function TenantRoutes() {
     </SessionCtx.Provider>
   );
 }
+
+/** Everything for one organization — gated on a real, org-matching session (org_admin only). */
+function OrgRoutes() {
+  const { orgSlug = null } = useParams();
+  const session = useOrgSession(orgSlug);
+
+  if (session.loading) return <FullPageSkeleton />;
+  if (!session.profile) return <Navigate to="/signin" replace />;
+  // Any other role wandering onto an /org/* URL: we don't know their real
+  // tenant/slug from here (this route never resolved one), so send them
+  // through sign-in to re-resolve their actual home rather than guessing.
+  if (session.profile.role !== "org_admin") return <Navigate to="/signin" replace />;
+  // organization_read_own RLS already denied the fetch if this profile doesn't
+  // actually administer this org — a null result here means "not authorized",
+  // not "not found", the same way TenantRoutes reads a null tenant.
+  if (!session.organization || session.organization.slug !== orgSlug) return <Navigate to="/signin" replace />;
+
+  return (
+    <OrgSessionCtx.Provider value={session}>
+      <TenantTheme tenant={null}>
+        <Routes>
+          <Route path="dashboard" element={<OrgShell><OrgDashboard /></OrgShell>} />
+          <Route path="schools" element={<OrgShell><OrgSchools /></OrgShell>} />
+          <Route path="schools/:tenantId" element={<OrgShell><OrgSchoolDetail /></OrgShell>} />
+          <Route path="audit" element={<OrgShell><OrgAudit /></OrgShell>} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </TenantTheme>
+    </OrgSessionCtx.Provider>
+  );
+}
+
+const OrgShell = ({ children }: { children: ReactNode }) => {
+  const session = useOrgSessionCtx();
+  return (
+    <ConsoleShell role="org_admin" user={{ name: session.profile.full_name, roleLabel: "Org admin" }} workspaceName={session.organization.name}>
+      {children}
+    </ConsoleShell>
+  );
+};
 
 /** A signed-in user who wanders into a shell that is not theirs goes home, not to a 404. */
 function RoleGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
