@@ -23,6 +23,29 @@ export async function fetchMyOrganizations(profileId: string): Promise<Organizat
   return (data ?? []).map((r) => r.organizations).filter((o): o is Organization => o !== null);
 }
 
+export interface OrgAdminSummary {
+  id: string;
+  full_name: string;
+  email: string | null;
+}
+
+/**
+ * Every admin of one organization, including the caller's own co-admins —
+ * needs the organization_admins_read_own RLS policy to grant "any org I
+ * administer", not just "my own row" (FIG-390's migration), otherwise this
+ * silently returns only the caller themselves.
+ */
+export async function fetchOrgAdminsForOwnOrg(organizationId: string): Promise<OrgAdminSummary[]> {
+  // organization_admins has two FKs into profiles (profile_id, added_by), so
+  // the embed is ambiguous without a hint — PostgREST rejects it (PGRST201)
+  // rather than guessing.
+  const { data, error } = await supabase()
+    .from("organization_admins").select("profiles!organization_admins_profile_id_fkey(id, full_name, email)").eq("organization_id", organizationId)
+    .returns<{ profiles: OrgAdminSummary | null }[]>();
+  if (error) throw error;
+  return (data ?? []).map((r) => r.profiles).filter((p): p is OrgAdminSummary => p !== null);
+}
+
 export async function fetchOrganizationTenantSummaries(organizationId: string): Promise<OrganizationTenantSummary[]> {
   const { data, error } = await supabase()
     .from("organization_tenant_summary").select("*").eq("organization_id", organizationId)
