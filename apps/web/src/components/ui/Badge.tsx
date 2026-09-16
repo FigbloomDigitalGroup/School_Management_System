@@ -1,5 +1,5 @@
 import { roleLabel, status } from "@figbloom/shared";
-import type { Tenant } from "@figbloom/shared";
+import type { HigherEdSubtype, Tenant } from "@figbloom/shared";
 import type { ReactNode } from "react";
 
 export type Tone = "ok" | "warn" | "info" | "muted";
@@ -31,6 +31,11 @@ const ROLE_TONE = {
 const ROLE_LABEL = {
   super_admin: "Platform", school_admin: "Admin", teacher: "Teacher", parent: "Parent", student: "Student", driver: "Driver", org_admin: "Org admin",
 } as const;
+
+/** Descriptive only (FIG-357 v1) — a label, not yet a functional distinction. */
+export const HIGHER_ED_SUBTYPE_LABEL: Record<HigherEdSubtype, string> = {
+  university: "University", college: "College", short_course: "Short-course school", tvet: "TVET",
+};
 
 /** `tenant` is only needed to resolve "Teacher"->"Lecturer" etc for higher-ed
  *  tenants; platform-wide screens with no tenant in scope get the K-12 default. */

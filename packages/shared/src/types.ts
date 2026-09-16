@@ -6,6 +6,11 @@ export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "susp
 
 export type InstitutionType = "k12" | "higher_ed";
 
+/** Descriptive only (FIG-357 v1) — a university/college/short_course/tvet
+ *  tenant behave identically today (same courses/sections/GPA tables); this
+ *  is a label, not yet a functional distinction. null for k12 tenants. */
+export type HigherEdSubtype = "university" | "college" | "short_course" | "tvet";
+
 /** A class's own grading band — independent of Tenant.level, which stays a
  *  whole-tenant descriptor. A 'combined' tenant's classes each carry their
  *  own ClassLevel so grading can key per-class (FIG-356). */
@@ -19,6 +24,7 @@ export interface Tenant {
   country: string;           // ISO 3166-1 alpha-2, e.g. "KE" — keys the grading-scheme registry
   level: "primary" | "secondary" | "combined";
   institution_type: InstitutionType;
+  higher_ed_subtype: HigherEdSubtype | null;
   role_labels: Partial<Record<"teacher" | "class_teacher" | "student" | "parent", string>>;
   moe_registration: string | null;
   plan: "standard" | "institution" | "county";
@@ -71,6 +77,7 @@ export interface OrganizationTenantSummary {
   organization_id: string | null;
   name: string;
   institution_type: InstitutionType;
+  higher_ed_subtype: HigherEdSubtype | null;
   status: TenantStatus;
   active_students: number;
   present_today: number;

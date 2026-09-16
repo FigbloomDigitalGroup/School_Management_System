@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchOrganizationTenantSummaries, logOrganizationAccess, KES, type OrganizationTenantSummary } from "@figbloom/shared";
-import { Badge } from "../../components/ui/Badge";
+import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Mono } from "../../components/ui/DataTable";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
@@ -65,7 +65,7 @@ export function OrgSchools() {
       tags: [s.institution_type, ...(s.status !== "active" ? ["needs_attention"] : [])],
       cells: [
         <span className="text-[13px] font-medium">{s.name}</span>,
-        <Mono>{s.institution_type === "higher_ed" ? "Higher-ed" : "K-12"}</Mono>,
+        <Mono>{s.institution_type === "higher_ed" ? (s.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[s.higher_ed_subtype] : "Higher-ed") : "K-12"}</Mono>,
         <Mono>{s.active_students.toLocaleString()}</Mono>,
         <span className="text-[13px]">{KES(s.fees_collected_cents)} / {KES(s.fees_billed_cents)}</span>,
         <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge>,

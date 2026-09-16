@@ -11,7 +11,7 @@ import { useAsync } from "../../lib/useAsync";
 const STEPS = ["School", "Workspace", "Plan", "Administrator", "Review"] as const;
 
 interface Form {
-  name: string; moe: string; county: string; country: string; level: string; institutionType: string; seats: string;
+  name: string; moe: string; county: string; country: string; level: string; institutionType: string; higherEdSubtype: string; seats: string;
   slug: string; accent: string;
   plan: string; trial: string; cycle: string;
   adminName: string; adminRole: string; email: string; phone: string;
@@ -19,7 +19,7 @@ interface Form {
 }
 
 const BLANK: Form = {
-  name: "", moe: "", county: "Nakuru", country: "KE", level: "secondary", institutionType: "k12", seats: "1200",
+  name: "", moe: "", county: "Nakuru", country: "KE", level: "secondary", institutionType: "k12", higherEdSubtype: "university", seats: "1200",
   slug: "", accent: "#1B4D2E",
   plan: "institution", trial: "30", cycle: "term",
   adminName: "", adminRole: "Principal", email: "", phone: "",
@@ -96,6 +96,7 @@ export function OnboardSchool({
         country: form.country,
         level: form.level as Tenant["level"],
         institution_type: form.institutionType as Tenant["institution_type"],
+        higher_ed_subtype: form.institutionType === "higher_ed" ? (form.higherEdSubtype as Tenant["higher_ed_subtype"]) : null,
         organization_id: form.organizationId || null,
         moe_registration: form.moe.trim() || null,
         plan: form.plan as Tenant["plan"],
@@ -201,9 +202,17 @@ export function OnboardSchool({
               options={[{ value: "k12", label: "K-12 school" }, { value: "higher_ed", label: "Higher education" }]} />
             <TextField id="seats" label="Expected learners" mono value={form.seats} onChange={(e) => set("seats", e.target.value)} />
           </div>
-          {form.institutionType === "k12" && (
+          {form.institutionType === "k12" ? (
             <SelectField id="level" label="Level" value={form.level} onChange={(e) => set("level", e.target.value)}
               options={[{ value: "secondary", label: "Secondary" }, { value: "primary", label: "Primary" }, { value: "combined", label: "Combined" }]} />
+          ) : (
+            <SelectField id="higherEdSubtype" label="Type" value={form.higherEdSubtype} onChange={(e) => set("higherEdSubtype", e.target.value)}
+              options={[
+                { value: "university", label: "University" },
+                { value: "college", label: "College" },
+                { value: "short_course", label: "Short-course school" },
+                { value: "tvet", label: "TVET" },
+              ]} />
           )}
           <p className="rounded-md bg-page px-3.5 py-3 text-small leading-relaxed text-ink-muted">
             {form.institutionType === "higher_ed"
