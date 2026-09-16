@@ -6,11 +6,17 @@ export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "susp
 
 export type InstitutionType = "k12" | "higher_ed";
 
+/** A class's own grading band — independent of Tenant.level, which stays a
+ *  whole-tenant descriptor. A 'combined' tenant's classes each carry their
+ *  own ClassLevel so grading can key per-class (FIG-356). */
+export type ClassLevel = "primary" | "junior_secondary" | "secondary";
+
 export interface Tenant {
   id: string;
   name: string;
   slug: string;              // path segment: /s/<slug>
   county: string;
+  country: string;           // ISO 3166-1 alpha-2, e.g. "KE" — keys the grading-scheme registry
   level: "primary" | "secondary" | "combined";
   institution_type: InstitutionType;
   role_labels: Partial<Record<"teacher" | "class_teacher" | "student" | "parent", string>>;
@@ -137,7 +143,8 @@ export interface ClassGroup {
   id: string;
   tenant_id: string;
   name: string;              // "Form 2 West"
-  form_level: number;        // 1..4
+  level: ClassLevel;         // primary: form_level 1-6, junior_secondary: 7-9, secondary: 1-4 (Form 1-4)
+  form_level: number;
   stream: string | null;     // "West"
   class_teacher_id: string | null;
   room: string | null;
