@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney,
+  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney, COUNTRIES,
   type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
@@ -108,7 +108,11 @@ export function OrgSchools() {
   );
 }
 
-const COUNTRY_OPTIONS = [{ value: "KE", label: "Kenya" }];
+// Sourced from the country registry (FIG-378) — Kenya-only today because
+// that's the only country with validated currency/phone/grading data, not
+// because the picker itself is hardcoded. Adding a country is now a
+// registry data entry, not a change here.
+const COUNTRY_OPTIONS = Object.entries(COUNTRIES).map(([value, p]) => ({ value, label: p.label }));
 
 function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   organizationId: string;

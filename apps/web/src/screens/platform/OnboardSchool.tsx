@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { COUNTRIES, countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
@@ -26,10 +26,11 @@ const BLANK: Form = {
   organizationId: "",
 };
 
-// Kenya-only for now — matches the grading-scheme registry's current scope
-// (FIG-356), which only has Kenyan schemes modeled. Not a real country
-// picker yet; widen this the day a non-Kenyan tenant is real.
-const COUNTRY_OPTIONS = [{ value: "KE", label: "Kenya" }];
+// Sourced from the country registry (FIG-378) — Kenya-only today because
+// that's the only country with validated currency/phone/grading data, not
+// because the picker itself is hardcoded. Adding a country is now a
+// registry data entry, not a change here.
+const COUNTRY_OPTIONS = Object.entries(COUNTRIES).map(([value, p]) => ({ value, label: p.label }));
 
 /**
  * Five steps, nothing created until the last one.
