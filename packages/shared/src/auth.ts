@@ -2,66 +2,14 @@ import type { InstitutionType, Role } from "./types";
 import { supabase } from "./supabase";
 
 /**
- * Two ways in (FIG-396, replacing the four-tab/SMS-OTP scheme below, which
- * SignInMethod/METHOD_FOR/validateOtp/validatePin/studentLoginEmail still
- * describe until FIG-402/403/404 finish removing them):
+ * Two ways in (FIG-396, replacing an earlier four-tab/SMS-OTP scheme):
  *  - org_admin/super_admin  real email + password (the only two roles ever
  *    provisioned by email -- self-service signup or a formal staff invite)
- *  - everyone else          pick their school, then a school-assigned
- *    login_id (e.g. "TC-0001") + password -- no email, no SMS OTP
- */
-
-export type SignInMethod = "staff_password" | "parent_otp" | "student_pin" | "platform";
-
-export const METHOD_FOR: Record<Role, SignInMethod> = {
-  super_admin: "platform",
-  school_admin: "staff_password",
-  teacher: "staff_password",
-  driver: "staff_password",
-  parent: "parent_otp",
-  student: "student_pin",
-  // A customer-held credential that can see data across several schools
-  // (FIG-331) warrants at least the bar Figbloom's own staff meet, not the
-  // weaker staff_password every other staff role gets.
-  org_admin: "platform",
-};
-
-export const OTP_LENGTH = 6;
-export const OTP_TTL_SECONDS = 300;
-export const OTP_RESEND_AFTER_SECONDS = 30;
-export const PIN_LENGTH = 4;
-
-export function validateOtp(raw: string): { ok: boolean; message: string } {
-  const v = raw.replace(/\s/g, "");
-  if (v.length < OTP_LENGTH) return { ok: false, message: "" };
-  if (!/^\d{6}$/.test(v)) return { ok: false, message: "The code is six numbers." };
-  return { ok: true, message: "" };
-}
-
-/**
- * Students have no email or phone on file, so sign-in derives a synthetic
- * Supabase auth address from the admission number instead of looking one up —
- * the same admission number always maps to the same address, tenant-scoped so
- * two schools can each have their own "4102". The PIN is the account password.
- */
-export function studentLoginEmail(admissionNo: string, tenantSlug: string): string {
-  return `adm${admissionNo}@students.${tenantSlug}.figbloom.internal`;
-}
-
-export function validatePin(raw: string): { ok: boolean; message: string } {
-  if (!/^\d{4}$/.test(raw)) return { ok: false, message: "Your PIN is four numbers." };
-  if (/^(\d)\1{3}$/.test(raw)) return { ok: false, message: "Pick a PIN that is not four of the same number." };
-  if (raw === "1234" || raw === "0000") return { ok: false, message: "That PIN is too easy to guess." };
-  return { ok: true, message: "" };
-}
-
-/**
- * FIG-396/397: a short, school-assigned alphanumeric login_id (e.g.
- * "TC-0001") is replacing email/phone/admission-number as the sign-in
- * credential for every role except org_admin/super_admin. One prefix per
- * role, scoped per tenant (profiles.login_id is unique(tenant_id, login_id),
- * the same shape students.admission_no already used) -- two schools can
- * each assign their own "TC-0001".
+ *  - everyone else          pick their school, then a school-assigned,
+ *    alphanumeric login_id (e.g. "TC-0001") + password -- no email, no SMS
+ *    OTP. One prefix per role, scoped per tenant (profiles.login_id is
+ *    unique(tenant_id, login_id), the same shape students.admission_no
+ *    used before this) -- two schools can each assign their own "TC-0001".
  */
 export const ROLE_ID_PREFIX: Partial<Record<Role, string>> = {
   school_admin: "AD",
@@ -77,10 +25,10 @@ export function formatLoginId(prefix: string, n: number): string {
 }
 
 /**
- * Generalizes studentLoginEmail() to every login_id-based role: none of them
- * have a real email on file, so sign-in derives a synthetic Supabase auth
- * address from the assigned ID instead of looking one up. Tenant-scoped for
- * the same reason login_id itself is -- two schools can each have "TC-0001".
+ * None of the login_id-based roles have a real email on file, so sign-in
+ * derives a synthetic Supabase auth address from the assigned ID instead of
+ * looking one up. Tenant-scoped for the same reason login_id itself is --
+ * two schools can each have "TC-0001".
  */
 export function loginIdEmail(loginId: string, tenantSlug: string): string {
   return `${loginId.toLowerCase()}@login.${tenantSlug}.figbloom.internal`;

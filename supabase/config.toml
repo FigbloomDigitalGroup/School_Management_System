@@ -32,31 +32,18 @@ site_url = "http://localhost:5173"
 additional_redirect_urls = ["http://localhost:5173/**", "figbloom://"]
 jwt_expiry = 3600
 # The public /auth/v1/signup endpoint is off (accounts are created by invite,
-# via auth.admin.createUser in supabase/seed.ts) — but auth.email/auth.sms
-# "enable_signup" is actually the toggle for the whole email/phone provider in
-# this CLI's config->env mapping (GOTRUE_EXTERNAL_EMAIL/PHONE_ENABLED), so
-# those stay true or *no one* can sign in, invited or not.
+# via auth.admin.createUser in supabase/seed.ts) — but auth.email's own
+# "enable_signup" is actually the toggle for the whole email provider in this
+# CLI's config->env mapping (GOTRUE_EXTERNAL_EMAIL_ENABLED), so that one stays
+# true or *no one* can sign in, invited or not. Every account signs in via
+# email now, real or the synthetic login_id-derived kind (FIG-396) — phone/SMS
+# auth was only ever used for the parent OTP flow that scheme replaced, so
+# there is no [auth.sms] section here any more.
 enable_signup = false
 
 [auth.email]
 enable_signup = true
 enable_confirmations = true
-
-[auth.sms]
-enable_signup = true
-enable_confirmations = true
-template = "Your Figbloom code is {{ .Code }}. It expires in 5 minutes."
-
-# No real SMS provider locally — fixed OTPs for the seeded demo parents instead,
-# via signInWithOtp()/verifyOtp() (see homeRouteFor's parent_otp method in auth.ts).
-[auth.sms.test_otp]
-254722118004 = "000000"
-
-[auth.sms.twilio]
-enabled = true
-account_sid = "test"
-message_service_sid = "test"
-auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
 
 [functions.invite-admin]
 verify_jwt = true
