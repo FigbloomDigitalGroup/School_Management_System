@@ -109,10 +109,17 @@ export function SignIn() {
         // Not tenant-scoped at all — resolve which organization(s) this
         // profile administers via organization_admins instead (the same
         // mapping-table pattern guardians uses for parents), then reuse
-        // homeRouteFor's `slug` param for the organization's own slug.
-        const { data: link } = await supabase()
-          .from("organization_admins").select("organizations(slug)").eq("profile_id", userId).maybeSingle<{ organizations: { slug: string } | null }>();
-        destSlug = link?.organizations?.slug ?? null;
+        // homeRouteFor's `slug` param for the organization's own slug. A
+        // profile can administer more than one organization (no per-profile
+        // uniqueness on organization_admins, only per profile+org) — one
+        // match goes straight there, several land on the workspace picker
+        // instead of a plain .maybeSingle() erroring on multiple rows.
+        const { data: links } = await supabase()
+          .from("organization_admins").select("organizations(slug)").eq("profile_id", userId)
+          .returns<{ organizations: { slug: string } | null }[]>();
+        const slugs = (links ?? []).map((l) => l.organizations?.slug).filter((s): s is string => !!s);
+        if (slugs.length > 1) { nav("/org-picker"); return; }
+        destSlug = slugs[0] ?? null;
       }
       if (profile.role !== "super_admin" && !destSlug) {
         setError(profile.role === "org_admin" ? "Could not find your organization. Contact Figbloom support." : "Could not find your school. Contact Figbloom support.");
