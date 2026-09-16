@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { effectivePriceCents, isBilled, KES, needsAttention, supabase, type Tenant } from "@figbloom/shared";
+import { effectivePriceCents, formatMoney, isBilled, needsAttention, supabase, type Tenant } from "@figbloom/shared";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -86,7 +86,9 @@ export function Tenants() {
   const activeStudents = summary?.activeStudents ?? 0;
   const stats = [
     { label: "Active tenants", value: String(all.length), sub: `${all.filter((t) => t.status === "active").length} live` },
-    { label: "MRR", value: KES(mrr), sub: `across ${billedTenants.length} billed schools` },
+    // Figbloom's own subscription revenue — a deliberate business-currency
+    // choice, independent of which country a billed school operates in.
+    { label: "MRR", value: formatMoney(mrr, "KE"), sub: `across ${billedTenants.length} billed schools` },
     {
       label: "Learner seats", value: activeStudents.toLocaleString(),
       sub: totalLicensed > 0 ? `${Math.round((activeStudents / totalLicensed) * 100)}% of licensed` : "no seats licensed yet",

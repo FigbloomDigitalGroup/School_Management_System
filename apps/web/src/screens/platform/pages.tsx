@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { effectivePriceCents, isBilled, KES, supabase } from "@figbloom/shared";
+import { effectivePriceCents, isBilled, formatMoney, supabase } from "@figbloom/shared";
+// Every money() call in this file is Figbloom's own platform billing (MRR,
+// plan price, invoices) — always "KE", a deliberate business-currency
+// choice independent of which country a billed school operates in.
 import type {
   IncidentSeverity, IncidentStatus, PlatformIncident, PlatformInvoice, Tenant, TenantStatus,
 } from "@figbloom/shared";
@@ -486,7 +489,7 @@ export function Subscriptions() {
     title: "Subscriptions",
     blurb: "Kenyan schools budget by term, so renewals cluster at the start of each one. Anything not renewed by week two rarely renews at all.",
     stats: [
-      { label: "MRR", value: KES(mrr), sub: `across ${billed.length} billed schools` },
+      { label: "MRR", value: formatMoney(mrr, "KE"), sub: `across ${billed.length} billed schools` },
       { label: "Active licences", value: String(activeCount), sub: `of ${data.length} schools` },
       { label: "In trial", value: String(trials.length), sub: trialsEndingSoon > 0 ? `${trialsEndingSoon} ending within 10 days` : "none ending soon" },
       { label: "At risk", value: String(atRisk.length), sub: "overdue or suspended", alarming: atRisk.length > 0 },
@@ -515,7 +518,7 @@ export function Subscriptions() {
         cells: [
           t(tenant.name, "/s/" + tenant.slug),
           <span className="text-[13px] capitalize">{tenant.plan}</span>,
-          m(priceCents > 0 ? KES(priceCents) : "—"),
+          m(priceCents > 0 ? formatMoney(priceCents, "KE") : "—"),
           <span className="font-mono text-[12.5px] text-ink-muted">{renews}</span>,
           <Badge tone={meta.tone}>{meta.label}</Badge>,
         ],
@@ -581,9 +584,9 @@ export function Invoices() {
     title: "Invoices",
     blurb: "Bursars pay from an account that is often only funded once fees come in, so late is common and suspension is a last resort. Reminders go to the bursar and the principal together.",
     stats: [
-      { label: "Outstanding", value: KES(outstandingTotal), sub: `across ${outstanding.length} invoices`, alarming: outstanding.length > 0 },
+      { label: "Outstanding", value: formatMoney(outstandingTotal, "KE"), sub: `across ${outstanding.length} invoices`, alarming: outstanding.length > 0 },
       { label: "Overdue 30d+", value: String(overdue30), sub: overdue30 > 0 ? "review for suspension" : "none", alarming: overdue30 > 0 },
-      { label: "Collected", value: KES(collected), sub: totalBilled > 0 ? `${Math.round((collected / totalBilled) * 100)}% of billed` : "nothing billed yet" },
+      { label: "Collected", value: formatMoney(collected, "KE"), sub: totalBilled > 0 ? `${Math.round((collected / totalBilled) * 100)}% of billed` : "nothing billed yet" },
       { label: "Avg days to pay", value: avgDaysToPay !== null ? String(avgDaysToPay) : "—", sub: "among paid invoices" },
     ],
     actions: [{ label: "New invoice", primary: true, onClick: () => setCreating(true) }],
@@ -614,7 +617,7 @@ export function Invoices() {
         id: i.id,
         tags: [tag],
         cells: [
-          m(i.id.slice(0, 8).toUpperCase()), t(i.tenant_name ?? "—"), m(KES(i.amount_cents)),
+          m(i.id.slice(0, 8).toUpperCase()), t(i.tenant_name ?? "—"), m(formatMoney(i.amount_cents, "KE")),
           <span className="font-mono text-[12.5px] text-ink-muted">{fmtDate(i.due_date)}</span>,
           <Badge tone={i.status === "paid" ? "ok" : overdue ? "warn" : "muted"}>{label}</Badge>,
           i.status === "paid" ? null : (

@@ -1,4 +1,4 @@
-import { gradeFor, gradingSchemeFor, KES, summarise, supabase, type GradingSchemeId } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor, summarise, supabase, type GradingSchemeId } from "@figbloom/shared";
 import type { AttendanceMark, ClassGroup, Exam, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -146,7 +146,7 @@ export function AdminReports() {
               },
               {
                 label: "Fees collected", value: overallFeePct !== null ? `${overallFeePct}%` : "—",
-                sub: `${KES(data.feeOverall.paid)} of ${KES(data.feeOverall.billed)}`,
+                sub: `${formatMoney(data.feeOverall.paid, tenant.country)} of ${formatMoney(data.feeOverall.billed, tenant.country)}`,
               },
               {
                 label: "Latest exam", value: data.latestExam?.name ?? "None published",
@@ -196,7 +196,7 @@ export function AdminReports() {
                 key: "balance", header: "Balance", align: "right",
                 render: (c: ReportsData["classes"][number]) => {
                   const f = data?.feeByClass.get(c.id);
-                  return <Mono>{KES(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0))}</Mono>;
+                  return <Mono>{formatMoney(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0), tenant.country)}</Mono>;
                 },
               },
             ]}

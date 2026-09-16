@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KES, itemsForStudent, supabase, totalCents } from "@figbloom/shared";
+import { formatMoney, itemsForStudent, supabase, totalCents } from "@figbloom/shared";
 import type { FeeItem, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -108,7 +108,7 @@ async function fetchFees(): Promise<FeesData> {
 
 export function Fees() {
   const toast = useToast();
-  const { profile } = useTenantSession();
+  const { profile, tenant } = useTenantSession();
   const { data, loading, error } = useAsync(() => fetchFees(), []);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
 
@@ -179,9 +179,9 @@ export function Fees() {
         ) : (
           <StatRow
             stats={[
-              { label: "Billed this term", value: KES(billed), sub: `${data.invoices.length.toLocaleString()} learners` },
-              { label: "Collected", value: KES(collected), sub: `${collectedPct}% of billed` },
-              { label: "Outstanding", value: KES(outstandingTotal), sub: `${owingCount.toLocaleString()} learners owe a balance`, alarming: true },
+              { label: "Billed this term", value: formatMoney(billed, tenant.country), sub: `${data.invoices.length.toLocaleString()} learners` },
+              { label: "Collected", value: formatMoney(collected, tenant.country), sub: `${collectedPct}% of billed` },
+              { label: "Outstanding", value: formatMoney(outstandingTotal, tenant.country), sub: `${owingCount.toLocaleString()} learners owe a balance`, alarming: true },
               { label: "Fully paid", value: `${fullyPaidPct}%`, sub: `${fullyPaidCount.toLocaleString()} invoices cleared` },
             ]}
           />
@@ -214,12 +214,12 @@ export function Fees() {
                             : `Form ${i.form_level} only`}
                         </div>
                       </div>
-                      <Mono>{KES(i.amount_cents)}</Mono>
+                      <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
                     </div>
                   ))}
                   <div className="flex items-center justify-between bg-sunken px-4 py-3">
                     <span className="text-[13px] font-semibold">A Form 2 boarder pays</span>
-                    <span className="font-mono text-[15px] font-medium">{KES(boarderTotal)}</span>
+                    <span className="font-mono text-[15px] font-medium">{formatMoney(boarderTotal, tenant.country)}</span>
                   </div>
                 </>
               )}
@@ -233,10 +233,10 @@ export function Fees() {
               title="Largest outstanding balances"
               columns={[
                 { key: "name", header: "Learner", width: "1.6fr", render: (r: OutstandingRow) => <Cell sub={r.cls}>{r.name}</Cell> },
-                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => <Mono>{KES(r.billed)}</Mono> },
-                { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{KES(r.paid)}</Mono> },
+                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.billed, tenant.country)}</Mono> },
+                { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.paid, tenant.country)}</Mono> },
                 { key: "bal", header: "Balance", align: "right", render: (r: OutstandingRow) => (
-                  <span className="font-mono text-[12.5px] font-medium text-warn-ink">{KES(r.billed - r.paid)}</span>
+                  <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.billed - r.paid, tenant.country)}</span>
                 ) },
                 { key: "st", header: "", align: "right", render: (r: OutstandingRow) => (
                   <Badge tone={r.paid === 0 ? "warn" : "muted"}>{r.paid === 0 ? "Nothing paid" : "Part paid"}</Badge>

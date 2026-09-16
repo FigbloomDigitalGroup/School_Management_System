@@ -1,12 +1,12 @@
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { formatShortDate, itemsForStudent, KES } from "@figbloom/shared";
+import { formatMoney, formatShortDate, itemsForStudent } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useFeeItems, useTermLabel } from "../../data";
 
 export function ParentFees() {
   const nav = useNavigation<any>();
-  const { child, index, accent } = useChild();
+  const { child, index, accent, country } = useChild();
   const feeItems = useFeeItems();
   const termLabel = useTermLabel();
   const items = itemsForStudent(feeItems as never, { boarding: child.boarding }, child.formLevel);
@@ -26,13 +26,13 @@ export function ParentFees() {
         <View style={s.card}>
           <Text style={s.eyebrow}>BALANCE</Text>
           <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 6 }}>
-            <Text style={{ fontSize: 26, fontWeight: "700" }}>{KES(child.balance)}</Text>
+            <Text style={{ fontSize: 26, fontWeight: "700" }}>{formatMoney(child.balance, country)}</Text>
             <Text style={s.small}>{child.dueOn ? `due ${formatShortDate(child.dueOn)}` : "nothing due"}</Text>
           </View>
           <View style={{ height: 8, borderRadius: 4, backgroundColor: t.appSurface.lineSoft, marginTop: 12, overflow: "hidden" }}>
             <View style={{ height: 8, borderRadius: 4, width: `${paidPct}%`, backgroundColor: tint }} />
           </View>
-          <Text style={[s.faint, { marginTop: 8 }]}>{KES(paid)} paid of {KES(child.billed)}</Text>
+          <Text style={[s.faint, { marginTop: 8 }]}>{formatMoney(paid, country)} paid of {formatMoney(child.billed, country)}</Text>
         </View>
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>What this term covers</Text>
@@ -43,7 +43,7 @@ export function ParentFees() {
             items.map((i, idx) => (
               <View key={i.id} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: idx === items.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
                 <Text style={{ fontSize: 13 }}>{i.name}</Text>
-                <Text style={s.mono}>{KES(i.amount_cents)}</Text>
+                <Text style={s.mono}>{formatMoney(i.amount_cents, country)}</Text>
               </View>
             ))
           )}
@@ -57,7 +57,7 @@ export function ParentFees() {
             child.receipts.map((r, i) => (
               <View key={r.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 11, borderBottomWidth: i === child.receipts.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
                 <View>
-                  <Text style={{ fontSize: 13, fontWeight: "500" }}>{KES(r.amount)}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: "500" }}>{formatMoney(r.amount, country)}</Text>
                   <Text style={[s.mono, { color: t.appSurface.inkFaint, marginTop: 2 }]}>{r.when} · {r.ref}</Text>
                 </View>
                 <View style={[s.pill, { backgroundColor: t.status.okBg }]}>
@@ -70,7 +70,7 @@ export function ParentFees() {
 
         {child.balance > 0 && (
           <TouchableOpacity onPress={() => nav.navigate("Pay")} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
-            <Text style={s.primaryLabel}>Pay {KES(child.balance)}</Text>
+            <Text style={s.primaryLabel}>Pay {formatMoney(child.balance, country)}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>

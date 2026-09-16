@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { formatShortDate, KES, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
+import { formatMoney, formatShortDate, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { StatRow } from "../../components/ui/StatCard";
@@ -154,8 +154,12 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
               {
                 label: "Billing",
                 value: (overview?.outstandingCents ?? 0) > 0 ? "Outstanding" : "Current",
+                // This is Figbloom's own platform_invoices balance for the
+                // school, not the school's parent-fee collection — always
+                // KES, Figbloom's billing currency, regardless of the
+                // school's own country.
                 sub: (overview?.outstandingCents ?? 0) > 0
-                  ? `${KES(overview!.outstandingCents)} outstanding${overview?.nextDueOn ? ` · due ${formatShortDate(overview.nextDueOn)}` : ""}`
+                  ? `${formatMoney(overview!.outstandingCents, "KE")} outstanding${overview?.nextDueOn ? ` · due ${formatShortDate(overview.nextDueOn)}` : ""}`
                   : "nothing outstanding",
                 alarming: (overview?.outstandingCents ?? 0) > 0,
               },
