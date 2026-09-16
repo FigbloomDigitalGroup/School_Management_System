@@ -1,4 +1,4 @@
-import { KES, supabase } from "@figbloom/shared";
+import { formatMoney, supabase } from "@figbloom/shared";
 import type { ClassGroup, FeeInvoice, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -80,7 +80,7 @@ async function fetchDashboard(): Promise<DashboardData> {
  * is the school running today, is anything on fire, and what needs a signature.
  */
 export function AdminDashboard() {
-  const { profile } = useTenantSession();
+  const { profile, tenant } = useTenantSession();
   const toast = useToast();
   const { data, loading, error } = useAsync(() => fetchDashboard(), []);
 
@@ -153,7 +153,7 @@ export function AdminDashboard() {
                   : "—",
                 sub: `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
               },
-              { label: "Fees collected", value: `${feePct}%`, sub: `${KES(totalPaid)} of ${KES(totalBilled)}` },
+              { label: "Fees collected", value: `${feePct}%`, sub: `${formatMoney(totalPaid, tenant.country)} of ${formatMoney(totalBilled, tenant.country)}` },
               { label: "Learners", value: data.activeStudents.toLocaleString(), sub: `across ${data.classes.length} classes` },
               { label: "Teaching & admin staff", value: String(data.staffCount), sub: "school admins and teachers" },
             ]}

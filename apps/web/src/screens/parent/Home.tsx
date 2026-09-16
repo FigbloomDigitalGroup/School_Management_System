@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { KES, gradeFor, gradingSchemeFor } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -85,12 +85,12 @@ export function ParentHome() {
                 className="mt-1.5 text-[32px] font-bold tracking-tight"
                 style={{ color: child.balance > 0 ? "var(--accent-deep)" : "#1B4D2E" }}
               >
-                {child.balance > 0 ? KES(child.balance) : "Cleared"}
+                {child.balance > 0 ? formatMoney(child.balance, tenant.country) : "Cleared"}
               </div>
               <p className="mt-1.5 max-w-[560px] text-[13px] leading-relaxed text-ink-muted">
                 {child.balance > 0
-                  ? `Of ${KES(child.billed)} billed. Part payment is fine — many families pay across the term.`
-                  : `All ${KES(child.billed)} paid. Nothing due until the next term.`}
+                  ? `Of ${formatMoney(child.billed, tenant.country)} billed. Part payment is fine — many families pay across the term.`
+                  : `All ${formatMoney(child.billed, tenant.country)} paid. Nothing due until the next term.`}
               </p>
               {child.balance > 0 && (
                 <Button variant="accent" className="mt-3.5" onClick={() => navigate(`/s/${slug}/parent/fees?pay=1`)}>

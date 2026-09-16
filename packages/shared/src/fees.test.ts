@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCents, invoiceStatus, itemsForStudent, KES, normaliseMsisdn, payableSuggestions, totalCents,
+  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, payableSuggestions, totalCents,
 } from "./fees";
 import type { FeeInvoice, FeeItem } from "./types";
 
-describe("KES", () => {
-  it("formats cents as whole-shilling KSh with thousands separators", () => {
-    expect(KES(150000)).toBe("KSh 1,500");
-    expect(KES(0)).toBe("KSh 0");
+describe("formatMoney", () => {
+  it("formats cents as whole-shilling KSh with thousands separators for Kenya", () => {
+    expect(formatMoney(150000, "KE")).toBe("KSh 1,500");
+    expect(formatMoney(0, "KE")).toBe("KSh 0");
+  });
+
+  it("falls back to Kenya's formatting for an unregistered country", () => {
+    expect(formatMoney(150000, "XX")).toBe("KSh 1,500");
   });
 });
 

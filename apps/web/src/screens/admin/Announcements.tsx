@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, type Audience, type ClassGroup } from "@figbloom/shared";
+import { formatMoney, supabase, type Audience, type ClassGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
@@ -90,7 +90,7 @@ export function Announcements() {
     : audienceId === "form_level" ? data.countByForm.get(formLevel) ?? 0
     : data.countByClass.get(effectiveClassId) ?? 0;
 
-  const smsCost = channels.sms ? (reach * 0.8).toFixed(0) : "0";
+  const smsCostCents = channels.sms ? Math.round(reach * 0.8 * 100) : 0;
 
   function audienceValue(): Audience {
     switch (audienceId) {
@@ -215,7 +215,7 @@ export function Announcements() {
             <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BEFORE YOU SEND</div>
             <dl className="mt-2.5 grid gap-2 text-[12.5px]">
               <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{reach.toLocaleString()} people</dd></div>
-              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">KSh {smsCost}</dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{formatMoney(smsCostCents, tenant.country)}</dd></div>
               <div className="flex justify-between"><dt className="text-ink-muted">Cannot be unsent</dt><dd className="font-mono">correct</dd></div>
             </dl>
             <div className="mt-3.5 grid gap-2">

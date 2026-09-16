@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { KES, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions } from "@figbloom/shared";
+import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild } from "../../data";
 
@@ -17,7 +17,7 @@ type State = "form" | "prompting" | "failed" | "done";
  */
 export function ParentPay() {
   const nav = useNavigation<any>();
-  const { child, index, accent } = useChild();
+  const { child, index, accent, country } = useChild();
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
 
@@ -58,13 +58,13 @@ export function ParentPay() {
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: t.status.okBg, alignItems: "center", justifyContent: "center", marginTop: 24 }}>
           <Text style={{ fontSize: 24, color: t.status.okInk }}>✓</Text>
         </View>
-        <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16 }}>{KES(amount)} received</Text>
+        <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16 }}>{formatMoney(amount, country)} received</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
-          Receipt SJ91MX441. {child.first}'s balance is now {KES(Math.max(child.balance - amount, 0))}.
+          Receipt SJ91MX441. {child.first}'s balance is now {formatMoney(Math.max(child.balance - amount, 0), country)}.
         </Text>
 
         <View style={[s.card, { marginTop: 20, width: "100%" }]}>
-          {[["Paid", KES(amount)], ["For", child.name], ["Method", "M-Pesa " + phone], ["Reference", "SJ91MX441"]].map(([k, v]) => (
+          {[["Paid", formatMoney(amount, country)], ["For", child.name], ["Method", "M-Pesa " + phone], ["Reference", "SJ91MX441"]].map(([k, v]) => (
             <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.appSurface.lineSoft }}>
               <Text style={s.small}>{k}</Text>
               <Text style={{ fontSize: 12.5, fontWeight: "500" }}>{v}</Text>
@@ -106,7 +106,7 @@ export function ParentPay() {
       <View style={s.card}>
         <Text style={s.eyebrow}>PAYING FOR</Text>
         <Text style={{ fontSize: 16, fontWeight: "600", marginTop: 4 }}>{child.name}</Text>
-        <Text style={s.small}>{child.cls} · balance {KES(child.balance)}</Text>
+        <Text style={s.small}>{child.cls} · balance {formatMoney(child.balance, country)}</Text>
       </View>
 
       <Text style={[s.h2, { marginTop: 16, marginBottom: 8 }]}>How much?</Text>
@@ -119,7 +119,7 @@ export function ParentPay() {
             style={[s.card, { marginBottom: 8, padding: 14, borderWidth: 1.5, borderColor: on ? tint : t.appSurface.line, flexDirection: "row", justifyContent: "space-between" }]}
           >
             <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{sug.label}</Text>
-            {sug.cents > 0 && <Text style={s.mono}>{KES(sug.cents)}</Text>}
+            {sug.cents > 0 && <Text style={s.mono}>{formatMoney(sug.cents, country)}</Text>}
           </TouchableOpacity>
         );
       })}

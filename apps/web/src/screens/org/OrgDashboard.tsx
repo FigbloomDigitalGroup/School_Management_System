@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { fetchOrganizationTenantSummaries, logOrganizationAccess, KES, type OrganizationTenantSummary } from "@figbloom/shared";
+import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, type OrganizationTenantSummary } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -66,9 +66,12 @@ export function OrgDashboard() {
           stats={[
             { label: "Schools", value: String(data.length), sub: `${k12.length} K-12 · ${higherEd.length} higher-ed` },
             { label: "Active students", value: totalStudents.toLocaleString(), sub: `${totalPresentToday.toLocaleString()} present today` },
+            // Every school in an org is Kenyan today (country selector
+            // locked to Kenya) — a cross-country org's aggregate is a real
+            // multi-currency problem to solve when it's first needed.
             {
-              label: "Fees collected", value: KES(totalCollected),
-              sub: totalBilled > 0 ? `${Math.round((totalCollected / totalBilled) * 100)}% of ${KES(totalBilled)} billed` : "nothing billed yet",
+              label: "Fees collected", value: formatMoney(totalCollected, "KE"),
+              sub: totalBilled > 0 ? `${Math.round((totalCollected / totalBilled) * 100)}% of ${formatMoney(totalBilled, "KE")} billed` : "nothing billed yet",
             },
             { label: "Needs attention", value: String(data.filter((s) => s.status !== "active").length), sub: "not active", alarming: data.some((s) => s.status !== "active") },
           ]}
@@ -109,7 +112,7 @@ function SegmentCard({ title, rows }: { title: string; rows: OrganizationTenantS
       <div className="px-4 py-3.5">
         {subtypeSummary && <div className="mb-2 text-[12px] text-ink-faint">{subtypeSummary}</div>}
         <div className="mb-2 flex justify-between text-[12.5px]"><span className="text-ink-muted">Active students</span><span className="font-mono font-medium">{students.toLocaleString()}</span></div>
-        <div className="flex justify-between text-[12.5px]"><span className="text-ink-muted">Fees collected</span><span className="font-mono font-medium">{KES(collected)} / {KES(billed)}</span></div>
+        <div className="flex justify-between text-[12.5px]"><span className="text-ink-muted">Fees collected</span><span className="font-mono font-medium">{formatMoney(collected, "KE")} / {formatMoney(billed, "KE")}</span></div>
       </div>
     </section>
   );

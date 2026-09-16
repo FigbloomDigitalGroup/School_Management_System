@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
@@ -294,8 +294,10 @@ export function OnboardSchool({
       {step === 2 && (
         <div className="grid gap-3.5">
           {[
-            { id: "standard", name: "Standard", price: "KSh 110 / learner / term", desc: "Attendance, grades, fees, parent app. Up to 1,200 learners." },
-            { id: "institution", name: "Institution", price: "KSh 145 / learner / term", desc: "Adds multi-campus, custom report cards, an SMS bundle and priority support." },
+            // Figbloom's own price list is quoted in KES regardless of the
+            // school being onboarded — a deliberate business-currency choice.
+            { id: "standard", name: "Standard", price: `${countryProfile("KE").currencySymbol} 110 / learner / term`, desc: "Attendance, grades, fees, parent app. Up to 1,200 learners." },
+            { id: "institution", name: "Institution", price: `${countryProfile("KE").currencySymbol} 145 / learner / term`, desc: "Adds multi-campus, custom report cards, an SMS bundle and priority support." },
             { id: "county", name: "County partnership", price: "Negotiated", desc: "For county education offices onboarding ten or more schools at once." },
           ].map((p) => {
             const on = form.plan === p.id;

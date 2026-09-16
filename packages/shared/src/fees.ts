@@ -1,8 +1,17 @@
 import type { FeeInvoice, FeeItem, InvoiceStatus, Student } from "./types";
+import { countryProfile } from "./countries";
 
-/** Money is cents everywhere. Never a float. */
-export const KES = (cents: number): string =>
-  "KSh " + (cents / 100).toLocaleString("en-KE", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+/** Money is cents everywhere. Never a float. Formatted per the tenant's own
+ *  country — pass "KE" explicitly for Figbloom's own platform billing,
+ *  which is a deliberate business currency choice, not a per-tenant one. */
+export function formatMoney(cents: number, country: string): string {
+  const { currencySymbol, currencyDecimals } = countryProfile(country);
+  return (
+    currencySymbol +
+    " " +
+    (cents / 100).toLocaleString("en-KE", { minimumFractionDigits: currencyDecimals, maximumFractionDigits: currencyDecimals })
+  );
+}
 
 export const balanceCents = (i: FeeInvoice): number => Math.max(i.total_cents - i.paid_cents, 0);
 

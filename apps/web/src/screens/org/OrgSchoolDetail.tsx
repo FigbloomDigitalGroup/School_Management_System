@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchOrganizationTenantSummaries, logOrganizationAccess, KES } from "@figbloom/shared";
+import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
@@ -67,9 +67,13 @@ export function OrgSchoolDetail() {
           stats={[
             { label: "Active students", value: school.active_students.toLocaleString() },
             { label: "Present today", value: school.present_today.toLocaleString(), sub: school.active_students > 0 ? `${Math.round((school.present_today / school.active_students) * 100)}% of enrolled` : undefined },
-            { label: "Fees billed", value: KES(school.fees_billed_cents) },
+            // organization_tenant_summary has no country column yet — every
+            // school in an org is Kenyan today (the selector is locked to
+            // Kenya), so this is safe; a cross-country org is a real
+            // aggregation problem to solve when it's first needed.
+            { label: "Fees billed", value: formatMoney(school.fees_billed_cents, "KE") },
             {
-              label: "Fees collected", value: KES(school.fees_collected_cents),
+              label: "Fees collected", value: formatMoney(school.fees_collected_cents, "KE"),
               sub: school.fees_billed_cents > 0 ? `${Math.round((school.fees_collected_cents / school.fees_billed_cents) * 100)}% collected` : "nothing billed yet",
             },
           ]}

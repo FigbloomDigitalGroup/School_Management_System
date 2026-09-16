@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import {
-  KES, PAYMENT_FAILURES, itemsForStudent, loadStudentFeeData, normaliseMsisdn, payableSuggestions,
+  formatMoney, PAYMENT_FAILURES, itemsForStudent, loadStudentFeeData, normaliseMsisdn, payableSuggestions,
   type Receipt,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -132,9 +132,9 @@ export function StudentFees() {
           <>
             <StatRow
               stats={[
-                { label: "Balance", value: KES(data.balance), sub: data.dueOn ? `due ${data.dueOn}` : "nothing due", alarming: data.balance > 0 },
-                { label: "Billed this term", value: KES(data.billed), sub: data.termLabel ?? "" },
-                { label: "Paid so far", value: KES(data.billed - data.balance), sub: data.billed > 0 ? `${Math.round(((data.billed - data.balance) / data.billed) * 100)}% of billed` : "" },
+                { label: "Balance", value: formatMoney(data.balance, tenant.country), sub: data.dueOn ? `due ${data.dueOn}` : "nothing due", alarming: data.balance > 0 },
+                { label: "Billed this term", value: formatMoney(data.billed, tenant.country), sub: data.termLabel ?? "" },
+                { label: "Paid so far", value: formatMoney(data.billed - data.balance, tenant.country), sub: data.billed > 0 ? `${Math.round(((data.billed - data.balance) / data.billed) * 100)}% of billed` : "" },
               ]}
             />
 
@@ -150,7 +150,7 @@ export function StudentFees() {
                     feeItems.map((i) => (
                       <div key={i.id} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
                         <span className="text-[13px]">{i.name}</span>
-                        <Mono>{KES(i.amount_cents)}</Mono>
+                        <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
                       </div>
                     ))
                   )}
@@ -162,7 +162,7 @@ export function StudentFees() {
                 columns={[
                   { key: "when", header: "Date", width: "0.8fr", render: (r: Receipt) => <Mono>{r.when}</Mono> },
                   { key: "ref", header: "Reference", render: (r: Receipt) => <Cell>{r.ref}</Cell> },
-                  { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{KES(r.amount)}</Mono> },
+                  { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{formatMoney(r.amount, tenant.country)}</Mono> },
                   { key: "st", header: "", align: "right", width: "0.8fr", render: () => <Badge tone="ok">Received</Badge> },
                 ]}
                 rows={data.receipts}
@@ -271,12 +271,12 @@ export function StudentFees() {
           onClose={closePay}
           eyebrow="M-PESA"
           title={
-            payState === "done" ? `${KES(amount)} received`
+            payState === "done" ? `${formatMoney(amount, tenant.country)} received`
               : payState === "failed" ? "The payment did not go through"
               : payState === "prompting" ? "Check your phone"
               : "Pay your fees"
           }
-          blurb={payState === "idle" ? `${data.className || "—"} · balance ${KES(data.balance)}` : undefined}
+          blurb={payState === "idle" ? `${data.className || "—"} · balance ${formatMoney(data.balance, tenant.country)}` : undefined}
           footNote={payState === "idle" ? `A prompt will be sent to ${phone}. Nothing leaves the account until the PIN is entered.` : undefined}
           actions={
             payState === "idle" ? (
@@ -310,7 +310,7 @@ export function StudentFees() {
                         style={{ borderColor: on ? "var(--accent)" : "#EAE6E5" }}
                       >
                         <span className="text-[13px] font-medium">{s.label}</span>
-                        {s.cents > 0 && <span className="font-mono text-[12.5px]">{KES(s.cents)}</span>}
+                        {s.cents > 0 && <span className="font-mono text-[12.5px]">{formatMoney(s.cents, tenant.country)}</span>}
                       </button>
                     );
                   })}
@@ -357,11 +357,11 @@ export function StudentFees() {
           {payState === "done" && (
             <div>
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                Your balance is now {KES(Math.max(data.balance - amount, 0))}. The receipt will appear above once
+                Your balance is now {formatMoney(Math.max(data.balance - amount, 0), tenant.country)}. The receipt will appear above once
                 the school's system confirms it.
               </p>
               <div className="mt-4 rounded-lg border border-line bg-page p-3.5">
-                {[["Paid", KES(amount)], ["Method", `M-Pesa ${phone}`]].map(([k, v]) => (
+                {[["Paid", formatMoney(amount, tenant.country)], ["Method", `M-Pesa ${phone}`]].map(([k, v]) => (
                   <div key={k} className="flex justify-between border-b border-line-soft py-2 text-[12.5px] last:border-0">
                     <span className="text-ink-muted">{k}</span><span className="font-medium">{v}</span>
                   </div>

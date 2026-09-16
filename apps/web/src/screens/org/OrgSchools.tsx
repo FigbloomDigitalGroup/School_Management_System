@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, KES,
+  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney,
   type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
@@ -55,7 +55,11 @@ export function OrgSchools() {
     stats: [
       { label: "Schools", value: String(data.length) },
       { label: "Active students", value: data.reduce((a, s) => a + s.active_students, 0).toLocaleString() },
-      { label: "Fees collected", value: KES(totalCollected), sub: totalBilled > 0 ? `of ${KES(totalBilled)} billed` : "nothing billed yet" },
+      // Every school in an organization is Kenyan today (the country
+      // selector is locked to Kenya) — once organizations can span
+      // countries, summing cents across schools becomes a real
+      // multi-currency aggregation problem, not just a formatting one.
+      { label: "Fees collected", value: formatMoney(totalCollected, "KE"), sub: totalBilled > 0 ? `of ${formatMoney(totalBilled, "KE")} billed` : "nothing billed yet" },
       { label: "Needs attention", value: String(data.filter((s) => s.status !== "active").length), alarming: data.some((s) => s.status !== "active") },
     ],
     columns: [
@@ -80,7 +84,7 @@ export function OrgSchools() {
         <span className="text-[13px] font-medium">{s.name}</span>,
         <Mono>{s.institution_type === "higher_ed" ? (s.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[s.higher_ed_subtype] : "Higher-ed") : "K-12"}</Mono>,
         <Mono>{s.active_students.toLocaleString()}</Mono>,
-        <span className="text-[13px]">{KES(s.fees_collected_cents)} / {KES(s.fees_billed_cents)}</span>,
+        <span className="text-[13px]">{formatMoney(s.fees_collected_cents, "KE")} / {formatMoney(s.fees_billed_cents, "KE")}</span>,
         <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge>,
         <button type="button" onClick={() => nav(`../schools/${s.tenant_id}`)} className="text-[12px] font-semibold text-leaf hover:underline">
           View
