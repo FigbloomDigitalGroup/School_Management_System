@@ -11,7 +11,7 @@ import { useAsync } from "../../lib/useAsync";
 const STEPS = ["School", "Workspace", "Plan", "Administrator", "Review"] as const;
 
 interface Form {
-  name: string; moe: string; county: string; level: string; institutionType: string; seats: string;
+  name: string; moe: string; county: string; country: string; level: string; institutionType: string; seats: string;
   slug: string; accent: string;
   plan: string; trial: string; cycle: string;
   adminName: string; adminRole: string; email: string; phone: string;
@@ -19,12 +19,17 @@ interface Form {
 }
 
 const BLANK: Form = {
-  name: "", moe: "", county: "Nakuru", level: "secondary", institutionType: "k12", seats: "1200",
+  name: "", moe: "", county: "Nakuru", country: "KE", level: "secondary", institutionType: "k12", seats: "1200",
   slug: "", accent: "#1B4D2E",
   plan: "institution", trial: "30", cycle: "term",
   adminName: "", adminRole: "Principal", email: "", phone: "",
   organizationId: "",
 };
+
+// Kenya-only for now — matches the grading-scheme registry's current scope
+// (FIG-356), which only has Kenyan schemes modeled. Not a real country
+// picker yet; widen this the day a non-Kenyan tenant is real.
+const COUNTRY_OPTIONS = [{ value: "KE", label: "Kenya" }];
 
 /**
  * Five steps, nothing created until the last one.
@@ -88,6 +93,7 @@ export function OnboardSchool({
         name: form.name.trim(),
         slug: slugValue,
         county: form.county,
+        country: form.country,
         level: form.level as Tenant["level"],
         institution_type: form.institutionType as Tenant["institution_type"],
         organization_id: form.organizationId || null,
@@ -184,9 +190,13 @@ export function OnboardSchool({
             <TextField id="name" label="School name" placeholder="e.g. Kabarak High School" value={form.name} onChange={(e) => set("name", e.target.value)} />
             <TextField id="moe" label="MoE registration number" mono placeholder="e.g. 31/1/0071" value={form.moe} onChange={(e) => set("moe", e.target.value)} />
           </div>
-          <div className="grid gap-3.5 sm:grid-cols-3">
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <SelectField id="country" label="Country" value={form.country} onChange={(e) => set("country", e.target.value)}
+              options={COUNTRY_OPTIONS} />
             <SelectField id="county" label="County" value={form.county} onChange={(e) => set("county", e.target.value)}
               options={["Nakuru", "Nairobi", "Kiambu", "Kisumu", "Uasin Gishu", "Siaya", "Bungoma", "Kakamega"].map((c) => ({ value: c, label: c }))} />
+          </div>
+          <div className="grid gap-3.5 sm:grid-cols-2">
             <SelectField id="institutionType" label="Institution type" value={form.institutionType} onChange={(e) => set("institutionType", e.target.value)}
               options={[{ value: "k12", label: "K-12 school" }, { value: "higher_ed", label: "Higher education" }]} />
             <TextField id="seats" label="Expected learners" mono value={form.seats} onChange={(e) => set("seats", e.target.value)} />
