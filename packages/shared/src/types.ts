@@ -16,6 +16,11 @@ export type HigherEdSubtype = "university" | "college" | "short_course" | "tvet"
  *  own ClassLevel so grading can key per-class (FIG-356). */
 export type ClassLevel = "primary" | "junior_secondary" | "secondary";
 
+/** Descriptive only (FIG-358 v1) — attendance/timetable stay roll-call/
+ *  fixed-grid regardless of this value; only nav/routes (Fleet, Bus) are
+ *  actually gated by it. */
+export type DeliveryMode = "in_person" | "online" | "hybrid";
+
 export interface Tenant {
   id: string;
   name: string;
@@ -25,6 +30,7 @@ export interface Tenant {
   level: "primary" | "secondary" | "combined";
   institution_type: InstitutionType;
   higher_ed_subtype: HigherEdSubtype | null;
+  delivery_mode: DeliveryMode;
   role_labels: Partial<Record<"teacher" | "class_teacher" | "student" | "parent", string>>;
   moe_registration: string | null;
   plan: "standard" | "institution" | "county";
@@ -78,6 +84,7 @@ export interface OrganizationTenantSummary {
   name: string;
   institution_type: InstitutionType;
   higher_ed_subtype: HigherEdSubtype | null;
+  delivery_mode: DeliveryMode;
   status: TenantStatus;
   active_students: number;
   present_today: number;

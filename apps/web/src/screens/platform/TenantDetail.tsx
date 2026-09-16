@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatShortDate, KES, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
-import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
+import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
@@ -101,6 +101,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
               <div className="mt-1 break-words font-mono text-[11.5px] text-ink-muted">
                 {tenantPath(tenant.slug)} · {tenant.county} · {tenant.plan} plan · {tenant.licensed_seats.toLocaleString()} seats
                 {tenant.higher_ed_subtype ? ` · ${HIGHER_ED_SUBTYPE_LABEL[tenant.higher_ed_subtype]}` : ""}
+                {tenant.delivery_mode !== "in_person" ? ` · ${DELIVERY_MODE_LABEL[tenant.delivery_mode]}` : ""}
               </div>
             </div>
           </div>
