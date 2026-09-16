@@ -72,11 +72,17 @@ export const DEMO_TIMETABLE: Record<string, [string, string, string][]> = {
   Fri: [["08:00", "English", "2 West"], ["08:40", "Biology", "Lab 3"], ["09:20", "Physics", "Lab 1"], ["10:20", "Kiswahili", "2 West"], ["11:00", "Mathematics", "2 West"], ["12:00", "Chemistry", "Lab 1"], ["14:00", "Class meeting", "2 West"], ["14:40", "Games", "Field"]],
 };
 
+/**
+ * FIG-396: only super_admin/school_admin keep a real email login now —
+ * teacher/driver/parent/student all sign in with a school-assigned
+ * login_id (see ROLE_ID_PREFIX/loginIdEmail in ./auth.ts) instead of
+ * email/phone+SMS-OTP/admission+PIN.
+ */
 export const DEMO_LOGINS = [
   { role: "super_admin",  who: "Joyce Kimani",  email: "joyce@figbloom.co.ke",        password: "figbloom-dev" },
   { role: "school_admin", who: "Peter Mwangi",  email: "principal@alliance.sc.ke",    password: "figbloom-dev" },
-  { role: "teacher",      who: "Mr Otieno",     email: "otieno@alliance.sc.ke",       password: "figbloom-dev" },
-  { role: "driver",       who: "James Kariuki", email: "kariuki@alliance.sc.ke",      password: "figbloom-dev" },
-  { role: "parent",       who: "Rose Achieng",  phone: "+254722118004",               password: "OTP 000000 in dev" },
-  { role: "student",      who: "Faith Achieng", admission_no: "4102",                 password: "PIN 8421" },
+  { role: "teacher",      who: "Mr Otieno",     login_id: "TC-0001", school: "Alliance High School", password: "figbloom-dev" },
+  { role: "driver",       who: "James Kariuki", login_id: "BD-0001", school: "Alliance High School", password: "figbloom-dev" },
+  { role: "parent",       who: "Rose Achieng",  login_id: "PT-0001", school: "Alliance High School", password: "figbloom-dev" },
+  { role: "student",      who: "Faith Achieng", login_id: "ST-0001", school: "Alliance High School", password: "figbloom-dev" },
 ] as const;

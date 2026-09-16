@@ -9,26 +9,25 @@ const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVI
  * a failure here means somebody's day is broken, not that a selector moved.
  *
  * Every flow below signs in for real (see supabase/seed.ts's DEMO_LOGINS) —
- * routes are auth-gated, so there is no shortcut around it. The parent flow
- * uses the fixed local test OTP (supabase/config.toml's [auth.sms.test_otp]),
- * which only exists against local Supabase — this suite is not meant to run
- * against a production project.
+ * routes are auth-gated, so there is no shortcut around it.
  *
- * The whole file runs serially, not per describe block: Supabase Auth
- * rate-limits repeated signInWithOtp() calls for the same number, and both
- * the "sign in" and "parent" tests exercise that same seeded number — real
- * behaviour, not a test bug to route around. (Running the desktop and phone
- * projects together can still race each other's OTP call for the same
- * reason; run them one at a time if that happens.)
+ * The whole file still runs serially, not per describe block: several
+ * describe blocks below (teacher, parent) mutate the same shared "alliance"
+ * tenant's data (today's attendance register, fee/M-Pesa simulation state),
+ * so running them as separate parallel workers risks one test's writes
+ * racing another's reads. (This used to also be required by Supabase Auth's
+ * signInWithOtp() rate limit for the parent flow's shared phone number —
+ * FIG-396 replaced that OTP flow with login_id+password, so that specific
+ * reason no longer applies, but the shared-tenant-state reason still does.)
  */
 test.describe.configure({ mode: "serial" });
 
 const LOGINS = {
   platform: { email: "joyce@figbloom.co.ke", password: "figbloom-dev" },
   schoolAdmin: { email: "principal@alliance.sc.ke", password: "figbloom-dev" },
-  teacher: { email: "otieno@alliance.sc.ke", password: "figbloom-dev" },
-  parent: { phone: "0722118004", otp: "000000" },
-  student: { admissionNo: "4102", pin: "8421" },
+  teacher: { school: "Alliance High School", loginId: "TC-0001", password: "figbloom-dev" },
+  parent: { school: "Alliance High School", loginId: "PT-0001", password: "figbloom-dev" },
+  student: { school: "Alliance High School", loginId: "ST-0001", password: "figbloom-dev" },
 };
 
 /** Sign-in is a client-side redirect after an async Supabase call — wait for
@@ -38,54 +37,56 @@ async function waitForSignedIn(page: Page) {
   await page.waitForURL((url) => !url.pathname.startsWith("/signin"), { timeout: 15000 });
 }
 
-async function signInStaffOrPlatform(page: Page, tabLabel: "Staff" | "Platform", email: string, password: string) {
+/** org owners and Figbloom staff — the only two roles still on real email. */
+async function signInEmail(page: Page, email: string, password: string) {
   await page.goto("/signin");
-  await page.getByRole("tab", { name: tabLabel }).click();
+  await page.getByRole("button", { name: "Sign in with email instead" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await waitForSignedIn(page);
 }
 
-async function signInParent(page: Page, phone: string, otp: string) {
+/** Everyone else: school + school-assigned login_id + password (FIG-396). */
+async function signInWithId(page: Page, school: string, loginId: string, password: string) {
   await page.goto("/signin");
-  await page.getByRole("tab", { name: "Parent" }).click();
-  await page.getByLabel("Mobile number").fill(phone);
-  await page.getByRole("button", { name: "Text me a code" }).click();
-  await page.getByLabel("The six-digit code").fill(otp);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await waitForSignedIn(page);
-}
-
-async function signInStudent(page: Page, admissionNo: string, pin: string) {
-  await page.goto("/signin");
-  await page.getByRole("tab", { name: "Student" }).click();
-  await page.getByLabel("Admission number").fill(admissionNo);
-  await page.getByLabel("PIN").fill(pin);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel("School").fill(school);
+  await page.getByRole("button").filter({ hasText: school }).first().click();
+  await page.getByLabel("Your ID").fill(loginId);
+  await page.getByLabel("Your ID").blur();
+  await expect(page.getByText(/^Signing in as /)).toBeVisible({ timeout: 5000 });
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await waitForSignedIn(page);
 }
 
 test.describe("sign in", () => {
-  test("a parent is asked for a phone number, not an email", async ({ page }) => {
+  test("no role is named anywhere on the door", async ({ page }) => {
     await page.goto("/signin");
-    await page.getByRole("tab", { name: "Parent" }).click();
-    await expect(page.getByLabel("Mobile number")).toBeVisible();
-    await page.getByLabel("Mobile number").fill("0722118004");
-    await page.getByRole("button", { name: "Text me a code" }).click();
-    await expect(page.getByLabel("The six-digit code")).toBeVisible();
+    await expect(page.getByText(/\bStaff\b|\bParent\b|\bStudent\b|\bPlatform\b/)).toHaveCount(0);
   });
 
-  test("a student signs in with an admission number", async ({ page }) => {
+  test("the school+ID mode is the default; picking a school reveals the ID field", async ({ page }) => {
     await page.goto("/signin");
-    await page.getByRole("tab", { name: "Student" }).click();
-    await expect(page.getByLabel("Admission number")).toBeVisible();
+    await expect(page.getByLabel("School")).toBeVisible();
+    await page.getByLabel("School").fill("Alliance High School");
+    await page.getByRole("button").filter({ hasText: "Alliance High School" }).first().click();
+    await expect(page.getByLabel("Your ID")).toBeVisible();
+  });
+
+  test("an unrecognized ID shows a hint instead of silently failing", async ({ page }) => {
+    await page.goto("/signin");
+    await page.getByLabel("School").fill("Alliance High School");
+    await page.getByRole("button").filter({ hasText: "Alliance High School" }).first().click();
+    await page.getByLabel("Your ID").fill("TC-9999");
+    await page.getByLabel("Your ID").blur();
+    await expect(page.getByText(/couldn't find that ID/i)).toBeVisible({ timeout: 5000 });
   });
 });
 
 test.describe("platform", () => {
   test.beforeEach(async ({ page }) => {
-    await signInStaffOrPlatform(page, "Platform", LOGINS.platform.email, LOGINS.platform.password);
+    await signInEmail(page, LOGINS.platform.email, LOGINS.platform.password);
   });
 
   test("super admin onboards a school in five steps", async ({ page }) => {
@@ -157,7 +158,7 @@ test.describe("teacher", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await signInStaffOrPlatform(page, "Staff", LOGINS.teacher.email, LOGINS.teacher.password);
+    await signInWithId(page, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
     await page.goto("/s/alliance/teacher/attendance");
   });
 
@@ -199,16 +200,16 @@ test.describe("teacher", () => {
 });
 
 test.describe("parent", () => {
-  // Supabase Auth's OTP rate limit for one number outlasts the gap between
-  // even serial tests, so signing in fresh per test isn't viable here — one
-  // real OTP sign-in for the whole block, reused via a shared context (session
-  // lives in localStorage, which is scoped per context+origin, not per page).
+  // One real sign-in for the whole block, reused via a shared context
+  // (session lives in localStorage, which is scoped per context+origin, not
+  // per page) — no need to pay the school-search + ID-resolve round trip
+  // again for every single test.
   let context: import("@playwright/test").BrowserContext;
 
   test.beforeAll(async ({ browser }) => {
     context = await browser.newContext();
     const page = await context.newPage();
-    await signInParent(page, LOGINS.parent.phone, LOGINS.parent.otp);
+    await signInWithId(page, LOGINS.parent.school, LOGINS.parent.loginId, LOGINS.parent.password);
     await page.close();
   });
 
@@ -266,7 +267,7 @@ test.describe("parent", () => {
 
 test.describe("student", () => {
   test.beforeEach(async ({ page }) => {
-    await signInStudent(page, LOGINS.student.admissionNo, LOGINS.student.pin);
+    await signInWithId(page, LOGINS.student.school, LOGINS.student.loginId, LOGINS.student.password);
     await page.goto("/s/alliance/student");
   });
 

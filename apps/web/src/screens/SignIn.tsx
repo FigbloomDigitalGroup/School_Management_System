@@ -218,8 +218,11 @@ export function SignIn() {
             <tbody>
               {DEMO_LOGINS.map((l) => (
                 <tr key={l.role} className="border-t border-line-soft">
-                  <td className="py-1.5 pr-3 text-ink-muted">{l.role}</td>
-                  <td className="py-1.5 font-mono">{"email" in l ? l.email : "phone" in l ? l.phone : l.admission_no}</td>
+                  <td className="py-1.5 pr-3 text-ink-muted">
+                    {l.role}
+                    {"school" in l && <span className="block text-[10.5px] text-ink-faint">{l.school}</span>}
+                  </td>
+                  <td className="py-1.5 font-mono">{"email" in l ? l.email : l.login_id}</td>
                   <td className="py-1.5 pl-3 font-mono text-ink-faint">{l.password}</td>
                 </tr>
               ))}
