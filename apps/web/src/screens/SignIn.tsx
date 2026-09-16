@@ -1,18 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  DEMO_LOGINS, OTP_LENGTH, homeRouteFor, studentLoginEmail, supabase, validateOtp, validatePin, type Role, type Tenant,
+  DEMO_LOGINS, OTP_LENGTH, countryProfile, homeRouteFor, normalisePhoneForCountry, studentLoginEmail, supabase, validateOtp, validatePin, type Role, type Tenant,
 } from "@figbloom/shared";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
-/** "07xx xxx xxx" or "+254 7xx xxx xxx" → the +254… form Supabase auth stores. */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.startsWith("254")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+254${digits.slice(1)}`;
-  return `+254${digits}`;
-}
+// A parent hasn't been identified with a school yet at sign-in time, so
+// there is no tenant.country in scope — "KE" is every real account today.
+const SIGNIN_COUNTRY = "KE";
 
 type Tab = { role: Role; label: string; hint: string };
 
@@ -67,7 +63,7 @@ export function SignIn() {
       let userId: string | undefined;
 
       if (tab.role === "parent") {
-        const phone = normalizePhone(value);
+        const phone = normalisePhoneForCountry(value, SIGNIN_COUNTRY);
         if (!sent) {
           const { error: err } = await supabase().auth.signInWithOtp({
             phone, options: { shouldCreateUser: false },
@@ -167,7 +163,7 @@ export function SignIn() {
               <>
                 <TextField
                   id="phone" label="Mobile number" mono inputMode="tel"
-                  placeholder="07xx xxx xxx" value={value}
+                  placeholder={countryProfile(SIGNIN_COUNTRY).phonePlaceholder} value={value}
                   onChange={(e) => setValue(e.target.value)}
                   disabled={sent}
                 />

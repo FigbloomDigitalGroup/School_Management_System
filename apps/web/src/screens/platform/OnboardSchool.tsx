@@ -339,7 +339,7 @@ export function OnboardSchool({
           </div>
           <div className="grid gap-3.5 sm:grid-cols-2">
             <TextField id="email" label="Email" type="email" placeholder="principal@school.sc.ke" value={form.email} onChange={(e) => set("email", e.target.value)} />
-            <TextField id="phone" label="Mobile (optional)" mono placeholder="07xx xxx xxx" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            <TextField id="phone" label="Mobile (optional)" mono placeholder={countryProfile(form.country).phonePlaceholder} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
           </div>
           <p className="rounded-lg bg-sunken px-3.5 py-3 text-[12px] leading-relaxed text-ink-muted">
             No email or SMS provider is configured in this environment, so nothing gets sent. Their login is created
