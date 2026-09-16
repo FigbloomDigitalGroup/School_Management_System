@@ -8,6 +8,7 @@ export interface NewSchoolInput {
   country: string;
   level: Tenant["level"];
   institution_type: Tenant["institution_type"];
+  higher_ed_subtype: Tenant["higher_ed_subtype"];
   organization_id?: string | null;
   moe_registration: string | null;
   plan: Tenant["plan"];

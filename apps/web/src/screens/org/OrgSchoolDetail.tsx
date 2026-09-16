@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchOrganizationTenantSummaries, logOrganizationAccess, KES } from "@figbloom/shared";
-import { Badge } from "../../components/ui/Badge";
+import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -54,7 +54,7 @@ export function OrgSchoolDetail() {
       <PageHead
         eyebrow={organization.name}
         title={school.name}
-        blurb={`${school.institution_type === "higher_ed" ? "Higher-ed institution" : "K-12 school"} · last updated ${new Date(school.updated_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+        blurb={`${school.institution_type === "higher_ed" ? (school.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[school.higher_ed_subtype] : "Higher-ed institution") : "K-12 school"} · last updated ${new Date(school.updated_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
         actions={<Button onClick={() => nav("../schools")}>Back to schools</Button>}
       />
 
