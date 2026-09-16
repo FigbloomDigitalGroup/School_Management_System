@@ -139,6 +139,9 @@ export interface Profile {
   email: string | null;
   phone: string | null;
   staff_title: string | null;
+  /** School-assigned sign-in credential (e.g. "TC-0001") for every role
+   *  except org_admin/super_admin, who keep real email (FIG-396/397). */
+  login_id: string | null;
   created_at: string;
 }
 

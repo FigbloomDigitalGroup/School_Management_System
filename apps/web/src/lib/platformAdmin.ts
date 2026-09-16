@@ -67,6 +67,84 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
   return data as InviteAdminResult;
 }
 
+/**
+ * Adds a teacher or driver at a school (FIG-398/400) — the invite-admin
+ * edge function's other branch: no email, an auto-assigned login_id
+ * instead (e.g. "TC-0001"). Kept as its own function/types rather than
+ * folded into inviteAdmin()/InviteAdminResult above, since those two stay
+ * untouched for the school_admin-onboarding callers that already depend on
+ * their email-based shape.
+ */
+export interface InviteStaffInput {
+  tenant_id: string;
+  full_name: string;
+  role: "teacher" | "driver";
+  staff_title?: string;
+  phone?: string;
+}
+
+export interface InviteStaffResult {
+  ok: true;
+  login_id: string;
+  password: string;
+}
+
+export async function inviteStaff(input: InviteStaffInput): Promise<InviteStaffResult> {
+  const { data, error } = await supabase().functions.invoke<InviteStaffResult | { error: string }>(
+    "invite-admin",
+    { body: input },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as InviteStaffResult;
+}
+
+export interface ProvisionGuardianInput {
+  tenant_id: string;
+  full_name: string;
+  students: { student_id: string; relationship?: "mother" | "father" | "guardian"; is_primary_payer?: boolean }[];
+  phone?: string;
+  email?: string;
+}
+
+export interface ProvisionGuardianResult {
+  ok: true;
+  login_id: string;
+  password: string;
+}
+
+export async function provisionGuardian(input: ProvisionGuardianInput): Promise<ProvisionGuardianResult> {
+  const { data, error } = await supabase().functions.invoke<ProvisionGuardianResult | { error: string }>(
+    "provision-guardian",
+    { body: input },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as ProvisionGuardianResult;
+}
+
 // ---------------------------------------------------------------- organizations (FIG-331)
 
 export interface NewOrganizationInput {

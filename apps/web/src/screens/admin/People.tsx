@@ -5,6 +5,7 @@ import { PageHead } from "../../components/ConsoleShell";
 import { Badge, RoleBadge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
+import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
@@ -12,9 +13,10 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listStudentDocuments, privateDocUrl, uploadAvatar, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
+import { inviteStaff, provisionGuardian, type InviteStaffResult, type ProvisionGuardianResult } from "../../lib/platformAdmin";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding"> & { avatar_url: string | null };
-type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone"> & { avatar_url: string | null };
+type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
   { value: "birth_certificate", label: "Birth certificate" },
@@ -74,7 +76,7 @@ async function fetchPeople(): Promise<PeopleData> {
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
     sb.from("classes").select("id,name").order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url").eq("active", true).order("full_name").returns<StudentRow[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,avatar_url").in("role", ["school_admin", "teacher"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
@@ -102,6 +104,8 @@ export function People() {
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [addStaffOpen, setAddStaffOpen] = useState(false);
+  const [inviteGuardiansOpen, setInviteGuardiansOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const { data, loading, error } = useAsync(() => fetchPeople(), [reloadKey]);
@@ -143,10 +147,14 @@ export function People() {
             : "Loading the roster…"
         }
         actions={
-          <>
-            <Button onClick={() => setImportOpen(true)}>Import from CSV</Button>
-            <Button variant="accent" onClick={() => setAddOpen(true)}>Add a learner</Button>
-          </>
+          tab === "students" ? (
+            <>
+              <Button onClick={() => setImportOpen(true)}>Import from CSV</Button>
+              <Button variant="accent" onClick={() => setAddOpen(true)}>Add a learner</Button>
+            </>
+          ) : (
+            <Button variant="accent" onClick={() => setAddStaffOpen(true)}>+ Add staff</Button>
+          )
         }
       />
 
@@ -178,7 +186,7 @@ export function People() {
         <div className="flex flex-wrap items-center gap-3 border-b border-line bg-sunken px-7 py-2.5">
           <span className="text-small font-semibold">{picked.size} selected</span>
           <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>
-          <Button onClick={() => toast(`Invited the guardians of ${picked.size} learners`)}>Invite guardians</Button>
+          <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>
           <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
           <button onClick={() => setPicked(new Set())} className="text-small font-semibold text-leaf">Clear</button>
         </div>
@@ -238,7 +246,7 @@ export function People() {
                 </div>
               ) },
               { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} tenant={tenant} /> },
-              { key: "email", header: "Email", width: "1.4fr", render: (s: StaffRow) => <Mono>{s.email ?? "—"}</Mono> },
+              { key: "login", header: "Login", width: "1.2fr", render: (s: StaffRow) => <Mono>{s.login_id ?? s.email ?? "—"}</Mono> },
               { key: "phone", header: "Phone", render: (s: StaffRow) => <Mono>{s.phone ?? "—"}</Mono> },
             ]}
             rows={staffRows}
@@ -304,6 +312,25 @@ export function People() {
             setReloadKey((k) => k + 1);
             toast(`Imported ${count} learner${count === 1 ? "" : "s"}.`);
           }}
+          toast={toast}
+        />
+      )}
+
+      {addStaffOpen && (
+        <AddStaffModal
+          tenantId={tenant.id}
+          onClose={() => setAddStaffOpen(false)}
+          onAdded={() => setReloadKey((k) => k + 1)}
+          toast={toast}
+        />
+      )}
+
+      {inviteGuardiansOpen && data && (
+        <InviteGuardiansModal
+          tenantId={tenant.id}
+          students={data.students.filter((s) => picked.has(s.id)).map((s) => ({ id: s.id, name: s.full_name }))}
+          onClose={() => setInviteGuardiansOpen(false)}
+          onInvited={() => { setPicked(new Set()); setReloadKey((k) => k + 1); }}
           toast={toast}
         />
       )}
@@ -522,6 +549,148 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
           </>
         )}
       </div>
+    </Modal>
+  );
+}
+
+const STAFF_ROLE_OPTIONS = [
+  { value: "teacher", label: "Teacher" },
+  { value: "driver", label: "Driver" },
+];
+
+/** Adds a teacher or driver (FIG-398/400) — no email, an assigned login_id
+ *  (e.g. "TC-0001") instead, shown once on success the same way every other
+ *  credential-reveal modal in this app works. */
+function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
+  tenantId: string; onClose: () => void; onAdded: () => void; toast: (m: string) => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [role, setRole] = useState<"teacher" | "driver">("teacher");
+  const [staffTitle, setStaffTitle] = useState("");
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<InviteStaffResult | null>(null);
+
+  async function add() {
+    if (!fullName.trim()) { toast("A name is required."); return; }
+    setSaving(true);
+    try {
+      const r = await inviteStaff({ tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined });
+      setResult(r);
+      onAdded();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add staff: ${err.message}` : "Could not add staff.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Staff"
+      title={result ? "Staff added" : "Add staff"}
+      actions={result ? <Button variant="accent" onClick={onClose}>Done</Button> : (
+        <><Button onClick={onClose}>Cancel</Button><Button variant="accent" onClick={() => void add()} disabled={saving}>{saving ? "Adding…" : "Add"}</Button></>
+      )}
+    >
+      {result ? (
+        <div>
+          <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
+            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+          </p>
+          <div className="rounded-lg border border-line bg-page p-3.5">
+            {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
+              <div key={k} className="flex justify-between border-b border-line-soft py-2 text-[12.5px] last:border-0">
+                <span className="text-ink-muted">{k}</span><span className="font-mono font-medium">{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-3.5">
+          <TextField id="staff-name" label="Full name" placeholder="e.g. Otieno Ouma" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as "teacher" | "driver")} options={STAFF_ROLE_OPTIONS} />
+          <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+          <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Turns "Invite guardians" from a stub into a real provisioning flow
+ *  (FIG-399/400) — links one new guardian account to every learner selected
+ *  on the roster, with an assigned login_id instead of email/phone OTP. */
+function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }: {
+  tenantId: string; students: { id: string; name: string }[]; onClose: () => void; onInvited: () => void; toast: (m: string) => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [relationship, setRelationship] = useState<"mother" | "father" | "guardian">("guardian");
+  const [isPrimaryPayer, setIsPrimaryPayer] = useState(true);
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<ProvisionGuardianResult | null>(null);
+
+  async function invite() {
+    if (!fullName.trim()) { toast("A name is required."); return; }
+    setSaving(true);
+    try {
+      const r = await provisionGuardian({
+        tenant_id: tenantId,
+        full_name: fullName.trim(),
+        students: students.map((s) => ({ student_id: s.id, relationship, is_primary_payer: isPrimaryPayer })),
+        phone: phone.trim() || undefined,
+      });
+      setResult(r);
+      onInvited();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add the guardian: ${err.message}` : "Could not add the guardian.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Guardians"
+      title={result ? "Guardian added" : "Invite a guardian"}
+      blurb={result ? undefined : `Linked to ${students.map((s) => s.name).join(", ")}.`}
+      actions={result ? <Button variant="accent" onClick={onClose}>Done</Button> : (
+        <><Button onClick={onClose}>Cancel</Button><Button variant="accent" onClick={() => void invite()} disabled={saving}>{saving ? "Adding…" : "Invite"}</Button></>
+      )}
+    >
+      {result ? (
+        <div>
+          <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
+            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+          </p>
+          <div className="rounded-lg border border-line bg-page p-3.5">
+            {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
+              <div key={k} className="flex justify-between border-b border-line-soft py-2 text-[12.5px] last:border-0">
+                <span className="text-ink-muted">{k}</span><span className="font-mono font-medium">{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-3.5">
+          <TextField id="guardian-name" label="Full name" placeholder="e.g. Rose Achieng" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <SelectField
+            id="guardian-relationship" label="Relationship" value={relationship}
+            onChange={(e) => setRelationship(e.target.value as "mother" | "father" | "guardian")}
+            options={[{ value: "mother", label: "Mother" }, { value: "father", label: "Father" }, { value: "guardian", label: "Guardian" }]}
+          />
+          <TextField id="guardian-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={isPrimaryPayer} onChange={(e) => setIsPrimaryPayer(e.target.checked)} style={{ accentColor: "#17402A" }} />
+            <span className="text-[13px]">Primary fee payer</span>
+          </label>
+        </div>
+      )}
     </Modal>
   );
 }
