@@ -18,12 +18,12 @@ describe("normalisePhone", () => {
 const SUPER_ADMIN_ID = "super-admin-1";
 const TENANT_ID = "tenant-1";
 
-function makeClients(opts: { role?: string } = {}) {
+function makeClients(opts: { role?: string; callerTenantId?: string } = {}) {
   const admin = new FakeSupabaseClient();
   admin.seed("profiles", [
-    { id: SUPER_ADMIN_ID, role: opts.role ?? "super_admin", full_name: "Jane Figbloom" },
+    { id: SUPER_ADMIN_ID, role: opts.role ?? "super_admin", full_name: "Jane Figbloom", tenant_id: opts.callerTenantId ?? null },
   ]);
-  admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School" }]);
+  admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley" }]);
   admin.onCreateUser = (attrs) => ({
     data: { user: { id: "new-admin-1", email: attrs.email } },
     error: null,
@@ -133,6 +133,79 @@ describe("invite-admin handle", () => {
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 500);
     assertEquals(admin.deletedUserIds, ["new-admin-1"]);
+  });
+
+  describe("teacher/driver login_id path (FIG-398)", () => {
+    it("rejects an unknown role", async () => {
+      const { admin, asUser } = makeClients();
+      const res = await handle(request({ ...validBody, role: "parent" }), { admin, asUser });
+      assertEquals(res.status, 400);
+    });
+
+    it("creates a teacher with an auto-generated login_id instead of requiring email", async () => {
+      const { admin, asUser } = makeClients();
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 200);
+      const out = await res.json();
+      assertEquals(out.ok, true);
+      assertEquals(out.login_id, "TC-0001");
+      assertEquals(out.password, "figbloom-dev");
+
+      const created = admin.rowsIn("profiles").find((p) => p.id === "new-admin-1");
+      assertEquals(created?.role, "teacher");
+      assertEquals(created?.login_id, "TC-0001");
+      assertEquals(created?.tenant_id, TENANT_ID);
+    });
+
+    it("creates a driver with a BD-prefixed login_id", async () => {
+      const { admin, asUser } = makeClients();
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Kariuki James", role: "driver" }), { admin, asUser });
+      const out = await res.json();
+      assertEquals(out.login_id, "BD-0001");
+    });
+
+    it("increments the login_id per tenant+role, not globally", async () => {
+      const { admin, asUser } = makeClients();
+      admin.seed("profiles", [
+        { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+        { id: "existing-teacher-1", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0001" },
+        { id: "existing-driver-1", role: "driver", tenant_id: TENANT_ID, login_id: "BD-0001" },
+      ]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Second Teacher", role: "teacher" }), { admin, asUser });
+      const out = await res.json();
+      // Existing teacher count is 1 -> next is TC-0002, unaffected by the driver row.
+      assertEquals(out.login_id, "TC-0002");
+    });
+
+    it("a different tenant can reuse the same sequence number", async () => {
+      const OTHER_TENANT_ID = "tenant-2";
+      const { admin, asUser } = makeClients();
+      admin.seed("tenants", [
+        { id: TENANT_ID, name: "Green Valley School", slug: "green-valley" },
+        { id: OTHER_TENANT_ID, name: "Other School", slug: "other-school" },
+      ]);
+      const res = await handle(request({ tenant_id: OTHER_TENANT_ID, full_name: "First Teacher There", role: "teacher" }), { admin, asUser });
+      const out = await res.json();
+      assertEquals(out.login_id, "TC-0001");
+    });
+
+    it("allows the school's OWN school_admin to add a teacher", async () => {
+      const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 200);
+    });
+
+    it("rejects a DIFFERENT school's school_admin adding a teacher here", async () => {
+      const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: "some-other-tenant" });
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("still rejects a school_admin trying to add ANOTHER school_admin (the first-admin case stays super_admin/org_admin-only)", async () => {
+      const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
   });
 
   describe("org_admin caller (FIG-373)", () => {
