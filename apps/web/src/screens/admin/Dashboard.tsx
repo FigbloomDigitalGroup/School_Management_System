@@ -10,6 +10,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AttendanceDetail } from "./AttendanceDetail";
+import { fetchCoverageToday } from "../../lib/coverage";
 
 interface DashboardData {
   term: Term | null;
@@ -94,6 +95,7 @@ export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
   const toast = useToast();
   const { data, loading, error } = useAsync(() => fetchDashboard(), []);
+  const { data: coverage } = useAsync(() => fetchCoverageToday(), []);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 
@@ -280,6 +282,28 @@ export function AdminDashboard() {
                 )}
               </ul>
             </section>
+
+            {coverage && coverage.length > 0 && (
+              <section className="rounded-lg border border-warn-ink/30 bg-warn-ink/5 p-4">
+                <h2 className="text-body font-semibold text-warn-ink">Needs cover today · {coverage.length}</h2>
+                <ul className="mt-2.5 grid gap-2.5">
+                  {coverage.map((c, i) => (
+                    <li key={i} className="rounded-lg bg-white/70 px-3 py-2.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-small font-semibold text-warn-ink">{c.subjectName} · {c.className}</span>
+                        <span className="shrink-0 font-mono text-[11px] text-warn-ink">{c.time}</span>
+                      </div>
+                      <p className="mt-1 text-[12px] leading-relaxed text-warn-ink">
+                        {c.absentTeacherName} is on approved leave today.{" "}
+                        {c.substitutes.length > 0
+                          ? `Could cover: ${c.substitutes.map((s) => s.name).join(", ")}.`
+                          : "Nobody else on file teaches this subject."}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <section className="overflow-hidden rounded-lg border border-line">
               <header className="border-b border-line px-4 py-3"><h2 className="text-body font-semibold">Fee collection · this term</h2></header>

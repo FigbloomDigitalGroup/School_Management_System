@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { Weekday } from "@figbloom/shared";
+import { todayWeekday, type Weekday } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { fetchTeacherClasses, fetchTeacherClassTimetable } from "../../lib/teacherData";
+import { fetchTeachersOnLeaveToday } from "../../lib/coverage";
 import { WEEKDAYS } from "@figbloom/shared";
 
 const NOW = 2;
 const NOW_DAY: Weekday = "Tue";
+const REAL_TODAY = todayWeekday();
 
 export function TeacherTimetable() {
   const { profile } = useTenantSession();
@@ -18,6 +20,7 @@ export function TeacherTimetable() {
   const classesData = useMemo(() => classListData ?? [], [classListData]);
   const [classId, setClassId] = useState<string | null>(null);
   const [day, setDay] = useState<Weekday>("Tue");
+  const { data: onLeave } = useAsync(() => fetchTeachersOnLeaveToday(), []);
 
   useEffect(() => {
     if (classId || classesData.length === 0) return;
@@ -86,11 +89,12 @@ export function TeacherTimetable() {
                 {rows.map((r, i) => {
                   const isNow = day === NOW_DAY && i === NOW;
                   const free = r.label === "Games" || r.label === "Library";
+                  const needsCover = day === REAL_TODAY && !!r.teacherId && !!onLeave?.has(r.teacherId);
                   return (
                     <div key={r.time} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
                       style={{
-                        borderColor: isNow ? "var(--accent)" : "#E2E6E2",
-                        background: isNow ? "#FFF8F6" : "#fff",
+                        borderColor: needsCover ? "#B8460A" : isNow ? "var(--accent)" : "#E2E6E2",
+                        background: needsCover ? "#FDEBDF" : isNow ? "#FFF8F6" : "#fff",
                         opacity: r.mine ? 1 : 0.7,
                       }}>
                       <span className="w-12 shrink-0 font-mono text-[11.5px] text-ink-muted">{r.time}</span>
@@ -100,6 +104,11 @@ export function TeacherTimetable() {
                         <span className="text-[12px] text-ink-faint">
                           {r.room}{cls ? ` · ${cls.name}` : ""}{!r.mine && r.teacherName ? ` · taught by ${r.teacherName}` : ""}
                         </span>
+                        {needsCover && (
+                          <span className="mt-0.5 block text-[11.5px] font-semibold text-warn-ink">
+                            {r.teacherName ?? "The assigned teacher"} is on approved leave today — needs cover
+                          </span>
+                        )}
                       </span>
                       {isNow && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ background: "var(--accent)" }}>NOW</span>}
                     </div>

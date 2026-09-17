@@ -107,8 +107,9 @@ export interface TeacherTimetableRow {
   label: string;
   room: string;
   subjectId: string | null;
-  teacherName: string | null; // who's assigned to this subject in this class, if any
-  mine: boolean;               // this teacher's own period, or a non-subject one everyone sees
+  teacherId: string | null;    // who's assigned to this subject in this class, if any
+  teacherName: string | null;
+  mine: boolean;                // this teacher's own period, or a non-subject one everyone sees
 }
 
 /**
@@ -144,7 +145,7 @@ export async function fetchTeacherClassTimetable(classId: string, teacherId: str
     if (!isClassTeacher && !mine) continue;
     byDay[s.day].push({
       time: s.start_time, label: s.label, room: s.room ?? "",
-      subjectId: s.subject_id, teacherName: assignment?.name ?? null, mine,
+      subjectId: s.subject_id, teacherId: assignment?.teacherId ?? null, teacherName: assignment?.name ?? null, mine,
     });
   }
   for (const day of WEEKDAYS) byDay[day].sort((a, b) => a.time.localeCompare(b.time));
