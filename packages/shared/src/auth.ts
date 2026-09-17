@@ -141,6 +141,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },
     { to: "admin/reports", label: "Reports", icon: "chart" },
     { to: "admin/settings", label: "School settings", icon: "gear" },
+    { to: "admin/account", label: "My account", icon: "pencil" },
   ],
   teacher: [
     { to: "teacher/attendance", label: "Attendance", icon: "check" },
@@ -151,6 +152,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/messages", label: "Messages", icon: "chat" },
     { to: "teacher/notices", label: "Notices", icon: "bell" },
     { to: "teacher/leave", label: "Leave", icon: "flag" },
+    { to: "teacher/account", label: "Account", icon: "pencil" },
   ],
   parent: [
     { to: "parent", label: "Home", icon: "home" },
