@@ -104,11 +104,11 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             <WorkspaceSwitcher current={workspaceName ?? "Figbloom"} options={workspaceOptions} />
           ) : (
             open && (
-              <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-                <div className="text-[14.5px] font-semibold tracking-tight text-white">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[14.5px] font-semibold tracking-tight text-white">
                   {tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
                 </div>
-                <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">
+                <div className="truncate font-mono text-[8.5px] tracking-[0.1em] text-white/50">
                   {tenantScoped ? "SCHOOL WORKSPACE" : orgScoped ? "ORGANIZATION CONSOLE" : "PLATFORM CONSOLE"}
                 </div>
               </div>
@@ -151,6 +151,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
               className={({ isActive }) =>
                 [
                   "hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5",
+                  open ? "" : "justify-center",
                   isActive ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10",
                 ].join(" ")
               }
