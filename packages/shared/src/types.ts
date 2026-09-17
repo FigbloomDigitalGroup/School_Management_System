@@ -177,6 +177,10 @@ export interface TimetableSlot {
   start_time: string;        // "08:00"
   label: string;             // subject name, or "Games"/"Library"/"Class meeting" etc.
   room: string | null;
+  /** Optional link to subjects — who teaches this period is then derived from
+   *  teaching_assignments(class_id, subject_id), not stored here directly.
+   *  Null for non-subject periods (Games, Library, Class meeting). */
+  subject_id: string | null;
 }
 
 export interface Subject {
@@ -287,7 +291,8 @@ export type Audience =
   | { kind: "whole_school" }
   | { kind: "role"; role: Role }
   | { kind: "class"; class_id: string }
-  | { kind: "form_level"; form_level: number };
+  | { kind: "form_level"; form_level: number }
+  | { kind: "user"; user_id: string };
 
 export interface Announcement {
   id: string;

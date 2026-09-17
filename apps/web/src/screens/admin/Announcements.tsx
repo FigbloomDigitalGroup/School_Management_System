@@ -98,6 +98,7 @@ export function Announcements() {
       case "role": return { kind: "role", role: "parent" };
       case "form_level": return { kind: "form_level", form_level: formLevel };
       case "class": return { kind: "class", class_id: effectiveClassId };
+      case "user": throw new Error("The composer never selects a per-person audience.");
     }
   }
 

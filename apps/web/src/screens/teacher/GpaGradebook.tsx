@@ -100,15 +100,19 @@ export function GpaGradebook() {
 
   const entered = roster.filter((s) => value(s.student_id).trim() !== "").length;
 
-  async function saveDraft() {
-    if (!assessmentId) return;
-    const rows = roster.flatMap((s) => {
+  function buildMarkRows() {
+    return roster.flatMap((s) => {
       const raw = value(s.student_id).trim();
       if (raw === "") return [];
       const parsed = parseScoreInput(raw, assessment?.out_of ?? 100);
       if (!parsed.ok) return [];
       return [{ student_id: s.student_id, score: parsed.score }];
     });
+  }
+
+  async function saveDraft() {
+    if (!assessmentId) return;
+    const rows = buildMarkRows();
     if (!rows.length) { toast("Nothing to save yet."); return; }
     try {
       await saveMarks(tenant.id, assessmentId, profile.id, rows);
@@ -119,9 +123,14 @@ export function GpaGradebook() {
     }
   }
 
+  // Publishing has to save whatever's currently on screen first — it used to
+  // only flip the assessment's published state, so typing marks and hitting
+  // Publish without a prior "Save draft" silently lost everything just entered.
   async function publish() {
     if (!assessmentId || !assessment) return;
     try {
+      const rows = buildMarkRows();
+      if (rows.length) await saveMarks(tenant.id, assessmentId, profile.id, rows);
       await publishAssessment(assessmentId);
       setReloadKey((k) => k + 1);
       toast(`${assessment.name} published to ${roster.length} student${roster.length === 1 ? "" : "s"}.`);

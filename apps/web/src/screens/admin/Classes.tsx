@@ -10,30 +10,36 @@ import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { TimetableEditor } from "./TimetableEditor";
+import { SubjectsEditor } from "./SubjectsEditor";
+import { PromoteClass } from "./PromoteClass";
 
 interface TeacherOption { id: string; full_name: string }
+interface SubjectOption { id: string; name: string }
 
 interface ClassesData {
   classes: ClassGroup[];
   teachers: TeacherOption[];
+  subjects: SubjectOption[];
   studentCountByClass: Map<string, number>;
 }
 
 async function fetchClasses(): Promise<ClassesData> {
   const sb = supabase();
-  const [{ data: classRows, error: e1 }, { data: teacherRows, error: e2 }, { data: studentRows, error: e3 }] = await Promise.all([
+  const [{ data: classRows, error: e1 }, { data: teacherRows, error: e2 }, { data: studentRows, error: e3 }, { data: subjectRows, error: e4 }] = await Promise.all([
     sb.from("classes").select("*").order("form_level").order("name").returns<ClassGroup[]>(),
     sb.from("profiles").select("id,full_name").eq("role", "teacher").order("full_name").returns<TeacherOption[]>(),
     sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("subjects").select("id,name").order("name").returns<SubjectOption[]>(),
   ]);
   if (e1) throw e1;
   if (e2) throw e2;
   if (e3) throw e3;
+  if (e4) throw e4;
 
   const studentCountByClass = new Map<string, number>();
   for (const s of studentRows ?? []) studentCountByClass.set(s.class_id, (studentCountByClass.get(s.class_id) ?? 0) + 1);
 
-  return { classes: classRows ?? [], teachers: teacherRows ?? [], studentCountByClass };
+  return { classes: classRows ?? [], teachers: teacherRows ?? [], subjects: subjectRows ?? [], studentCountByClass };
 }
 
 // A class's own grading band (FIG-356) — independent of tenant.level, which
@@ -54,12 +60,14 @@ const LEVEL_OPTION_LABEL: Record<ClassLevel, string> = { primary: "Primary", jun
  */
 export function AdminClasses() {
   const toast = useToast();
-  const { tenant } = useTenantSession();
+  const { profile, tenant } = useTenantSession();
   const combined = tenant.level === "combined";
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClasses(), [reloadKey]);
   const [creating, setCreating] = useState(false);
   const [editingTimetableFor, setEditingTimetableFor] = useState<ClassGroup | null>(null);
+  const [editingSubjectsFor, setEditingSubjectsFor] = useState<ClassGroup | null>(null);
+  const [promotingFrom, setPromotingFrom] = useState<ClassGroup | null>(null);
   const reload = () => setReloadKey((k) => k + 1);
 
   async function setClassTeacher(classId: string, teacherId: string) {
@@ -122,9 +130,23 @@ export function AdminClasses() {
                 render: (c: ClassGroup) => <Mono>{data.studentCountByClass.get(c.id) ?? 0}</Mono>,
               },
               {
-                key: "actions", header: "", align: "right", width: "1.1fr",
+                key: "actions", header: "", align: "right", width: "2fr",
                 render: (c: ClassGroup) => (
                   <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPromotingFrom(c)}
+                      className="text-[12px] font-semibold text-leaf hover:underline"
+                    >
+                      Promote
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingSubjectsFor(c)}
+                      className="text-[12px] font-semibold text-leaf hover:underline"
+                    >
+                      Subjects
+                    </button>
                     <button
                       type="button"
                       onClick={() => setEditingTimetableFor(c)}
@@ -145,7 +167,7 @@ export function AdminClasses() {
             ]}
             rows={data.classes}
             rowKey={(c) => c.id}
-            minWidth="820px"
+            minWidth="980px"
             empty={{
               title: "No classes yet",
               body: "Add the school's first class to start assigning learners and teachers.",
@@ -168,9 +190,31 @@ export function AdminClasses() {
         <TimetableEditor
           entityId={editingTimetableFor.id}
           title={editingTimetableFor.name}
+          subjects={data?.subjects ?? []}
           fetchSlots={fetchClassTimetableSlots}
           saveSlots={(id, slots) => saveClassTimetable(tenant.id, id, slots)}
           onClose={() => setEditingTimetableFor(null)}
+        />
+      )}
+
+      {editingSubjectsFor && (
+        <SubjectsEditor
+          classId={editingSubjectsFor.id}
+          className={editingSubjectsFor.name}
+          tenantId={tenant.id}
+          teachers={data?.teachers ?? []}
+          onClose={() => setEditingSubjectsFor(null)}
+        />
+      )}
+
+      {promotingFrom && data && (
+        <PromoteClass
+          sourceClass={promotingFrom}
+          allClasses={data.classes}
+          tenantId={tenant.id}
+          authorId={profile.id}
+          onClose={() => setPromotingFrom(null)}
+          onDone={() => { setPromotingFrom(null); reload(); }}
         />
       )}
     </>

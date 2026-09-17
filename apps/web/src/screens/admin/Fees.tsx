@@ -11,6 +11,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
+import { FeeItemsEditor } from "./FeeItemsEditor";
 
 interface OutstandingRow {
   id: string;
@@ -49,6 +50,7 @@ interface RawProofRow {
 interface FeesData {
   term: Term | null;
   feeItems: FeeItem[];
+  formLevels: number[];
   invoices: { total_cents: number; paid_cents: number }[];
   outstanding: OutstandingRow[];
   pendingProofs: PendingProofRow[];
@@ -59,7 +61,7 @@ async function fetchFees(): Promise<FeesData> {
   const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
-  const [{ data: feeItemRows }, invoicesRes, proofsRes] = await Promise.all([
+  const [{ data: feeItemRows }, invoicesRes, proofsRes, { data: classRows }] = await Promise.all([
     termId
       ? sb.from("fee_items").select("*").eq("term_id", termId).returns<FeeItem[]>()
       : Promise.resolve({ data: [] as FeeItem[] }),
@@ -76,7 +78,10 @@ async function fetchFees(): Promise<FeesData> {
           .order("uploaded_at", { ascending: true })
           .returns<RawProofRow[]>()
       : Promise.resolve({ data: [] as RawProofRow[] }),
+    sb.from("classes").select("form_level").returns<{ form_level: number }[]>(),
   ]);
+
+  const formLevels = [...new Set((classRows ?? []).map((c) => c.form_level))].sort((a, b) => a - b);
 
   const rawInvoices = invoicesRes.data ?? [];
   const invoices = rawInvoices.map((r) => ({ total_cents: r.total_cents, paid_cents: r.paid_cents }));
@@ -103,14 +108,16 @@ async function fetchFees(): Promise<FeesData> {
     cls: r.fee_invoices?.students?.classes?.name ?? "—",
   }));
 
-  return { term: term ?? null, feeItems: feeItemRows ?? [], invoices, outstanding, pendingProofs };
+  return { term: term ?? null, feeItems: feeItemRows ?? [], formLevels, invoices, outstanding, pendingProofs };
 }
 
 export function Fees() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
-  const { data, loading, error } = useAsync(() => fetchFees(), []);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchFees(), [reloadKey]);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [editingItems, setEditingItems] = useState(false);
 
   async function reviewProof(id: string, status: "confirmed" | "rejected") {
     const { error: updateError } = await supabase()
@@ -134,10 +141,16 @@ export function Fees() {
     }
   }
 
-  // "A Form 2 boarder pays" — the representative figure the label promises,
-  // so it must include Form-2-scoped items too (KCSE registration etc.), not
-  // just the school-wide ones.
-  const boarderTotal = data ? totalCents(itemsForStudent(data.feeItems, { boarding: true }, 2)) : 0;
+  // What each form level actually pays in total, day vs boarding — not just
+  // one representative figure, since form-scoped items (KCSE registration
+  // etc.) mean the total genuinely differs form to form, not only by residence.
+  const totalsByForm = data
+    ? data.formLevels.map((form) => ({
+        form,
+        day: totalCents(itemsForStudent(data.feeItems, { boarding: false }, form)),
+        boarder: totalCents(itemsForStudent(data.feeItems, { boarding: true }, form)),
+      }))
+    : [];
 
   const billed = data ? data.invoices.reduce((a, i) => a + i.total_cents, 0) : 0;
   const collected = data ? data.invoices.reduce((a, i) => a + i.paid_cents, 0) : 0;
@@ -191,7 +204,7 @@ export function Fees() {
           <section className="overflow-hidden rounded-lg border border-line">
             <header className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-body font-semibold">{data?.term ? data.term.name : "Term"} fee items</h2>
-              <Button onClick={() => toast("Editing the fee structure")}>Edit</Button>
+              <Button onClick={() => setEditingItems(true)} disabled={!data?.term}>Edit</Button>
             </header>
             <div>
               {error ? null : loading || !data ? (
@@ -217,10 +230,23 @@ export function Fees() {
                       <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between bg-sunken px-4 py-3">
-                    <span className="text-[13px] font-semibold">A Form 2 boarder pays</span>
-                    <span className="font-mono text-[15px] font-medium">{formatMoney(boarderTotal, tenant.country)}</span>
-                  </div>
+                  {totalsByForm.length > 0 && (
+                    <div className="bg-sunken px-4 py-3">
+                      <div className="mb-2 text-[12px] font-semibold">What each form level pays in total</div>
+                      <div className="grid gap-1.5">
+                        <div className="grid gap-2 text-[11px] font-semibold text-ink-faint" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                          <span>Form</span><span className="text-right">Day</span><span className="text-right">Boarder</span>
+                        </div>
+                        {totalsByForm.map((t) => (
+                          <div key={t.form} className="grid gap-2 text-[13px]" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                            <span className="font-medium">Form {t.form}</span>
+                            <div className="text-right"><Mono>{formatMoney(t.day, tenant.country)}</Mono></div>
+                            <div className="text-right"><Mono>{formatMoney(t.boarder, tenant.country)}</Mono></div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -286,6 +312,16 @@ export function Fees() {
           )}
         </div>
       </div>
+
+      {editingItems && data?.term && (
+        <FeeItemsEditor
+          termId={data.term.id}
+          termName={data.term.name}
+          tenantId={tenant.id}
+          country={tenant.country}
+          onClose={() => { setEditingItems(false); setReloadKey((k) => k + 1); }}
+        />
+      )}
     </>
   );
 }

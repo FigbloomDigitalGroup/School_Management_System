@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { supabase } from "@figbloom/shared";
-import type { ClassGroup, Profile, Student } from "@figbloom/shared";
+import type { ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge, RoleBadge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -67,25 +67,43 @@ interface PeopleData {
   students: StudentRow[];
   staff: StaffRow[];
   feeByStudent: Map<string, { total: number; paid: number }>;
+  subjects: Subject[];
+  subjectIdsByTeacher: Map<string, string[]>;
 }
 
 async function fetchPeople(): Promise<PeopleData> {
   const sb = supabase();
   const { data: term } = await sb.from("terms").select("id").eq("is_current", true).maybeSingle<{ id: string }>();
 
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }] = await Promise.all([
     sb.from("classes").select("id,name").order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url").eq("active", true).order("full_name").returns<StudentRow[]>(),
     sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
+    sb.from("subjects").select("*").order("name").returns<Subject[]>(),
+    sb.from("teacher_subjects").select("teacher_id, subject_id").returns<{ teacher_id: string; subject_id: string }[]>(),
   ]);
 
   const feeByStudent = new Map<string, { total: number; paid: number }>();
   for (const inv of invoicesRes.data ?? []) feeByStudent.set(inv.student_id, { total: inv.total_cents, paid: inv.paid_cents });
 
-  return { classes: classRows ?? [], students: studentRows ?? [], staff: staffRows ?? [], feeByStudent };
+  const subjectIdsByTeacher = new Map<string, string[]>();
+  for (const row of teacherSubjectRows ?? []) {
+    const ids = subjectIdsByTeacher.get(row.teacher_id) ?? [];
+    ids.push(row.subject_id);
+    subjectIdsByTeacher.set(row.teacher_id, ids);
+  }
+
+  return {
+    classes: classRows ?? [],
+    students: studentRows ?? [],
+    staff: staffRows ?? [],
+    feeByStudent,
+    subjects: subjectRows ?? [],
+    subjectIdsByTeacher,
+  };
 }
 
 /**
@@ -124,6 +142,7 @@ export function People() {
   }, [data, query]);
 
   const classesById = useMemo(() => new Map((data?.classes ?? []).map((c) => [c.id, c.name])), [data]);
+  const subjectsById = useMemo(() => new Map((data?.subjects ?? []).map((s) => [s.id, s])), [data]);
 
   const toggle = (id: string) =>
     setPicked((p) => {
@@ -246,13 +265,25 @@ export function People() {
                 </div>
               ) },
               { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} tenant={tenant} /> },
+              {
+                key: "subjects", header: "Subjects", width: "1.4fr",
+                render: (s: StaffRow) => {
+                  if (s.role !== "teacher") return <span className="text-[12.5px] text-ink-faint">—</span>;
+                  const names = (data.subjectIdsByTeacher.get(s.id) ?? [])
+                    .map((id) => subjectsById.get(id)?.name)
+                    .filter((n): n is string => Boolean(n));
+                  return names.length
+                    ? <span className="text-[13px]">{names.join(", ")}</span>
+                    : <span className="text-[12.5px] text-ink-faint">None set</span>;
+                },
+              },
               { key: "login", header: "Login", width: "1.2fr", render: (s: StaffRow) => <Mono>{s.login_id ?? s.email ?? "—"}</Mono> },
               { key: "phone", header: "Phone", render: (s: StaffRow) => <Mono>{s.phone ?? "—"}</Mono> },
             ]}
             rows={staffRows}
             rowKey={(s) => s.id}
             onRowClick={(s) => openManage("staff", s)}
-            minWidth="720px"
+            minWidth="920px"
             empty={{
               title: "No staff match that",
               body: "Admins and teachers appear here once their accounts are created.",
@@ -268,9 +299,23 @@ export function People() {
           onClose={() => setManage(null)}
           eyebrow={manage.kind === "students" ? "Learner" : "Staff"}
           title={`Manage ${manage.row.full_name}`}
-          blurb={manage.kind === "students" ? "Photo and records for this learner." : "Photo for this staff member."}
+          blurb={manage.kind === "students" ? "Details, photo, and records for this learner." : "Details and photo for this staff member."}
           actions={<Button variant="primary" onClick={() => setManage(null)}>Done</Button>}
         >
+          {manage.kind === "students" ? (
+            <StudentProfileEditor
+              student={manage.row as StudentRow}
+              classes={data?.classes ?? []}
+              onSaved={() => setReloadKey((k) => k + 1)}
+              toast={toast}
+            />
+          ) : (
+            <StaffProfileEditor
+              staff={manage.row as StaffRow}
+              onSaved={() => setReloadKey((k) => k + 1)}
+              toast={toast}
+            />
+          )}
           <AvatarEditor
             id={manage.row.id}
             name={manage.row.full_name}
@@ -282,6 +327,16 @@ export function People() {
           />
           {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manage.row.id} toast={toast} />
+          )}
+          {manage.kind === "staff" && (manage.row as StaffRow).role === "teacher" && data && (
+            <TeacherSubjectsEditor
+              teacherId={manage.row.id}
+              tenantId={tenant.id}
+              subjects={data.subjects}
+              selectedIds={new Set(data.subjectIdsByTeacher.get(manage.row.id) ?? [])}
+              onChange={() => setReloadKey((k) => k + 1)}
+              toast={toast}
+            />
           )}
         </Modal>
       )}
@@ -695,6 +750,133 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
   );
 }
 
+/** The only place a learner's basic record (name, admission number, class,
+ *  residence) can be corrected after admission — previously nowhere. */
+function StudentProfileEditor({ student, classes, onSaved, toast }: {
+  student: StudentRow;
+  classes: Pick<ClassGroup, "id" | "name">[];
+  onSaved: () => void;
+  toast: (m: string) => void;
+}) {
+  const [fullName, setFullName] = useState(student.full_name);
+  const [admissionNo, setAdmissionNo] = useState(student.admission_no);
+  const [classId, setClassId] = useState(student.class_id ?? "");
+  const [boarding, setBoarding] = useState(student.boarding);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!fullName.trim() || !admissionNo.trim()) { toast("Name and admission number are required."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("students").update({
+        full_name: fullName.trim(),
+        admission_no: admissionNo.trim(),
+        class_id: classId || null,
+        boarding,
+      }).eq("id", student.id);
+      if (error) throw error;
+      toast("Details saved.");
+      onSaved();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mb-5 border-b border-line-soft pb-5">
+      <h3 className="mb-2 text-[13px] font-semibold">Details</h3>
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Full name</span>
+          <input value={fullName} onChange={(e) => setFullName(e.target.value)}
+            className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Admission number</span>
+          <input value={admissionNo} onChange={(e) => setAdmissionNo(e.target.value)}
+            className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 font-mono text-[13px] outline-none" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Class</span>
+          <select value={classId} onChange={(e) => setClassId(e.target.value)}
+            className="w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-[13px]">
+            <option value="">Unassigned</option>
+            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label className="mt-6 flex items-center gap-2">
+          <input type="checkbox" checked={boarding} onChange={(e) => setBoarding(e.target.checked)} style={{ accentColor: "#17402A" }} />
+          <span className="text-[13px]">Boarder</span>
+        </label>
+      </div>
+      <Button variant="primary" className="mt-3" onClick={() => void save()} disabled={saving}>
+        {saving ? "Saving…" : "Save details"}
+      </Button>
+    </div>
+  );
+}
+
+/** The only place a staff member's own record (name, title, phone) can be
+ *  corrected after they're added — previously nowhere. Role and login_id
+ *  are credentials, not editable here. */
+function StaffProfileEditor({ staff, onSaved, toast }: {
+  staff: StaffRow;
+  onSaved: () => void;
+  toast: (m: string) => void;
+}) {
+  const [fullName, setFullName] = useState(staff.full_name);
+  const [staffTitle, setStaffTitle] = useState(staff.staff_title ?? "");
+  const [phone, setPhone] = useState(staff.phone ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!fullName.trim()) { toast("A name is required."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("profiles").update({
+        full_name: fullName.trim(),
+        staff_title: staffTitle.trim() || null,
+        phone: phone.trim() || null,
+      }).eq("id", staff.id);
+      if (error) throw error;
+      toast("Details saved.");
+      onSaved();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mb-5 border-b border-line-soft pb-5">
+      <h3 className="mb-2 text-[13px] font-semibold">Details</h3>
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Full name</span>
+          <input value={fullName} onChange={(e) => setFullName(e.target.value)}
+            className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Title</span>
+          <input value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} placeholder="e.g. Class teacher"
+            className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Phone</span>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712 345 678"
+            className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
+        </label>
+      </div>
+      <Button variant="primary" className="mt-3" onClick={() => void save()} disabled={saving}>
+        {saving ? "Saving…" : "Save details"}
+      </Button>
+    </div>
+  );
+}
+
 function AvatarEditor({ id, name, kind, tenantId, url, onUploaded, toast }: {
   id: string; name: string; kind: "students" | "staff"; tenantId: string; url?: string | null;
   onUploaded: (url: string) => void; toast: (m: string) => void;
@@ -811,6 +993,70 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
         <input ref={fileRef} type="file" aria-label="Document file" className="text-small" />
         <Button type="submit" variant="primary" disabled={uploading}>{uploading ? "Uploading…" : "Add document"}</Button>
       </form>
+    </div>
+  );
+}
+
+/**
+ * What this teacher is qualified to teach, set once at hiring and rarely
+ * touched again — separate from teaching_assignments (which class they're
+ * actually teaching this term). Read by SubjectsEditor to surface qualified
+ * teachers first when a class needs a subject assigned.
+ */
+function TeacherSubjectsEditor({ teacherId, tenantId, subjects, selectedIds, onChange, toast }: {
+  teacherId: string;
+  tenantId: string;
+  subjects: Subject[];
+  selectedIds: Set<string>;
+  onChange: () => void;
+  toast: (m: string) => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function toggle(subjectId: string, checked: boolean) {
+    setBusyId(subjectId);
+    try {
+      if (checked) {
+        const { error } = await supabase().from("teacher_subjects")
+          .insert({ tenant_id: tenantId, teacher_id: teacherId, subject_id: subjectId });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase().from("teacher_subjects")
+          .delete().eq("teacher_id", teacherId).eq("subject_id", subjectId);
+        if (error) throw error;
+      }
+      onChange();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-line-soft pt-4">
+      <h3 className="text-[13px] font-semibold">Subjects this teacher is qualified to teach</h3>
+      {subjects.length === 0 ? (
+        <p className="mt-2 text-small text-ink-faint">No subjects have been added yet — add some under Classes first.</p>
+      ) : (
+        <div className="mt-2 grid gap-1.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {subjects.map((s) => (
+            <label key={s.id} className="flex items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={selectedIds.has(s.id)}
+                disabled={busyId === s.id}
+                onChange={(e) => void toggle(s.id, e.target.checked)}
+                style={{ accentColor: "#17402A" }}
+              />
+              {s.name}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[11.5px] leading-relaxed text-ink-faint">
+        This doesn't assign them anywhere on its own — it just makes them easier to find when picking a subject teacher for a class.
+      </p>
     </div>
   );
 }

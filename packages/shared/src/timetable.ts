@@ -43,7 +43,7 @@ export function currentPeriodIndex(rows: TimetableRow[], now: Date = new Date())
 export async function saveClassTimetable(
   tenantId: string,
   classId: string,
-  slots: { day: Weekday; start_time: string; label: string; room: string | null }[],
+  slots: { day: Weekday; start_time: string; label: string; room: string | null; subject_id?: string | null }[],
 ): Promise<void> {
   const { error: delErr } = await supabase().from("timetable_slots").delete().eq("class_id", classId);
   if (delErr) throw delErr;
@@ -52,7 +52,7 @@ export async function saveClassTimetable(
   const { error } = await supabase().from("timetable_slots").insert(
     rows.map((s) => ({
       tenant_id: tenantId, class_id: classId, day: s.day, start_time: s.start_time,
-      label: s.label.trim(), room: s.room?.trim() || null,
+      label: s.label.trim(), room: s.room?.trim() || null, subject_id: s.subject_id ?? null,
     })),
   );
   if (error) throw error;

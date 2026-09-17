@@ -80,8 +80,8 @@ export function TeacherClasses() {
                 key: "actions", header: "", align: "right", width: "1.2fr",
                 render: (c: MyClassRow) => (
                   <div className="flex justify-end gap-2">
-                    <Button onClick={() => navigate(`../attendance?class=${c.id}`)}>Attendance</Button>
-                    <Button onClick={() => navigate(`../gradebook?class=${c.id}`)}>Gradebook</Button>
+                    <Button onClick={() => navigate(`../teacher/attendance?class=${c.id}`)}>Attendance</Button>
+                    <Button onClick={() => navigate(`../teacher/gradebook?class=${c.id}`)}>Gradebook</Button>
                   </div>
                 ),
               },
