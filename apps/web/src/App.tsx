@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { fetchMyOrganizations, homeRouteFor, logOrganizationAccess, roleLabel, supabase, type Role } from "@figbloom/shared";
+import { fetchMyOrganizations, fetchParentUnreadCount, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -12,6 +12,8 @@ import { useOrgSession } from "./lib/useOrgSession";
 import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
 import { ParentDataProvider } from "./lib/parentContext";
 import { StudentDataProvider } from "./lib/studentContext";
+import { fetchTeacherUnreadNoticeCount } from "./lib/teacherData";
+import { TeacherNoticesProvider } from "./lib/teacherNoticesContext";
 
 import { SignIn } from "./screens/SignIn";
 import { OrgPicker } from "./screens/OrgPicker";
@@ -44,6 +46,7 @@ import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherMySections } from "./screens/teacher/MySections";
 import { TeacherMessages } from "./screens/teacher/Messages";
+import { TeacherNotices } from "./screens/teacher/Notices";
 
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
@@ -172,6 +175,7 @@ function TenantRoutes() {
           <Route path="teacher/classes" element={<TeacherShell allow={["teacher"]}><TeacherClasses /></TeacherShell>} />
           <Route path="teacher/sections" element={<TeacherShell allow={["teacher"]}><TeacherMySections /></TeacherShell>} />
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
+          <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
@@ -302,13 +306,38 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
   );
 };
 
+const NOTICE_POLL_MS = 20_000;
+
 const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode }) => {
   const session = useTenantSession();
+  // Polled rather than fetched once, so a reminder sent while this teacher is
+  // already sitting on some other page still shows up on the badge without
+  // them having to navigate away and back (or hit refresh) to notice it.
+  const [unread, setUnread] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchTeacherUnreadNoticeCount(session.profile.id)
+        .then((n) => { if (alive) setUnread(n); })
+        .catch(() => {});
+    };
+    load();
+    const id = window.setInterval(load, NOTICE_POLL_MS);
+    const unsubscribe = subscribeAnnouncements(session.tenant.id, load);
+    return () => { alive = false; window.clearInterval(id); unsubscribe(); };
+  }, [session.profile.id, session.tenant.id]);
+
   return (
     <RoleGate allow={allow}>
-      <ConsoleShell role="teacher" user={{ name: session.profile.full_name, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}>
-        {children}
-      </ConsoleShell>
+      <TeacherNoticesProvider value={() => setUnread((n) => (n ? n - 1 : n))}>
+        <ConsoleShell
+          role="teacher"
+          user={{ name: session.profile.full_name, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
+          badges={unread ? { "teacher/notices": String(unread) } : {}}
+        >
+          {children}
+        </ConsoleShell>
+      </TeacherNoticesProvider>
     </RoleGate>
   );
 };
@@ -321,10 +350,31 @@ function GradebookRouter() {
 
 const ParentShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
+  // Polled the same way as the teacher's notice badge, for the same reason —
+  // a message sent while a parent is already sitting on some other page
+  // should still show up without them navigating away and back.
+  const [unread, setUnread] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchParentUnreadCount(session.profile.id)
+        .then((n) => { if (alive) setUnread(n); })
+        .catch(() => {});
+    };
+    load();
+    const id = window.setInterval(load, NOTICE_POLL_MS);
+    const unsubscribe = subscribeAnnouncements(session.tenant.id, load);
+    return () => { alive = false; window.clearInterval(id); unsubscribe(); };
+  }, [session.profile.id, session.tenant.id]);
+
   return (
     <RoleGate allow={["parent"]}>
       <ParentDataProvider>
-        <ConsoleShell role="parent" user={{ name: session.profile.full_name, roleLabel: roleLabel(session.tenant, "parent") }}>
+        <ConsoleShell
+          role="parent"
+          user={{ name: session.profile.full_name, roleLabel: roleLabel(session.tenant, "parent") }}
+          badges={unread ? { "parent/inbox": String(unread) } : {}}
+        >
           {children}
         </ConsoleShell>
       </ParentDataProvider>

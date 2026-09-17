@@ -148,6 +148,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/classes", label: "My classes", icon: "people" },
     { to: "teacher/sections", label: "My sections", icon: "people" },
     { to: "teacher/messages", label: "Messages", icon: "chat" },
+    { to: "teacher/notices", label: "Notices", icon: "bell" },
   ],
   parent: [
     { to: "parent", label: "Home", icon: "home" },

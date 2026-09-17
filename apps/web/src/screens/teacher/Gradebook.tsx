@@ -140,9 +140,9 @@ export function Gradebook() {
     el?.select();
   }
 
-  async function saveDraft() {
-    if (!examId || !subjectId) return;
-    const rows = roster.flatMap((s) => {
+  function buildMarkRows() {
+    if (!examId || !subjectId) return [];
+    return roster.flatMap((s) => {
       const raw = value(s.id).trim();
       if (raw === "") return [];
       const parsed = parseScoreInput(raw);
@@ -156,6 +156,10 @@ export function Gradebook() {
         entered_by: profile.id,
       }];
     });
+  }
+
+  async function saveDraft() {
+    const rows = buildMarkRows();
     if (!rows.length) { toast("Nothing to save yet."); return; }
     const { error } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
     if (error) { toast(`Could not save: ${error.message}`); return; }
@@ -163,11 +167,19 @@ export function Gradebook() {
     toast("Draft saved. Nothing is visible to parents yet.");
   }
 
-  // Publishing flips the exam's published_at, which is what gates parent/student visibility elsewhere.
+  // Publishing has to save whatever's currently on screen first — it used to
+  // only flip the exam's published_at, so typing marks and hitting Publish
+  // without a prior "Save draft" silently lost everything just entered.
   async function publish() {
     if (!examId || !subject || !exam) return;
+    const rows = buildMarkRows();
+    if (rows.length) {
+      const { error: saveErr } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
+      if (saveErr) { toast(`Could not save marks before publishing: ${saveErr.message}`); return; }
+    }
     const { error } = await supabase().from("exams").update({ published_at: new Date().toISOString() }).eq("id", examId);
     if (error) { toast(`Could not publish: ${error.message}`); return; }
+    setMarksVersion((v) => v + 1);
     toast(`${subject.name} ${exam.name} published to ${roster.length} learners and their parents`);
   }
 

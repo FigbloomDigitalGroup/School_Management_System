@@ -1,4 +1,7 @@
-import { supabase, type ClassGroup, type Subject, type Term } from "@figbloom/shared";
+import {
+  fetchClassTimetableSlots, formatWhen, supabase, WEEKDAYS,
+  type Audience, type ClassGroup, type NoticeInfo, type Subject, type Term, type Weekday,
+} from "@figbloom/shared";
 
 /**
  * Shared across every teacher screen that needs "which classes is this
@@ -49,4 +52,102 @@ export async function fetchTeacherSubjectsForClass(teacherId: string, classId: s
     if (subj) byId.set(subj.id, subj);
   }
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Whole-school announcements, plus anything addressed to this teacher personally (e.g. a principal's reminder). */
+export async function fetchTeacherNotices(teacherId: string): Promise<NoticeInfo[]> {
+  const [{ data, error }, { data: reads, error: readsError }] = await Promise.all([
+    supabase()
+      .from("announcements")
+      .select("id, subject, body, created_at, audience, profiles!announcements_author_id_fkey(full_name, role)")
+      .order("created_at", { ascending: false }),
+    supabase().from("announcement_reads").select("announcement_id").eq("profile_id", teacherId),
+  ]);
+  if (error) throw new Error(error.message);
+  if (readsError) throw new Error(readsError.message);
+
+  const readIds = new Set((reads ?? []).map((r) => r.announcement_id as string));
+
+  return ((data ?? []) as unknown as {
+    id: string; subject: string; body: string; created_at: string;
+    audience: Audience | null;
+    profiles: { full_name: string; role: string } | null;
+  }[])
+    .filter((a) => {
+      const audience = a.audience;
+      if (!audience) return false;
+      return audience.kind === "whole_school" || (audience.kind === "user" && audience.user_id === teacherId);
+    })
+    .map((a) => ({
+      id: a.id,
+      subject: a.subject,
+      from: a.profiles?.role === "teacher" ? (a.profiles?.full_name ?? "Another teacher") : "School office",
+      when: formatWhen(a.created_at),
+      unread: !readIds.has(a.id),
+      body: a.body,
+    }));
+}
+
+/** How many of a teacher's notices they haven't opened yet — drives the sidebar badge. */
+export async function fetchTeacherUnreadNoticeCount(teacherId: string): Promise<number> {
+  const notices = await fetchTeacherNotices(teacherId);
+  return notices.filter((n) => n.unread).length;
+}
+
+/** Records that this teacher has opened a notice, so it drops off the unread badge for good. */
+export async function markNoticeRead(teacherId: string, announcementId: string): Promise<void> {
+  const { error } = await supabase()
+    .from("announcement_reads")
+    .upsert({ announcement_id: announcementId, profile_id: teacherId }, { onConflict: "announcement_id,profile_id" });
+  if (error) throw new Error(error.message);
+}
+
+export interface TeacherTimetableRow {
+  time: string;
+  label: string;
+  room: string;
+  subjectId: string | null;
+  teacherName: string | null; // who's assigned to this subject in this class, if any
+  mine: boolean;               // this teacher's own period, or a non-subject one everyone sees
+}
+
+/**
+ * A class's timetable, filtered to what this teacher actually needs to see.
+ * A subject-only teacher (not this class's class teacher) sees only their
+ * own periods plus unlinked ones (Games, Library, Class meeting — nobody's
+ * excluded from those). The class teacher sees the whole week, since it's
+ * their homeroom, but each period still says whose subject it is so "why is
+ * X teaching Y" never comes up — who teaches a period comes from
+ * teaching_assignments, not a separate field that could drift out of sync.
+ */
+export async function fetchTeacherClassTimetable(classId: string, teacherId: string): Promise<{
+  byDay: Record<Weekday, TeacherTimetableRow[]>;
+  isClassTeacher: boolean;
+}> {
+  const sb = supabase();
+  const [slots, { data: classRow, error: e1 }, { data: assignmentRows, error: e2 }] = await Promise.all([
+    fetchClassTimetableSlots(classId),
+    sb.from("classes").select("class_teacher_id").eq("id", classId).maybeSingle<{ class_teacher_id: string | null }>(),
+    sb.from("teaching_assignments").select("subject_id, teacher_id, profiles(full_name)").eq("class_id", classId)
+      .returns<{ subject_id: string; teacher_id: string; profiles: { full_name: string } | null }[]>(),
+  ]);
+  if (e1) throw new Error(e1.message);
+  if (e2) throw new Error(e2.message);
+
+  const isClassTeacher = classRow?.class_teacher_id === teacherId;
+  const bySubject = new Map((assignmentRows ?? []).map((a) => [a.subject_id, { teacherId: a.teacher_id, name: a.profiles?.full_name ?? "Unknown" }]));
+
+  const byDay: Record<Weekday, TeacherTimetableRow[]> = { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] };
+  for (const s of slots) {
+    const assignment = s.subject_id ? bySubject.get(s.subject_id) : undefined;
+    const mine = !s.subject_id || assignment?.teacherId === teacherId;
+    if (!isClassTeacher && !mine) continue;
+    byDay[s.day].push({
+      time: s.start_time, label: s.label, room: s.room ?? "",
+      subjectId: s.subject_id, teacherName: assignment?.name ?? null, mine,
+    });
+  }
+  for (const day of WEEKDAYS) byDay[day].sort((a, b) => a.time.localeCompare(b.time));
+
+  return { byDay, isClassTeacher };
 }

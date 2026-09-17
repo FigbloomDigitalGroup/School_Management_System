@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -54,9 +55,12 @@ const fmtDay = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "2-
  */
 export function TermSetup() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { tenant } = useTenantSession();
   const [open, setOpen] = useState<string | null>("teachers");
-  const { data, loading, error } = useAsync(() => fetchTermSetup(), []);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchTermSetup(), [reloadKey]);
+  const reload = () => setReloadKey((k) => k + 1);
 
   const [paybill, setPaybill] = useState(tenant.payment_paybill ?? "");
   const [till, setTill] = useState(tenant.payment_till ?? "");
@@ -304,14 +308,7 @@ export function TermSetup() {
                           ) : (
                             <div className="grid gap-2">
                               {unassigned.map((c) => (
-                                <div key={c.id} className="flex flex-wrap items-center gap-2.5 rounded-lg bg-white px-3.5 py-2.5">
-                                  <span className="min-w-0 flex-1 text-[13px] font-medium">{c.name}</span>
-                                  <select aria-label={`Class teacher for ${c.name}`} className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
-                                    <option>Choose a teacher</option>
-                                    {data.teacherOptions.map((t) => <option key={t.id}>{t.full_name}</option>)}
-                                  </select>
-                                  <Button variant="primary" onClick={() => toast(`Class teacher assigned for ${c.name}`)}>Assign</Button>
-                                </div>
+                                <ClassTeacherRow key={c.id} classId={c.id} className={c.name} teachers={data.teacherOptions} toast={toast} onAssigned={reload} />
                               ))}
                               <p className="mt-1 text-[12px] leading-relaxed text-ink-muted">
                                 A class with no teacher cannot have attendance taken, which is why this blocks the first day
@@ -319,6 +316,22 @@ export function TermSetup() {
                               </p>
                             </div>
                           )
+                        ) : s.id === "subjects" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              Subjects, and who teaches which one in each class, are set up per class — under Classes, next to that
+                              class's Timetable link.
+                            </p>
+                            <Button variant="primary" onClick={() => navigate("../admin/classes")}>Go to Classes</Button>
+                          </div>
+                        ) : s.id === "roll" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              There's no blanket "bump everyone" — each class teacher reviews their own roster and picks who's
+                              promoted, who repeats, and who's leaving. Under Classes, next to that class's Timetable link.
+                            </p>
+                            <Button variant="primary" onClick={() => navigate("../admin/classes")}>Go to Classes</Button>
+                          </div>
                         ) : (
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">{s.note}</p>
@@ -345,5 +358,46 @@ export function TermSetup() {
         </div>
       </div>
     </>
+  );
+}
+
+function ClassTeacherRow({ classId, className, teachers, toast, onAssigned }: {
+  classId: string; className: string;
+  teachers: Pick<Profile, "id" | "full_name">[];
+  toast: (m: string) => void;
+  onAssigned: () => void;
+}) {
+  const [teacherId, setTeacherId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function assign() {
+    if (!teacherId) { toast("Choose a teacher first."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
+      if (error) throw error;
+      toast(`Class teacher assigned for ${className}.`);
+      onAssigned();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not assign a class teacher: ${err.message}` : "Could not assign a class teacher.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2.5 rounded-lg bg-white px-3.5 py-2.5">
+      <span className="min-w-0 flex-1 text-[13px] font-medium">{className}</span>
+      <select
+        value={teacherId}
+        onChange={(e) => setTeacherId(e.target.value)}
+        aria-label={`Class teacher for ${className}`}
+        className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
+      >
+        <option value="">Choose a teacher</option>
+        {teachers.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+      </select>
+      <Button variant="primary" disabled={saving} onClick={() => void assign()}>{saving ? "Assigning…" : "Assign"}</Button>
+    </div>
   );
 }

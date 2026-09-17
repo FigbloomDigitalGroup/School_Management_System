@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { formatShortDate, formatWhen, type Receipt } from "./parentData";
+import { fetchClassMeans, formatShortDate, formatWhen, type Receipt } from "./parentData";
 import type { ClassLevel } from "./types";
 
 /**
@@ -166,27 +166,16 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
 
   const exam = (examRows ?? [])[0] as { id: string; name: string } | undefined;
 
-  const [{ data: markRows }, { data: classMarkRows }] = await Promise.all([
+  const [{ data: markRows }, classMeans] = await Promise.all([
     exam
       ? supabase().from("marks").select("score, subject_id, subjects(name)").eq("exam_id", exam.id).eq("student_id", studentRow.id)
       : Promise.resolve({ data: [] as { score: number | null; subject_id: string; subjects: { name: string } | null }[] }),
     exam && studentRow.class_id
-      ? supabase().from("marks").select("subject_id, score, students!inner(class_id)").eq("exam_id", exam.id).eq("students.class_id", studentRow.class_id)
-      : Promise.resolve({ data: [] as { subject_id: string; score: number | null; students: { class_id: string } | null }[] }),
+      ? fetchClassMeans(exam.id, studentRow.class_id)
+      : Promise.resolve(new Map<string, number>()),
   ]);
 
-  const classMeans = new Map<string, number[]>();
-  for (const row of (classMarkRows ?? []) as { subject_id: string; score: number | null }[]) {
-    if (row.score === null) continue;
-    const arr = classMeans.get(row.subject_id) ?? [];
-    arr.push(row.score);
-    classMeans.set(row.subject_id, arr);
-  }
-  const meanFor = (subjectId: string): number | null => {
-    const arr = classMeans.get(subjectId);
-    if (!arr || !arr.length) return null;
-    return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
-  };
+  const meanFor = (subjectId: string): number | null => classMeans.get(subjectId) ?? null;
 
   const subjects: ResultSubject[] = ((markRows ?? []) as { score: number | null; subject_id: string; subjects: { name: string } | null }[])
     .filter((m) => m.score !== null)
@@ -214,13 +203,14 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
 
   const notices: NoticeInfo[] = ((announcementRows ?? []) as unknown as {
     id: string; subject: string; body: string; created_at: string;
-    audience: { kind: string; class_id?: string } | null;
+    audience: { kind: string; class_id?: string; user_id?: string } | null;
     profiles: { full_name: string; role: string } | null;
   }[])
     .filter((a) => {
       const kind = a.audience?.kind;
       if (kind === "whole_school") return true;
       if (kind === "class") return a.audience?.class_id === studentRow.class_id;
+      if (kind === "user") return a.audience?.user_id === profileId; // e.g. a promotion/repeat notice addressed to this student personally
       return false;
     })
     .map((a) => ({

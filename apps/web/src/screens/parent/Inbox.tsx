@@ -1,21 +1,39 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { markMessageRead, type MessageInfo } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useParentData } from "../../lib/parentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import { ChildSwitcher } from "./ChildSwitcher";
 
 /**
  * Master-detail inbox: the list stays put on the left while a message is
  * read on the right, so a parent working through several notices never
  * loses their place — the same pattern as the platform Tenants screen.
+ * Opening one clears it from the sidebar's unread badge, same as any inbox.
  */
 export function ParentInbox() {
+  const { profile } = useTenantSession();
   const { data, loading, error } = useParentData();
+  const [messages, setMessages] = useState<MessageInfo[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const messages = useMemo(() => data?.messages ?? [], [data]);
-  const selected = messages.find((m) => m.id === selectedId) ?? messages[0] ?? null;
+  useEffect(() => { setMessages(data?.messages ?? null); }, [data]);
+
+  function open(id: string) {
+    setSelectedId(id);
+    setMessages((ms) => {
+      if (!ms) return ms;
+      const target = ms.find((m) => m.id === id);
+      if (!target?.unread) return ms;
+      void markMessageRead(profile.id, id).catch(() => {});
+      return ms.map((m) => (m.id === id ? { ...m, unread: false } : m));
+    });
+  }
+
+  const list = messages ?? [];
+  const selected = list.find((m) => m.id === selectedId) ?? list[0] ?? null;
 
   return (
     <div className="flex h-full flex-col">
@@ -36,17 +54,17 @@ export function ParentInbox() {
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="flex w-[340px] shrink-0 flex-col overflow-hidden border-r border-line bg-[#FAFBFA]">
             <div className="min-h-0 flex-1 overflow-auto">
-              {loading || !data ? (
+              {loading || !messages ? (
                 <TableSkeleton rows={6} />
-              ) : messages.length === 0 ? (
+              ) : list.length === 0 ? (
                 <EmptyState title="Nothing here yet." body="Announcements from the school will appear here." />
               ) : (
-                messages.map((m) => {
+                list.map((m) => {
                   const active = m.id === selected?.id;
                   return (
                     <button
                       key={m.id}
-                      onClick={() => setSelectedId(m.id)}
+                      onClick={() => open(m.id)}
                       className="flex w-full items-start gap-3 border-b border-line-soft px-4 py-3 text-left"
                       style={{ background: active ? "#F1F5F2" : "transparent", borderLeft: `3px solid ${active ? "var(--accent)" : "transparent"}` }}
                     >
@@ -61,7 +79,10 @@ export function ParentInbox() {
                           <span className="truncate text-[12px] font-medium text-ink-muted">{m.from}</span>
                           <span className="shrink-0 text-[11px] text-ink-faint">{m.when}</span>
                         </div>
-                        <div className="truncate text-[13px] font-medium">{m.subject}</div>
+                        <div className="flex items-center gap-1.5">
+                          {m.unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange" aria-hidden />}
+                          <div className="truncate text-[13px]" style={{ fontWeight: m.unread ? 700 : 500 }}>{m.subject}</div>
+                        </div>
                         <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-ink-muted">{m.body.split("\n")[0]}</p>
                       </div>
                     </button>
@@ -72,7 +93,7 @@ export function ParentInbox() {
           </div>
 
           <div className="min-w-0 flex-1 overflow-auto px-7 py-6">
-            {loading || !data ? (
+            {loading || !messages ? (
               <div className="max-w-[640px]">
                 <Skeleton className="h-6 w-2/3" />
                 <Skeleton className="mt-3 h-3 w-1/3" />

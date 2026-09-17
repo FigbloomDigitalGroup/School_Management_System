@@ -5,8 +5,8 @@ import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchTeacherClasses } from "../../lib/teacherData";
-import { fetchClassTimetable, WEEKDAYS } from "@figbloom/shared";
+import { fetchTeacherClasses, fetchTeacherClassTimetable } from "../../lib/teacherData";
+import { WEEKDAYS } from "@figbloom/shared";
 
 const NOW = 2;
 const NOW_DAY: Weekday = "Tue";
@@ -28,18 +28,22 @@ export function TeacherTimetable() {
 
   const cls = classesData.find((c) => c.id === classId) ?? null;
   const { data: timetable, loading: timetableLoading } = useAsync(
-    () => (classId ? fetchClassTimetable(classId) : Promise.resolve(null)),
-    [classId],
+    () => (classId ? fetchTeacherClassTimetable(classId, profile.id) : Promise.resolve(null)),
+    [classId, profile.id],
   );
 
-  const rows = timetable?.[day] ?? [];
+  const rows = (day && timetable?.byDay[day]) ?? [];
 
   return (
     <>
       <PageHead
         eyebrow="Timetable · term 3, 2026"
         title={cls ? cls.name : "Your week"}
-        blurb="The classes you teach — pick one to see its weekly timetable."
+        blurb={
+          timetable?.isClassTeacher
+            ? `You're the class teacher for ${cls?.name ?? "this class"} — showing the whole week, including who teaches what.`
+            : "Showing only the periods you teach in this class — pick another one above to see a different class."
+        }
         actions={
           classesData.length > 1 ? (
             <select
@@ -72,20 +76,30 @@ export function TeacherTimetable() {
             {timetableLoading ? (
               <TableSkeleton rows={6} />
             ) : rows.length === 0 ? (
-              <p className="text-[13px] text-ink-muted">No timetable set for {cls?.name ?? "this class"} yet — ask the school office to set one up under School settings.</p>
+              <p className="text-[13px] text-ink-muted">
+                {timetable?.isClassTeacher
+                  ? `No timetable set for ${cls?.name ?? "this class"} yet — ask the school office to set one up under School settings.`
+                  : `Nothing of yours on ${cls?.name ?? "this class"}'s timetable for this day.`}
+              </p>
             ) : (
               <div className="grid max-w-[720px] gap-2">
-                {rows.map(([time, subject, room], i) => {
+                {rows.map((r, i) => {
                   const isNow = day === NOW_DAY && i === NOW;
-                  const free = subject === "Games" || subject === "Library";
+                  const free = r.label === "Games" || r.label === "Library";
                   return (
-                    <div key={time} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
-                      style={{ borderColor: isNow ? "var(--accent)" : "#E2E6E2", background: isNow ? "#FFF8F6" : "#fff" }}>
-                      <span className="w-12 shrink-0 font-mono text-[11.5px] text-ink-muted">{time}</span>
+                    <div key={r.time} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
+                      style={{
+                        borderColor: isNow ? "var(--accent)" : "#E2E6E2",
+                        background: isNow ? "#FFF8F6" : "#fff",
+                        opacity: r.mine ? 1 : 0.7,
+                      }}>
+                      <span className="w-12 shrink-0 font-mono text-[11.5px] text-ink-muted">{r.time}</span>
                       <span className="h-8 w-[3px] shrink-0 rounded" style={{ background: isNow ? "var(--accent)" : free ? "#E7EBE8" : "#2E7D4F" }} />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[14px] font-medium">{subject}</span>
-                        <span className="text-[12px] text-ink-faint">{room}{cls ? ` · ${cls.name}` : ""}</span>
+                        <span className="block text-[14px] font-medium">{r.label}</span>
+                        <span className="text-[12px] text-ink-faint">
+                          {r.room}{cls ? ` · ${cls.name}` : ""}{!r.mine && r.teacherName ? ` · taught by ${r.teacherName}` : ""}
+                        </span>
                       </span>
                       {isNow && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ background: "var(--accent)" }}>NOW</span>}
                     </div>
