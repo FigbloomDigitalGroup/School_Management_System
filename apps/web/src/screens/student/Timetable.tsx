@@ -5,7 +5,7 @@ import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
-import { fetchClassTimetable, fetchStudentSchedule } from "@figbloom/shared";
+import { currentPeriodIndex, fetchClassTimetable, fetchStudentSchedule, todayWeekday } from "@figbloom/shared";
 
 /**
  * The weekly timetable is real per-class data (timetable_slots), fetched
@@ -16,9 +16,6 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
 const DAY_LABEL: Record<(typeof DAYS)[number], string> = {
   Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday",
 };
-const NOW_DAY = "Tue";
-const NOW = 2;
-
 interface PeriodRow {
   i: number;
   time: string;
@@ -74,8 +71,11 @@ export function StudentTimetable() {
   const periodCount = Math.max(...DAYS.map((d) => week[d].length), 0);
   const rows: PeriodRow[] = Array.from({ length: periodCount }, (_, i) => ({
     i,
-    time: week.Mon[i]?.[0] ?? week[NOW_DAY][i]?.[0] ?? "",
+    time: DAYS.map((d) => week[d][i]?.[0]).find(Boolean) ?? "",
   }));
+
+  const nowDay = todayWeekday();
+  const nowIdx = nowDay ? currentPeriodIndex(week[nowDay]) : -1;
 
   return (
     <>
@@ -93,7 +93,7 @@ export function StudentTimetable() {
               width: "1fr",
               render: (r: PeriodRow) => {
                 const period = week[d][r.i];
-                const isNow = d === NOW_DAY && r.i === NOW;
+                const isNow = d === nowDay && r.i === nowIdx;
                 if (!period) return <span className="text-[12px] text-ink-faint">—</span>;
                 return (
                   <div className={`rounded-md px-2 py-1 ${isNow ? "bg-orange-soft" : ""}`}>
