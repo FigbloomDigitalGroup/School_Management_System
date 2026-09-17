@@ -291,9 +291,24 @@ export interface Payment {
 export type Audience =
   | { kind: "whole_school" }
   | { kind: "role"; role: Role }
-  | { kind: "class"; class_id: string }
+  /** recipients omitted -- e.g. an admin's whole-class broadcast --
+   *  reaches both a class's parents and its students, same as before this
+   *  field existed. A teacher's per-class message (the only composer that
+   *  ever sets it) picks one explicitly, since "to parents" and "to
+   *  students" are genuinely different audiences reading the same inbox. */
+  | { kind: "class"; class_id: string; recipients?: "guardians" | "students" | "both" }
   | { kind: "form_level"; form_level: number }
   | { kind: "user"; user_id: string };
+
+/** Whether a `class`-kind Audience's `recipients` (undefined included)
+ *  covers `side` -- shared by parentData.ts/studentData.ts so the two inbox
+ *  filters can't drift apart on what "to parents" vs "to students" means. */
+export function classAudienceIncludes(
+  recipients: "guardians" | "students" | "both" | undefined,
+  side: "guardians" | "students",
+): boolean {
+  return !recipients || recipients === "both" || recipients === side;
+}
 
 export interface Announcement {
   id: string;

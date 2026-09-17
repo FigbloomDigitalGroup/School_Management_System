@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { fetchClassMeans, formatShortDate, formatWhen, type Receipt } from "./parentData";
-import type { ClassLevel } from "./types";
+import { classAudienceIncludes, type ClassLevel } from "./types";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -203,13 +203,13 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
 
   const notices: NoticeInfo[] = ((announcementRows ?? []) as unknown as {
     id: string; subject: string; body: string; created_at: string;
-    audience: { kind: string; class_id?: string; user_id?: string } | null;
+    audience: { kind: string; class_id?: string; user_id?: string; recipients?: "guardians" | "students" | "both" } | null;
     profiles: { full_name: string; role: string } | null;
   }[])
     .filter((a) => {
       const kind = a.audience?.kind;
       if (kind === "whole_school") return true;
-      if (kind === "class") return a.audience?.class_id === studentRow.class_id;
+      if (kind === "class") return a.audience?.class_id === studentRow.class_id && classAudienceIncludes(a.audience?.recipients, "students");
       if (kind === "user") return a.audience?.user_id === profileId; // e.g. a promotion/repeat notice addressed to this student personally
       return false;
     })
