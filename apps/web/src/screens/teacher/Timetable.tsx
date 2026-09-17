@@ -1,24 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { formatShortDate, type Weekday } from "@figbloom/shared";
+import { currentPeriodIndex, formatShortDate, todayWeekday, type Weekday } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchTeacherClasses, fetchTeacherClassTimetable } from "../../lib/teacherData";
+import { fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassTimetable } from "../../lib/teacherData";
 import { currentWeekDates, fetchCoverageForDate } from "../../lib/coverage";
 import { WEEKDAYS } from "@figbloom/shared";
-
-const NOW = 2;
-const NOW_DAY: Weekday = "Tue";
 
 export function TeacherTimetable() {
   const { profile } = useTenantSession();
   const [params] = useSearchParams();
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
+  const { data: term } = useAsync(() => fetchCurrentTerm(), []);
   const [classId, setClassId] = useState<string | null>(null);
-  const [day, setDay] = useState<Weekday>("Tue");
+  const nowDay = todayWeekday();
+  const [day, setDay] = useState<Weekday>(nowDay ?? "Mon");
   // This week's real calendar date for whichever tab is selected — leave is
   // requested for a specific date, but the timetable itself is just a
   // recurring weekly template ("Tue" means every Tuesday), so checking leave
@@ -44,11 +43,12 @@ export function TeacherTimetable() {
   );
 
   const rows = (day && timetable?.byDay[day]) ?? [];
+  const nowIdx = day === nowDay ? currentPeriodIndex(rows.map((r): [string, string, string] => [r.time, r.label, r.room])) : -1;
 
   return (
     <>
       <PageHead
-        eyebrow="Timetable · term 3, 2026"
+        eyebrow={`Timetable${term ? ` · ${term.name}` : ""}`}
         title={cls ? cls.name : "Your week"}
         blurb={
           timetable?.isClassTeacher
@@ -95,7 +95,7 @@ export function TeacherTimetable() {
             ) : (
               <div className="grid max-w-[720px] gap-2">
                 {rows.map((r, i) => {
-                  const isNow = day === NOW_DAY && i === NOW;
+                  const isNow = day === nowDay && i === nowIdx;
                   const free = r.label === "Games" || r.label === "Library";
                   const gap = cls ? coverageByClassTime.get(`${cls.id}|${r.time}`) : undefined;
                   const needsCover = !!gap && !gap.assignment;
