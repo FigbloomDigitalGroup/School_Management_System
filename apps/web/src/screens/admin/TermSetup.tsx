@@ -1,16 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, suggestSlug, validateSlug } from "@figbloom/shared";
+import { supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
-import { TextField } from "../../components/ui/Field";
-import { Modal } from "../../components/ui/Modal";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { addBranch, type AddBranchResult } from "../../lib/platformAdmin";
 import { uploadTenantLogo } from "../../lib/uploads";
 
 type ClassRow = Pick<ClassGroup, "id" | "name" | "form_level" | "class_teacher_id">;
@@ -93,8 +90,6 @@ export function TermSetup() {
       setSavingPayment(false);
     }
   }
-
-  const [addingBranch, setAddingBranch] = useState(false);
 
   const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
   const [crestFile, setCrestFile] = useState<File | null>(null);
@@ -361,119 +356,8 @@ export function TermSetup() {
             shows the total billed and the number of parents before it goes.
           </p>
         </div>
-
-        <div className="mt-5 rounded-xl border border-line p-4">
-          {tenant.organization_id ? (
-            <>
-              <h2 className="text-[13px] font-semibold">Part of a group</h2>
-              <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
-                This school already belongs to an organization — other branches are added and managed from that
-                group's own admin login, not from here.
-              </p>
-            </>
-          ) : (
-            <>
-              <h2 className="text-[13px] font-semibold">Running more than one school?</h2>
-              <p className="mt-1.5 max-w-[480px] text-[12.5px] leading-relaxed text-ink-muted">
-                Open a branch group to add and manage other schools alongside this one, from a separate group-admin
-                login — this school's own account keeps running just this school, unchanged.
-              </p>
-              <Button variant="primary" className="mt-3" onClick={() => setAddingBranch(true)}>Add another branch</Button>
-            </>
-          )}
-        </div>
       </div>
-
-      {addingBranch && (
-        <AddBranchModal
-          schoolName={tenant.name}
-          onClose={() => setAddingBranch(false)}
-          onOpened={reload}
-          toast={toast}
-        />
-      )}
     </>
-  );
-}
-
-function AddBranchModal({ schoolName, onClose, onOpened, toast }: {
-  schoolName: string; onClose: () => void; onOpened: () => void; toast: (m: string) => void;
-}) {
-  const [orgName, setOrgName] = useState(`${schoolName} Group`);
-  const [orgSlug, setOrgSlug] = useState("");
-  const [adminName, setAdminName] = useState("");
-  const [adminEmail, setAdminEmail] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<AddBranchResult | null>(null);
-
-  const slugValue = orgSlug || (orgName ? suggestSlug(orgName) : "");
-  const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
-
-  async function create() {
-    if (!orgName.trim()) { toast("Give the group a name."); return; }
-    if (!slugCheck.ok) { toast(slugCheck.message || "Pick a valid address."); return; }
-    if (!adminName.trim() || !adminEmail.trim()) { toast("The group admin's name and email are both required."); return; }
-    setSaving(true);
-    try {
-      const r = await addBranch({
-        org_name: orgName.trim(),
-        org_slug: slugValue,
-        admin_full_name: adminName.trim(),
-        admin_email: adminEmail.trim(),
-      });
-      setResult(r);
-      onOpened();
-    } catch (err) {
-      toast(err instanceof Error ? `Could not open the branch: ${err.message}` : "Could not open the branch.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      eyebrow="Branches"
-      title={result ? "Branch group opened" : "Add another branch"}
-      blurb={result ? undefined : `${schoolName} becomes the first school in a new group, run from a separate login.`}
-      actions={result ? <Button variant="accent" onClick={onClose}>Done</Button> : (
-        <><Button onClick={onClose}>Cancel</Button><Button variant="accent" onClick={() => void create()} disabled={saving}>{saving ? "Opening…" : "Open branch"}</Button></>
-      )}
-    >
-      {result ? (
-        <div>
-          <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to whoever runs
-            the group. Figbloom still needs to approve the new organization before more schools can be added to it.
-          </p>
-          <div className="rounded-lg border border-line bg-page p-3.5">
-            {[["Email", result.email], ["Password", result.password]].map(([k, v]) => (
-              <div key={k} className="flex justify-between border-b border-line-soft py-2 text-[12.5px] last:border-0">
-                <span className="text-ink-muted">{k}</span><span className="font-mono font-medium">{v}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="grid gap-3.5">
-          <TextField id="branch-org-name" label="Group name" placeholder="e.g. Alliance Schools Group" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-          <TextField
-            id="branch-org-slug" label="Address" mono placeholder={slugValue || "alliance-schools-group"}
-            value={orgSlug} hint={slugCheck.ok ? `figbloom.co.ke/org/${slugValue}` : undefined}
-            error={orgSlug && !slugCheck.ok ? slugCheck.message : undefined}
-            onChange={(e) => setOrgSlug(e.target.value)}
-          />
-          <div className="border-t border-line-soft pt-3.5">
-            <p className="mb-3 text-[12.5px] font-semibold text-ink">Who runs the group</p>
-            <div className="grid gap-3.5">
-              <TextField id="branch-admin-name" label="Full name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
-              <TextField id="branch-admin-email" label="Email" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
-            </div>
-          </div>
-        </div>
-      )}
-    </Modal>
   );
 }
 

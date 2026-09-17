@@ -183,48 +183,6 @@ export async function provisionStudent(input: ProvisionStudentInput): Promise<Pr
   return data as ProvisionStudentResult;
 }
 
-export interface AddBranchInput {
-  org_name: string;
-  org_slug: string;
-  admin_full_name: string;
-  admin_email: string;
-}
-
-export interface AddBranchResult {
-  ok: true;
-  org_slug: string;
-  email: string;
-  password: string;
-}
-
-/**
- * A school_admin opening a second branch (FIG-405) — creates a new
- * organization (pending Figbloom approval, same as any self-registered
- * one), links the caller's own school to it as its first member, and
- * creates a SEPARATE org_admin login to run the group. The caller's own
- * school_admin account is untouched.
- */
-export async function addBranch(input: AddBranchInput): Promise<AddBranchResult> {
-  const { data, error } = await supabase().functions.invoke<AddBranchResult | { error: string }>(
-    "add-branch",
-    { body: input },
-  );
-  if (error) {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = (await ctx.json()) as { error?: string };
-        if (body?.error) throw new Error(body.error);
-      } catch (e) {
-        if (e instanceof Error && e.message) throw e;
-      }
-    }
-    throw new Error(error.message);
-  }
-  if (data && "error" in data) throw new Error(data.error);
-  return data as AddBranchResult;
-}
-
 // ---------------------------------------------------------------- organizations (FIG-331)
 
 export interface NewOrganizationInput {
