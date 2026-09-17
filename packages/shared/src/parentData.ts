@@ -89,11 +89,19 @@ export async function fetchClassMeans(examId: string, classId: string): Promise<
  * re-derive their own unread count or message list from it rather than
  * trying to match audience against the raw payload themselves, since that
  * logic (whole_school/role/class/form_level/user) already lives in one place.
- * Mirrors fleet.ts's subscribeVehiclePositions()/subscribeVehicleAlerts().
+ * Mirrors fleet.ts's subscribeVehiclePositions()/subscribeVehicleAlerts(),
+ * except the channel name is made unique per call rather than just
+ * `announcements-${tenantId}` — under React 18 StrictMode's dev-mode
+ * double-invoke (mount, cleanup, mount again), a name reused across calls
+ * raced with the first channel's still-in-flight async removal, and
+ * Supabase's client returned that same not-yet-torn-down channel on the
+ * second mount — calling .on() on an already-subscribed channel throws.
+ * (Date.now()/Math.random() rather than crypto.randomUUID(): this file is
+ * also type-checked for the React Native build, which has no DOM lib.)
  */
 export function subscribeAnnouncements(tenantId: string, onInsert: () => void): () => void {
   const channel = supabase()
-    .channel(`announcements-${tenantId}`)
+    .channel(`announcements-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     .on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` },
