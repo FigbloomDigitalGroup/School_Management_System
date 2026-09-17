@@ -139,7 +139,7 @@ function PlatformShell() {
     <TenantTheme tenant={null}>
       <ConsoleShell
         role="super_admin"
-        user={{ name: session.profile.full_name, roleLabel: "Super admin" }}
+        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: "Super admin" }}
         badges={badges ?? {}}
       >
         {bare ? <div className="h-screen">{body}</div> : body}
@@ -252,7 +252,7 @@ const OrgShell = ({ children }: { children: ReactNode }) => {
   return (
     <ConsoleShell
       role="org_admin"
-      user={{ name: session.profile.full_name, roleLabel: "Org admin" }}
+      user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: "Org admin" }}
       workspaceName={session.organization.name}
       workspaceOptions={myOrgs?.map((o) => ({ slug: o.slug, name: o.name }))}
     >
@@ -301,7 +301,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
     <RoleGate allow={allow}>
       <ConsoleShell
         role="school_admin"
-        user={{ name: session.profile.full_name, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? "Principal" }}
+        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? "Principal" }}
         actingBanner={session.actingForTenant && session.actingOrganization ? {
           orgName: session.actingOrganization.name,
           schoolName: session.tenant.name,
@@ -340,7 +340,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
       <TeacherNoticesProvider value={() => setUnread((n) => (n ? n - 1 : n))}>
         <ConsoleShell
           role="teacher"
-          user={{ name: session.profile.full_name, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
+          user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
           badges={unread ? { "teacher/notices": String(unread) } : {}}
         >
           {children}
@@ -380,7 +380,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
       <ParentDataProvider>
         <ConsoleShell
           role="parent"
-          user={{ name: session.profile.full_name, roleLabel: roleLabel(session.tenant, "parent") }}
+          user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "parent") }}
           badges={unread ? { "parent/inbox": String(unread) } : {}}
         >
           {children}
@@ -395,7 +395,7 @@ const StudentShell = ({ children }: { children: ReactNode }) => {
   return (
     <RoleGate allow={["student"]}>
       <StudentDataProvider>
-        <ConsoleShell role="student" user={{ name: session.profile.full_name, roleLabel: roleLabel(session.tenant, "student") }}>
+        <ConsoleShell role="student" user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "student") }}>
           {children}
         </ConsoleShell>
       </StudentDataProvider>

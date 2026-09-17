@@ -2,13 +2,21 @@ import { useMemo, useState } from "react";
 import { supabase, type Announcement } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
-import { TextArea, TextField } from "../../components/ui/Field";
+import { SelectField, TextArea, TextField } from "../../components/ui/Field";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { fetchTeacherClasses } from "../../lib/teacherData";
+
+type Recipients = "guardians" | "students" | "both";
+
+function recipientsLabel(r?: Recipients): string {
+  if (r === "students") return "students";
+  if (r === "both") return "parents and students";
+  return "parents";
+}
 
 async function fetchSentByMe(teacherId: string): Promise<Announcement[]> {
   const { data, error } = await supabase()
@@ -36,6 +44,7 @@ export function TeacherMessages() {
   const [classId, setClassId] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [recipients, setRecipients] = useState<Recipients>("guardians");
   const [sending, setSending] = useState(false);
 
   const effectiveClassId = classId || classes?.[0]?.id || "";
@@ -49,13 +58,13 @@ export function TeacherMessages() {
         author_id: profile.id,
         subject: subject.trim(),
         body: body.trim(),
-        audience: { kind: "class", class_id: effectiveClassId },
+        audience: { kind: "class", class_id: effectiveClassId, recipients },
         channels: ["in_app"],
         published_at: new Date().toISOString(),
       });
       if (error) throw error;
       const className = classById.get(effectiveClassId)?.name ?? "the class";
-      toast(`Sent to parents of ${className}.`);
+      toast(`Sent to ${recipientsLabel(recipients)} of ${className}.`);
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
@@ -71,7 +80,7 @@ export function TeacherMessages() {
       <PageHead
         eyebrow="Teaching"
         title="Messages"
-        blurb="Send a note home to one of your classes — it appears in every parent's Inbox for that class."
+        blurb="Send a note to one of your classes — to its parents, its students, or both."
       />
 
       <div className="grid gap-5 px-7 py-6" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
@@ -79,26 +88,36 @@ export function TeacherMessages() {
           {classesLoading ? (
             <TableSkeleton rows={3} />
           ) : !classes || classes.length === 0 ? (
-            <EmptyState title="No classes yet." body="You need a class assigned before you can message its parents." />
+            <EmptyState title="No classes yet." body="You need a class assigned before you can message its parents or students." />
           ) : (
             <>
               <label className="block">
-                <span className="mb-1.5 block text-[12.5px] font-semibold">To</span>
+                <span className="mb-1.5 block text-[12.5px] font-semibold">Class</span>
                 <select
                   value={effectiveClassId}
                   onChange={(e) => setClassId(e.target.value)}
                   className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
                 >
-                  {classes.map((c) => <option key={c.id} value={c.id}>Parents of {c.name}</option>)}
+                  {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </label>
+
+              <SelectField
+                id="recipients" label="To" value={recipients}
+                onChange={(e) => setRecipients(e.target.value as Recipients)}
+                options={[
+                  { value: "guardians", label: "Parents" },
+                  { value: "students", label: "Students" },
+                  { value: "both", label: "Parents and students" },
+                ]}
+              />
 
               <TextField id="subject" label="Subject" placeholder="e.g. CAT results out Friday"
                 value={subject} onChange={(e) => setSubject(e.target.value)} />
 
               <TextArea id="body" label="Message" value={body} onChange={(e) => setBody(e.target.value)}
                 placeholder="Plain language, one instruction per paragraph."
-                hint="This goes to every parent of this class, in-app only." />
+                hint={`This goes to this class's ${recipientsLabel(recipients)}, in-app only.`} />
 
               <Button variant="accent" disabled={!subject.trim() || !body.trim() || sending} onClick={() => void send()}>
                 {sending ? "Sending…" : "Send"}
@@ -119,6 +138,7 @@ export function TeacherMessages() {
             ) : (
               sent.map((a) => {
                 const className = a.audience.kind === "class" ? classById.get(a.audience.class_id)?.name ?? "a class" : "—";
+                const who = a.audience.kind === "class" ? recipientsLabel(a.audience.recipients) : "parents";
                 return (
                   <div key={a.id} className="border-b border-line-soft px-4 py-3 last:border-0">
                     <div className="flex items-baseline justify-between gap-2">
@@ -127,7 +147,7 @@ export function TeacherMessages() {
                         {a.published_at ? new Date(a.published_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "Draft"}
                       </span>
                     </div>
-                    <div className="mt-0.5 text-[11.5px] text-ink-faint">To parents of {className}</div>
+                    <div className="mt-0.5 text-[11.5px] text-ink-faint">To {who} of {className}</div>
                   </div>
                 );
               })

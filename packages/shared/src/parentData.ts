@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Audience, ClassLevel } from "./types";
+import { classAudienceIncludes, type Audience, type ClassLevel } from "./types";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -150,7 +150,7 @@ export async function fetchParentUnreadCount(profileId: string): Promise<number>
     switch (audience.kind) {
       case "whole_school": return true;
       case "role": return audience.role === "parent";
-      case "class": return childClassIds.has(audience.class_id);
+      case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
       case "form_level": return childFormLevels.has(audience.form_level);
       case "user": return audience.user_id === profileId;
     }
@@ -288,7 +288,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       switch (audience.kind) {
         case "whole_school": return true;
         case "role": return audience.role === "parent";
-        case "class": return childClassIds.has(audience.class_id);
+        case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
         case "form_level": return childFormLevels.has(audience.form_level);
         case "user": return audience.user_id === profileId; // e.g. a promotion/repeat notice addressed to this guardian personally
       }
