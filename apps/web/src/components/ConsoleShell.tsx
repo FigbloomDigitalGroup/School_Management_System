@@ -71,6 +71,14 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // since useParams() on an /org/* route has no `slug` — nav was completely broken.
   const tenantScoped = role !== "super_admin" && role !== "org_admin";
   const orgScoped = role === "org_admin";
+  // Only the three roles with a real self-service "My account" screen (FIG-
+  // 403) get a clickable avatar — org_admin/super_admin/student have none to
+  // send them to yet.
+  const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings" };
+  const accountTo = ACCOUNT_ROUTE[role];
+  const accountHref = accountTo
+    ? (tenantScoped ? `/s/${slug}/${accountTo}` : orgScoped ? `/org/${orgSlug}/${accountTo}` : accountTo)
+    : null;
 
   async function signOut() {
     await supabase().auth.signOut();
@@ -84,7 +92,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         className="flex shrink-0 flex-col gap-0.5 overflow-hidden px-3 py-4 transition-[width] duration-150"
         style={{ width: open ? 224 : 68, background: tenantScoped ? "var(--accent-deep)" : "#17402A" }}
       >
-        <div className="flex min-h-[34px] items-center gap-3 px-0.5 pb-4">
+        <div className="flex min-h-[34px] items-center gap-3 px-0.5 pb-2">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-white p-1">
             <img
               src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/logo-mark.png"}
@@ -96,17 +104,37 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             <WorkspaceSwitcher current={workspaceName ?? "Figbloom"} options={workspaceOptions} />
           ) : (
             open && (
-              <div className="overflow-hidden whitespace-nowrap">
-                <div className="text-[14.5px] font-semibold tracking-tight text-white">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[14.5px] font-semibold tracking-tight text-white">
                   {tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
                 </div>
-                <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">
+                <div className="truncate font-mono text-[8.5px] tracking-[0.1em] text-white/50">
                   {tenantScoped ? "SCHOOL WORKSPACE" : orgScoped ? "ORGANIZATION CONSOLE" : "PLATFORM CONSOLE"}
                 </div>
               </div>
             )
           )}
+          {open && (
+            <button
+              onClick={() => setOpen(false)}
+              aria-expanded={open}
+              title="Collapse menu"
+              className="hit ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/60 hover:bg-white/10"
+            >
+              <Icon name="back" size={13} />
+            </button>
+          )}
         </div>
+        {!open && (
+          <button
+            onClick={() => setOpen(true)}
+            aria-expanded={open}
+            title="Expand menu"
+            className="hit mx-auto mb-2 grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/60 hover:bg-white/10"
+          >
+            <Icon name="forward" size={13} />
+          </button>
+        )}
 
         {items.map((it) => {
           const to = tenantScoped
@@ -123,6 +151,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
               className={({ isActive }) =>
                 [
                   "hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5",
+                  open ? "" : "justify-center",
                   isActive ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10",
                 ].join(" ")
               }
@@ -138,24 +167,31 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         })}
 
         <div className="mt-auto flex flex-col gap-1.5">
-          <button
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60"
-            style={{ height: 34 }}
-          >
-            <Icon name={open ? "back" : "forward"} size={13} />
-            {open && <span className="text-small">Collapse menu</span>}
-          </button>
-          <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap border-t border-white/10 px-0.5 pt-2.5">
-            <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
-            {open && (
-              <div className="min-w-0 flex-1 leading-tight">
-                <div className="truncate text-small text-white">{user.name}</div>
-                <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
-              </div>
-            )}
-          </div>
+          {accountHref ? (
+            <NavLink
+              to={accountHref}
+              title="My account"
+              className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] border-t border-white/10 px-0.5 pt-2.5 hover:bg-white/10"
+            >
+              <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
+              {open && (
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div className="truncate text-small text-white">{user.name}</div>
+                  <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
+                </div>
+              )}
+            </NavLink>
+          ) : (
+            <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap border-t border-white/10 px-0.5 pt-2.5">
+              <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
+              {open && (
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div className="truncate text-small text-white">{user.name}</div>
+                  <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
+                </div>
+              )}
+            </div>
+          )}
           <button
             onClick={() => setChangingPw(true)}
             title="Change password"
