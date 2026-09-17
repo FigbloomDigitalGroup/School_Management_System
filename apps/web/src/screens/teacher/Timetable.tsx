@@ -5,9 +5,16 @@ import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassTimetable } from "../../lib/teacherData";
+import { fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassTimetable, type TeacherTimetableRow } from "../../lib/teacherData";
 import { currentWeekDates, fetchCoverageForDate } from "../../lib/coverage";
 import { WEEKDAYS } from "@figbloom/shared";
+
+const ALL = "all" as const;
+
+interface DisplayRow extends TeacherTimetableRow {
+  classId: string;
+  className: string;
+}
 
 export function TeacherTimetable() {
   const { profile } = useTenantSession();
@@ -15,7 +22,7 @@ export function TeacherTimetable() {
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
   const { data: term } = useAsync(() => fetchCurrentTerm(), []);
-  const [classId, setClassId] = useState<string | null>(null);
+  const [classId, setClassId] = useState<string>(ALL);
   const nowDay = todayWeekday();
   const [day, setDay] = useState<Weekday>(nowDay ?? "Mon");
   // This week's real calendar date for whichever tab is selected — leave is
@@ -29,20 +36,38 @@ export function TeacherTimetable() {
     [dayCoverage],
   );
 
+  // A deep link (e.g. from "My classes") asking for one specific class wins
+  // over the "all classes" default, applied once the class list is in.
   useEffect(() => {
-    if (classId || classesData.length === 0) return;
     const requested = params.get("class");
-    setClassId(classesData.find((c) => c.id === requested)?.id ?? classesData[0]!.id);
+    if (!requested) return;
+    if (classesData.some((c) => c.id === requested)) setClassId(requested);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classId, classesData]);
+  }, [classesData]);
 
-  const cls = classesData.find((c) => c.id === classId) ?? null;
+  const isAll = classId === ALL;
+  const cls = isAll ? null : classesData.find((c) => c.id === classId) ?? null;
+
   const { data: timetable, loading: timetableLoading } = useAsync(
-    () => (classId ? fetchTeacherClassTimetable(classId, profile.id) : Promise.resolve(null)),
-    [classId, profile.id],
+    () => (!isAll && classId ? fetchTeacherClassTimetable(classId, profile.id) : Promise.resolve(null)),
+    [isAll, classId, profile.id],
+  );
+  // "All" needs every class's timetable at once, so its own daily schedule
+  // (across classes) can be assembled — fetched only while that pill is
+  // actually selected, not on every render.
+  const { data: allTimetables, loading: allLoading } = useAsync(
+    () => (isAll && classesData.length
+      ? Promise.all(classesData.map((c) => fetchTeacherClassTimetable(c.id, profile.id).then((t) => ({ classId: c.id, className: c.name, ...t }))))
+      : Promise.resolve(null)),
+    [isAll, classesData, profile.id],
   );
 
-  const rows = (day && timetable?.byDay[day]) ?? [];
+  const rows: DisplayRow[] = isAll
+    ? (allTimetables ?? [])
+        .flatMap((t) => t.byDay[day].filter((r) => r.mine && r.subjectId).map((r) => ({ ...r, classId: t.classId, className: t.className })))
+        .sort((a, b) => a.time.localeCompare(b.time))
+    : (timetable?.byDay[day] ?? []).map((r) => ({ ...r, classId: cls?.id ?? "", className: cls?.name ?? "" }));
+  const loading = isAll ? allLoading : timetableLoading;
   const nowIdx = day === nowDay ? currentPeriodIndex(rows.map((r): [string, string, string] => [r.time, r.label, r.room])) : -1;
 
   return (
@@ -51,21 +76,11 @@ export function TeacherTimetable() {
         eyebrow={`Timetable${term ? ` · ${term.name}` : ""}`}
         title={cls ? cls.name : "Your week"}
         blurb={
-          timetable?.isClassTeacher
-            ? `You're the class teacher for ${cls?.name ?? "this class"} — showing the whole week, including who teaches what.`
-            : "Showing only the periods you teach in this class — pick another one above to see a different class."
-        }
-        actions={
-          classesData.length > 1 ? (
-            <select
-              value={classId ?? ""}
-              onChange={(e) => setClassId(e.target.value)}
-              aria-label="Class"
-              className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
-            >
-              {classesData.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          ) : undefined
+          isAll
+            ? "Every period you teach that day, across all your classes — pick one below to see its whole week."
+            : timetable?.isClassTeacher
+              ? `You're the class teacher for ${cls?.name ?? "this class"} — showing the whole week, including who teaches what.`
+              : "Showing only the periods you teach in this class."
         }
       />
       <div className="px-7 py-6">
@@ -75,6 +90,17 @@ export function TeacherTimetable() {
           <p className="text-[13px] text-ink-muted">You aren't assigned to any classes yet.</p>
         ) : (
           <>
+            {classesData.length > 1 && (
+              <div className="mb-2.5 flex flex-wrap gap-1.5">
+                {[{ id: ALL, name: "All" }, ...classesData].map((c) => (
+                  <button key={c.id} onClick={() => setClassId(c.id)} className="rounded-full px-3.5 py-2 text-small"
+                    style={classId === c.id ? { background: "var(--accent)", color: "#fff", fontWeight: 600 } : { background: "#F3F1EF", color: "#5F6B62" }}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="mb-4 flex gap-1.5">
               {WEEKDAYS.map((d) => (
                 <button key={d} onClick={() => setDay(d)} className="rounded-full px-3.5 py-2 text-small"
@@ -84,24 +110,26 @@ export function TeacherTimetable() {
               ))}
             </div>
 
-            {timetableLoading ? (
+            {loading ? (
               <TableSkeleton rows={6} />
             ) : rows.length === 0 ? (
               <p className="text-[13px] text-ink-muted">
-                {timetable?.isClassTeacher
-                  ? `No timetable set for ${cls?.name ?? "this class"} yet — ask the school office to set one up under School settings.`
-                  : `Nothing of yours on ${cls?.name ?? "this class"}'s timetable for this day.`}
+                {isAll
+                  ? "You have no periods scheduled on this day, across any of your classes."
+                  : timetable?.isClassTeacher
+                    ? `No timetable set for ${cls?.name ?? "this class"} yet — ask the school office to set one up under School settings.`
+                    : `Nothing of yours on ${cls?.name ?? "this class"}'s timetable for this day.`}
               </p>
             ) : (
               <div className="grid max-w-[720px] gap-2">
                 {rows.map((r, i) => {
                   const isNow = day === nowDay && i === nowIdx;
                   const free = r.label === "Games" || r.label === "Library";
-                  const gap = cls ? coverageByClassTime.get(`${cls.id}|${r.time}`) : undefined;
+                  const gap = coverageByClassTime.get(`${r.classId}|${r.time}`);
                   const needsCover = !!gap && !gap.assignment;
                   const resolved = !!gap?.assignment;
                   return (
-                    <div key={r.time} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
+                    <div key={`${r.classId}-${r.time}`} className="flex items-center gap-3.5 rounded-xl border px-4 py-3"
                       style={{
                         borderColor: needsCover ? "#B8460A" : resolved ? "#2E7D4F" : isNow ? "var(--accent)" : "#E2E6E2",
                         background: needsCover ? "#FDEBDF" : resolved ? "#E3EFE7" : isNow ? "#FFF8F6" : "#fff",
@@ -112,7 +140,7 @@ export function TeacherTimetable() {
                       <span className="min-w-0 flex-1">
                         <span className="block text-[14px] font-medium">{r.label}</span>
                         <span className="text-[12px] text-ink-faint">
-                          {r.room}{cls ? ` · ${cls.name}` : ""}{!r.mine && r.teacherName ? ` · taught by ${r.teacherName}` : ""}
+                          {r.room}{r.className ? ` · ${r.className}` : ""}{!r.mine && r.teacherName ? ` · taught by ${r.teacherName}` : ""}
                         </span>
                         {needsCover && (
                           <span className="mt-0.5 block text-[11.5px] font-semibold text-warn-ink">
