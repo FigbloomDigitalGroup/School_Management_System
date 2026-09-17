@@ -145,6 +145,44 @@ export async function provisionGuardian(input: ProvisionGuardianInput): Promise<
   return data as ProvisionGuardianResult;
 }
 
+export interface ProvisionStudentInput {
+  tenant_id: string;
+  student_id: string;
+}
+
+export interface ProvisionStudentResult {
+  ok: true;
+  login_id: string;
+  password: string;
+}
+
+/**
+ * Creates a sign-in for an already-admitted learner (FIG-402) — "Add a
+ * learner" only ever creates the `students` record; this is the separate
+ * action that actually gives them a login_id + password, mirroring
+ * inviteStaff/provisionGuardian above.
+ */
+export async function provisionStudent(input: ProvisionStudentInput): Promise<ProvisionStudentResult> {
+  const { data, error } = await supabase().functions.invoke<ProvisionStudentResult | { error: string }>(
+    "provision-student",
+    { body: input },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as ProvisionStudentResult;
+}
+
 // ---------------------------------------------------------------- organizations (FIG-331)
 
 export interface NewOrganizationInput {
