@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { Avatar, AvatarEditor } from "../../components/Avatar";
 import { Badge, RoleBadge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
@@ -11,11 +12,11 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-import { listStudentDocuments, privateDocUrl, uploadAvatar, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
+import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
-import { inviteStaff, provisionGuardian, type InviteStaffResult, type ProvisionGuardianResult } from "../../lib/platformAdmin";
+import { inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 
-type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding"> & { avatar_url: string | null };
+type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
@@ -25,42 +26,6 @@ const DOC_TYPES: { value: string; label: string }[] = [
   { value: "transfer_letter", label: "Transfer letter" },
   { value: "other", label: "Other" },
 ];
-
-const AVATAR_TONES = [
-  { bg: "#E3EFE7", ink: "#1B4D2E" },
-  { bg: "#FDECD8", ink: "#8A4B12" },
-  { bg: "#E7E9FB", ink: "#3B3F8C" },
-  { bg: "#FBE7EC", ink: "#8C2F49" },
-  { bg: "#E7F6FB", ink: "#175C74" },
-];
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
-}
-
-function toneFor(id: string): { bg: string; ink: string } {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length]!;
-}
-
-/** A photo if one's set, else the initials-in-a-colored-box placeholder used across the console. */
-function Avatar({ id, name, url, size = 30 }: { id: string; name: string; url?: string | null; size?: number }) {
-  if (url) {
-    return <img src={url} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
-  }
-  const { bg, ink } = toneFor(id);
-  return (
-    <span
-      aria-hidden
-      className="grid shrink-0 place-items-center rounded-full font-bold"
-      style={{ width: size, height: size, background: bg, color: ink, fontSize: Math.round(size * 0.4) }}
-    >
-      {initialsOf(name)}
-    </span>
-  );
-}
 
 interface PeopleData {
   classes: Pick<ClassGroup, "id" | "name">[];
@@ -75,19 +40,23 @@ async function fetchPeople(): Promise<PeopleData> {
   const sb = supabase();
   const { data: term } = await sb.from("terms").select("id").eq("is_current", true).maybeSingle<{ id: string }>();
 
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }] = await Promise.all([
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
     sb.from("classes").select("id,name").order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url").eq("active", true).order("full_name").returns<StudentRow[]>(),
+    sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url,profile_id").eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
     sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
     sb.from("subjects").select("*").order("name").returns<Subject[]>(),
     sb.from("teacher_subjects").select("teacher_id, subject_id").returns<{ teacher_id: string; subject_id: string }[]>(),
+    sb.from("profiles").select("id,login_id").eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
   ]);
 
   const feeByStudent = new Map<string, { total: number; paid: number }>();
   for (const inv of invoicesRes.data ?? []) feeByStudent.set(inv.student_id, { total: inv.total_cents, paid: inv.paid_cents });
+
+  const loginIdByProfile = new Map<string, string | null>();
+  for (const p of studentProfileRows ?? []) loginIdByProfile.set(p.id, p.login_id);
 
   const subjectIdsByTeacher = new Map<string, string[]>();
   for (const row of teacherSubjectRows ?? []) {
@@ -98,7 +67,7 @@ async function fetchPeople(): Promise<PeopleData> {
 
   return {
     classes: classRows ?? [],
-    students: studentRows ?? [],
+    students: (studentRows ?? []).map((s) => ({ ...s, login_id: s.profile_id ? loginIdByProfile.get(s.profile_id) ?? null : null })),
     staff: staffRows ?? [],
     feeByStudent,
     subjects: subjectRows ?? [],
@@ -124,6 +93,7 @@ export function People() {
   const [addOpen, setAddOpen] = useState(false);
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [inviteGuardiansOpen, setInviteGuardiansOpen] = useState(false);
+  const [createLoginsOpen, setCreateLoginsOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const { data, loading, error } = useAsync(() => fetchPeople(), [reloadKey]);
@@ -206,6 +176,9 @@ export function People() {
           <span className="text-small font-semibold">{picked.size} selected</span>
           <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>
           <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>
+          {(data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
+            <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
+          )}
           <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
           <button onClick={() => setPicked(new Set())} className="text-small font-semibold text-leaf">Clear</button>
         </div>
@@ -238,6 +211,7 @@ export function People() {
               { key: "class", header: "Class", render: (s) => <span className="text-[13px]">{s.class_id ? classesById.get(s.class_id) : "—"}</span> },
               { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
               { key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> },
+              { key: "login", header: "Login", render: (s) => s.login_id ? <Mono>{s.login_id}</Mono> : <Badge tone="muted">No login</Badge> },
               { key: "fees", header: "Fees", align: "right", render: (s) => {
                 const inv = data.feeByStudent.get(s.id);
                 if (!inv) return <Badge tone="muted">No invoice</Badge>;
@@ -386,6 +360,16 @@ export function People() {
           students={data.students.filter((s) => picked.has(s.id)).map((s) => ({ id: s.id, name: s.full_name }))}
           onClose={() => setInviteGuardiansOpen(false)}
           onInvited={() => { setPicked(new Set()); setReloadKey((k) => k + 1); }}
+          toast={toast}
+        />
+      )}
+
+      {createLoginsOpen && data && (
+        <CreateStudentLoginsModal
+          tenantId={tenant.id}
+          students={data.students.filter((s) => picked.has(s.id) && !s.login_id).map((s) => ({ id: s.id, name: s.full_name }))}
+          onClose={() => setCreateLoginsOpen(false)}
+          onCreated={() => { setPicked(new Set()); setReloadKey((k) => k + 1); }}
           toast={toast}
         />
       )}
@@ -750,6 +734,73 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
   );
 }
 
+/** Gives each selected learner a sign-in (FIG-402) — until this existed, a
+ *  learner had a `students` record but no way to ever log in themselves,
+ *  student was the one role with no provisioning path at all. One call to
+ *  provision-student per learner (each needs its own auth account/login_id),
+ *  run in sequence so a failure partway through still shows what succeeded. */
+function CreateStudentLoginsModal({ tenantId, students, onClose, onCreated, toast }: {
+  tenantId: string; students: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; toast: (m: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [results, setResults] = useState<{ name: string; login_id: string; password: string }[] | null>(null);
+
+  async function createAll() {
+    setSaving(true);
+    const done: { name: string; login_id: string; password: string }[] = [];
+    try {
+      for (const s of students) {
+        try {
+          const r: ProvisionStudentResult = await provisionStudent({ tenant_id: tenantId, student_id: s.id });
+          done.push({ name: s.name, login_id: r.login_id, password: r.password });
+        } catch (err) {
+          toast(err instanceof Error ? `${s.name}: ${err.message}` : `Could not create a login for ${s.name}.`);
+        }
+      }
+      setResults(done);
+      if (done.length) onCreated();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Students"
+      title={results ? "Logins created" : "Create student logins"}
+      blurb={results ? undefined : `Gives ${students.map((s) => s.name).join(", ")} a login_id and password.`}
+      actions={results ? <Button variant="accent" onClick={onClose}>Done</Button> : (
+        <><Button onClick={onClose}>Cancel</Button><Button variant="accent" onClick={() => void createAll()} disabled={saving || students.length === 0}>{saving ? "Creating…" : "Create"}</Button></>
+      )}
+    >
+      {results ? (
+        <div>
+          <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
+            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to each learner directly.
+          </p>
+          <div className="rounded-lg border border-line bg-page p-3.5">
+            {results.map((r) => (
+              <div key={r.login_id} className="border-b border-line-soft py-2 text-[12.5px] last:border-0">
+                <div className="font-medium">{r.name}</div>
+                <div className="flex justify-between text-ink-muted">
+                  <span>{r.login_id}</span><span className="font-mono font-medium">{r.password}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[13px] leading-relaxed text-ink-muted">
+          Each learner gets their own login_id (e.g. "ST-0007") and the same shared dev password — same scheme as
+          teacher and guardian logins.
+        </p>
+      )}
+    </Modal>
+  );
+}
+
 /** The only place a learner's basic record (name, admission number, class,
  *  residence) can be corrected after admission — previously nowhere. */
 function StudentProfileEditor({ student, classes, onSaved, toast }: {
@@ -873,44 +924,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
       <Button variant="primary" className="mt-3" onClick={() => void save()} disabled={saving}>
         {saving ? "Saving…" : "Save details"}
       </Button>
-    </div>
-  );
-}
-
-function AvatarEditor({ id, name, kind, tenantId, url, onUploaded, toast }: {
-  id: string; name: string; kind: "students" | "staff"; tenantId: string; url?: string | null;
-  onUploaded: (url: string) => void; toast: (m: string) => void;
-}) {
-  const [uploading, setUploading] = useState(false);
-
-  async function onChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const newUrl = await uploadAvatar(tenantId, kind, id, file);
-      const table = kind === "students" ? "students" : "profiles";
-      const { error } = await supabase().from(table).update({ avatar_url: newUrl }).eq("id", id);
-      if (error) throw error;
-      onUploaded(newUrl);
-      toast("Photo updated");
-    } catch (err) {
-      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-3.5">
-      <Avatar id={id} name={name} url={url} size={56} />
-      <label className="text-small font-medium text-leaf">
-        <span className="hit inline-block cursor-pointer rounded-md border border-[#D3DAD5] bg-white px-3 py-1.5 hover:bg-page">
-          {uploading ? "Uploading…" : "Change photo"}
-        </span>
-        <input type="file" accept="image/*" className="hidden" onChange={onChange} disabled={uploading} aria-label="Upload photo" />
-      </label>
     </div>
   );
 }
