@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { NAV, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { createMyOrganization } from "../lib/platformAdmin";
+import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { useTenant } from "./TenantTheme";
 import { Button } from "./ui/Button";
@@ -11,7 +12,7 @@ import { useToast } from "./ui/Toast";
 
 interface Props {
   role: Role;
-  user: { name: string; roleLabel: string };
+  user: { id: string; name: string; roleLabel: string; avatarUrl?: string | null };
   /** Second column: the master list in a master-detail screen. */
   aside?: ReactNode;
   children: ReactNode;
@@ -147,9 +148,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             {open && <span className="text-small">Collapse menu</span>}
           </button>
           <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap border-t border-white/10 px-0.5 pt-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-white/15 text-[11px] font-semibold text-white">
-              {user.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
-            </div>
+            <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
             {open && (
               <div className="min-w-0 flex-1 leading-tight">
                 <div className="truncate text-small text-white">{user.name}</div>
