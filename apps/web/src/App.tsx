@@ -38,6 +38,7 @@ import { Fleet } from "./screens/admin/Fleet";
 import { AdminClasses } from "./screens/admin/Classes";
 import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
+import { AdminLeave } from "./screens/admin/Leave";
 
 import { Attendance } from "./screens/teacher/Attendance";
 import { Gradebook } from "./screens/teacher/Gradebook";
@@ -47,6 +48,7 @@ import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherMySections } from "./screens/teacher/MySections";
 import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
+import { TeacherLeave } from "./screens/teacher/Leave";
 
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
@@ -167,6 +169,7 @@ function TenantRoutes() {
           <Route path="admin/classes" element={<AdminShell allow={["school_admin"]}><AdminClasses /></AdminShell>} />
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
+          <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -176,6 +179,7 @@ function TenantRoutes() {
           <Route path="teacher/sections" element={<TeacherShell allow={["teacher"]}><TeacherMySections /></TeacherShell>} />
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
+          <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
