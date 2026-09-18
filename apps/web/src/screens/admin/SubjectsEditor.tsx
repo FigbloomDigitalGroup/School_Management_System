@@ -55,6 +55,9 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [creating, setCreating] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkCreating, setBulkCreating] = useState(false);
 
   async function createSubject() {
     if (!name.trim() || !code.trim()) { toast("Give the subject a name and a short code."); return; }
@@ -72,6 +75,52 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
       toast(err instanceof Error ? `Could not add the subject: ${err.message}` : "Could not add the subject.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  /** One subject per line, "Name" or "Name,CODE" — for the common case of
+   *  keying in a school's whole subject list at once instead of the single
+   *  form eight or ten times over. A code left out is generated from the
+   *  name's letters, de-duplicated against both this batch and what's
+   *  already on file (subjects.code is unique per school). */
+  async function createBulkSubjects() {
+    const takenCodes = new Set((rows ?? []).map((r) => r.subject.code.toUpperCase()));
+    const takenNames = new Set((rows ?? []).map((r) => r.subject.name.trim().toLowerCase()));
+    const uniqueCode = (base: string) => {
+      const stem = base.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4) || "SUBJ";
+      let candidate = stem;
+      let n = 2;
+      while (takenCodes.has(candidate)) { candidate = `${stem}${n}`; n++; }
+      takenCodes.add(candidate);
+      return candidate;
+    };
+
+    const toCreate: { name: string; code: string }[] = [];
+    for (const raw of bulkText.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const [rawName, rawCode] = line.split(",").map((p) => p.trim());
+      const subjName = rawName ?? "";
+      if (!subjName || takenNames.has(subjName.toLowerCase())) continue;
+      takenNames.add(subjName.toLowerCase());
+      toCreate.push({ name: subjName, code: rawCode ? uniqueCode(rawCode) : uniqueCode(subjName) });
+    }
+    if (toCreate.length === 0) { toast("Nothing new to add — check the names aren't already on file."); return; }
+
+    setBulkCreating(true);
+    try {
+      const { error: err } = await supabase().from("subjects").insert(
+        toCreate.map((s) => ({ tenant_id: tenantId, name: s.name, code: s.code, is_core: true })),
+      );
+      if (err) throw err;
+      toast(`${toCreate.length} subject${toCreate.length === 1 ? "" : "s"} added.`);
+      setBulkText("");
+      setBulkOpen(false);
+      reload();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add those subjects: ${err.message}` : "Could not add those subjects.");
+    } finally {
+      setBulkCreating(false);
     }
   }
 
@@ -119,8 +168,7 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
                 const others = qualifiedIds ? teachers.filter((t) => !qualifiedIds.has(t.id)) : teachers;
                 return (
                   <li key={r.subject.id} className="flex items-center gap-3 rounded-lg border border-line-soft px-3 py-2">
-                    <span className="min-w-0 flex-1 text-[13px] font-medium">{r.subject.name}</span>
-                    <span className="font-mono text-[11px] text-ink-faint">{r.subject.code}</span>
+                    <SubjectFields subject={r.subject} onSaved={reload} toast={toast} />
                     <select
                       value={r.teacherId ?? ""}
                       onChange={(e) => void setTeacher(r.subject.id, e.target.value)}
@@ -170,8 +218,93 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
               {creating ? "Adding…" : "Add subject"}
             </Button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setBulkOpen((v) => !v)}
+            className="justify-self-start text-[12px] font-semibold text-leaf hover:underline"
+          >
+            {bulkOpen ? "Hide bulk add" : "Bulk add multiple subjects"}
+          </button>
+
+          {bulkOpen && (
+            <div className="grid gap-2 rounded-lg border border-line-soft bg-white p-3">
+              <label className="block">
+                <span className="mb-1.5 block text-[11.5px] font-semibold">One subject per line</span>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  placeholder={"Chemistry\nHistory,HIST\nBusiness Studies"}
+                  rows={5}
+                  className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none"
+                />
+                <span className="mt-1 block text-[11px] text-ink-faint">
+                  Just the name, or "Name,CODE" if you want to pick the code yourself — otherwise one's generated from the name.
+                </span>
+              </label>
+              <Button variant="primary" className="justify-self-start" onClick={() => void createBulkSubjects()} disabled={bulkCreating || !bulkText.trim()}>
+                {bulkCreating ? "Adding…" : "Add these subjects"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Name and code were display-only once created — an auto-generated code
+ *  (e.g. "CHRI" for Christian Religious Education, instead of the standard
+ *  "CRE") had no way to be fixed afterward. */
+function SubjectFields({ subject, onSaved, toast }: {
+  subject: Subject;
+  onSaved: () => void;
+  toast: (m: string) => void;
+}) {
+  const [name, setName] = useState(subject.name);
+  const [code, setCode] = useState(subject.code);
+  const [saving, setSaving] = useState(false);
+  const dirty = name.trim() !== subject.name || code.trim().toUpperCase() !== subject.code;
+
+  async function save() {
+    if (!name.trim() || !code.trim()) { toast("A subject needs both a name and a code."); return; }
+    setSaving(true);
+    try {
+      const { error: err } = await supabase().from("subjects")
+        .update({ name: name.trim(), code: code.trim().toUpperCase() }).eq("id", subject.id);
+      if (err) throw err;
+      onSaved();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label="Subject name"
+        className="min-w-0 flex-1 rounded-md border border-transparent px-1.5 py-1 text-[13px] font-medium outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]"
+      />
+      <input
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        aria-label="Subject code"
+        className="w-16 rounded-md border border-transparent px-1.5 py-1 font-mono text-[11px] uppercase text-ink-faint outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]"
+      />
+      {dirty && (
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving}
+          className="text-[11.5px] font-semibold text-leaf hover:underline disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      )}
+    </>
   );
 }

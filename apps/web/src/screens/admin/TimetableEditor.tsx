@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import type { Weekday } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -28,6 +28,99 @@ function formatTimeInput(raw: string): string {
 }
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Groups flat (day, time) slots back into one row per unique time — the shape both the initial load and a CSV import build. */
+function slotsToRows(slots: Slot[]): PeriodRow[] {
+  const times = Array.from(new Set(slots.map((s) => s.start_time))).sort();
+  return times.map((time) => {
+    const cells = emptyCells();
+    for (const s of slots.filter((s) => s.start_time === time)) {
+      cells[s.day] = { label: s.label, room: s.room ?? "", subjectId: s.subject_id ?? null };
+    }
+    return { id: nextRowId(), time, cells };
+  });
+}
+
+const DAY_ALIASES: Record<string, Weekday> = {
+  mon: "Mon", monday: "Mon",
+  tue: "Tue", tues: "Tue", tuesday: "Tue",
+  wed: "Wed", weds: "Wed", wednesday: "Wed",
+  thu: "Thu", thur: "Thu", thurs: "Thu", thursday: "Thu",
+  fri: "Fri", friday: "Fri",
+};
+
+/**
+ * One row per (day, time) cell — the same shape the grid saves as, so a
+ * CSV import needs no separate validation story: it builds the identical
+ * Slot[] the grid itself produces, then reuses slotsToRows() to populate
+ * the same rows state the admin can still review and tweak before saving.
+ * Blocking errors (bad time/day/missing label) stop the whole import,
+ * same reasoning as the student CSV importer — a partial import that
+ * silently skipped rows is worse than one that never ran. An unrecognised
+ * subject name is the one non-blocking case: the row still imports, just
+ * unlinked, since that's easy to fix afterward in the grid's own dropdown.
+ */
+function parseTimetableCsv(text: string, subjects: SubjectOption[]): { slots: Slot[]; blocking: string[]; warnings: string[] } {
+  const lines = text.split(/\r\n|\n|\r/).filter((l) => l.trim().length > 0);
+  const blocking: string[] = [];
+  const warnings: string[] = [];
+  if (lines.length < 2) return { slots: [], blocking: ["The file has no data rows."], warnings };
+
+  const header = lines[0]!.split(",").map((h) => h.trim().toLowerCase());
+  const col = (name: string) => header.indexOf(name);
+  const idx = { time: col("time"), day: col("day"), label: col("label"), room: col("room"), subject: col("subject") };
+  const subjectByName = new Map(subjects.map((s) => [s.name.trim().toLowerCase(), s.id]));
+
+  const slots: Slot[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i]!.split(",").map((c) => c.trim());
+    const line = i + 1;
+    const rawTime = idx.time >= 0 ? (cells[idx.time] ?? "") : "";
+    const rawDay = idx.day >= 0 ? (cells[idx.day] ?? "") : "";
+    const label = idx.label >= 0 ? (cells[idx.label] ?? "") : "";
+    const room = idx.room >= 0 ? (cells[idx.room] ?? "") : "";
+    const subjectName = idx.subject >= 0 ? (cells[idx.subject] ?? "") : "";
+    if (!rawTime && !rawDay && !label) continue;
+
+    const time = formatTimeInput(rawTime);
+    if (!TIME_RE.test(time)) { blocking.push(`Line ${line}: "${rawTime}" isn't a valid time — use HH:MM.`); continue; }
+    const day = DAY_ALIASES[rawDay.trim().toLowerCase()];
+    if (!day) { blocking.push(`Line ${line}: "${rawDay}" isn't Mon-Fri.`); continue; }
+    if (!label.trim()) { blocking.push(`Line ${line}: missing a label.`); continue; }
+
+    let subjectId: string | null = null;
+    if (subjectName.trim()) {
+      subjectId = subjectByName.get(subjectName.trim().toLowerCase()) ?? null;
+      if (!subjectId) warnings.push(`Line ${line}: "${subjectName}" isn't one of this school's subjects — imported unlinked.`);
+    }
+    slots.push({ day, start_time: time, label: label.trim(), room: room.trim() || null, subject_id: subjectId });
+  }
+  return { slots, blocking, warnings };
+}
+
+function timetableCsvTemplate(hasSubjects: boolean): string {
+  const header = hasSubjects ? "time,day,label,room,subject" : "time,day,label,room";
+  const row = (time: string, day: string, label: string, room: string, subject: string) =>
+    hasSubjects ? `${time},${day},${label},${room},${subject}` : `${time},${day},${label},${room}`;
+  return [
+    header,
+    row("08:00", "Mon", "Biology", "Lab 1", "Biology"),
+    row("08:00", "Tue", "Mathematics", "Room 4", "Mathematics"),
+    row("11:00", "Mon", "Break", "", ""),
+  ].join("\n");
+}
+
+function downloadTimetableCsvTemplate(hasSubjects: boolean): void {
+  const blob = new Blob([timetableCsvTemplate(hasSubjects)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "timetable-import-template.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 /**
  * A small weekly grid — time down the side, days across the top. Deliberately
@@ -66,15 +159,7 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
     fetchSlots(entityId)
       .then((slots) => {
         if (!alive) return;
-        const times = Array.from(new Set(slots.map((s) => s.start_time))).sort();
-        const built: PeriodRow[] = times.map((time) => {
-          const cells = emptyCells();
-          for (const s of slots.filter((s) => s.start_time === time)) {
-            cells[s.day] = { label: s.label, room: s.room ?? "", subjectId: s.subject_id ?? null };
-          }
-          return { id: nextRowId(), time, cells };
-        });
-        setRows(built);
+        setRows(slotsToRows(slots));
       })
       .catch((err: Error) => { if (alive) toast(`Could not load the timetable: ${err.message}`); });
     return () => { alive = false; };
@@ -136,6 +221,29 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
 
   function removePeriod(id: string) {
     setRows((rs) => (rs ?? []).filter((r) => r.id !== id));
+  }
+
+  function onImportFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const { slots, blocking, warnings } = parseTimetableCsv(String(reader.result ?? ""), subjects ?? []);
+      if (blocking.length > 0) {
+        toast(`Could not import: ${blocking[0]}${blocking.length > 1 ? ` (+${blocking.length - 1} more)` : ""}`);
+        return;
+      }
+      if (slots.length === 0) { toast("Nothing to import — the file has no valid rows."); return; }
+      if ((rows?.length ?? 0) > 0 && !window.confirm(`Replace the ${rows!.length} period${rows!.length === 1 ? "" : "s"} already here with ${slots.length} imported row${slots.length === 1 ? "" : "s"}?`)) return;
+      setRows(slotsToRows(slots));
+      toast(
+        warnings.length > 0
+          ? `Imported ${slots.length} rows — ${warnings[0]}${warnings.length > 1 ? ` (+${warnings.length - 1} more)` : ""}`
+          : `Imported ${slots.length} rows. Review the grid, then save.`,
+      );
+    };
+    reader.readAsText(file);
   }
 
   async function handleSave() {
@@ -270,7 +378,7 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
             </table>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               value={newTime}
               onChange={(e) => setNewTime(formatTimeInput(e.target.value))}
@@ -281,6 +389,14 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
               className="w-24 rounded-md border border-[#D3DAD5] px-2.5 py-1.5 font-mono text-small outline-none"
             />
             <Button onClick={addPeriod}>Add period</Button>
+            <span className="mx-1 text-ink-faint">·</span>
+            <Button onClick={() => downloadTimetableCsvTemplate(!!subjects)}>Download CSV template</Button>
+            <label className="text-small font-medium text-leaf">
+              <span className="hit inline-block cursor-pointer rounded-md border border-[#D3DAD5] bg-white px-3 py-1.5 hover:bg-page">
+                Import CSV
+              </span>
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={onImportFile} aria-label="Import timetable CSV" />
+            </label>
           </div>
         </div>
       )}
