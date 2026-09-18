@@ -62,6 +62,31 @@ export function TermSetup() {
   const { data, loading, error } = useAsync(() => fetchTermSetup(), [reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
 
+  const [schoolName, setSchoolName] = useState(tenant.name);
+  const [schoolCounty, setSchoolCounty] = useState(tenant.county);
+  const [schoolMoe, setSchoolMoe] = useState(tenant.moe_registration ?? "");
+  const [savingDetails, setSavingDetails] = useState(false);
+
+  async function handleSaveDetails(e: FormEvent) {
+    e.preventDefault();
+    if (!schoolName.trim()) { toast("The school needs a name."); return; }
+    setSavingDetails(true);
+    try {
+      const { error: rpcError } = await supabase().rpc("set_school_details", {
+        p_tenant_id: tenant.id,
+        p_name: schoolName,
+        p_county: schoolCounty,
+        p_moe_registration: schoolMoe,
+      });
+      if (rpcError) throw rpcError;
+      toast("School details saved — this page picks it up immediately; the sidebar and other screens pick it up next time they load.");
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save school details: ${err.message}` : "Could not save school details.");
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
   const [paybill, setPaybill] = useState(tenant.payment_paybill ?? "");
   const [till, setTill] = useState(tenant.payment_till ?? "");
   const [bankDetails, setBankDetails] = useState(tenant.payment_bank_details ?? "");
@@ -76,6 +101,7 @@ export function TermSetup() {
     setSavingPayment(true);
     try {
       const { error: rpcError } = await supabase().rpc("set_school_payment_methods", {
+        p_tenant_id: tenant.id,
         p_paybill: paybill,
         p_till: till,
         p_bank_details: bankDetails,
@@ -101,7 +127,7 @@ export function TermSetup() {
     setSavingCrest(true);
     try {
       const url = await uploadTenantLogo(tenant.id, crestFile);
-      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_logo_url: url });
+      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_tenant_id: tenant.id, p_logo_url: url });
       if (rpcError) throw rpcError;
       // Cache-bust: the path is stable (logo.<ext>), so a browser that already fetched it
       // needs a new URL to notice the replacement.
@@ -176,6 +202,46 @@ export function TermSetup() {
       />
 
       <div className="max-w-[720px] px-7 py-6">
+        <div className="mb-5 overflow-hidden rounded-xl border border-line">
+          <header className="border-b border-line-soft px-4 py-3">
+            <h2 className="text-[13px] font-semibold">School details</h2>
+          </header>
+          <form onSubmit={handleSaveDetails} className="grid gap-3 px-4 py-3.5">
+            <div className="grid gap-3" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+              <label className="block">
+                <span className="mb-1.5 block text-[12px] font-semibold">School name</span>
+                <input
+                  value={schoolName}
+                  onChange={(e) => setSchoolName(e.target.value)}
+                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-[12px] font-semibold">County</span>
+                <input
+                  value={schoolCounty}
+                  onChange={(e) => setSchoolCounty(e.target.value)}
+                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="mb-1.5 block text-[12px] font-semibold">MOE registration (optional)</span>
+              <input
+                value={schoolMoe}
+                onChange={(e) => setSchoolMoe(e.target.value)}
+                placeholder="e.g. MOE/SEC/1234"
+                className="w-full max-w-[280px] rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
+              />
+            </label>
+            <div>
+              <Button type="submit" variant="primary" disabled={savingDetails}>
+                {savingDetails ? "Saving…" : "Save school details"}
+              </Button>
+            </div>
+          </form>
+        </div>
+
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load term setup: {error.message}
