@@ -102,8 +102,7 @@ export function People() {
     const q = query.trim().toLowerCase();
     return (data?.students ?? [])
       .filter((s) => classId === "all" || s.class_id === classId)
-      .filter((s) => !q || s.full_name.toLowerCase().includes(q) || s.admission_no.includes(q))
-      .slice(0, 60);
+      .filter((s) => !q || s.full_name.toLowerCase().includes(q) || s.admission_no.includes(q));
   }, [data, query, classId]);
 
   const staffRows = useMemo(() => {
