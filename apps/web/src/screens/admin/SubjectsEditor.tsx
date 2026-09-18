@@ -168,8 +168,7 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
                 const others = qualifiedIds ? teachers.filter((t) => !qualifiedIds.has(t.id)) : teachers;
                 return (
                   <li key={r.subject.id} className="flex items-center gap-3 rounded-lg border border-line-soft px-3 py-2">
-                    <span className="min-w-0 flex-1 text-[13px] font-medium">{r.subject.name}</span>
-                    <span className="font-mono text-[11px] text-ink-faint">{r.subject.code}</span>
+                    <SubjectFields subject={r.subject} onSaved={reload} toast={toast} />
                     <select
                       value={r.teacherId ?? ""}
                       onChange={(e) => void setTeacher(r.subject.id, e.target.value)}
@@ -251,5 +250,61 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Name and code were display-only once created — an auto-generated code
+ *  (e.g. "CHRI" for Christian Religious Education, instead of the standard
+ *  "CRE") had no way to be fixed afterward. */
+function SubjectFields({ subject, onSaved, toast }: {
+  subject: Subject;
+  onSaved: () => void;
+  toast: (m: string) => void;
+}) {
+  const [name, setName] = useState(subject.name);
+  const [code, setCode] = useState(subject.code);
+  const [saving, setSaving] = useState(false);
+  const dirty = name.trim() !== subject.name || code.trim().toUpperCase() !== subject.code;
+
+  async function save() {
+    if (!name.trim() || !code.trim()) { toast("A subject needs both a name and a code."); return; }
+    setSaving(true);
+    try {
+      const { error: err } = await supabase().from("subjects")
+        .update({ name: name.trim(), code: code.trim().toUpperCase() }).eq("id", subject.id);
+      if (err) throw err;
+      onSaved();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label="Subject name"
+        className="min-w-0 flex-1 rounded-md border border-transparent px-1.5 py-1 text-[13px] font-medium outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]"
+      />
+      <input
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        aria-label="Subject code"
+        className="w-16 rounded-md border border-transparent px-1.5 py-1 font-mono text-[11px] uppercase text-ink-faint outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]"
+      />
+      {dirty && (
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving}
+          className="text-[11.5px] font-semibold text-leaf hover:underline disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      )}
+    </>
   );
 }
