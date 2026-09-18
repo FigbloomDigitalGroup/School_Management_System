@@ -217,6 +217,7 @@ export function AdminClasses() {
           classId={editingSubjectsFor.id}
           className={editingSubjectsFor.name}
           tenantId={tenant.id}
+          formLevel={editingSubjectsFor.form_level}
           teachers={data?.teachers ?? []}
           onClose={() => setEditingSubjectsFor(null)}
         />

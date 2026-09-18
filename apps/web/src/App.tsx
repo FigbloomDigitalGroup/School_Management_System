@@ -36,6 +36,7 @@ import { Announcements } from "./screens/admin/Announcements";
 import { TermSetup } from "./screens/admin/TermSetup";
 import { Fleet } from "./screens/admin/Fleet";
 import { AdminClasses } from "./screens/admin/Classes";
+import { AdminSubjects } from "./screens/admin/Subjects";
 import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
 import { AdminLeave } from "./screens/admin/Leave";
@@ -169,6 +170,7 @@ function TenantRoutes() {
           <Route path="admin/fleet" element={<AdminShell allow={["school_admin"]}><DeliveryModeGate><Fleet /></DeliveryModeGate></AdminShell>} />
           <Route path="admin/settings" element={<AdminShell allow={["school_admin"]}><TermSetup /></AdminShell>} />
           <Route path="admin/classes" element={<AdminShell allow={["school_admin"]}><AdminClasses /></AdminShell>} />
+          <Route path="admin/subjects" element={<AdminShell allow={["school_admin"]}><AdminSubjects /></AdminShell>} />
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />

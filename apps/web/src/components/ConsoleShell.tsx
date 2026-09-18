@@ -59,7 +59,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const online = tenant?.delivery_mode === "online";
   const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices"]);
   const items = NAV[role].filter((item) => {
-    if (item.to === "admin/classes" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
+    if (item.to === "admin/classes" || item.to === "admin/subjects" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     if (item.to === "admin/fleet" || item.to === "parent/bus") return !online;
     return true;
