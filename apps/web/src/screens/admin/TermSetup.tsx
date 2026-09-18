@@ -73,6 +73,7 @@ export function TermSetup() {
     setSavingDetails(true);
     try {
       const { error: rpcError } = await supabase().rpc("set_school_details", {
+        p_tenant_id: tenant.id,
         p_name: schoolName,
         p_county: schoolCounty,
         p_moe_registration: schoolMoe,
@@ -100,6 +101,7 @@ export function TermSetup() {
     setSavingPayment(true);
     try {
       const { error: rpcError } = await supabase().rpc("set_school_payment_methods", {
+        p_tenant_id: tenant.id,
         p_paybill: paybill,
         p_till: till,
         p_bank_details: bankDetails,
@@ -125,7 +127,7 @@ export function TermSetup() {
     setSavingCrest(true);
     try {
       const url = await uploadTenantLogo(tenant.id, crestFile);
-      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_logo_url: url });
+      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_tenant_id: tenant.id, p_logo_url: url });
       if (rpcError) throw rpcError;
       // Cache-bust: the path is stable (logo.<ext>), so a browser that already fetched it
       // needs a new URL to notice the replacement.
