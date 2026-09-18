@@ -16,7 +16,7 @@ import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type Studen
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 
-type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null };
+type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
@@ -42,7 +42,7 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
 
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
+    sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
     sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
@@ -123,6 +123,25 @@ export function People() {
 
   const switchTab = (t: "students" | "staff") => { setTab(t); setPicked(new Set()); };
 
+  async function deleteStudent(student: Pick<StudentRow, "id" | "full_name">) {
+    if (!window.confirm(`Delete ${student.full_name}? This removes their attendance, marks, fees and guardian links too — it cannot be undone.`)) return;
+    const { error: err } = await supabase().from("students").delete().eq("id", student.id);
+    if (err) { toast(`Could not delete ${student.full_name}: ${err.message}`); return; }
+    toast(`${student.full_name} deleted.`);
+    setManage(null);
+    setReloadKey((k) => k + 1);
+  }
+
+  async function bulkDeleteStudents() {
+    const ids = [...picked];
+    if (!window.confirm(`Delete ${ids.length} learner${ids.length === 1 ? "" : "s"}? This removes their attendance, marks, fees and guardian links too — it cannot be undone.`)) return;
+    const { error: err } = await supabase().from("students").delete().in("id", ids);
+    if (err) { toast(`Could not delete: ${err.message}`); return; }
+    toast(`${ids.length} learner${ids.length === 1 ? "" : "s"} deleted.`);
+    setPicked(new Set());
+    setReloadKey((k) => k + 1);
+  }
+
   const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, row });
 
   return (
@@ -180,6 +199,7 @@ export function People() {
             <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
           )}
           <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
+          <Button variant="danger" onClick={() => void bulkDeleteStudents()}>Delete</Button>
           <button onClick={() => setPicked(new Set())} className="text-small font-semibold text-leaf">Clear</button>
         </div>
       )}
@@ -209,6 +229,7 @@ export function People() {
                 </div>
               ) },
               { key: "class", header: "Class", render: (s) => <span className="text-[13px]">{s.class_id ? classesById.get(s.class_id) : "—"}</span> },
+              { key: "gender", header: "Gender", render: (s) => s.gender ? <span className="text-[13px] capitalize">{s.gender}</span> : <Badge tone="warn">Not set</Badge> },
               { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
               { key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> },
               { key: "login", header: "Login", render: (s) => s.login_id ? <Mono>{s.login_id}</Mono> : <Badge tone="muted">No login</Badge> },
@@ -274,7 +295,14 @@ export function People() {
           eyebrow={manage.kind === "students" ? "Learner" : "Staff"}
           title={`Manage ${manage.row.full_name}`}
           blurb={manage.kind === "students" ? "Details, photo, and records for this learner." : "Details and photo for this staff member."}
-          actions={<Button variant="primary" onClick={() => setManage(null)}>Done</Button>}
+          actions={
+            <>
+              {manage.kind === "students" && (
+                <Button variant="danger" onClick={() => void deleteStudent(manage.row)}>Delete learner</Button>
+              )}
+              <Button variant="primary" onClick={() => setManage(null)}>Done</Button>
+            </>
+          }
         >
           {manage.kind === "students" ? (
             <StudentProfileEditor
@@ -387,14 +415,15 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
 }) {
   const [admissionNo, setAdmissionNo] = useState("");
   const [fullName, setFullName] = useState("");
+  const [gender, setGender] = useState<"male" | "female" | "">("");
   const [classId, setClassId] = useState(classes[0]?.id ?? "");
   const [boarding, setBoarding] = useState(false);
   const [dob, setDob] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function handleAdd() {
-    if (!admissionNo.trim() || !fullName.trim() || !classId) {
-      toast("Admission number, name and class are all required.");
+    if (!admissionNo.trim() || !fullName.trim() || !classId || !gender) {
+      toast("Admission number, name, gender and class are all required.");
       return;
     }
     if (existingAdmissionNos.has(admissionNo.trim())) {
@@ -407,6 +436,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
         tenant_id: tenantId,
         admission_no: admissionNo.trim(),
         full_name: fullName.trim(),
+        gender,
         class_id: classId,
         boarding,
         date_of_birth: dob || null,
@@ -460,15 +490,29 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
             </select>
           </label>
         </div>
-        <label className="block">
-          <span className="mb-1.5 block text-[12.5px] font-semibold">Full name</span>
-          <input
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            placeholder="e.g. Wanjiku Kamau"
-            className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
-          />
-        </label>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Full name</span>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Wanjiku Kamau"
+              className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Gender</span>
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value as "male" | "female" | "")}
+              className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+            >
+              <option value="">Choose…</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+            </select>
+          </label>
+        </div>
         <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">
             <span className="mb-1.5 block text-[12.5px] font-semibold">Date of birth (optional)</span>
@@ -518,8 +562,11 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
     reader.readAsText(file);
   }
 
-  const validCount = rows?.filter((r) => r.errors.length === 0).length ?? 0;
+  const validRows = rows?.filter((r) => r.errors.length === 0) ?? [];
+  const validCount = validRows.length;
   const errorCount = (rows?.length ?? 0) - validCount;
+  const maleCount = validRows.filter((r) => r.gender === "male").length;
+  const femaleCount = validRows.filter((r) => r.gender === "female").length;
 
   async function handleImport() {
     if (!rows) return;
@@ -540,7 +587,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
       onClose={onClose}
       eyebrow="Students"
       title="Import from CSV"
-      blurb="Columns: admission_no, full_name, class, boarding, date_of_birth. Class must match one of this school's existing classes."
+      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth. Class must match one of this school's existing classes."
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -565,6 +612,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
           <>
             <p className="text-[12.5px] text-ink-muted">
               {validCount} of {rows.length} row{rows.length === 1 ? "" : "s"} ready to import
+              {validCount > 0 ? ` — ${maleCount} male, ${femaleCount} female` : ""}
               {errorCount > 0 ? ` · ${errorCount} need fixing (fix the file and re-upload)` : ""}.
             </p>
             <div className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
@@ -573,7 +621,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
                   <span className="w-8 shrink-0 font-mono text-[11px] text-ink-faint">L{r.line}</span>
                   <div className="min-w-0 flex-1">
                     <div className="text-[12.5px] font-medium">
-                      {r.full_name || "—"} <span className="text-ink-faint">· ADM {r.admission_no || "—"} · {r.className || "—"}</span>
+                      {r.full_name || "—"} <span className="text-ink-faint">· ADM {r.admission_no || "—"} · {r.gender ?? "—"} · {r.className || "—"}</span>
                     </div>
                     {r.errors.length > 0 && (
                       <ul className="mt-0.5 text-[11.5px] leading-relaxed text-warn-ink">
@@ -811,6 +859,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
 }) {
   const [fullName, setFullName] = useState(student.full_name);
   const [admissionNo, setAdmissionNo] = useState(student.admission_no);
+  const [gender, setGender] = useState<"male" | "female" | "">(student.gender ?? "");
   const [classId, setClassId] = useState(student.class_id ?? "");
   const [boarding, setBoarding] = useState(student.boarding);
   const [saving, setSaving] = useState(false);
@@ -822,6 +871,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
       const { error } = await supabase().from("students").update({
         full_name: fullName.trim(),
         admission_no: admissionNo.trim(),
+        gender: gender || null,
         class_id: classId || null,
         boarding,
       }).eq("id", student.id);
@@ -848,6 +898,15 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
           <span className="mb-1 block text-[11.5px] font-semibold">Admission number</span>
           <input value={admissionNo} onChange={(e) => setAdmissionNo(e.target.value)}
             className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 font-mono text-[13px] outline-none" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11.5px] font-semibold">Gender</span>
+          <select value={gender} onChange={(e) => setGender(e.target.value as "male" | "female" | "")}
+            className="w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-[13px]">
+            <option value="">Not set</option>
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+          </select>
         </label>
         <label className="block">
           <span className="mb-1 block text-[11.5px] font-semibold">Class</span>

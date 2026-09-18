@@ -7,12 +7,13 @@ import { supabase } from "@figbloom/shared";
  * rows is worse than one that never ran.
  */
 
-export const IMPORT_COLUMNS = ["admission_no", "full_name", "class", "boarding", "date_of_birth"] as const;
+export const IMPORT_COLUMNS = ["admission_no", "full_name", "gender", "class", "boarding", "date_of_birth"] as const;
 
 export interface ImportRow {
   line: number;
   admission_no: string;
   full_name: string;
+  gender: "male" | "female" | null;
   className: string;
   boarding: boolean;
   date_of_birth: string | null;
@@ -49,6 +50,18 @@ function parseBoarding(raw: string): boolean {
   return YES.has(raw.trim().toLowerCase());
 }
 
+const MALE = new Set(["male", "m", "boy", "b"]);
+const FEMALE = new Set(["female", "f", "girl", "g"]);
+
+/** null = blank (caller decides whether that's an error); "invalid" = something was typed but it's neither. */
+function parseGender(raw: string): "male" | "female" | null | "invalid" {
+  const v = raw.trim().toLowerCase();
+  if (!v) return null;
+  if (MALE.has(v)) return "male";
+  if (FEMALE.has(v)) return "female";
+  return "invalid";
+}
+
 function parseDate(raw: string): string | null {
   const v = raw.trim();
   if (!v) return null;
@@ -72,6 +85,7 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
   const idx = {
     admission_no: col("admission_no"),
     full_name: col("full_name"),
+    gender: col("gender"),
     class: col("class"),
     boarding: col("boarding"),
     date_of_birth: col("date_of_birth"),
@@ -84,6 +98,7 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
     const cells = splitCsvLine(lines[i]!);
     const admission_no = idx.admission_no >= 0 ? (cells[idx.admission_no] ?? "") : "";
     const full_name = idx.full_name >= 0 ? (cells[idx.full_name] ?? "") : "";
+    const genderRaw = idx.gender >= 0 ? (cells[idx.gender] ?? "") : "";
     const className = idx.class >= 0 ? (cells[idx.class] ?? "") : "";
     const boardingRaw = idx.boarding >= 0 ? (cells[idx.boarding] ?? "") : "";
     const dobRaw = idx.date_of_birth >= 0 ? (cells[idx.date_of_birth] ?? "") : "";
@@ -93,6 +108,9 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
     else if (ctx.existingAdmissionNos.has(admission_no)) errors.push(`Admission ${admission_no} is already on the roster.`);
     else if (seenInFile.has(admission_no)) errors.push(`Admission ${admission_no} appears twice in this file.`);
     if (!full_name) errors.push("Missing name.");
+    const gender = parseGender(genderRaw);
+    if (gender === null) errors.push("Missing gender (male/female).");
+    else if (gender === "invalid") errors.push(`"${genderRaw}" isn't male or female.`);
     const classId = ctx.classIdByName.get(className.trim().toLowerCase());
     if (!className) errors.push("Missing class.");
     else if (!classId) errors.push(`"${className}" is not one of this school's classes.`);
@@ -105,6 +123,7 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
       line: i + 1,
       admission_no,
       full_name,
+      gender: gender === "invalid" ? null : gender,
       className,
       boarding: parseBoarding(boardingRaw),
       date_of_birth: date_of_birth === "invalid" ? null : date_of_birth,
@@ -118,8 +137,8 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
 export function csvTemplate(): string {
   return [
     IMPORT_COLUMNS.join(","),
-    "4501,Wanjiku Kamau,Form 2 East,yes,2010-03-14",
-    "4502,Otieno Odhiambo,Form 2 East,no,",
+    "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14",
+    "4502,Otieno Odhiambo,male,Form 2 East,no,",
   ].join("\n");
 }
 
@@ -148,6 +167,7 @@ export async function importStudents(
       tenant_id: tenantId,
       admission_no: r.admission_no,
       full_name: r.full_name,
+      gender: r.gender,
       class_id: classIdByName.get(r.className.trim().toLowerCase())!,
       boarding: r.boarding,
       date_of_birth: r.date_of_birth,
