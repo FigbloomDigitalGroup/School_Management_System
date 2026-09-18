@@ -13,6 +13,34 @@ async function fetchSubjects(tenantId: string): Promise<Subject[]> {
   return data ?? [];
 }
 
+/** Quotes a field only if it needs it — a plain "History" or "CRE" stays bare. */
+function csvField(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+function subjectsCsv(subjects: Subject[], unit: string): string {
+  const rows = subjects.map((s) => [
+    csvField(s.name),
+    csvField(s.code),
+    s.min_form_level ?? "",
+    s.max_form_level ?? "",
+    csvField(rangeLabel(s, unit)),
+  ].join(","));
+  return ["name,code,min_form_level,max_form_level,applies_to", ...rows].join("\n");
+}
+
+function downloadSubjectsCsv(subjects: Subject[], unit: string): void {
+  const blob = new Blob([subjectsCsv(subjects, unit)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "subjects.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function rangeLabel(s: Subject, unit: string): string {
   if (s.min_form_level == null && s.max_form_level == null) return `Every ${unit.toLowerCase()}`;
   if (s.min_form_level != null && s.max_form_level != null) {
@@ -130,6 +158,11 @@ export function AdminSubjects() {
           subjects
             ? `${subjects.length} subject${subjects.length === 1 ? "" : "s"} offered at this school. Assign who teaches one in a specific class under Classes → Subjects.`
             : "Loading subjects…"
+        }
+        actions={
+          subjects && subjects.length > 0 ? (
+            <Button onClick={() => downloadSubjectsCsv(subjects, unit)}>Export CSV</Button>
+          ) : undefined
         }
       />
       <div className="px-7 py-6">
