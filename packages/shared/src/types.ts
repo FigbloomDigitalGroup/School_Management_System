@@ -199,6 +199,7 @@ export interface Student {
   full_name: string;
   class_id: string | null;   // null only for higher_ed students, who enroll into course_sections instead
   date_of_birth: string | null;
+  gender: "male" | "female" | null; // null only for a record predating this field
   boarding: boolean;
   active: boolean;
 }
