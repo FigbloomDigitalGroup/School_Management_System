@@ -23,13 +23,13 @@ interface ClassesData {
   studentCountByClass: Map<string, number>;
 }
 
-async function fetchClasses(): Promise<ClassesData> {
+async function fetchClasses(tenantId: string): Promise<ClassesData> {
   const sb = supabase();
   const [{ data: classRows, error: e1 }, { data: teacherRows, error: e2 }, { data: studentRows, error: e3 }, { data: subjectRows, error: e4 }] = await Promise.all([
-    sb.from("classes").select("*").order("form_level").order("name").returns<ClassGroup[]>(),
-    sb.from("profiles").select("id,full_name").eq("role", "teacher").order("full_name").returns<TeacherOption[]>(),
-    sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("subjects").select("id,name").order("name").returns<SubjectOption[]>(),
+    sb.from("classes").select("*").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassGroup[]>(),
+    sb.from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<TeacherOption[]>(),
+    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("subjects").select("id,name").eq("tenant_id", tenantId).order("name").returns<SubjectOption[]>(),
   ]);
   if (e1) throw e1;
   if (e2) throw e2;
@@ -63,7 +63,7 @@ export function AdminClasses() {
   const { profile, tenant } = useTenantSession();
   const combined = tenant.level === "combined";
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchClasses(), [reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchClasses(tenant.id), [tenant.id, reloadKey]);
   const [creating, setCreating] = useState(false);
   const [editingTimetableFor, setEditingTimetableFor] = useState<ClassGroup | null>(null);
   const [editingSubjectsFor, setEditingSubjectsFor] = useState<ClassGroup | null>(null);

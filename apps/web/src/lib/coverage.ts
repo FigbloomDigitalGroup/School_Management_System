@@ -32,9 +32,9 @@ export function currentWeekDates(now: Date = new Date()): WeekDates {
   return out;
 }
 
-export async function fetchTeachersOnLeaveForDate(date: string): Promise<Set<string>> {
+export async function fetchTeachersOnLeaveForDate(tenantId: string, date: string): Promise<Set<string>> {
   const { data, error } = await supabase()
-    .from("leave_requests").select("teacher_id").eq("status", "approved")
+    .from("leave_requests").select("teacher_id").eq("tenant_id", tenantId).eq("status", "approved")
     .lte("starts_on", date).gte("ends_on", date)
     .returns<{ teacher_id: string }[]>();
   if (error) throw new Error(error.message);
@@ -65,14 +65,14 @@ export interface CoverageItem {
  *  leave that day, with substitute candidates drawn from who else
  *  specializes in that subject (teacher_subjects) — never the absent
  *  teacher, never someone also out that day. */
-export async function fetchCoverageForDate(weekday: Weekday, date: string): Promise<CoverageItem[]> {
-  const onLeave = await fetchTeachersOnLeaveForDate(date);
+export async function fetchCoverageForDate(tenantId: string, weekday: Weekday, date: string): Promise<CoverageItem[]> {
+  const onLeave = await fetchTeachersOnLeaveForDate(tenantId, date);
   if (onLeave.size === 0) return [];
 
   const sb = supabase();
   const { data: slots, error: slotsErr } = await sb
     .from("timetable_slots").select("class_id, start_time, label, subject_id")
-    .eq("day", weekday).not("subject_id", "is", null)
+    .eq("tenant_id", tenantId).eq("day", weekday).not("subject_id", "is", null)
     .returns<{ class_id: string; start_time: string; label: string; subject_id: string }[]>();
   if (slotsErr) throw new Error(slotsErr.message);
   if (!slots?.length) return [];
@@ -82,14 +82,14 @@ export async function fetchCoverageForDate(weekday: Weekday, date: string): Prom
 
   const [{ data: classes, error: e1 }, { data: subjects, error: e2 }, { data: profiles, error: e3 },
     { data: assignments, error: e4 }, { data: specializations, error: e5 }, { data: decided, error: e6 }] = await Promise.all([
-    sb.from("classes").select("id, name").in("id", classIds).returns<{ id: string; name: string }[]>(),
-    sb.from("subjects").select("id, name").in("id", subjectIds).returns<{ id: string; name: string }[]>(),
-    sb.from("profiles").select("id, full_name").eq("role", "teacher").returns<{ id: string; full_name: string }[]>(),
-    sb.from("teaching_assignments").select("class_id, subject_id, teacher_id").in("class_id", classIds).in("subject_id", subjectIds)
+    sb.from("classes").select("id, name").eq("tenant_id", tenantId).in("id", classIds).returns<{ id: string; name: string }[]>(),
+    sb.from("subjects").select("id, name").eq("tenant_id", tenantId).in("id", subjectIds).returns<{ id: string; name: string }[]>(),
+    sb.from("profiles").select("id, full_name").eq("tenant_id", tenantId).eq("role", "teacher").returns<{ id: string; full_name: string }[]>(),
+    sb.from("teaching_assignments").select("class_id, subject_id, teacher_id").eq("tenant_id", tenantId).in("class_id", classIds).in("subject_id", subjectIds)
       .returns<{ class_id: string; subject_id: string; teacher_id: string }[]>(),
-    sb.from("teacher_subjects").select("teacher_id, subject_id").in("subject_id", subjectIds)
+    sb.from("teacher_subjects").select("teacher_id, subject_id").eq("tenant_id", tenantId).in("subject_id", subjectIds)
       .returns<{ teacher_id: string; subject_id: string }[]>(),
-    sb.from("coverage_assignments").select("class_id, start_time, covering_teacher_id, assigned_at").eq("date", date).in("class_id", classIds)
+    sb.from("coverage_assignments").select("class_id, start_time, covering_teacher_id, assigned_at").eq("tenant_id", tenantId).eq("date", date).in("class_id", classIds)
       .returns<{ class_id: string; start_time: string; covering_teacher_id: string | null; assigned_at: string }[]>(),
   ]);
   if (e1) throw new Error(e1.message);
@@ -178,8 +178,8 @@ export async function assignCoverage(input: {
  *  ordered by date then time — what the Dashboard's "Needs cover" card and
  *  the Timetable's per-day flag are both built from, so leave requested for
  *  a day later this week shows up now, not only once that day arrives. */
-export async function fetchCoverageThisWeek(): Promise<CoverageItem[]> {
+export async function fetchCoverageThisWeek(tenantId: string): Promise<CoverageItem[]> {
   const week = currentWeekDates();
-  const perDay = await Promise.all(WEEKDAYS.map((day) => fetchCoverageForDate(day, week[day])));
+  const perDay = await Promise.all(WEEKDAYS.map((day) => fetchCoverageForDate(tenantId, day, week[day])));
   return perDay.flat().sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 }

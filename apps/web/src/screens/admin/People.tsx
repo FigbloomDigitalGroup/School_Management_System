@@ -36,20 +36,20 @@ interface PeopleData {
   subjectIdsByTeacher: Map<string, string[]>;
 }
 
-async function fetchPeople(): Promise<PeopleData> {
+async function fetchPeople(tenantId: string): Promise<PeopleData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("id").eq("is_current", true).maybeSingle<{ id: string }>();
+  const { data: term } = await sb.from("terms").select("id").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<{ id: string }>();
 
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
-    sb.from("classes").select("id,name").order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url,profile_id").eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
+    sb.from("students").select("id,admission_no,full_name,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
     term
-      ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
+      ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
-    sb.from("subjects").select("*").order("name").returns<Subject[]>(),
-    sb.from("teacher_subjects").select("teacher_id, subject_id").returns<{ teacher_id: string; subject_id: string }[]>(),
-    sb.from("profiles").select("id,login_id").eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
+    sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
+    sb.from("teacher_subjects").select("teacher_id, subject_id").eq("tenant_id", tenantId).returns<{ teacher_id: string; subject_id: string }[]>(),
+    sb.from("profiles").select("id,login_id").eq("tenant_id", tenantId).eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
   ]);
 
   const feeByStudent = new Map<string, { total: number; paid: number }>();
@@ -96,7 +96,7 @@ export function People() {
   const [createLoginsOpen, setCreateLoginsOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const { data, loading, error } = useAsync(() => fetchPeople(), [reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchPeople(tenant.id), [tenant.id, reloadKey]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -10,8 +10,8 @@ import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, Vehi
 
 // ---------------------------------------------------------------- vehicles
 
-export async function listVehicles(): Promise<Vehicle[]> {
-  const { data, error } = await supabase().from("vehicles").select("*").order("plate_number");
+export async function listVehicles(tenantId: string): Promise<Vehicle[]> {
+  const { data, error } = await supabase().from("vehicles").select("*").eq("tenant_id", tenantId).order("plate_number");
   if (error) throw error;
   return (data ?? []) as Vehicle[];
 }
@@ -54,8 +54,8 @@ export async function setVehicleActive(id: string, active: boolean): Promise<voi
 
 // ---------------------------------------------------------------- routes + stops
 
-export async function listRoutes(): Promise<Route[]> {
-  const { data, error } = await supabase().from("routes").select("*").order("name");
+export async function listRoutes(tenantId: string): Promise<Route[]> {
+  const { data, error } = await supabase().from("routes").select("*").eq("tenant_id", tenantId).order("name");
   if (error) throw error;
   return (data ?? []) as Route[];
 }
@@ -93,8 +93,8 @@ export async function replaceRouteStops(
 
 export interface DriverOption { id: string; full_name: string }
 
-export async function listDrivers(): Promise<DriverOption[]> {
-  const { data, error } = await supabase().from("profiles").select("id, full_name").eq("role", "driver").order("full_name");
+export async function listDrivers(tenantId: string): Promise<DriverOption[]> {
+  const { data, error } = await supabase().from("profiles").select("id, full_name").eq("tenant_id", tenantId).eq("role", "driver").order("full_name");
   if (error) throw error;
   return (data ?? []) as DriverOption[];
 }
@@ -105,11 +105,11 @@ export interface AssignmentRow extends VehicleAssignment {
   route: Pick<Route, "name"> | null;
 }
 
-export async function listAssignments(): Promise<AssignmentRow[]> {
+export async function listAssignments(tenantId: string): Promise<AssignmentRow[]> {
   const { data, error } = await supabase()
     .from("vehicle_assignments")
     .select("*, vehicle:vehicles(plate_number), driver:profiles(id, full_name), route:routes(name)")
-    .eq("active", true);
+    .eq("tenant_id", tenantId).eq("active", true);
   if (error) throw error;
   return (data ?? []) as unknown as AssignmentRow[];
 }
@@ -220,8 +220,8 @@ export interface AlertRow extends VehicleAlert {
 }
 
 /** Speeding or off-route alerts raised by the vehicle_locations trigger — see the fleet_alerts migration. */
-export async function listAlerts(onlyOpen = true): Promise<AlertRow[]> {
-  let query = supabase().from("vehicle_alerts").select("*, vehicle:vehicles(plate_number)").order("created_at", { ascending: false });
+export async function listAlerts(tenantId: string, onlyOpen = true): Promise<AlertRow[]> {
+  let query = supabase().from("vehicle_alerts").select("*, vehicle:vehicles(plate_number)").eq("tenant_id", tenantId).order("created_at", { ascending: false });
   if (onlyOpen) query = query.is("acknowledged_at", null);
   const { data, error } = await query;
   if (error) throw error;
@@ -257,10 +257,11 @@ export interface TripRow extends Trip {
 }
 
 /** Most recent trips first, across the whole fleet or just one vehicle. */
-export async function listTrips(vehicleId?: string, limitTo = 50): Promise<TripRow[]> {
+export async function listTrips(tenantId: string, vehicleId?: string, limitTo = 50): Promise<TripRow[]> {
   let query = supabase()
     .from("trips")
     .select("*, vehicle:vehicles(plate_number), driver:profiles(full_name), route:routes(name)")
+    .eq("tenant_id", tenantId)
     .order("started_at", { ascending: false })
     .limit(limitTo);
   if (vehicleId) query = query.eq("vehicle_id", vehicleId);

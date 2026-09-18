@@ -26,7 +26,7 @@ export function AdminLeave() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data: requests, loading, error } = useAsync(() => fetchAllLeaveRequests(), [reloadKey]);
+  const { data: requests, loading, error } = useAsync(() => fetchAllLeaveRequests(tenant.id), [tenant.id, reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
 
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});

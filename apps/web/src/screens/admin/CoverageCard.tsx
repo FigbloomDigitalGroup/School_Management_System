@@ -19,7 +19,7 @@ export function CoverageCard() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data: coverage } = useAsync(() => fetchCoverageThisWeek(), [reloadKey]);
+  const { data: coverage } = useAsync(() => fetchCoverageThisWeek(tenant.id), [tenant.id, reloadKey]);
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);

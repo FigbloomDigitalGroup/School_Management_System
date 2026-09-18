@@ -26,18 +26,18 @@ interface DashboardData {
   submittedClasses: Set<string>;
 }
 
-async function fetchDashboard(): Promise<DashboardData> {
+async function fetchDashboard(tenantId: string): Promise<DashboardData> {
   const sb = supabase();
 
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
-    sb.from("classes").select("id,name,class_teacher_id").order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
-    sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id").in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
+    sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
+    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
     termId
-      ? sb.from("fee_invoices").select("total_cents,paid_cents").eq("term_id", termId).returns<Pick<FeeInvoice, "total_cents" | "paid_cents">[]>()
+      ? sb.from("fee_invoices").select("total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", termId).returns<Pick<FeeInvoice, "total_cents" | "paid_cents">[]>()
       : Promise.resolve({ data: [] as Pick<FeeInvoice, "total_cents" | "paid_cents">[] }),
   ]);
 
@@ -52,7 +52,7 @@ async function fetchDashboard(): Promise<DashboardData> {
 
   if (termId) {
     const { data: latest } = await sb
-      .from("attendance").select("taken_on").eq("term_id", termId)
+      .from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
       .order("taken_on", { ascending: false }).limit(1)
       .returns<{ taken_on: string }[]>();
     attendanceDate = latest?.[0]?.taken_on ?? null;
@@ -60,7 +60,7 @@ async function fetchDashboard(): Promise<DashboardData> {
     if (attendanceDate) {
       const { data: rows } = await sb
         .from("attendance").select("class_id,mark")
-        .eq("term_id", termId).eq("taken_on", attendanceDate)
+        .eq("tenant_id", tenantId).eq("term_id", termId).eq("taken_on", attendanceDate)
         .returns<{ class_id: string; mark: string }[]>();
       for (const r of rows ?? []) {
         submittedClasses.add(r.class_id);
@@ -94,7 +94,7 @@ async function fetchDashboard(): Promise<DashboardData> {
 export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
   const toast = useToast();
-  const { data, loading, error } = useAsync(() => fetchDashboard(), []);
+  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 

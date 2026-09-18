@@ -32,15 +32,15 @@ interface AnnouncementsData {
   recent: RecentAnnouncement[];
 }
 
-async function fetchAnnouncementsData(): Promise<AnnouncementsData> {
+async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsData> {
   const sb = supabase();
 
   const [{ data: classRows }, { data: studentRows }, { count: staffCount }, { data: guardianRows }, { data: recent }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level").order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
-    sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id", { count: "exact", head: true }).in("role", ["school_admin", "teacher"]),
-    sb.from("guardians").select("profile_id").returns<{ profile_id: string }[]>(),
-    sb.from("announcements").select("id,subject,published_at").not("published_at", "is", null)
+    sb.from("classes").select("id,name,form_level").eq("tenant_id", tenantId).order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
+    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
+    sb.from("guardians").select("profile_id").eq("tenant_id", tenantId).returns<{ profile_id: string }[]>(),
+    sb.from("announcements").select("id,subject,published_at").eq("tenant_id", tenantId).not("published_at", "is", null)
       .order("published_at", { ascending: false }).limit(5).returns<RecentAnnouncement[]>(),
   ]);
 
@@ -74,7 +74,7 @@ export function Announcements() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading } = useAsync(() => fetchAnnouncementsData(), [reloadKey]);
+  const { data, loading } = useAsync(() => fetchAnnouncementsData(tenant.id), [tenant.id, reloadKey]);
   const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
   const [formLevel, setFormLevel] = useState(1);
   const [classId, setClassId] = useState("");

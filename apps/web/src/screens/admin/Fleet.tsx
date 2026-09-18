@@ -39,13 +39,13 @@ interface FleetData {
   alerts: AlertRow[];
 }
 
-async function fetchFleet(): Promise<FleetData> {
+async function fetchFleet(tenantId: string): Promise<FleetData> {
   const [vehicles, routes, drivers, assignments, alerts] = await Promise.all([
-    listVehicles(),
-    listRoutes(),
-    listDrivers(),
-    listAssignments(),
-    listAlerts(),
+    listVehicles(tenantId),
+    listRoutes(tenantId),
+    listDrivers(tenantId),
+    listAssignments(tenantId),
+    listAlerts(tenantId),
   ]);
   return { vehicles, routes, drivers, assignments, alerts };
 }
@@ -71,7 +71,7 @@ export function Fleet() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchFleet(), [refreshKey]);
+  const { data, loading, error } = useAsync(() => fetchFleet(tenant.id), [tenant.id, refreshKey]);
   const refresh = () => setRefreshKey((k) => k + 1);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
@@ -232,7 +232,7 @@ export function Fleet() {
               )}
             </section>
 
-            <TripHistory />
+            <TripHistory tenantId={tenant.id} />
 
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Assign a driver</h2>

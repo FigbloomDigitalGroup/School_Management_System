@@ -10,13 +10,13 @@ interface TeacherOption { id: string; full_name: string }
 interface SubjectRow { subject: Subject; teacherId: string | null }
 interface ClassSubjectsData { rows: SubjectRow[]; qualifiedTeacherIdsBySubject: Map<string, Set<string>> }
 
-async function fetchClassSubjects(classId: string): Promise<ClassSubjectsData> {
+async function fetchClassSubjects(tenantId: string, classId: string): Promise<ClassSubjectsData> {
   const sb = supabase();
   const [{ data: subjects, error: e1 }, { data: assignments, error: e2 }, { data: specializations, error: e3 }] = await Promise.all([
-    sb.from("subjects").select("*").order("name").returns<Subject[]>(),
+    sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
     sb.from("teaching_assignments").select("subject_id, teacher_id").eq("class_id", classId)
       .returns<{ subject_id: string; teacher_id: string }[]>(),
-    sb.from("teacher_subjects").select("subject_id, teacher_id").returns<{ subject_id: string; teacher_id: string }[]>(),
+    sb.from("teacher_subjects").select("subject_id, teacher_id").eq("tenant_id", tenantId).returns<{ subject_id: string; teacher_id: string }[]>(),
   ]);
   if (e1) throw new Error(e1.message);
   if (e2) throw new Error(e2.message);
@@ -48,7 +48,7 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
 }) {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchClassSubjects(classId), [classId, reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchClassSubjects(tenantId, classId), [tenantId, classId, reloadKey]);
   const rows = data?.rows;
   const reload = () => setReloadKey((k) => k + 1);
 

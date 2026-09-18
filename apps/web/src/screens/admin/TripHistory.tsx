@@ -25,8 +25,8 @@ function fmtDuration(startedAt: string, endedAt: string | null): string {
  * the exact vehicle_locations history already being recorded, not a new
  * computation. Answers "where did this bus actually go on Tuesday."
  */
-export function TripHistory() {
-  const { data: trips, loading, error } = useAsync(() => listTrips(), []);
+export function TripHistory({ tenantId }: { tenantId: string }) {
+  const { data: trips, loading, error } = useAsync(() => listTrips(tenantId), [tenantId]);
   const [openTrip, setOpenTrip] = useState<TripRow | null>(null);
 
   return (
