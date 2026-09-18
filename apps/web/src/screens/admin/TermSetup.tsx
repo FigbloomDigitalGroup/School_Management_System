@@ -62,6 +62,43 @@ export function TermSetup() {
   const { data, loading, error } = useAsync(() => fetchTermSetup(tenant.id), [tenant.id, reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
 
+  const [termYear, setTermYear] = useState(new Date().getFullYear());
+  const [termIndex, setTermIndex] = useState<1 | 2 | 3>(1);
+  const [termStartsOn, setTermStartsOn] = useState("");
+  const [termEndsOn, setTermEndsOn] = useState("");
+  const [savingTerm, setSavingTerm] = useState(false);
+
+  async function handleCreateTerm(e: FormEvent) {
+    e.preventDefault();
+    if (!termStartsOn || !termEndsOn) { toast("Give the term a start and end date."); return; }
+    if (termEndsOn < termStartsOn) { toast("The end date must be after the start date."); return; }
+    setSavingTerm(true);
+    try {
+      if (data?.term) {
+        const { error: endErr } = await supabase().from("terms").update({ is_current: false }).eq("id", data.term.id);
+        if (endErr) throw endErr;
+      }
+      const { error } = await supabase().from("terms").insert({
+        tenant_id: tenant.id,
+        name: `Term ${termIndex}, ${termYear}`,
+        year: termYear,
+        index: termIndex,
+        starts_on: termStartsOn,
+        ends_on: termEndsOn,
+        is_current: true,
+      });
+      if (error) throw error;
+      toast(`Term ${termIndex}, ${termYear} started.`);
+      setTermStartsOn("");
+      setTermEndsOn("");
+      reload();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not create the term: ${err.message}` : "Could not create the term.");
+    } finally {
+      setSavingTerm(false);
+    }
+  }
+
   const [schoolName, setSchoolName] = useState(tenant.name);
   const [schoolCounty, setSchoolCounty] = useState(tenant.county);
   const [schoolMoe, setSchoolMoe] = useState(tenant.moe_registration ?? "");
@@ -311,7 +348,79 @@ export function TermSetup() {
 
                     {expanded && (
                       <div className="border-t border-line-soft bg-page px-4 py-3.5">
-                        {s.id === "branding" ? (
+                        {s.id === "term" ? (
+                          <form onSubmit={handleCreateTerm} className="grid gap-3">
+                            {data.term && (
+                              <p className="text-[12.5px] leading-relaxed text-ink-muted">
+                                Starting a new term ends {data.term.name} and makes this the current one everywhere in the app.
+                              </p>
+                            )}
+                            <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Term</span>
+                                <select
+                                  value={termIndex}
+                                  onChange={(e) => setTermIndex(Number(e.target.value) as 1 | 2 | 3)}
+                                  className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+                                >
+                                  <option value={1}>Term 1</option>
+                                  <option value={2}>Term 2</option>
+                                  <option value={3}>Term 3</option>
+                                </select>
+                              </label>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Year</span>
+                                <input
+                                  type="number"
+                                  value={termYear}
+                                  onChange={(e) => setTermYear(Number(e.target.value))}
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Starts on</span>
+                                <input
+                                  type="date"
+                                  value={termStartsOn}
+                                  onChange={(e) => setTermStartsOn(e.target.value)}
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                                />
+                              </label>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Ends on</span>
+                                <input
+                                  type="date"
+                                  value={termEndsOn}
+                                  onChange={(e) => setTermEndsOn(e.target.value)}
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <div>
+                              <Button type="submit" variant="primary" disabled={savingTerm}>
+                                {savingTerm ? "Saving…" : data.term ? "Start this term" : "Create the first term"}
+                              </Button>
+                            </div>
+                          </form>
+                        ) : s.id === "classes" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              Classes, streams and their class teachers are set up under Classes, not here.
+                            </p>
+                            <Button variant="primary" onClick={() => navigate("../admin/classes")}>Go to Classes</Button>
+                          </div>
+                        ) : s.id === "fees" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              {data.term
+                                ? "Fee items for the current term are set up under Fees."
+                                : "A current term is needed first — set up Term dates above, then come back here."}
+                            </p>
+                            <Button variant="primary" disabled={!data.term} onClick={() => navigate("../admin/fees")}>Go to Fees</Button>
+                          </div>
+                        ) : s.id === "branding" ? (
                           <form onSubmit={handleSaveCrest} className="flex flex-wrap items-end gap-3">
                             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-white">
                               {logoUrl ? (
