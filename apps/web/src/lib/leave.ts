@@ -48,10 +48,11 @@ export async function cancelLeaveRequest(id: string): Promise<void> {
 }
 
 /** Every leave request in the school — what the principal's review screen is built from. */
-export async function fetchAllLeaveRequests(): Promise<LeaveRequestRow[]> {
+export async function fetchAllLeaveRequests(tenantId: string): Promise<LeaveRequestRow[]> {
   const { data, error } = await supabase()
     .from("leave_requests")
     .select("*, profiles!leave_requests_teacher_id_fkey(full_name)")
+    .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
     .returns<(LeaveRequest & { profiles: { full_name: string } | null })[]>();
   if (error) throw new Error(error.message);

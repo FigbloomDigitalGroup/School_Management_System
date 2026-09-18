@@ -18,18 +18,18 @@ interface ReportsData {
   meanByClass: Map<string, { mean: number; entered: number; total: number; scheme: GradingSchemeId }>;
 }
 
-async function fetchReports(country: string): Promise<ReportsData> {
+async function fetchReports(tenantId: string, country: string): Promise<ReportsData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const { data: classRows } = await sb
-    .from("classes").select("id,name,form_level,level").order("form_level").order("name")
+    .from("classes").select("id,name,form_level,level").eq("tenant_id", tenantId).order("form_level").order("name")
     .returns<Pick<ClassGroup, "id" | "name" | "form_level" | "level">[]>();
   const classes = classRows ?? [];
 
   const { data: studentRows } = await sb
-    .from("students").select("id,class_id").eq("active", true)
+    .from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true)
     .returns<{ id: string; class_id: string }[]>();
   const classIdByStudent = new Map((studentRows ?? []).map((s) => [s.id, s.class_id]));
   const rosterSizeByClass = new Map<string, number>();
@@ -44,10 +44,10 @@ async function fetchReports(country: string): Promise<ReportsData> {
 
   if (termId) {
     const [{ data: attRows }, { data: invRows }, { data: examRows }] = await Promise.all([
-      sb.from("attendance").select("class_id,mark").eq("term_id", termId).returns<{ class_id: string; mark: AttendanceMark }[]>(),
-      sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", termId)
+      sb.from("attendance").select("class_id,mark").eq("tenant_id", tenantId).eq("term_id", termId).returns<{ class_id: string; mark: AttendanceMark }[]>(),
+      sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", termId)
         .returns<{ student_id: string; total_cents: number; paid_cents: number }[]>(),
-      sb.from("exams").select("*").eq("term_id", termId).not("published_at", "is", null)
+      sb.from("exams").select("*").eq("tenant_id", tenantId).eq("term_id", termId).not("published_at", "is", null)
         .order("published_at", { ascending: false }).limit(1).returns<Exam[]>(),
     ]);
 
@@ -76,7 +76,7 @@ async function fetchReports(country: string): Promise<ReportsData> {
     latestExam = examRows?.[0] ?? null;
     if (latestExam) {
       const { data: markRows } = await sb
-        .from("marks").select("student_id,score").eq("exam_id", latestExam.id)
+        .from("marks").select("student_id,score").eq("tenant_id", tenantId).eq("exam_id", latestExam.id)
         .returns<{ student_id: string; score: number | null }[]>();
       const byClass = new Map<string, { subject: string; score: number | null }[]>();
       for (const m of markRows ?? []) {
@@ -105,7 +105,7 @@ async function fetchReports(country: string): Promise<ReportsData> {
  */
 export function AdminReports() {
   const { tenant } = useTenantSession();
-  const { data, loading, error } = useAsync(() => fetchReports(tenant.country), [tenant.country]);
+  const { data, loading, error } = useAsync(() => fetchReports(tenant.id, tenant.country), [tenant.id, tenant.country]);
 
   const overallAttendance = data && data.attendanceOverall.total > 0
     ? Math.round((data.attendanceOverall.present / data.attendanceOverall.total) * 100)

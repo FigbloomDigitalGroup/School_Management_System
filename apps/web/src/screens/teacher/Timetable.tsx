@@ -17,7 +17,7 @@ interface DisplayRow extends TeacherTimetableRow {
 }
 
 export function TeacherTimetable() {
-  const { profile } = useTenantSession();
+  const { profile, tenant } = useTenantSession();
   const [params] = useSearchParams();
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
@@ -30,7 +30,7 @@ export function TeacherTimetable() {
   // recurring weekly template ("Tue" means every Tuesday), so checking leave
   // against a day tab means checking against THIS week's date for that day.
   const weekDates = useMemo(() => currentWeekDates(), []);
-  const { data: dayCoverage } = useAsync(() => fetchCoverageForDate(day, weekDates[day]), [weekDates, day]);
+  const { data: dayCoverage } = useAsync(() => fetchCoverageForDate(tenant.id, day, weekDates[day]), [tenant.id, weekDates, day]);
   const coverageByClassTime = useMemo(
     () => new Map((dayCoverage ?? []).map((c) => [`${c.classId}|${c.time}`, c])),
     [dayCoverage],

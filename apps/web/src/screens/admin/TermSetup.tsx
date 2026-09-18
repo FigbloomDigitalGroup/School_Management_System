@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
@@ -21,19 +21,19 @@ interface TermSetupData {
   activeStudents: number;
 }
 
-async function fetchTermSetup(): Promise<TermSetupData> {
+async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const [{ data: classRows }, { count: subjectsCount }, feeItemsRes, { data: teacherRows }, { count: studentsCount }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level,class_teacher_id").order("form_level").order("name").returns<ClassRow[]>(),
-    sb.from("subjects").select("id", { count: "exact", head: true }),
+    sb.from("classes").select("id,name,form_level,class_teacher_id").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassRow[]>(),
+    sb.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
     termId
-      ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("term_id", termId)
+      ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("term_id", termId)
       : Promise.resolve({ count: 0 }),
-    sb.from("profiles").select("id,full_name").eq("role", "teacher").order("full_name").returns<Pick<Profile, "id" | "full_name">[]>(),
-    sb.from("students").select("id", { count: "exact", head: true }).eq("active", true),
+    sb.from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<Pick<Profile, "id" | "full_name">[]>(),
+    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
   ]);
 
   return {
@@ -59,13 +59,24 @@ export function TermSetup() {
   const { tenant } = useTenantSession();
   const [open, setOpen] = useState<string | null>("teachers");
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchTermSetup(), [reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchTermSetup(tenant.id), [tenant.id, reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
 
   const [schoolName, setSchoolName] = useState(tenant.name);
   const [schoolCounty, setSchoolCounty] = useState(tenant.county);
   const [schoolMoe, setSchoolMoe] = useState(tenant.moe_registration ?? "");
   const [savingDetails, setSavingDetails] = useState(false);
+
+  // An org_admin can act inside more than one school without this component
+  // unmounting (only the :slug param changes) — resync these fields to the
+  // newly-acted-for school instead of holding onto whichever school's name
+  // happened to be current when the form first mounted.
+  useEffect(() => {
+    setSchoolName(tenant.name);
+    setSchoolCounty(tenant.county);
+    setSchoolMoe(tenant.moe_registration ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant.id]);
 
   async function handleSaveDetails(e: FormEvent) {
     e.preventDefault();
@@ -95,6 +106,17 @@ export function TermSetup() {
     Boolean(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details),
   );
   const [savingPayment, setSavingPayment] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
+
+  useEffect(() => {
+    setPaybill(tenant.payment_paybill ?? "");
+    setTill(tenant.payment_till ?? "");
+    setBankDetails(tenant.payment_bank_details ?? "");
+    setPaymentNotes(tenant.payment_notes ?? "");
+    setPaymentSet(Boolean(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details));
+    setLogoUrl(tenant.logo_url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant.id]);
 
   async function handleSavePayment(e: FormEvent) {
     e.preventDefault();
@@ -117,7 +139,6 @@ export function TermSetup() {
     }
   }
 
-  const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
   const [crestFile, setCrestFile] = useState<File | null>(null);
   const [savingCrest, setSavingCrest] = useState(false);
 

@@ -56,29 +56,30 @@ interface FeesData {
   pendingProofs: PendingProofRow[];
 }
 
-async function fetchFees(): Promise<FeesData> {
+async function fetchFees(tenantId: string): Promise<FeesData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const [{ data: feeItemRows }, invoicesRes, proofsRes, { data: classRows }] = await Promise.all([
     termId
-      ? sb.from("fee_items").select("*").eq("term_id", termId).returns<FeeItem[]>()
+      ? sb.from("fee_items").select("*").eq("tenant_id", tenantId).eq("term_id", termId).returns<FeeItem[]>()
       : Promise.resolve({ data: [] as FeeItem[] }),
     termId
-      ? sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))").eq("term_id", termId).returns<RawInvoiceRow[]>()
+      ? sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))").eq("tenant_id", tenantId).eq("term_id", termId).returns<RawInvoiceRow[]>()
       : Promise.resolve({ data: [] as RawInvoiceRow[] }),
     // Payment proofs are keyed by invoice, not term — reach the current term
     // through fee_invoices the same way the outstanding-balances query does.
     termId
       ? sb.from("payment_proofs")
           .select("id,file_path,file_name,note,uploaded_at,fee_invoices!inner(term_id,students(full_name,classes(name)))")
+          .eq("tenant_id", tenantId)
           .eq("status", "pending")
           .eq("fee_invoices.term_id", termId)
           .order("uploaded_at", { ascending: true })
           .returns<RawProofRow[]>()
       : Promise.resolve({ data: [] as RawProofRow[] }),
-    sb.from("classes").select("form_level").returns<{ form_level: number }[]>(),
+    sb.from("classes").select("form_level").eq("tenant_id", tenantId).returns<{ form_level: number }[]>(),
   ]);
 
   const formLevels = [...new Set((classRows ?? []).map((c) => c.form_level))].sort((a, b) => a - b);
@@ -115,7 +116,7 @@ export function Fees() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchFees(), [reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchFees(tenant.id), [tenant.id, reloadKey]);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [editingItems, setEditingItems] = useState(false);
 

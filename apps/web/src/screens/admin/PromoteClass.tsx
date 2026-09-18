@@ -24,11 +24,11 @@ async function fetchRoster(classId: string): Promise<Roster[]> {
  *  exam — what "promote if passing" judges against. A student with no marks
  *  on record simply has no entry, so the bulk action leaves them untouched
  *  rather than guessing. */
-async function fetchLatestExamMeans(studentIds: string[]): Promise<Map<string, number>> {
+async function fetchLatestExamMeans(tenantId: string, studentIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (!studentIds.length) return out;
   const { data: examRows, error: e1 } = await supabase()
-    .from("exams").select("id").not("published_at", "is", null).order("published_at", { ascending: false }).limit(1)
+    .from("exams").select("id").eq("tenant_id", tenantId).not("published_at", "is", null).order("published_at", { ascending: false }).limit(1)
     .returns<{ id: string }[]>();
   if (e1) throw new Error(e1.message);
   const examId = examRows?.[0]?.id;
@@ -118,7 +118,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
         if (!alive) return;
         const target = defaultTargetFor(sourceClass, allClasses);
         setRows(roster.map((s) => ({ ...s, target })));
-        const means = await fetchLatestExamMeans(roster.map((s) => s.id));
+        const means = await fetchLatestExamMeans(tenantId, roster.map((s) => s.id));
         if (alive) setExamMeans(means);
       })
       .catch((err: Error) => { if (alive) setError(err); });
