@@ -87,7 +87,11 @@ export function People() {
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [manage, setManage] = useState<{ kind: "students" | "staff"; row: StudentRow | StaffRow } | null>(null);
+  // Just the id, not a snapshot of the row — a saved edit bumps reloadKey
+  // and refetches `data`, but a captured row object would never pick that
+  // up, leaving the still-open modal (its title especially) stuck showing
+  // whatever was there before the edit.
+  const [manage, setManage] = useState<{ kind: "students" | "staff"; id: string } | null>(null);
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -157,7 +161,10 @@ export function People() {
     }
   }
 
-  const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, row });
+  const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, id: row.id });
+  const manageRow: StudentRow | StaffRow | null = manage
+    ? (manage.kind === "students" ? data?.students.find((s) => s.id === manage.id) : data?.staff.find((s) => s.id === manage.id)) ?? null
+    : null;
 
   return (
     <>
@@ -317,21 +324,21 @@ export function People() {
         )}
       </div>
 
-      {manage && (
+      {manage && manageRow && (
         <Modal
-          key={manage.row.id}
+          key={manageRow.id}
           open
           onClose={() => setManage(null)}
           eyebrow={manage.kind === "students" ? "Learner" : "Staff"}
-          title={`Manage ${manage.row.full_name}`}
+          title={`Manage ${manageRow.full_name}`}
           blurb={manage.kind === "students" ? "Details, photo, and records for this learner." : "Details and photo for this staff member."}
           actions={
             <>
               {manage.kind === "students" && (
-                <Button variant="danger" onClick={() => void deleteStudent(manage.row)}>Delete learner</Button>
+                <Button variant="danger" onClick={() => void deleteStudent(manageRow)}>Delete learner</Button>
               )}
-              {manage.kind === "staff" && manage.row.id !== profile.id && (
-                <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manage.row)}>
+              {manage.kind === "staff" && manageRow.id !== profile.id && (
+                <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manageRow)}>
                   {deletingStaff ? "Removing…" : "Remove staff"}
                 </Button>
               )}
@@ -341,36 +348,36 @@ export function People() {
         >
           {manage.kind === "students" ? (
             <StudentProfileEditor
-              student={manage.row as StudentRow}
+              student={manageRow as StudentRow}
               classes={data?.classes ?? []}
               onSaved={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
           ) : (
             <StaffProfileEditor
-              staff={manage.row as StaffRow}
+              staff={manageRow as StaffRow}
               onSaved={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
           )}
           <AvatarEditor
-            id={manage.row.id}
-            name={manage.row.full_name}
+            id={manageRow.id}
+            name={manageRow.full_name}
             kind={manage.kind}
             tenantId={tenant.id}
-            url={avatarOverrides[manage.row.id] ?? manage.row.avatar_url}
-            onUploaded={(url) => setAvatarOverrides((m) => ({ ...m, [manage.row.id]: url }))}
+            url={avatarOverrides[manageRow.id] ?? manageRow.avatar_url}
+            onUploaded={(url) => setAvatarOverrides((m) => ({ ...m, [manageRow.id]: url }))}
             toast={toast}
           />
           {manage.kind === "students" && (
-            <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manage.row.id} toast={toast} />
+            <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
           )}
-          {manage.kind === "staff" && (manage.row as StaffRow).role === "teacher" && data && (
+          {manage.kind === "staff" && (manageRow as StaffRow).role === "teacher" && data && (
             <TeacherSubjectsEditor
-              teacherId={manage.row.id}
+              teacherId={manageRow.id}
               tenantId={tenant.id}
               subjects={data.subjects}
-              selectedIds={new Set(data.subjectIdsByTeacher.get(manage.row.id) ?? [])}
+              selectedIds={new Set(data.subjectIdsByTeacher.get(manageRow.id) ?? [])}
               onChange={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
