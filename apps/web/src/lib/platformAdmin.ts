@@ -183,6 +183,43 @@ export async function provisionStudent(input: ProvisionStudentInput): Promise<Pr
   return data as ProvisionStudentResult;
 }
 
+export interface DeleteAccountInput {
+  tenant_id: string;
+  profile_id: string;
+}
+
+export interface DeleteAccountResult {
+  ok: true;
+  warning?: string;
+}
+
+/**
+ * Removes a staff account (teacher/driver/school_admin) — a plain
+ * `.from("profiles").delete()` from the browser can't also remove the
+ * matching `auth.users` login, so this needs the service-role edge
+ * function, same reasoning as provisionStudent/inviteStaff above.
+ */
+export async function deleteAccount(input: DeleteAccountInput): Promise<DeleteAccountResult> {
+  const { data, error } = await supabase().functions.invoke<DeleteAccountResult | { error: string }>(
+    "delete-account",
+    { body: input },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as DeleteAccountResult;
+}
+
 // ---------------------------------------------------------------- organizations (FIG-331)
 
 export interface NewOrganizationInput {
