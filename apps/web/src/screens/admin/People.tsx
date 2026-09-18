@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
+import { Pagination } from "../../components/ui/Pagination";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -100,6 +101,8 @@ export function People() {
   const [createLoginsOpen, setCreateLoginsOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [deletingStaff, setDeletingStaff] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const { data, loading, error } = useAsync(() => fetchPeople(tenant.id), [tenant.id, reloadKey]);
 
@@ -114,6 +117,20 @@ export function People() {
     const q = query.trim().toLowerCase();
     return (data?.staff ?? []).filter((s) => !q || s.full_name.toLowerCase().includes(q));
   }, [data, query]);
+
+  // Whichever list is on screen right now — the one the page/page-size
+  // controls actually act on.
+  const activeTotal = tab === "students" ? rows.length : staffRows.length;
+  const pageCount = Math.max(1, Math.ceil(activeTotal / pageSize));
+  // Filtering down to fewer results than the current page can hold (or
+  // switching tabs) shouldn't leave the view stuck on a now-empty page —
+  // clamp instead of resetting to 1, so paging through and then narrowing
+  // the search stays roughly where you were.
+  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [pageCount, page]);
+  useEffect(() => { setPage(1); }, [tab, query, classId, pageSize]);
+
+  const pagedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [rows, page, pageSize]);
+  const pagedStaffRows = useMemo(() => staffRows.slice((page - 1) * pageSize, page * pageSize), [staffRows, page, pageSize]);
 
   const classesById = useMemo(() => new Map((data?.classes ?? []).map((c) => [c.id, c.name])), [data]);
   const subjectsById = useMemo(() => new Map((data?.subjects ?? []).map((s) => [s.id, s])), [data]);
@@ -207,14 +224,14 @@ export function People() {
             {(data?.classes ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         )}
-        {tab === "students" && rows.length > 0 && (
+        {tab === "students" && pagedRows.length > 0 && (
           <label className="flex items-center gap-1.5 text-small font-medium text-leaf">
             <input
               type="checkbox"
-              checked={rows.every((s) => picked.has(s.id))}
+              checked={pagedRows.every((s) => picked.has(s.id))}
               onChange={(e) => setPicked((p) => {
                 const next = new Set(p);
-                for (const s of rows) { if (e.target.checked) next.add(s.id); else next.delete(s.id); }
+                for (const s of pagedRows) { if (e.target.checked) next.add(s.id); else next.delete(s.id); }
                 return next;
               })}
               style={{ accentColor: "#17402A" }}
@@ -223,7 +240,7 @@ export function People() {
           </label>
         )}
         <span className="ml-auto font-mono text-[11px] text-ink-faint">
-          {loading ? "…" : `${tab === "students" ? rows.length : staffRows.length} shown`}
+          {loading ? "…" : `${activeTotal.toLocaleString()} total`}
         </span>
       </div>
 
@@ -277,7 +294,7 @@ export function People() {
                 return <Badge tone={owes ? "warn" : "ok"}>{owes ? "Balance due" : "Cleared"}</Badge>;
               } },
             ]}
-            rows={rows}
+            rows={pagedRows}
             rowKey={(s) => s.id}
             onRowClick={(s) => openManage("students", s)}
             minWidth="880px"
@@ -312,7 +329,7 @@ export function People() {
               { key: "login", header: "Login", width: "1.2fr", render: (s: StaffRow) => <Mono>{s.login_id ?? s.email ?? "—"}</Mono> },
               { key: "phone", header: "Phone", render: (s: StaffRow) => <Mono>{s.phone ?? "—"}</Mono> },
             ]}
-            rows={staffRows}
+            rows={pagedStaffRows}
             rowKey={(s) => s.id}
             onRowClick={(s) => openManage("staff", s)}
             minWidth="920px"
@@ -321,6 +338,9 @@ export function People() {
               body: "Admins and teachers appear here once their accounts are created.",
             }}
           />
+        )}
+        {!error && !loading && data && activeTotal > 0 && (
+          <Pagination page={page} pageSize={pageSize} total={activeTotal} onPageChange={setPage} onPageSizeChange={setPageSize} />
         )}
       </div>
 
