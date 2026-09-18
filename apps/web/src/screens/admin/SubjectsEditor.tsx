@@ -55,6 +55,9 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [creating, setCreating] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkCreating, setBulkCreating] = useState(false);
 
   async function createSubject() {
     if (!name.trim() || !code.trim()) { toast("Give the subject a name and a short code."); return; }
@@ -72,6 +75,52 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
       toast(err instanceof Error ? `Could not add the subject: ${err.message}` : "Could not add the subject.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  /** One subject per line, "Name" or "Name,CODE" — for the common case of
+   *  keying in a school's whole subject list at once instead of the single
+   *  form eight or ten times over. A code left out is generated from the
+   *  name's letters, de-duplicated against both this batch and what's
+   *  already on file (subjects.code is unique per school). */
+  async function createBulkSubjects() {
+    const takenCodes = new Set((rows ?? []).map((r) => r.subject.code.toUpperCase()));
+    const takenNames = new Set((rows ?? []).map((r) => r.subject.name.trim().toLowerCase()));
+    const uniqueCode = (base: string) => {
+      const stem = base.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4) || "SUBJ";
+      let candidate = stem;
+      let n = 2;
+      while (takenCodes.has(candidate)) { candidate = `${stem}${n}`; n++; }
+      takenCodes.add(candidate);
+      return candidate;
+    };
+
+    const toCreate: { name: string; code: string }[] = [];
+    for (const raw of bulkText.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const [rawName, rawCode] = line.split(",").map((p) => p.trim());
+      const subjName = rawName ?? "";
+      if (!subjName || takenNames.has(subjName.toLowerCase())) continue;
+      takenNames.add(subjName.toLowerCase());
+      toCreate.push({ name: subjName, code: rawCode ? uniqueCode(rawCode) : uniqueCode(subjName) });
+    }
+    if (toCreate.length === 0) { toast("Nothing new to add — check the names aren't already on file."); return; }
+
+    setBulkCreating(true);
+    try {
+      const { error: err } = await supabase().from("subjects").insert(
+        toCreate.map((s) => ({ tenant_id: tenantId, name: s.name, code: s.code, is_core: true })),
+      );
+      if (err) throw err;
+      toast(`${toCreate.length} subject${toCreate.length === 1 ? "" : "s"} added.`);
+      setBulkText("");
+      setBulkOpen(false);
+      reload();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add those subjects: ${err.message}` : "Could not add those subjects.");
+    } finally {
+      setBulkCreating(false);
     }
   }
 
@@ -170,6 +219,35 @@ export function SubjectsEditor({ classId, className, tenantId, teachers, onClose
               {creating ? "Adding…" : "Add subject"}
             </Button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setBulkOpen((v) => !v)}
+            className="justify-self-start text-[12px] font-semibold text-leaf hover:underline"
+          >
+            {bulkOpen ? "Hide bulk add" : "Bulk add multiple subjects"}
+          </button>
+
+          {bulkOpen && (
+            <div className="grid gap-2 rounded-lg border border-line-soft bg-white p-3">
+              <label className="block">
+                <span className="mb-1.5 block text-[11.5px] font-semibold">One subject per line</span>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  placeholder={"Chemistry\nHistory,HIST\nBusiness Studies"}
+                  rows={5}
+                  className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none"
+                />
+                <span className="mt-1 block text-[11px] text-ink-faint">
+                  Just the name, or "Name,CODE" if you want to pick the code yourself — otherwise one's generated from the name.
+                </span>
+              </label>
+              <Button variant="primary" className="justify-self-start" onClick={() => void createBulkSubjects()} disabled={bulkCreating || !bulkText.trim()}>
+                {bulkCreating ? "Adding…" : "Add these subjects"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </Modal>
