@@ -17,6 +17,17 @@ export interface NewSchoolInput {
   licensed_seats: number;
 }
 
+/**
+ * Every school starts 'onboarding' (createTenant/createTenantSelfService
+ * both set it) and search-schools/resolve-login-id both refuse to sign
+ * anyone into a non-'active' school -- so nothing at that school works
+ * until a super_admin explicitly reviews and activates it here.
+ */
+export async function activateTenant(tenantId: string): Promise<void> {
+  const { error } = await supabase().from("tenants").update({ status: "active" }).eq("id", tenantId);
+  if (error) throw error;
+}
+
 export async function createTenant(input: NewSchoolInput): Promise<Tenant> {
   const { data, error } = await supabase()
     .from("tenants")

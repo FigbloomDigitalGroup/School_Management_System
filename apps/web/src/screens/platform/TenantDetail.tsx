@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
-import { assignTenantOrganization, fetchOrganizations } from "../../lib/platformAdmin";
+import { activateTenant, assignTenantOrganization, fetchOrganizations } from "../../lib/platformAdmin";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
 const TABS = ["Overview", "Usage", "Billing", "Branding", "Audit log"] as const;
@@ -39,6 +39,11 @@ async function fetchTenantOverview(tenantId: string): Promise<TenantOverview> {
 }
 
 const ALERTS: Partial<Record<Tenant["status"], { title: string; body: string; action: string }>> = {
+  onboarding: {
+    title: "Not activated yet",
+    body: "This school was just created and no one there can sign in until it's reviewed and activated — search-schools and the login-ID lookup both refuse anything that isn't active.",
+    action: "Activate school",
+  },
   overdue: {
     title: "Invoice overdue",
     body: "Two reminders sent with no reply. Suspension is scheduled but never automatic on a first overdue invoice — a bursar is usually waiting on fees to come in.",
@@ -59,14 +64,29 @@ const ALERTS: Partial<Record<Tenant["status"], { title: string; body: string; ac
 export function TenantDetail({ tenant }: { tenant: Tenant }) {
   const [tab, setTab] = useState<Tab>("Overview");
   const [accent, setAccent] = useState(tenant.accent);
+  const [status, setStatus] = useState(tenant.status);
+  const [activating, setActivating] = useState(false);
   const toast = useToast();
   const nav = useNavigate();
-  const alert = ALERTS[tenant.status];
-  const low = tenant.status !== "active";
+  const alert = ALERTS[status];
+  const low = status !== "active";
   const { data: overview } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
   const { data: organizations } = useAsync(() => fetchOrganizations(), []);
   const [orgId, setOrgId] = useState(tenant.organization_id ?? "");
   const [orgSaving, setOrgSaving] = useState(false);
+
+  async function activate() {
+    setActivating(true);
+    try {
+      await activateTenant(tenant.id);
+      setStatus("active");
+      toast(`${tenant.name} activated — sign-in is open now.`);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not activate: ${err.message}` : "Could not activate.");
+    } finally {
+      setActivating(false);
+    }
+  }
 
   async function setOrganization(organizationId: string) {
     setOrgSaving(true);
@@ -96,7 +116,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2.5">
                 <h1 className="text-h2 font-semibold tracking-tight">{tenant.name}</h1>
-                <Badge tone={STATUS_TONE[tenant.status]}>{STATUS_LABEL[tenant.status]}</Badge>
+                <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
               </div>
               <div className="mt-1 break-words font-mono text-[11.5px] text-ink-muted">
                 {tenantPath(tenant.slug)} · {tenant.county} · {tenant.plan} plan · {tenant.licensed_seats.toLocaleString()} seats
@@ -142,7 +162,13 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
                 <div className="text-body font-semibold text-orange-ink">{alert.title}</div>
                 <p className="mt-1 text-small leading-relaxed text-orange-ink">{alert.body}</p>
               </div>
-              <Button variant="accent" onClick={() => toast(`${alert.action} — ${tenant.name}`)}>{alert.action}</Button>
+              {status === "onboarding" ? (
+                <Button variant="accent" disabled={activating} onClick={() => void activate()}>
+                  {activating ? "Activating…" : alert.action}
+                </Button>
+              ) : (
+                <Button variant="accent" onClick={() => toast(`${alert.action} — ${tenant.name}`)}>{alert.action}</Button>
+              )}
             </div>
           )}
 
