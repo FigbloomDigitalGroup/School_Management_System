@@ -185,6 +185,21 @@ export function People() {
             {(data?.classes ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         )}
+        {tab === "students" && rows.length > 0 && (
+          <label className="flex items-center gap-1.5 text-small font-medium text-leaf">
+            <input
+              type="checkbox"
+              checked={rows.every((s) => picked.has(s.id))}
+              onChange={(e) => setPicked((p) => {
+                const next = new Set(p);
+                for (const s of rows) { if (e.target.checked) next.add(s.id); else next.delete(s.id); }
+                return next;
+              })}
+              style={{ accentColor: "#17402A" }}
+            />
+            Select all shown
+          </label>
+        )}
         <span className="ml-auto font-mono text-[11px] text-ink-faint">
           {loading ? "…" : `${tab === "students" ? rows.length : staffRows.length} shown`}
         </span>
