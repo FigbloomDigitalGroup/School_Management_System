@@ -65,6 +65,7 @@ export function AdminClasses() {
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClasses(tenant.id), [tenant.id, reloadKey]);
   const [creating, setCreating] = useState(false);
+  const [bulkCreating, setBulkCreating] = useState(false);
   const [editingTimetableFor, setEditingTimetableFor] = useState<ClassGroup | null>(null);
   const [editingSubjectsFor, setEditingSubjectsFor] = useState<ClassGroup | null>(null);
   const [promotingFrom, setPromotingFrom] = useState<ClassGroup | null>(null);
@@ -92,7 +93,12 @@ export function AdminClasses() {
         eyebrow="School · classes"
         title="Classes"
         blurb={data ? `${data.classes.length} classes.` : "Loading classes…"}
-        actions={<Button variant="accent" onClick={() => setCreating(true)}>Add class</Button>}
+        actions={
+          <>
+            <Button onClick={() => setBulkCreating(true)}>Bulk add</Button>
+            <Button variant="accent" onClick={() => setCreating(true)}>Add class</Button>
+          </>
+        }
       />
 
       <div className="px-7 py-6">
@@ -186,6 +192,15 @@ export function AdminClasses() {
         />
       )}
 
+      {bulkCreating && (
+        <BulkCreateClassesModal
+          existingNames={new Set((data?.classes ?? []).map((c) => c.name.trim().toLowerCase()))}
+          onClose={() => setBulkCreating(false)}
+          onCreated={(count) => { setBulkCreating(false); reload(); toast(`${count} class${count === 1 ? "" : "es"} created.`); }}
+          toast={toast}
+        />
+      )}
+
       {editingTimetableFor && (
         <TimetableEditor
           entityId={editingTimetableFor.id}
@@ -218,6 +233,173 @@ export function AdminClasses() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * The single-class form doesn't scale past a couple of classes — a school
+ * with four form levels times two streams each means typing "Form 1 North"
+ * through "Form 4 South" by hand, eight times. This generates the whole
+ * cross-product of form levels × stream names in one go, with a checklist
+ * to drop any combination not actually needed before creating them.
+ */
+function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
+  existingNames: Set<string>;
+  onClose: () => void;
+  onCreated: (count: number) => void;
+  toast: (m: string) => void;
+}) {
+  const { tenant } = useTenantSession();
+  const combined = tenant.level === "combined";
+  const [level, setLevel] = useState<ClassLevel>(tenant.level === "primary" ? "primary" : "secondary");
+  const formRange = FORM_LEVEL_RANGE_BY_LEVEL[level];
+  const [selectedForms, setSelectedForms] = useState<Set<number>>(new Set(formRange));
+  const [streamsText, setStreamsText] = useState("");
+  // A row's checked state is its default (checked, unless it already
+  // exists) flipped once for every name in here — so an already-existing
+  // class starts unticked without needing to seed that into state up front,
+  // and toggling it back on (a genuine "yes, make a duplicate anyway") still works.
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+
+  function changeLevel(next: ClassLevel) {
+    setLevel(next);
+    setSelectedForms(new Set(FORM_LEVEL_RANGE_BY_LEVEL[next]));
+    setToggled(new Set());
+  }
+
+  function toggleForm(f: number) {
+    setSelectedForms((s) => {
+      const next = new Set(s);
+      if (next.has(f)) next.delete(f); else next.add(f);
+      return next;
+    });
+  }
+
+  const streams = [...new Set(streamsText.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
+
+  const rows = formRange
+    .filter((f) => selectedForms.has(f))
+    .flatMap((formLevel) => (streams.length ? streams : [null]).map((stream) => {
+      const name = `${LEVEL_LABEL[level]} ${formLevel}${stream ? ` ${stream}` : ""}`;
+      const already = existingNames.has(name.toLowerCase());
+      const checked = toggled.has(name) ? already : !already;
+      return { formLevel, stream, name, already, checked };
+    }));
+
+  const toCreate = rows.filter((r) => r.checked);
+
+  async function createAll() {
+    if (toCreate.length === 0) { toast("Pick at least one class to create."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("classes").insert(
+        toCreate.map((r) => ({
+          tenant_id: tenant.id,
+          name: r.name,
+          level,
+          form_level: r.formLevel,
+          stream: r.stream,
+          room: null,
+          class_teacher_id: null,
+        })),
+      );
+      if (error) throw error;
+      onCreated(toCreate.length);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not create those classes: ${err.message}` : "Could not create those classes.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Classes"
+      title="Bulk add classes"
+      blurb="Every form level crossed with every stream you list — untick anything you don't actually need."
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void createAll()} disabled={saving || toCreate.length === 0}>
+            {saving ? "Creating…" : `Create ${toCreate.length} class${toCreate.length === 1 ? "" : "es"}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        {combined && (
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Level</span>
+            <select
+              value={level}
+              onChange={(e) => changeLevel(e.target.value as ClassLevel)}
+              className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+            >
+              {(Object.keys(LEVEL_OPTION_LABEL) as ClassLevel[]).map((l) => <option key={l} value={l}>{LEVEL_OPTION_LABEL[l]}</option>)}
+            </select>
+          </label>
+        )}
+
+        <div>
+          <span className="mb-1.5 block text-[12.5px] font-semibold">{LEVEL_LABEL[level]} levels</span>
+          <div className="flex flex-wrap gap-1.5">
+            {formRange.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => toggleForm(f)}
+                className="rounded-full border px-3 py-1.5 text-small"
+                style={selectedForms.has(f)
+                  ? { borderColor: "var(--accent)", background: "var(--accent)", color: "#fff", fontWeight: 600 }
+                  : { borderColor: "#D3DAD5", background: "#fff", color: "#5F6B62" }}
+              >
+                {LEVEL_LABEL[level]} {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="mb-1.5 block text-[12.5px] font-semibold">Streams (optional)</span>
+          <input
+            value={streamsText}
+            onChange={(e) => setStreamsText(e.target.value)}
+            placeholder="e.g. North, South"
+            className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+          />
+          <span className="mt-1.5 block text-[11.5px] text-ink-faint">
+            Comma-separated. One class per {LEVEL_LABEL[level].toLowerCase()} level for each stream — leave blank for
+            one class per {LEVEL_LABEL[level].toLowerCase()} level, no stream.
+          </span>
+        </label>
+
+        {rows.length > 0 && (
+          <div className="rounded-lg border border-line-soft">
+            <div className="max-h-[220px] overflow-y-auto">
+              {rows.map((r) => (
+                <label key={r.name} className="flex items-center gap-2.5 border-b border-line-soft px-3 py-2 last:border-0">
+                  <input
+                    type="checkbox"
+                    checked={r.checked}
+                    onChange={() => setToggled((s) => {
+                      const next = new Set(s);
+                      if (next.has(r.name)) next.delete(r.name); else next.add(r.name);
+                      return next;
+                    })}
+                    style={{ accentColor: "#17402A" }}
+                  />
+                  <span className="flex-1 text-[13px]">{r.name}</span>
+                  {r.already && <span className="text-[11px] text-ink-faint">already exists</span>}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
