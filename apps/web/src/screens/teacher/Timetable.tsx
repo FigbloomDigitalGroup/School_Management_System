@@ -57,6 +57,10 @@ export function TeacherTimetable() {
 
   const isAll = classId === ALL;
   const cls = isAll ? null : classesData.find((c) => c.id === classId) ?? null;
+  // Surfaced separately from the class pills below — a class teacher's own
+  // homeroom is the one class whose whole schedule (not just their own
+  // periods) matters to them by default, not just another item in the list.
+  const homeroom = classesData.find((c) => c.class_teacher_id === profile.id) ?? null;
 
   const { data: timetable, loading: timetableLoading } = useAsync(
     () => (!isAll && classId ? fetchTeacherClassTimetable(classId, profile.id) : Promise.resolve(null)),
@@ -170,6 +174,20 @@ export function TeacherTimetable() {
           <p className="text-[13px] text-ink-muted">You aren't assigned to any classes yet.</p>
         ) : (
           <>
+            {homeroom && (
+              <button
+                onClick={() => setClassId(homeroom.id)}
+                className="mb-3 flex w-full items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-left"
+                style={classId === homeroom.id ? { borderColor: "var(--accent)", background: "#FFF8F6" } : { borderColor: "#E2E6E2", background: "#fff" }}
+              >
+                <span aria-hidden className="text-[16px]">🏠</span>
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Your homeroom</span>
+                  <span className="block text-[13.5px] font-medium">{homeroom.name} — see the whole class's timetable</span>
+                </span>
+              </button>
+            )}
+
             {classesData.length > 1 && (
               <div className="mb-2.5 flex flex-wrap gap-1.5">
                 {[{ id: ALL, name: "All" }, ...classesData].map((c) => (
