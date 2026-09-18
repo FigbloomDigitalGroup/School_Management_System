@@ -190,6 +190,8 @@ export interface Subject {
   name: string;
   code: string;
   is_core: boolean;
+  min_form_level: number | null; // null = no lower bound, applies from the first form/grade
+  max_form_level: number | null; // null = no upper bound, applies through the last form/grade
 }
 
 export interface Student {
