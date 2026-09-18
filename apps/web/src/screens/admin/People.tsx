@@ -14,7 +14,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
-import { inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
+import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id"> & { avatar_url: string | null };
@@ -95,6 +95,7 @@ export function People() {
   const [inviteGuardiansOpen, setInviteGuardiansOpen] = useState(false);
   const [createLoginsOpen, setCreateLoginsOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [deletingStaff, setDeletingStaff] = useState(false);
 
   const { data, loading, error } = useAsync(() => fetchPeople(tenant.id), [tenant.id, reloadKey]);
 
@@ -139,6 +140,21 @@ export function People() {
     toast(`${ids.length} learner${ids.length === 1 ? "" : "s"} deleted.`);
     setPicked(new Set());
     setReloadKey((k) => k + 1);
+  }
+
+  async function deleteStaff(staff: Pick<StaffRow, "id" | "full_name">) {
+    if (!window.confirm(`Remove ${staff.full_name}? This deletes their login and cannot be undone.`)) return;
+    setDeletingStaff(true);
+    try {
+      const r = await deleteAccount({ tenant_id: tenant.id, profile_id: staff.id });
+      toast(r.warning ?? `${staff.full_name} removed.`);
+      setManage(null);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not remove ${staff.full_name}: ${err.message}` : `Could not remove ${staff.full_name}.`);
+    } finally {
+      setDeletingStaff(false);
+    }
   }
 
   const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, row });
@@ -313,6 +329,11 @@ export function People() {
             <>
               {manage.kind === "students" && (
                 <Button variant="danger" onClick={() => void deleteStudent(manage.row)}>Delete learner</Button>
+              )}
+              {manage.kind === "staff" && manage.row.id !== profile.id && (
+                <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manage.row)}>
+                  {deletingStaff ? "Removing…" : "Remove staff"}
+                </Button>
               )}
               <Button variant="primary" onClick={() => setManage(null)}>Done</Button>
             </>
