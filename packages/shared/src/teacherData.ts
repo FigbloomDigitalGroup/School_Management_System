@@ -3,7 +3,7 @@ import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
 import { today, type Register } from "./attendance";
-import type { Audience, AttendanceMark, ClassGroup, Student, Subject, Term, Weekday } from "./types";
+import type { Audience, AttendanceMark, ClassGroup, Exam, Student, Subject, Term, Weekday } from "./types";
 
 /**
  * Shared across every teacher screen that needs "which classes is this
@@ -171,6 +171,52 @@ export async function fetchTodayAttendanceMarks(classId: string): Promise<{ stud
     .from("attendance").select("student_id, mark").eq("class_id", classId).eq("taken_on", today());
   if (error) throw new Error(error.message);
   return (data ?? []) as { student_id: string; mark: AttendanceMark }[];
+}
+
+/** This term's exams, for the gradebook's exam picker — web and mobile both need it. */
+export async function fetchExamsForTerm(termId: string): Promise<Exam[]> {
+  const { data, error } = await supabase().from("exams").select("*").eq("term_id", termId).order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Exam[];
+}
+
+/** Existing scores for one exam+subject, keyed by student — only students with a saved row appear. */
+export async function fetchMarksForExamSubject(
+  examId: string, subjectId: string, studentIds: string[],
+): Promise<Record<string, number | null>> {
+  if (!studentIds.length) return {};
+  const { data, error } = await supabase()
+    .from("marks").select("student_id, score")
+    .eq("exam_id", examId).eq("subject_id", subjectId).in("student_id", studentIds);
+  if (error) throw new Error(error.message);
+  const out: Record<string, number | null> = {};
+  for (const row of (data ?? []) as { student_id: string; score: number | null }[]) out[row.student_id] = row.score;
+  return out;
+}
+
+export interface MarkRow {
+  tenant_id: string;
+  exam_id: string;
+  student_id: string;
+  subject_id: string;
+  score: number | null;
+  entered_by: string;
+}
+
+/** A draft save — visible only to the entering teacher until publishExam() runs.
+ *  Named saveExamMarks, not saveMarks, to avoid colliding with courseGrades.ts's
+ *  higher-ed equivalent (assessment-based, different signature). */
+export async function saveExamMarks(rows: MarkRow[]): Promise<void> {
+  if (!rows.length) return;
+  const { error } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
+  if (error) throw new Error(error.message);
+}
+
+/** Flips an exam visible to parents/students. Callers should saveExamMarks() whatever's
+ *  on screen first — publishing on top of an unsaved draft must not lose it. */
+export async function publishExam(examId: string): Promise<void> {
+  const { error } = await supabase().from("exams").update({ published_at: new Date().toISOString() }).eq("id", examId);
+  if (error) throw new Error(error.message);
 }
 
 /** Upserts one class's register for today — onConflict(student_id, taken_on) means

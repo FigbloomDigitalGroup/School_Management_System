@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  fetchCurrentTerm, fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor,
-  parseScoreInput, summarise, supabase, type Exam, type Student,
+  fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchTeacherClasses,
+  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishExam, saveExamMarks,
+  summarise,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -10,31 +11,6 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-
-async function fetchExams(termId: string): Promise<Exam[]> {
-  const { data, error } = await supabase().from("exams").select("*").eq("term_id", termId).order("name");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Exam[];
-}
-
-async function fetchRoster(classId: string): Promise<Student[]> {
-  const { data, error } = await supabase()
-    .from("students").select("*").eq("class_id", classId).eq("active", true).order("full_name");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Student[];
-}
-
-/** Existing scores for one exam+subject, keyed by student — only students with a saved row appear. */
-async function fetchMarks(examId: string, subjectId: string, studentIds: string[]): Promise<Record<string, number | null>> {
-  if (!studentIds.length) return {};
-  const { data, error } = await supabase()
-    .from("marks").select("student_id, score")
-    .eq("exam_id", examId).eq("subject_id", subjectId).in("student_id", studentIds);
-  if (error) throw new Error(error.message);
-  const out: Record<string, number | null> = {};
-  for (const row of (data ?? []) as { student_id: string; score: number | null }[]) out[row.student_id] = row.score;
-  return out;
-}
 
 /**
  * Bulk entry, keyboard first. A teacher entering 40 marks should never touch
@@ -78,7 +54,7 @@ export function Gradebook() {
     if (!subjectId && subjectsData.length > 0) setSubjectId(subjectsData[0]!.id);
   }, [subjectId, subjectsData]);
 
-  const { data: examListData } = useAsync(() => (term?.id ? fetchExams(term.id) : Promise.resolve([])), [term?.id]);
+  const { data: examListData } = useAsync(() => (term?.id ? fetchExamsForTerm(term.id) : Promise.resolve([])), [term?.id]);
   const examsData = useMemo(() => examListData ?? [], [examListData]);
 
   useEffect(() => {
@@ -86,14 +62,14 @@ export function Gradebook() {
   }, [examId, examsData]);
 
   const { data: rosterData, loading: rosterLoading } = useAsync(
-    () => (classId ? fetchRoster(classId) : Promise.resolve([])),
+    () => (classId ? fetchClassRoster(classId) : Promise.resolve([])),
     [classId],
   );
   const roster = rosterData ?? [];
 
   const { data: existingMarksData } = useAsync(
     () => (examId && subjectId && rosterData && rosterData.length
-      ? fetchMarks(examId, subjectId, rosterData.map((s) => s.id))
+      ? fetchMarksForExamSubject(examId, subjectId, rosterData.map((s) => s.id))
       : Promise.resolve({} as Record<string, number | null>)),
     [examId, subjectId, rosterData, marksVersion],
   );
@@ -163,8 +139,12 @@ export function Gradebook() {
   async function saveDraft() {
     const rows = buildMarkRows();
     if (!rows.length) { toast("Nothing to save yet."); return; }
-    const { error } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
-    if (error) { toast(`Could not save: ${error.message}`); return; }
+    try {
+      await saveExamMarks(rows);
+    } catch (err) {
+      toast(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     setMarksVersion((v) => v + 1);
     toast("Draft saved. Nothing is visible to parents yet.");
   }
@@ -174,13 +154,13 @@ export function Gradebook() {
   // without a prior "Save draft" silently lost everything just entered.
   async function publish() {
     if (!examId || !subject || !exam) return;
-    const rows = buildMarkRows();
-    if (rows.length) {
-      const { error: saveErr } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
-      if (saveErr) { toast(`Could not save marks before publishing: ${saveErr.message}`); return; }
+    try {
+      await saveExamMarks(buildMarkRows());
+      await publishExam(examId);
+    } catch (err) {
+      toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`);
+      return;
     }
-    const { error } = await supabase().from("exams").update({ published_at: new Date().toISOString() }).eq("id", examId);
-    if (error) { toast(`Could not publish: ${error.message}`); return; }
     setMarksVersion((v) => v + 1);
     toast(`${subject.name} ${exam.name} published to ${roster.length} learners and their parents`);
   }
