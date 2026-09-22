@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
+import { fetchTeacherNotices, markNoticeRead, subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchTeacherNotices, markNoticeRead } from "../../lib/teacherData";
 import { useNoticeRead } from "../../lib/teacherNoticesContext";
 
 const NOTICE_POLL_MS = 20_000;

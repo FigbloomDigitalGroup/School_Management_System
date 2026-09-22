@@ -1,12 +1,15 @@
-import {
-  fetchClassTimetableSlots, formatWhen, supabase, WEEKDAYS,
-  type Audience, type ClassGroup, type NoticeInfo, type Subject, type Term, type Weekday,
-} from "@figbloom/shared";
+import { fetchClassTimetableSlots } from "./timetable";
+import { formatWhen } from "./parentData";
+import type { NoticeInfo } from "./studentData";
+import { supabase } from "./supabase";
+import { today, type Register } from "./attendance";
+import type { Audience, AttendanceMark, ClassGroup, Student, Subject, Term, Weekday } from "./types";
 
 /**
  * Shared across every teacher screen that needs "which classes is this
  * teacher looking at" — Gradebook, Attendance's class picker, Classes,
- * Messages — so the assigned-vs-class-teacher union logic lives in one place.
+ * Messages — so the assigned-vs-class-teacher union logic lives in one
+ * place. Also shared between web and the teacher mobile app (FIG-319).
  */
 
 /** Classes this teacher may act on: assigned via teaching_assignments, or class-teacher of. */
@@ -148,7 +151,43 @@ export async function fetchTeacherClassTimetable(classId: string, teacherId: str
       subjectId: s.subject_id, teacherId: assignment?.teacherId ?? null, teacherName: assignment?.name ?? null, mine,
     });
   }
-  for (const day of WEEKDAYS) byDay[day].sort((a, b) => a.time.localeCompare(b.time));
+  for (const day of (["Mon", "Tue", "Wed", "Thu", "Fri"] as Weekday[])) byDay[day].sort((a, b) => a.time.localeCompare(b.time));
 
   return { byDay, isClassTeacher };
+}
+
+/** Everyone active in a class, for the attendance roster — same query web and mobile both need. */
+export async function fetchClassRoster(classId: string): Promise<Student[]> {
+  const { data, error } = await supabase()
+    .from("students").select("*").eq("class_id", classId).eq("active", true).order("full_name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Student[];
+}
+
+/** Marks already taken today for a class, so re-opening the register (or opening it on a
+ *  second device) shows what was submitted rather than a blank "everyone present" state. */
+export async function fetchTodayAttendanceMarks(classId: string): Promise<{ student_id: string; mark: AttendanceMark }[]> {
+  const { data, error } = await supabase()
+    .from("attendance").select("student_id, mark").eq("class_id", classId).eq("taken_on", today());
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { student_id: string; mark: AttendanceMark }[];
+}
+
+/** Upserts one class's register for today — onConflict(student_id, taken_on) means
+ *  correcting a mark after submit is just another call, not a separate edit path.
+ *  Deliberately doesn't use attendance.ts's toRecords(), which stamps a
+ *  synced_at field the "attendance" table has no column for. */
+export async function writeAttendance(reg: Register, tenantId: string, takenBy: string): Promise<void> {
+  const rows = Object.entries(reg.marks).map(([student_id, mark]) => ({
+    tenant_id: tenantId,
+    student_id,
+    class_id: reg.classId,
+    term_id: reg.termId,
+    taken_by: takenBy,
+    taken_on: reg.date,
+    mark,
+    note: reg.notes[student_id] ?? null,
+  }));
+  const { error } = await supabase().from("attendance").upsert(rows, { onConflict: "student_id,taken_on" });
+  if (error) throw new Error(error.message);
 }

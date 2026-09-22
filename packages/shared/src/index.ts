@@ -11,6 +11,7 @@ export * from "./queue";
 export * from "./auth";
 export * from "./parentData";
 export * from "./studentData";
+export * from "./teacherData";
 export * from "./timetable";
 export * from "./roleLabels";
 export * from "./courses";

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { supabase, type Announcement } from "@figbloom/shared";
+import { fetchTeacherClasses, supabase, type Announcement } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { SelectField, TextArea, TextField } from "../../components/ui/Field";
@@ -8,7 +8,6 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchTeacherClasses } from "../../lib/teacherData";
 
 type Recipients = "guardians" | "students" | "both";
 

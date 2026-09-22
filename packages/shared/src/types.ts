@@ -228,7 +228,6 @@ export interface AttendanceRecord {
   taken_on: string;          // ISO date, one register per class per day
   mark: AttendanceMark;
   note: string | null;
-  synced_at: string | null;  // null while still in the offline queue
 }
 
 export interface Exam {

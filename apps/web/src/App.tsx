@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { fetchMyOrganizations, fetchParentUnreadCount, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
+import { fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -12,7 +12,6 @@ import { useOrgSession } from "./lib/useOrgSession";
 import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
 import { ParentDataProvider } from "./lib/parentContext";
 import { StudentDataProvider } from "./lib/studentContext";
-import { fetchTeacherUnreadNoticeCount } from "./lib/teacherData";
 import { TeacherNoticesProvider } from "./lib/teacherNoticesContext";
 
 import { SignIn } from "./screens/SignIn";

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { currentPeriodIndex, formatShortDate, todayWeekday, type Weekday } from "@figbloom/shared";
+import {
+  currentPeriodIndex, fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassTimetable, formatShortDate,
+  todayWeekday, WEEKDAYS, type TeacherTimetableRow, type Weekday,
+} from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassTimetable, type TeacherTimetableRow } from "../../lib/teacherData";
 import { currentWeekDates, fetchCoverageThisWeek } from "../../lib/coverage";
-import { WEEKDAYS } from "@figbloom/shared";
 
 const ALL = "all" as const;
 const WEEK = "week" as const;

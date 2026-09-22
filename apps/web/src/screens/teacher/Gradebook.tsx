@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, summarise, supabase, type Exam, type Student } from "@figbloom/shared";
+import {
+  fetchCurrentTerm, fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor,
+  parseScoreInput, summarise, supabase, type Exam, type Student,
+} from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { fetchCurrentTerm, fetchTeacherClasses, fetchTeacherSubjectsForClass } from "../../lib/teacherData";
 
 async function fetchExams(termId: string): Promise<Exam[]> {
   const { data, error } = await supabase().from("exams").select("*").eq("term_id", termId).order("name");

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { supabase, type ClassGroup } from "@figbloom/shared";
+import { fetchTeacherClasses, fetchTeacherSubjectsForClass, supabase, type ClassGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -7,7 +7,6 @@ import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { fetchTeacherClasses, fetchTeacherSubjectsForClass } from "../../lib/teacherData";
 
 interface MyClassRow extends ClassGroup {
   subjects: string[];

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today,
+  fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
+  MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
   supabase,
-  type AttendanceMark, type ClassGroup, type Register, type Student,
+  type AttendanceMark, type ClassGroup, type Register,
 } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -13,21 +14,6 @@ import { useOnline } from "../../lib/useOnline";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
-import { fetchCurrentTerm, fetchTeacherClasses } from "../../lib/teacherData";
-
-async function fetchRoster(classId: string): Promise<Student[]> {
-  const { data, error } = await supabase()
-    .from("students").select("*").eq("class_id", classId).eq("active", true).order("full_name");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Student[];
-}
-
-async function fetchTodayMarks(classId: string): Promise<{ student_id: string; mark: AttendanceMark }[]> {
-  const { data, error } = await supabase()
-    .from("attendance").select("student_id, mark").eq("class_id", classId).eq("taken_on", today());
-  if (error) throw new Error(error.message);
-  return (data ?? []) as { student_id: string; mark: AttendanceMark }[];
-}
 
 interface AwayStudent { name: string; mark: AttendanceMark; note: string | null }
 interface ClassProgress {
@@ -75,21 +61,6 @@ async function fetchClassProgress(classes: Pick<ClassGroup, "id" | "name">[]): P
   return out;
 }
 
-async function writeAttendance(reg: Register, tenantId: string, takenBy: string) {
-  const rows = Object.entries(reg.marks).map(([student_id, mark]) => ({
-    tenant_id: tenantId,
-    student_id,
-    class_id: reg.classId,
-    term_id: reg.termId,
-    taken_by: takenBy,
-    taken_on: reg.date,
-    mark,
-    note: reg.notes[student_id] ?? null,
-  }));
-  const { error } = await supabase().from("attendance").upsert(rows, { onConflict: "student_id,taken_on" });
-  if (error) throw new Error(error.message);
-}
-
 /**
  * The 60-second screen — the one a teacher uses every morning, often standing
  * up, sometimes with no signal.
@@ -128,11 +99,11 @@ export function Attendance() {
   }, [classId, classesData]);
 
   const { data: rosterData, loading: rosterLoading } = useAsync(
-    () => (classId ? fetchRoster(classId) : Promise.resolve([])),
+    () => (classId ? fetchClassRoster(classId) : Promise.resolve([])),
     [classId],
   );
   const { data: todayMarks, loading: marksLoading } = useAsync(
-    () => (classId ? fetchTodayMarks(classId) : Promise.resolve([])),
+    () => (classId ? fetchTodayAttendanceMarks(classId) : Promise.resolve([])),
     [classId],
   );
   const roster = rosterData ?? [];
