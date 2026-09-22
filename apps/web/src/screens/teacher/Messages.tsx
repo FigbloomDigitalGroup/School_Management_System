@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { fetchTeacherClasses, supabase, type Announcement } from "@figbloom/shared";
+import { fetchSentByMe, fetchTeacherClasses, sendClassMessage, type ClassMessageRecipients } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { SelectField, TextArea, TextField } from "../../components/ui/Field";
@@ -9,20 +9,10 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
-type Recipients = "guardians" | "students" | "both";
-
-function recipientsLabel(r?: Recipients): string {
+function recipientsLabel(r?: ClassMessageRecipients): string {
   if (r === "students") return "students";
   if (r === "both") return "parents and students";
   return "parents";
-}
-
-async function fetchSentByMe(teacherId: string): Promise<Announcement[]> {
-  const { data, error } = await supabase()
-    .from("announcements").select("*").eq("author_id", teacherId)
-    .order("created_at", { ascending: false }).limit(20);
-  if (error) throw error;
-  return (data ?? []) as Announcement[];
 }
 
 /**
@@ -43,7 +33,7 @@ export function TeacherMessages() {
   const [classId, setClassId] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [recipients, setRecipients] = useState<Recipients>("guardians");
+  const [recipients, setRecipients] = useState<ClassMessageRecipients>("guardians");
   const [sending, setSending] = useState(false);
 
   const effectiveClassId = classId || classes?.[0]?.id || "";
@@ -52,16 +42,7 @@ export function TeacherMessages() {
     if (!effectiveClassId || !subject.trim() || !body.trim()) return;
     setSending(true);
     try {
-      const { error } = await supabase().from("announcements").insert({
-        tenant_id: tenant.id,
-        author_id: profile.id,
-        subject: subject.trim(),
-        body: body.trim(),
-        audience: { kind: "class", class_id: effectiveClassId, recipients },
-        channels: ["in_app"],
-        published_at: new Date().toISOString(),
-      });
-      if (error) throw error;
+      await sendClassMessage(tenant.id, profile.id, effectiveClassId, recipients, subject, body);
       const className = classById.get(effectiveClassId)?.name ?? "the class";
       toast(`Sent to ${recipientsLabel(recipients)} of ${className}.`);
       setSubject("");
@@ -103,7 +84,7 @@ export function TeacherMessages() {
 
               <SelectField
                 id="recipients" label="To" value={recipients}
-                onChange={(e) => setRecipients(e.target.value as Recipients)}
+                onChange={(e) => setRecipients(e.target.value as ClassMessageRecipients)}
                 options={[
                   { value: "guardians", label: "Parents" },
                   { value: "students", label: "Students" },

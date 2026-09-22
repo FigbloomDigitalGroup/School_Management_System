@@ -3,7 +3,7 @@ import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
 import { today, type Register } from "./attendance";
-import type { Audience, AttendanceMark, ClassGroup, Exam, Student, Subject, Term, Weekday } from "./types";
+import type { Announcement, Audience, AttendanceMark, ClassGroup, Exam, Student, Subject, Term, Weekday } from "./types";
 
 /**
  * Shared across every teacher screen that needs "which classes is this
@@ -216,6 +216,35 @@ export async function saveExamMarks(rows: MarkRow[]): Promise<void> {
  *  on screen first — publishing on top of an unsaved draft must not lose it. */
 export async function publishExam(examId: string): Promise<void> {
   const { error } = await supabase().from("exams").update({ published_at: new Date().toISOString() }).eq("id", examId);
+  if (error) throw new Error(error.message);
+}
+
+/** A teacher's own sent messages — always in-app only, always one class at a time,
+ *  a lighter form over the same announcements table admin's whole-school composer uses. */
+export async function fetchSentByMe(teacherId: string): Promise<Announcement[]> {
+  const { data, error } = await supabase()
+    .from("announcements").select("*").eq("author_id", teacherId)
+    .order("created_at", { ascending: false }).limit(20);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Announcement[];
+}
+
+export type ClassMessageRecipients = "guardians" | "students" | "both";
+
+/** Sends a note to one class's parents, students, or both — in-app only, published immediately. */
+export async function sendClassMessage(
+  tenantId: string, teacherId: string, classId: string,
+  recipients: ClassMessageRecipients, subject: string, body: string,
+): Promise<void> {
+  const { error } = await supabase().from("announcements").insert({
+    tenant_id: tenantId,
+    author_id: teacherId,
+    subject: subject.trim(),
+    body: body.trim(),
+    audience: { kind: "class", class_id: classId, recipients } satisfies Audience,
+    channels: ["in_app"],
+    published_at: new Date().toISOString(),
+  });
   if (error) throw new Error(error.message);
 }
 
