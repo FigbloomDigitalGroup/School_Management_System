@@ -1,4 +1,4 @@
-import { supabase } from "@figbloom/shared";
+import { supabase } from "./supabase";
 
 export type LeaveStatus = "pending" | "approved" | "rejected" | "cancelled";
 
