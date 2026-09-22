@@ -2,6 +2,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Account photo upload (FIG-492), via react-native-image-picker. On
+         API 33+ it uses the system Photo Picker, which needs no runtime
+         permission at all; these only matter below that. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"

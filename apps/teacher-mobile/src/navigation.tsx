@@ -1,17 +1,21 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Text } from "react-native";
 import { accentFor } from "./theme";
 
 import { TeacherAttendance } from "./screens/teacher/Attendance";
 import { TeacherGradebook } from "./screens/teacher/Gradebook";
-import { TeacherTimetable } from "./screens/teacher/Timetable";
-import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
+import { TeacherMore } from "./screens/teacher/More";
+import { TeacherTimetable } from "./screens/teacher/Timetable";
+import { TeacherClasses } from "./screens/teacher/Classes";
+import { TeacherLeave } from "./screens/teacher/Leave";
 import { TeacherAccount } from "./screens/teacher/Account";
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
 const glyph = (g: string) => ({ tabBarIcon: () => <Text style={{ fontSize: 17 }}>{g}</Text> });
 
@@ -21,6 +25,21 @@ export interface TeacherSession {
   fullName: string;
   accent: string;
   country: string;
+}
+
+/** Timetable/Classes/Leave/Account live under the "More" tab rather than as
+ *  their own tabs — 4 daily-use screens (Attendance/Gradebook/Messages/
+ *  Notices) plus a catch-all fits a phone-width tab bar; 8 tabs wouldn't. */
+function MoreStack({ session }: { session: TeacherSession }) {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="MoreMenu">{() => <TeacherMore session={session} />}</Stack.Screen>
+      <Stack.Screen name="Timetable">{() => <TeacherTimetable session={session} />}</Stack.Screen>
+      <Stack.Screen name="Classes">{() => <TeacherClasses session={session} />}</Stack.Screen>
+      <Stack.Screen name="Leave">{() => <TeacherLeave session={session} />}</Stack.Screen>
+      <Stack.Screen name="Account">{() => <TeacherAccount session={session} />}</Stack.Screen>
+    </Stack.Navigator>
+  );
 }
 
 export function Navigation({ session }: { session: TeacherSession }) {
@@ -43,20 +62,14 @@ export function Navigation({ session }: { session: TeacherSession }) {
         <Tab.Screen name="Gradebook" options={glyph("▦")}>
           {() => <TeacherGradebook session={session} />}
         </Tab.Screen>
-        <Tab.Screen name="Timetable" options={glyph("◷")}>
-          {() => <TeacherTimetable session={session} />}
-        </Tab.Screen>
         <Tab.Screen name="Messages" options={glyph("◉")}>
           {() => <TeacherMessages session={session} />}
         </Tab.Screen>
         <Tab.Screen name="Notices" options={glyph("●")}>
           {() => <TeacherNotices session={session} />}
         </Tab.Screen>
-        <Tab.Screen name="Classes" options={glyph("▨")}>
-          {() => <TeacherClasses session={session} />}
-        </Tab.Screen>
-        <Tab.Screen name="Account" options={glyph("◎")}>
-          {() => <TeacherAccount session={session} />}
+        <Tab.Screen name="More" options={glyph("≡")}>
+          {() => <MoreStack session={session} />}
         </Tab.Screen>
       </Tab.Navigator>
     </NavigationContainer>

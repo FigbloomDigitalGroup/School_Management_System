@@ -6,6 +6,7 @@ import {
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
 
 const DAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -55,9 +56,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
   if (classes.length === 0) {
     return (
       <View style={s.screen}>
-        <View style={[s.header, { backgroundColor: a.deep }]}>
-          <Text style={s.headerTitle}>Timetable</Text>
-        </View>
+        <ScreenHeader title="Timetable" color={a.deep} back />
         <View style={{ padding: 16 }}>
           <View style={s.card}><Text style={s.small}>No classes assigned yet. Contact the school office.</Text></View>
         </View>
@@ -69,10 +68,12 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
 
   return (
     <View style={s.screen}>
-      <View style={[s.header, { backgroundColor: a.deep }]}>
-        <Text style={s.headerTitle}>Timetable</Text>
-        <Text style={s.headerSub}>{isClassTeacher ? "Whole week — you're the class teacher" : "Your periods only"}</Text>
-      </View>
+      <ScreenHeader
+        title="Timetable"
+        sub={isClassTeacher ? "Whole week — you're the class teacher" : "Your periods only"}
+        color={a.deep}
+        back
+      />
 
       {classes.length > 1 && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>

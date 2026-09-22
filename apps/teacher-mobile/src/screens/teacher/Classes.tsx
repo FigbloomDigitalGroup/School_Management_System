@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { fetchMyClasses, type MyClassRow } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
 
 /** "My classes" — every class this teacher is assigned to, whether as class
@@ -29,10 +30,7 @@ export function TeacherClasses({ session }: { session: TeacherSession }) {
 
   return (
     <View style={s.screen}>
-      <View style={[s.header, { backgroundColor: a.deep }]}>
-        <Text style={s.headerTitle}>My classes</Text>
-        <Text style={s.headerSub}>{rows.length} class{rows.length === 1 ? "" : "es"} you teach or lead</Text>
-      </View>
+      <ScreenHeader title="My classes" sub={`${rows.length} class${rows.length === 1 ? "" : "es"} you teach or lead`} color={a.deep} back />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {rows.length === 0 ? (
           <View style={s.card}>
