@@ -7,6 +7,7 @@ import {
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { queue } from "../../storage";
+import { PillPicker } from "../../components/PillPicker";
 import type { TeacherSession } from "../../navigation";
 
 const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
@@ -143,7 +144,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
           {classes.length > 1 && (
             <View style={{ marginTop: 20 }}>
               <Text style={[s.small, { fontWeight: "600", marginBottom: 8 }]}>Switch class</Text>
-              <ClassPicker classes={classes} classId={classId} onPick={setClassId} accent={session.accent} />
+              <PillPicker items={classes} selectedId={classId} onPick={setClassId} accent={session.accent} />
             </View>
           )}
         </View>
@@ -161,7 +162,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
 
       {classes.length > 1 && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-          <ClassPicker classes={classes} classId={classId} onPick={setClassId} accent={session.accent} />
+          <PillPicker items={classes} selectedId={classId} onPick={setClassId} accent={session.accent} />
         </View>
       )}
 
@@ -233,30 +234,5 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         )}
       </View>
     </View>
-  );
-}
-
-function ClassPicker({ classes, classId, onPick, accent }: { classes: ClassGroup[]; classId: string | null; onPick: (id: string) => void; accent: string }) {
-  const a = accentFor(accent);
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 8 }}>
-      {classes.map((c) => {
-        const on = c.id === classId;
-        return (
-          <TouchableOpacity
-            key={c.id}
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            onPress={() => onPick(c.id)}
-            style={{
-              ...HIT, borderRadius: 999, paddingHorizontal: 14, justifyContent: "center",
-              backgroundColor: on ? a.deep : t.appSurface.lineSoft,
-            }}
-          >
-            <Text style={{ fontSize: 13, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{c.name}</Text>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
   );
 }

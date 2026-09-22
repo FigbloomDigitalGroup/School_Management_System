@@ -32,11 +32,13 @@ export default function App() {
       }
 
       let accent = "#7A1F2B";
+      let country = "KE";
       const { data: tenant } = await supabase()
-        .from("tenants").select("accent").eq("id", profile.tenant_id).maybeSingle();
+        .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
       if (tenant?.accent) accent = tenant.accent;
+      if (tenant?.country) country = tenant.country;
 
-      const next: TeacherSession = { profileId: user.id, tenantId: profile.tenant_id, fullName: profile.full_name, accent };
+      const next: TeacherSession = { profileId: user.id, tenantId: profile.tenant_id, fullName: profile.full_name, accent, country };
       if (alive) { setSession(next); setLoading(false); }
     }
 

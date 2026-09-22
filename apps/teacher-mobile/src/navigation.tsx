@@ -17,6 +17,7 @@ export interface TeacherSession {
   tenantId: string;
   fullName: string;
   accent: string;
+  country: string;
 }
 
 export function Navigation({ session }: { session: TeacherSession }) {
