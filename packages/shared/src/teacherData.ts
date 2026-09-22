@@ -173,6 +173,33 @@ export async function fetchTodayAttendanceMarks(classId: string): Promise<{ stud
   return (data ?? []) as { student_id: string; mark: AttendanceMark }[];
 }
 
+export interface MyClassRow extends ClassGroup {
+  subjects: string[];
+  learnerCount: number;
+}
+
+/** "My classes" — every class a teacher is assigned to, whether as class
+ *  teacher or a subject teacher, with what they teach there and roll size. */
+export async function fetchMyClasses(teacherId: string): Promise<MyClassRow[]> {
+  const classes = await fetchTeacherClasses(teacherId);
+  if (!classes.length) return [];
+
+  const [subjectLists, { data: studentRows }] = await Promise.all([
+    Promise.all(classes.map((c) => fetchTeacherSubjectsForClass(teacherId, c.id))),
+    supabase().from("students").select("id,class_id").eq("active", true).in("class_id", classes.map((c) => c.id))
+      .returns<{ id: string; class_id: string }[]>(),
+  ]);
+
+  const countByClass = new Map<string, number>();
+  for (const s of studentRows ?? []) countByClass.set(s.class_id, (countByClass.get(s.class_id) ?? 0) + 1);
+
+  return classes.map((c, i) => ({
+    ...c,
+    subjects: subjectLists[i]!.map((s) => s.name),
+    learnerCount: countByClass.get(c.id) ?? 0,
+  }));
+}
+
 /** This term's exams, for the gradebook's exam picker — web and mobile both need it. */
 export async function fetchExamsForTerm(termId: string): Promise<Exam[]> {
   const { data, error } = await supabase().from("exams").select("*").eq("term_id", termId).order("name");

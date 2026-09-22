@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { fetchTeacherClasses, fetchTeacherSubjectsForClass, supabase, type ClassGroup } from "@figbloom/shared";
+import { fetchMyClasses, type MyClassRow } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -7,31 +7,6 @@ import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-
-interface MyClassRow extends ClassGroup {
-  subjects: string[];
-  learnerCount: number;
-}
-
-async function fetchMyClasses(teacherId: string): Promise<MyClassRow[]> {
-  const classes = await fetchTeacherClasses(teacherId);
-  if (!classes.length) return [];
-
-  const [subjectLists, { data: studentRows }] = await Promise.all([
-    Promise.all(classes.map((c) => fetchTeacherSubjectsForClass(teacherId, c.id))),
-    supabase().from("students").select("id,class_id").eq("active", true).in("class_id", classes.map((c) => c.id))
-      .returns<{ id: string; class_id: string }[]>(),
-  ]);
-
-  const countByClass = new Map<string, number>();
-  for (const s of studentRows ?? []) countByClass.set(s.class_id, (countByClass.get(s.class_id) ?? 0) + 1);
-
-  return classes.map((c, i) => ({
-    ...c,
-    subjects: subjectLists[i]!.map((s) => s.name),
-    learnerCount: countByClass.get(c.id) ?? 0,
-  }));
-}
 
 /**
  * "My classes" — the roster a teacher is actually assigned to, whether as
