@@ -13,8 +13,11 @@ apps/mobile/       React Native (Android + iOS) — the parent, student and driv
                    parent/student screens (ParentApp.tsx / StudentApp.tsx, wrapped
                    in <PhoneFrame>) for design reference — it isn't routed to; the
                    desktop screens are the real web app
-packages/shared/   Domain logic used by both: types, grading scale, fee maths,
-                   attendance register, M-Pesa helpers, offline write queue
+apps/teacher-mobile/  React Native (Android only — iOS deferred, see its own
+                   README) — the teacher app, a separate binary from apps/mobile
+                   since a teacher's workflow doesn't fit that app's role union
+packages/shared/   Domain logic used by all three apps: types, grading scale, fee
+                   maths, attendance register, M-Pesa helpers, offline write queue
 supabase/          Schema, row-level security, seed script, M-Pesa edge functions
 e2e/               Playwright tests over the five critical flows
 ```
