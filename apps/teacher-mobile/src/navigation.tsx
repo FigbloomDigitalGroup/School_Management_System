@@ -6,6 +6,7 @@ import { accentFor } from "./theme";
 import { TeacherAttendance } from "./screens/teacher/Attendance";
 import { TeacherGradebook } from "./screens/teacher/Gradebook";
 import { TeacherMessages } from "./screens/teacher/Messages";
+import { TeacherNotices } from "./screens/teacher/Notices";
 import { TeacherAccount } from "./screens/teacher/Account";
 
 const Tab = createBottomTabNavigator();
@@ -42,6 +43,9 @@ export function Navigation({ session }: { session: TeacherSession }) {
         </Tab.Screen>
         <Tab.Screen name="Messages" options={glyph("◉")}>
           {() => <TeacherMessages session={session} />}
+        </Tab.Screen>
+        <Tab.Screen name="Notices" options={glyph("●")}>
+          {() => <TeacherNotices session={session} />}
         </Tab.Screen>
         <Tab.Screen name="Account" options={glyph("◎")}>
           {() => <TeacherAccount session={session} />}
