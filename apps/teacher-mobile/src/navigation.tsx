@@ -5,6 +5,7 @@ import { accentFor } from "./theme";
 
 import { TeacherAttendance } from "./screens/teacher/Attendance";
 import { TeacherGradebook } from "./screens/teacher/Gradebook";
+import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
 import { TeacherAccount } from "./screens/teacher/Account";
@@ -40,6 +41,9 @@ export function Navigation({ session }: { session: TeacherSession }) {
         </Tab.Screen>
         <Tab.Screen name="Gradebook" options={glyph("▦")}>
           {() => <TeacherGradebook session={session} />}
+        </Tab.Screen>
+        <Tab.Screen name="Timetable" options={glyph("◷")}>
+          {() => <TeacherTimetable session={session} />}
         </Tab.Screen>
         <Tab.Screen name="Messages" options={glyph("◉")}>
           {() => <TeacherMessages session={session} />}
