@@ -7,6 +7,7 @@ import {
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
+import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 
 /**
@@ -31,7 +32,10 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [marksVersion, setMarksVersion] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const inputs = useRef<Record<number, TextInput | null>>({});
+
+  useEffect(() => { void queue.flush(); }, []);
 
   useEffect(() => {
     let alive = true;
@@ -125,21 +129,34 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     const rows = buildRows();
     if (!rows.length) return;
     setBusy(true);
+    setStatus(null);
     try {
       await saveExamMarks(rows);
       setMarksVersion((v) => v + 1);
+      setStatus("Draft saved.");
+    } catch {
+      // Offline or the request failed — hold the marks on this phone rather
+      // than losing what was typed; they'll send once queue.flush() next runs.
+      await queue.enqueue("marks", rows);
+      setStatus("Saved on this phone. Will send when you have signal.");
     } finally {
       setBusy(false);
     }
   }
 
+  // Publishing means "visible to parents right now" — that can't be true
+  // while offline, so unlike saveDraft this surfaces the failure instead of
+  // queuing it silently.
   async function publish() {
     if (!examId) return;
     setBusy(true);
+    setStatus(null);
     try {
       await saveExamMarks(buildRows());
       await publishExam(examId);
       setMarksVersion((v) => v + 1);
+    } catch {
+      setStatus("Could not publish — check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -217,25 +234,28 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
         </Text>
       </ScrollView>
 
-      <View style={{ flexDirection: "row", gap: 10, padding: 16, borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card }}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => void saveDraft()}
-          style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy ? 0.6 : 1 }]}
-        >
-          <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Save draft</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          accessibilityRole="button"
-          disabled={busy || entered < roll.length}
-          onPress={() => void publish()}
-          style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || entered < roll.length ? 0.6 : 1 }]}
-        >
-          {busy ? <ActivityIndicator color="#fff" /> : (
-            <Text style={s.primaryLabel}>{entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
-          )}
-        </TouchableOpacity>
+      <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card }}>
+        {!!status && <Text style={[s.small, { marginBottom: 10 }]}>{status}</Text>}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => void saveDraft()}
+            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy ? 0.6 : 1 }]}
+          >
+            <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Save draft</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            disabled={busy || entered < roll.length}
+            onPress={() => void publish()}
+            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || entered < roll.length ? 0.6 : 1 }]}
+          >
+            {busy ? <ActivityIndicator color="#fff" /> : (
+              <Text style={s.primaryLabel}>{entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );

@@ -6,6 +6,7 @@ import {
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
+import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 
 const RECIPIENT_OPTIONS: { id: ClassMessageRecipients; name: string }[] = [
@@ -33,6 +34,9 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<Announcement[] | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => { void queue.flush(); }, []);
 
   useEffect(() => {
     let alive = true;
@@ -55,11 +59,28 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
   async function send() {
     if (!classId || !subject.trim() || !body.trim()) return;
     setSending(true);
+    setStatus(null);
     try {
       await sendClassMessage(session.tenantId, session.profileId, classId, recipients, subject, body);
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
+    } catch {
+      // Offline or the request failed — hold it on this phone rather than
+      // losing what was typed; it sends once queue.flush() next runs. Won't
+      // show up in "Sent by you" until then, since that reads the server.
+      await queue.enqueue("announcements", [{
+        tenant_id: session.tenantId,
+        author_id: session.profileId,
+        subject: subject.trim(),
+        body: body.trim(),
+        audience: { kind: "class", class_id: classId, recipients },
+        channels: ["in_app"],
+        published_at: new Date().toISOString(),
+      }]);
+      setSubject("");
+      setBody("");
+      setStatus("Saved on this phone. Will send when you have signal.");
     } finally {
       setSending(false);
     }
@@ -126,6 +147,7 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
             >
               {sending ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Send</Text>}
             </TouchableOpacity>
+            {!!status && <Text style={[s.small, { marginTop: 10 }]}>{status}</Text>}
           </View>
         )}
 
