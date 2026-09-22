@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@figbloom/shared";
+import { fetchMyProfile, updateMyProfile } from "@figbloom/shared";
 import { AvatarEditor } from "./Avatar";
 import { Button } from "./ui/Button";
 import { TextField } from "./ui/Field";
@@ -7,22 +7,6 @@ import { TableSkeleton } from "./ui/Skeleton";
 import { useToast } from "./ui/Toast";
 import { useAsync } from "../lib/useAsync";
 import { useTenantSession } from "../lib/sessionContext";
-
-interface MyProfileRow {
-  full_name: string;
-  phone: string | null;
-  avatar_url: string | null;
-  login_id: string | null;
-  email: string | null;
-}
-
-async function fetchMyProfile(id: string): Promise<MyProfileRow> {
-  const { data, error } = await supabase()
-    .from("profiles").select("full_name, phone, avatar_url, login_id, email").eq("id", id)
-    .single<MyProfileRow>();
-  if (error) throw new Error(error.message);
-  return data;
-}
 
 /**
  * Every role except super_admin/org_admin lands in the same ConsoleShell, so
@@ -56,11 +40,7 @@ export function MyAccountFields() {
     if (!fullName.trim()) { toast("A name is required."); return; }
     setSaving(true);
     try {
-      const { error: err } = await supabase().from("profiles").update({
-        full_name: fullName.trim(),
-        phone: phone.trim() || null,
-      }).eq("id", profile.id);
-      if (err) throw err;
+      await updateMyProfile(profile.id, { full_name: fullName.trim(), phone: phone.trim() || null });
       toast("Saved — the sidebar picks it up next time you sign in or reload.");
       setDirty(false);
       setReloadKey((k) => k + 1);

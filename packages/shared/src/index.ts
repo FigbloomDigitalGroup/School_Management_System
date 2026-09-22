@@ -13,6 +13,7 @@ export * from "./parentData";
 export * from "./studentData";
 export * from "./teacherData";
 export * from "./leave";
+export * from "./profile";
 export * from "./timetable";
 export * from "./roleLabels";
 export * from "./courses";
