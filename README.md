@@ -104,15 +104,18 @@ than "Invalid". The parent user base includes people who do not use apps daily.
    no sandbox account wired up in local dev and a payment can only be marked
    `success` server-side, by the Safaricom callback (see `supabase/rls.sql`'s
    `payment_insert` policy).
-2. Wire FCM for the parent and student apps.
+2. ~~Wire FCM for the parent and student apps~~ — done on Android (device
+   tokens + `send-push` edge function, FIG-293). iOS push is still open,
+   blocked on Apple Developer push credentials (FIG-154).
 3. ~~Build out the remaining admin tabs (reports, classes detail)~~ — done;
    also built out teacher Classes and Messages (the latter reuses
    `announcements`, not a new table).
-4. ~~Add a timetable/periods table~~ — done for web (`timetable_slots`,
-   editable per class from admin Classes; teacher/student/parent web screens
-   read the real thing). `DEMO_TIMETABLE` in `packages/shared/src/demo.ts` is
-   still what the Android app reads — that's tracked separately as part of
-   replacing Android's hardcoded demo data with real Supabase queries.
+4. ~~Add a timetable/periods table~~ — done for web and mobile
+   (`timetable_slots`, editable per class from admin Classes; teacher/
+   student/parent web screens and the mobile student app all read the real
+   thing). `DEMO_TIMETABLE` in `packages/shared/src/demo.ts` is seed-only
+   now, used by `supabase/seed.ts` to populate `timetable_slots` for local
+   dev/demo data.
 5. The platform console's own SaaS metrics (MRR, incidents, subscriptions,
    invoices, system health) have no backing tables — they model Figbloom's
    internal ops, which this schema doesn't cover yet, and stay illustrative
