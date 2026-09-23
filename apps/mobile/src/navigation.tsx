@@ -15,6 +15,7 @@ import { StudentTimetable } from "./screens/student/Timetable";
 import { StudentWork } from "./screens/student/Work";
 import { StudentResults } from "./screens/student/Results";
 import { StudentNotices } from "./screens/student/Notices";
+import { StudentAccount } from "./screens/student/Account";
 import { DriverTrip } from "./screens/driver/Trip";
 
 const Tab = createBottomTabNavigator();
@@ -80,6 +81,7 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Tab.Screen name="Work" component={StudentWork} options={glyph("\u270E")} />
           <Tab.Screen name="Results" component={StudentResults} options={glyph("\u25A4")} />
           <Tab.Screen name="Notices" component={StudentNotices} options={glyph("\u25C9")} />
+          <Tab.Screen name="Account" component={StudentAccount} options={glyph("\u25CE")} />
         </Tab.Navigator>
       )}
     </NavigationContainer>
