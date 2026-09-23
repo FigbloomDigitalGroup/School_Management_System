@@ -152,7 +152,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
                     <span className="font-mono text-[11px]" style={{ color: tint }}>18 min left</span>
                   </div>
                   <div className="mt-2 text-[19px] font-semibold tracking-tight">{nowP[1]}</div>
-                  <div className="mt-0.5 text-[12.5px] text-app-muted">{nowP[2]} · ends 10:00</div>
+                  <div className="mt-0.5 text-[12.5px] text-app-muted">{[nowP[2], nowP[3]].filter(Boolean).join(" · ")} · ends 10:00</div>
                   <div className="mt-3 h-1.5 overflow-hidden rounded bg-app-line-soft">
                     <div className="h-1.5 rounded" style={{ width: "62%", background: tint }} />
                   </div>
@@ -164,7 +164,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
                 <div className="mt-3 flex items-center gap-2.5 border-t border-app-line-soft pt-3">
                   <span className="font-mono text-[10px] tracking-[0.1em] text-app-faint">NEXT</span>
                   <span className="text-[13px] font-medium">{nextP[1]}</span>
-                  <span className="ml-auto text-[12.5px] text-app-muted">{nextP[0]} · {nextP[2]}</span>
+                  <span className="ml-auto text-[12.5px] text-app-muted">{[nextP[0], nextP[2], nextP[3]].filter(Boolean).join(" · ")}</span>
                 </div>
               )}
             </div>
@@ -186,13 +186,13 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
               <button onClick={() => setScreen("timetable")} className="text-[12.5px] font-semibold" style={{ color: tint }}>Full week</button>
             </div>
             <div className="grid gap-2">
-              {todayRows.slice(NOW + 1).map(([time, subject, room]) => (
+              {todayRows.slice(NOW + 1).map(([time, subject, room, teacher]) => (
                 <div key={time} className="flex items-center gap-3 rounded-2xl border border-app-line bg-white px-4 py-3">
                   <span className="w-11 shrink-0 font-mono text-[11.5px] text-app-muted">{time}</span>
                   <span className="h-7 w-[3px] shrink-0 rounded bg-app-line" />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14px] font-medium">{subject}</span>
-                    <span className="text-[12px] text-app-faint">{room}</span>
+                    <span className="text-[12px] text-app-faint">{[room, teacher].filter(Boolean).join(" · ")}</span>
                   </span>
                 </div>
               ))}
@@ -239,7 +239,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
               ))}
             </div>
             <div className="mt-3.5 grid gap-2">
-              {(timetable?.[day as Weekday] ?? []).map(([time, subject, room], i) => {
+              {(timetable?.[day as Weekday] ?? []).map(([time, subject, room, teacher], i) => {
                 const isNow = day === "Tue" && i === NOW;
                 return (
                   <div key={time} className="flex items-center gap-3 rounded-2xl border px-4 py-3"
@@ -248,7 +248,7 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
                     <span className="h-8 w-[3px] shrink-0 rounded" style={{ background: isNow ? tint : "#E0DAD9" }} />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[14px] font-medium">{subject}</span>
-                      <span className="text-[12px] text-app-faint">{room}</span>
+                      <span className="text-[12px] text-app-faint">{[room, teacher].filter(Boolean).join(" · ")}</span>
                     </span>
                     {isNow && <span className="rounded-full px-2 py-0.5 text-[10.5px] font-bold text-white" style={{ background: tint }}>NOW</span>}
                   </div>

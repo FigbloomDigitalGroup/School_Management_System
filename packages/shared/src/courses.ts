@@ -206,7 +206,7 @@ export async function fetchStudentSchedule(studentId: string): Promise<Record<We
     .returns<{ day: Weekday; start_time: string; label: string; room: string | null }[]>();
   if (slotErr) throw slotErr;
 
-  for (const s of slots ?? []) byDay[s.day].push([s.start_time, s.label, s.room ?? ""]);
+  for (const s of slots ?? []) byDay[s.day].push([s.start_time, s.label, s.room ?? "", null]);
   for (const day of WEEKDAYS) byDay[day].sort((a, b) => a[0].localeCompare(b[0]));
   return byDay;
 }

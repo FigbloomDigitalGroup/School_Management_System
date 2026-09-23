@@ -28,12 +28,12 @@ export function StudentToday() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <View style={s.card}>
+        <View style={[s.card, now ? { borderLeftWidth: 4, borderLeftColor: a.deep } : null]}>
           {now ? (
             <>
-              <Text style={s.eyebrow}>NOW</Text>
+              <Text style={[s.eyebrow, { color: a.deep }]}>NOW</Text>
               <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8 }}>{now[1]}</Text>
-              <Text style={s.small}>{now[2]} · {now[0]}</Text>
+              <Text style={s.small}>{[now[2], now[3]].filter(Boolean).join(" · ")} · {now[0]}</Text>
             </>
           ) : (
             <Text style={s.small}>{day ? "No lesson recorded for now" : "No school today"}</Text>
@@ -42,7 +42,7 @@ export function StudentToday() {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft }}>
               <Text style={[s.eyebrow, { letterSpacing: 1 }]}>NEXT</Text>
               <Text style={{ fontSize: 13, fontWeight: "500" }}>{next[1]}</Text>
-              <Text style={[s.small, { marginLeft: "auto" }]}>{next[0]} · {next[2]}</Text>
+              <Text style={[s.small, { marginLeft: "auto" }]}>{[next[0], next[2], next[3]].filter(Boolean).join(" · ")}</Text>
             </View>
           )}
         </View>
@@ -71,13 +71,13 @@ export function StudentToday() {
             <Text style={s.small}>That's it for today.</Text>
           </View>
         ) : (
-          restOfDay.map(([time, subject, room]) => (
+          restOfDay.map(([time, subject, room, teacher]) => (
             <View key={time} style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }]}>
               <Text style={[s.mono, { width: 44, color: t.appSurface.inkMuted }]}>{time}</Text>
-              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: t.appSurface.line }} />
+              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: a.hex }} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14, fontWeight: "500" }}>{subject}</Text>
-                <Text style={s.faint}>{room}</Text>
+                <Text style={s.faint}>{[room, teacher].filter(Boolean).join(" · ")}</Text>
               </View>
             </View>
           ))

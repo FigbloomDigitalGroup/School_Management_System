@@ -128,7 +128,7 @@ export function TeacherTimetable() {
 
   function renderDaySection(d: Weekday) {
     const dayRows = rowsForDay(d);
-    const nowIdx = d === nowDay ? currentPeriodIndex(dayRows.map((r): [string, string, string] => [r.time, r.label, r.room])) : -1;
+    const nowIdx = d === nowDay ? currentPeriodIndex(dayRows.map((r): [string, string, string, string | null] => [r.time, r.label, r.room, r.teacherName])) : -1;
     return (
       <div key={d} className={day === WEEK ? "mb-5" : undefined}>
         {day === WEEK && (

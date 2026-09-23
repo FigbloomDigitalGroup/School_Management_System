@@ -97,7 +97,7 @@ export function StudentTimetable() {
                 if (!period) return <span className="text-[12px] text-ink-faint">—</span>;
                 return (
                   <div className={`rounded-md px-2 py-1 ${isNow ? "bg-orange-soft" : ""}`}>
-                    <Cell sub={period[2]}>{period[1]}</Cell>
+                    <Cell sub={[period[2], period[3]].filter(Boolean).join(" · ")}>{period[1]}</Cell>
                     {isNow && <span className="mt-1 inline-block rounded-full bg-orange px-2 py-0.5 text-[10px] font-bold text-white">NOW</span>}
                   </div>
                 );

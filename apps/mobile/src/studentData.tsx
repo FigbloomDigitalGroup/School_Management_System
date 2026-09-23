@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchClassTimetable, loadStudentData, type StudentData, type Weekday } from "@figbloom/shared";
+import { fetchClassTimetable, loadStudentData, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -14,12 +14,12 @@ const CACHE_KEY = "figbloom.studentData.v1";
 
 interface Cached {
   data: StudentData;
-  timetable: Record<Weekday, [string, string, string][]>;
+  timetable: Record<Weekday, TimetableRow[]>;
 }
 
 interface Ctx {
   data: StudentData;
-  timetable: Record<Weekday, [string, string, string][]>;
+  timetable: Record<Weekday, TimetableRow[]>;
   accent: string;
   country: string;
 }

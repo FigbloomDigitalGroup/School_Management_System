@@ -93,7 +93,11 @@ export function StudentToday() {
       <div className="px-7 py-6">
         <StatRow
           stats={[
-            { label: "Now", value: nowP ? nowP[1] : "—", sub: nowP ? nowP[2] : day ? "No lesson recorded" : "No school today" },
+            {
+              label: "Now",
+              value: nowP ? nowP[1] : "—",
+              sub: nowP ? [nowP[2], nowP[3]].filter(Boolean).join(" · ") : day ? "No lesson recorded" : "No school today",
+            },
             { label: "To hand in", value: String(open.length), sub: "across all subjects" },
             { label: "Overdue", value: String(overdue.length), sub: overdue.length ? "needs handing in" : "all clear", alarming: overdue.length > 0 },
           ]}
@@ -121,11 +125,11 @@ export function StudentToday() {
               {restOfDay.length === 0 ? (
                 <p className="px-4 py-6 text-center text-small text-ink-faint">That's it for today.</p>
               ) : (
-                restOfDay.map(([time, subject, room]) => (
+                restOfDay.map(([time, subject, room, teacher]) => (
                   <div key={time} className="flex items-center gap-3.5 border-b border-line-soft px-4 py-2.5 last:border-0">
                     <span className="w-12 shrink-0 font-mono text-[12px] text-ink-muted">{time}</span>
                     <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{subject}</span>
-                    <span className="shrink-0 text-[12px] text-ink-faint">{room}</span>
+                    <span className="shrink-0 text-[12px] text-ink-faint">{[room, teacher].filter(Boolean).join(" · ")}</span>
                   </div>
                 ))
               )}
@@ -161,7 +165,7 @@ export function StudentToday() {
 
         {nextP && (
           <p className="mt-4 text-[12px] leading-relaxed text-ink-faint">
-            Next up: {nextP[1]} · {nextP[0]} · {nextP[2]}.
+            Next up: {[nextP[1], nextP[0], nextP[2], nextP[3]].filter(Boolean).join(" · ")}.
           </p>
         )}
       </div>
