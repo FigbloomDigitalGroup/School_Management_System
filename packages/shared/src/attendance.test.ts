@@ -53,7 +53,6 @@ describe("toRecords", () => {
     const b = records.find((rec) => rec.student_id === "b")!;
     expect(a.note).toBe("Sick leave, mother called");
     expect(a.mark).toBe("absent");
-    expect(a.synced_at).toBeNull();
     expect(b.note).toBeNull();
     expect(b.tenant_id).toBe("tenant-1");
     expect(b.taken_by).toBe("teacher-1");

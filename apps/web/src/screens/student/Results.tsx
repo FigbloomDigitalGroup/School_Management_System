@@ -1,18 +1,27 @@
-import { againstMean, GRADE_INK, gradeFor, pointsFor } from "@figbloom/shared";
+import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, pointsFor } from "@figbloom/shared";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
+import { StudentCourseResults } from "./CourseResults";
 
 /**
  * No class position anywhere — the same product decision StudentApp.tsx (the
  * phone preview) makes. Marks are shown against the class mean instead, and
  * the footer note carries the same copy forward onto desktop.
+ *
+ * A higher-ed tenant has no class mean or KCSE letter grade at all — it gets
+ * the credit/GPA equivalent (CourseResults) instead, under this same "Results"
+ * nav entry rather than a second one.
  */
 export function StudentResults() {
+  const { tenant } = useTenantSession();
   const { data, loading, error } = useStudentData();
+
+  if (tenant.institution_type === "higher_ed") return <StudentCourseResults />;
 
   if (error) {
     return (
@@ -47,9 +56,10 @@ export function StudentResults() {
     );
   }
 
+  const scheme = gradingSchemeFor(tenant.country, data.classLevel ?? "secondary");
   const subjects = data.subjects;
   const meanMark = subjects.length ? Math.round(subjects.reduce((a, s) => a + s.score, 0) / subjects.length) : null;
-  const points = subjects.reduce((a, s) => a + pointsFor(s.score), 0);
+  const points = subjects.reduce((a, s) => a + pointsFor(s.score, scheme), 0);
 
   return (
     <>
@@ -66,7 +76,7 @@ export function StudentResults() {
           <>
             <StatRow
               stats={[
-                { label: data.examName ?? "Latest exam", value: gradeFor(meanMark), sub: `${meanMark} marks · ${points} points` },
+                { label: data.examName ?? "Latest exam", value: gradeFor(meanMark, scheme), sub: `${meanMark} marks · ${points} points` },
                 { label: "Subjects assessed", value: String(subjects.length) },
               ]}
             />
@@ -92,8 +102,8 @@ export function StudentResults() {
                   {
                     key: "grade", header: "Grade", align: "right", width: "0.7fr",
                     render: (s: ResultSubject) => (
-                      <span className="font-mono text-[13px] font-semibold" style={{ color: GRADE_INK[gradeFor(s.score)] }}>
-                        {gradeFor(s.score)}
+                      <span className="font-mono text-[13px] font-semibold" style={{ color: GRADE_INK[gradeFor(s.score, scheme)] }}>
+                        {gradeFor(s.score, scheme)}
                       </span>
                     ),
                   },

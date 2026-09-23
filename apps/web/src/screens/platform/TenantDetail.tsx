@@ -1,16 +1,49 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { KES, tenantPath, type Tenant } from "@figbloom/shared";
-import { Badge } from "../../components/ui/Badge";
+import { formatMoney, formatShortDate, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
+import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
+import { useAsync } from "../../lib/useAsync";
+import { activateTenant, assignTenantOrganization, fetchOrganizations } from "../../lib/platformAdmin";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
 const TABS = ["Overview", "Usage", "Billing", "Branding", "Audit log"] as const;
 type Tab = (typeof TABS)[number];
 
+interface TenantOverview {
+  learners: number;
+  staff: number;
+  parents: number;
+  outstandingCents: number;
+  nextDueOn: string | null;
+}
+
+async function fetchTenantOverview(tenantId: string): Promise<TenantOverview> {
+  const sb = supabase();
+  const [{ count: learners }, { count: staff }, { count: parents }, { data: due }] = await Promise.all([
+    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("role", "parent"),
+    sb.from("platform_invoices").select("amount_cents,due_date").eq("tenant_id", tenantId).eq("status", "due").order("due_date"),
+  ]);
+  const rows = due ?? [];
+  return {
+    learners: learners ?? 0,
+    staff: staff ?? 0,
+    parents: parents ?? 0,
+    outstandingCents: rows.reduce((a, i) => a + i.amount_cents, 0),
+    nextDueOn: rows[0]?.due_date ?? null,
+  };
+}
+
 const ALERTS: Partial<Record<Tenant["status"], { title: string; body: string; action: string }>> = {
+  onboarding: {
+    title: "Not activated yet",
+    body: "This school was just created and no one there can sign in until it's reviewed and activated — search-schools and the login-ID lookup both refuse anything that isn't active.",
+    action: "Activate school",
+  },
   overdue: {
     title: "Invoice overdue",
     body: "Two reminders sent with no reply. Suspension is scheduled but never automatic on a first overdue invoice — a bursar is usually waiting on fees to come in.",
@@ -31,10 +64,42 @@ const ALERTS: Partial<Record<Tenant["status"], { title: string; body: string; ac
 export function TenantDetail({ tenant }: { tenant: Tenant }) {
   const [tab, setTab] = useState<Tab>("Overview");
   const [accent, setAccent] = useState(tenant.accent);
+  const [status, setStatus] = useState(tenant.status);
+  const [activating, setActivating] = useState(false);
   const toast = useToast();
   const nav = useNavigate();
-  const alert = ALERTS[tenant.status];
-  const low = tenant.status !== "active";
+  const alert = ALERTS[status];
+  const low = status !== "active";
+  const { data: overview } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
+  const { data: organizations } = useAsync(() => fetchOrganizations(), []);
+  const [orgId, setOrgId] = useState(tenant.organization_id ?? "");
+  const [orgSaving, setOrgSaving] = useState(false);
+
+  async function activate() {
+    setActivating(true);
+    try {
+      await activateTenant(tenant.id);
+      setStatus("active");
+      toast(`${tenant.name} activated — sign-in is open now.`);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not activate: ${err.message}` : "Could not activate.");
+    } finally {
+      setActivating(false);
+    }
+  }
+
+  async function setOrganization(organizationId: string) {
+    setOrgSaving(true);
+    try {
+      await assignTenantOrganization(tenant.id, organizationId || null);
+      setOrgId(organizationId);
+      toast(organizationId ? "School assigned to organization." : "School removed from its organization.");
+    } catch (err) {
+      toast(err instanceof Error ? `Could not update the organization: ${err.message}` : "Could not update the organization.");
+    } finally {
+      setOrgSaving(false);
+    }
+  }
 
   return (
     <>
@@ -51,10 +116,12 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2.5">
                 <h1 className="text-h2 font-semibold tracking-tight">{tenant.name}</h1>
-                <Badge tone={STATUS_TONE[tenant.status]}>{STATUS_LABEL[tenant.status]}</Badge>
+                <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
               </div>
               <div className="mt-1 break-words font-mono text-[11.5px] text-ink-muted">
                 {tenantPath(tenant.slug)} · {tenant.county} · {tenant.plan} plan · {tenant.licensed_seats.toLocaleString()} seats
+                {tenant.higher_ed_subtype ? ` · ${HIGHER_ED_SUBTYPE_LABEL[tenant.higher_ed_subtype]}` : ""}
+                {tenant.delivery_mode !== "in_person" ? ` · ${DELIVERY_MODE_LABEL[tenant.delivery_mode]}` : ""}
               </div>
             </div>
           </div>
@@ -95,19 +162,58 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
                 <div className="text-body font-semibold text-orange-ink">{alert.title}</div>
                 <p className="mt-1 text-small leading-relaxed text-orange-ink">{alert.body}</p>
               </div>
-              <Button variant="accent" onClick={() => toast(`${alert.action} — ${tenant.name}`)}>{alert.action}</Button>
+              {status === "onboarding" ? (
+                <Button variant="accent" disabled={activating} onClick={() => void activate()}>
+                  {activating ? "Activating…" : alert.action}
+                </Button>
+              ) : (
+                <Button variant="accent" onClick={() => toast(`${alert.action} — ${tenant.name}`)}>{alert.action}</Button>
+              )}
             </div>
           )}
 
           <StatRow
             stats={[
-              { label: "Learners", value: low ? "0" : "1,842", sub: `of ${tenant.licensed_seats.toLocaleString()} licensed` },
-              { label: "Staff accounts", value: low ? "3" : "118", sub: "active in the last 7 days" },
-              { label: "Parent accounts", value: low ? "0" : "1,610", sub: "invites activated" },
-              { label: "Billing", value: tenant.status === "overdue" ? "Overdue" : "Current", sub: tenant.status === "overdue" ? KES(182_000_00) + " outstanding" : "Next invoice 01 Oct", alarming: tenant.status === "overdue" },
+              { label: "Learners", value: (overview?.learners ?? 0).toLocaleString(), sub: `of ${tenant.licensed_seats.toLocaleString()} licensed` },
+              { label: "Staff accounts", value: (overview?.staff ?? 0).toLocaleString(), sub: "school admin + teacher logins" },
+              { label: "Parent accounts", value: (overview?.parents ?? 0).toLocaleString(), sub: "with a login" },
+              {
+                label: "Billing",
+                value: (overview?.outstandingCents ?? 0) > 0 ? "Outstanding" : "Current",
+                // This is Figbloom's own platform_invoices balance for the
+                // school, not the school's parent-fee collection — always
+                // KES, Figbloom's billing currency, regardless of the
+                // school's own country.
+                sub: (overview?.outstandingCents ?? 0) > 0
+                  ? `${formatMoney(overview!.outstandingCents, "KE")} outstanding${overview?.nextDueOn ? ` · due ${formatShortDate(overview.nextDueOn)}` : ""}`
+                  : "nothing outstanding",
+                alarming: (overview?.outstandingCents ?? 0) > 0,
+              },
             ]}
           />
 
+          <div className="mt-4 flex items-center gap-3 rounded-lg border border-line bg-white px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-body font-semibold">Organization</div>
+              <p className="mt-0.5 text-[12px] text-ink-faint">
+                A county, constituency or group-owner this school reports into for cross-school visibility. Optional.
+              </p>
+            </div>
+            <select
+              value={orgId}
+              disabled={orgSaving}
+              onChange={(e) => void setOrganization(e.target.value)}
+              aria-label="Organization"
+              className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
+            >
+              <option value="">Not assigned</option>
+              {(organizations ?? []).map((o: Organization) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+
+          {/* Daily active users and role adoption stay illustrative — they need real
+              session/action tracking this schema doesn't have yet (FIG-294). Learners,
+              staff, parents and billing above are real as of FIG-294's first pass. */}
           <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)" }}>
             <section className="overflow-hidden rounded-lg border border-line">
               <header className="flex items-center justify-between border-b border-line px-4 py-3">

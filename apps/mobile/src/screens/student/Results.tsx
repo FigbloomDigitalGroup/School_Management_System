@@ -1,12 +1,13 @@
 import { ScrollView, Text, View } from "react-native";
-import { againstMean, gradeFor } from "@figbloom/shared";
+import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
 
 /** A mark with its context. No class position — the same product decision the parent app makes. */
 export function StudentResults() {
-  const { data, accent } = useStudentData();
+  const { data, accent, country } = useStudentData();
   const a = accentFor(accent);
+  const scheme = gradingSchemeFor(country, data.classLevel ?? "secondary");
   const subjects = data.subjects;
   const meanMark = subjects.length ? Math.round(subjects.reduce((sum, sub) => sum + sub.score, 0) / subjects.length) : null;
 
@@ -27,7 +28,7 @@ export function StudentResults() {
             <View style={[s.card, { backgroundColor: a.deep, borderColor: a.deep }]}>
               <Text style={[s.eyebrow, { color: "rgba(255,255,255,0.7)" }]}>MEAN GRADE</Text>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12, marginTop: 6 }}>
-                <Text style={{ fontSize: 38, fontWeight: "700", color: "#fff" }}>{gradeFor(meanMark)}</Text>
+                <Text style={{ fontSize: 38, fontWeight: "700", color: "#fff" }}>{gradeFor(meanMark, scheme)}</Text>
                 <Text style={[s.mono, { color: "rgba(255,255,255,0.8)", fontSize: 14 }]}>{meanMark} marks</Text>
               </View>
               <Text style={{ fontSize: 12.5, lineHeight: 19, color: "rgba(255,255,255,0.85)", marginTop: 8 }}>
@@ -48,8 +49,8 @@ export function StudentResults() {
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
                   <Text style={[s.mono, { fontSize: 18 }]}>{sub.score}</Text>
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: sub.score >= 75 ? "#1B4D2E" : sub.score >= 65 ? "#2E7D4F" : "#8A3D08" }}>
-                    {gradeFor(sub.score)}
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: GRADE_INK[gradeFor(sub.score, scheme)] }}>
+                    {gradeFor(sub.score, scheme)}
                   </Text>
                 </View>
               </View>

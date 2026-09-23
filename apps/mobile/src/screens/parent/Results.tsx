@@ -1,5 +1,5 @@
 import { ScrollView, Text, View } from "react-native";
-import { againstMean, gradeFor } from "@figbloom/shared";
+import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useSubjects } from "../../data";
 
@@ -7,10 +7,11 @@ const CLASS_MEAN = 62;
 
 /** A mark with its context. No class position — that is a decision, see the web note. */
 export function ParentResults() {
-  const { child, index, accent } = useChild();
+  const { child, index, accent, country } = useChild();
   const subjects = useSubjects();
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
+  const scheme = gradingSchemeFor(country, child.classLevel);
 
   return (
     <View style={s.screen}>
@@ -23,7 +24,7 @@ export function ParentResults() {
         <View style={[s.card, { backgroundColor: tint, borderColor: tint }]}>
           <Text style={[s.eyebrow, { color: "rgba(255,255,255,0.7)" }]}>MEAN GRADE</Text>
           <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12, marginTop: 6 }}>
-            <Text style={{ fontSize: 38, fontWeight: "700", color: "#fff" }}>{gradeFor(child.mean)}</Text>
+            <Text style={{ fontSize: 38, fontWeight: "700", color: "#fff" }}>{gradeFor(child.mean, scheme)}</Text>
             <Text style={[s.mono, { color: "rgba(255,255,255,0.8)", fontSize: 14 }]}>{child.mean} marks</Text>
           </View>
           <Text style={{ fontSize: 12.5, lineHeight: 19, color: "rgba(255,255,255,0.85)", marginTop: 8 }}>
@@ -43,8 +44,8 @@ export function ParentResults() {
             </View>
             <View style={{ alignItems: "flex-end" }}>
               <Text style={[s.mono, { fontSize: 18 }]}>{mark}</Text>
-              <Text style={{ fontSize: 12, fontWeight: "700", color: mark >= 75 ? "#1B4D2E" : mark >= 65 ? "#2E7D4F" : "#8A3D08" }}>
-                {gradeFor(mark)}
+              <Text style={{ fontSize: 12, fontWeight: "700", color: GRADE_INK[gradeFor(mark, scheme)] }}>
+                {gradeFor(mark, scheme)}
               </Text>
             </View>
           </View>

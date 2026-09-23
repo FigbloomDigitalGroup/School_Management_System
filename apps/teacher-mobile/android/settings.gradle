@@ -1,0 +1,8 @@
+// npm workspaces monorepo: node_modules is hoisted to the repo root, not
+// apps/teacher-mobile/node_modules — ../../../node_modules, not ../node_modules.
+pluginManagement { includeBuild("../../../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+rootProject.name = 'FigbloomTeacher'
+include ':app'
+includeBuild('../../../node_modules/@react-native/gradle-plugin')

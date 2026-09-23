@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { KES, gradeFor } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -7,6 +7,7 @@ import { EmptyState } from "../../components/ui/DataTable";
 import { Button } from "../../components/ui/Button";
 import { formatShortDate } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import { ChildSwitcher } from "./ChildSwitcher";
 
 /**
@@ -19,6 +20,7 @@ import { ChildSwitcher } from "./ChildSwitcher";
 export function ParentHome() {
   const navigate = useNavigate();
   const { slug } = useParams();
+  const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
 
   const statCards = child
@@ -30,7 +32,7 @@ export function ParentHome() {
         },
         {
           label: "Mean grade",
-          value: child.mean === null ? "—" : gradeFor(child.mean),
+          value: child.mean === null ? "—" : gradeFor(child.mean, gradingSchemeFor(tenant.country, child.classLevel)),
           sub: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
         },
       ]
@@ -83,12 +85,12 @@ export function ParentHome() {
                 className="mt-1.5 text-[32px] font-bold tracking-tight"
                 style={{ color: child.balance > 0 ? "var(--accent-deep)" : "#1B4D2E" }}
               >
-                {child.balance > 0 ? KES(child.balance) : "Cleared"}
+                {child.balance > 0 ? formatMoney(child.balance, tenant.country) : "Cleared"}
               </div>
               <p className="mt-1.5 max-w-[560px] text-[13px] leading-relaxed text-ink-muted">
                 {child.balance > 0
-                  ? `Of ${KES(child.billed)} billed. Part payment is fine — many families pay across the term.`
-                  : `All ${KES(child.billed)} paid. Nothing due until the next term.`}
+                  ? `Of ${formatMoney(child.billed, tenant.country)} billed. Part payment is fine — many families pay across the term.`
+                  : `All ${formatMoney(child.billed, tenant.country)} paid. Nothing due until the next term.`}
               </p>
               {child.balance > 0 && (
                 <Button variant="accent" className="mt-3.5" onClick={() => navigate(`/s/${slug}/parent/fees?pay=1`)}>

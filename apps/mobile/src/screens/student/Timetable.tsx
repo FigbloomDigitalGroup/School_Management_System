@@ -34,6 +34,7 @@ export function StudentTimetable() {
               style={{
                 ...HIT, flex: 1, borderRadius: 10, alignItems: "center", justifyContent: "center",
                 backgroundColor: on ? a.deep : t.appSurface.lineSoft,
+                ...(on ? { shadowColor: a.deep, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 3 } : null),
               }}
             >
               <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{d}</Text>
@@ -48,13 +49,13 @@ export function StudentTimetable() {
             <Text style={s.small}>No periods set for {DAY_LABEL[day]} yet.</Text>
           </View>
         ) : (
-          rows.map(([time, subject, room], i) => (
+          rows.map(([time, subject, room, teacher], i) => (
             <View key={`${time}-${i}`} style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }]}>
               <Text style={[s.mono, { width: 44, color: t.appSurface.inkMuted }]}>{time}</Text>
-              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: t.appSurface.line }} />
+              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: a.hex }} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14, fontWeight: "500" }}>{subject}</Text>
-                {!!room && <Text style={s.faint}>{room}</Text>}
+                {!!(room || teacher) && <Text style={s.faint}>{[room, teacher].filter(Boolean).join(" · ")}</Text>}
               </View>
             </View>
           ))

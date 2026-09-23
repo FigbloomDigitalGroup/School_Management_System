@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Audience } from "./types";
+import { classAudienceIncludes, type Audience, type ClassLevel } from "./types";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -27,6 +27,7 @@ export interface ChildInfo {
   cls: string;
   adm: string;
   classId: string;
+  classLevel: ClassLevel; // picks the grading scheme (FIG-356) via gradingSchemeFor()
   formLevel: number;
   boarding: boolean;
   balance: number;
@@ -73,6 +74,89 @@ export function formatShortDate(dateOnly: string): string {
   return new Date(`${dateOnly}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+/** The real class-wide mean for every subject of one exam, computed server
+ *  side (class_means_for_exam) — RLS only lets a parent/student read their
+ *  own child's marks rows, so this can never be derived from a client-side
+ *  SELECT without exposing other students' individual scores. */
+export async function fetchClassMeans(examId: string, classId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase().rpc("class_means_for_exam", { p_exam_id: examId, p_class_id: classId });
+  if (error) throw error;
+  return new Map((data as { subject_id: string; mean_score: number }[] ?? []).map((r) => [r.subject_id, r.mean_score]));
+}
+
+/**
+ * Fires on every new announcement in the tenant — the badge/list callers
+ * re-derive their own unread count or message list from it rather than
+ * trying to match audience against the raw payload themselves, since that
+ * logic (whole_school/role/class/form_level/user) already lives in one place.
+ * Mirrors fleet.ts's subscribeVehiclePositions()/subscribeVehicleAlerts(),
+ * except the channel name is made unique per call rather than just
+ * `announcements-${tenantId}` — under React 18 StrictMode's dev-mode
+ * double-invoke (mount, cleanup, mount again), a name reused across calls
+ * raced with the first channel's still-in-flight async removal, and
+ * Supabase's client returned that same not-yet-torn-down channel on the
+ * second mount — calling .on() on an already-subscribed channel throws.
+ * (Date.now()/Math.random() rather than crypto.randomUUID(): this file is
+ * also type-checked for the React Native build, which has no DOM lib.)
+ */
+export function subscribeAnnouncements(tenantId: string, onInsert: () => void): () => void {
+  const channel = supabase()
+    .channel(`announcements-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` },
+      () => onInsert(),
+    )
+    .subscribe();
+  return () => { void supabase().removeChannel(channel); };
+}
+
+/** Records that this guardian has opened a message, so it drops off their unread badge for good. */
+export async function markMessageRead(profileId: string, announcementId: string): Promise<void> {
+  const { error } = await supabase()
+    .from("announcement_reads")
+    .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
+  if (error) throw error;
+}
+
+/** How many of a guardian's messages they haven't opened yet — drives the sidebar badge.
+ *  Deliberately lighter than loadParentData(): just enough to know audience match and read state,
+ *  not fees/attendance/marks, since ParentShell needs this on every navigation. */
+export async function fetchParentUnreadCount(profileId: string): Promise<number> {
+  const { data: guardianRows, error: gErr } = await supabase()
+    .from("guardians")
+    .select("students(class_id, classes(form_level))")
+    .eq("profile_id", profileId);
+  if (gErr) throw gErr;
+
+  const kids = ((guardianRows ?? []) as unknown as { students: { class_id: string; classes: { form_level: number } | null } | null }[])
+    .map((g) => g.students)
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+  const childClassIds = new Set(kids.map((k) => k.class_id));
+  const childFormLevels = new Set(kids.map((k) => k.classes?.form_level ?? 1));
+
+  const [{ data: announcementRows, error: aErr }, { data: readRows, error: rErr }] = await Promise.all([
+    supabase().from("announcements").select("id, audience"),
+    supabase().from("announcement_reads").select("announcement_id").eq("profile_id", profileId),
+  ]);
+  if (aErr) throw aErr;
+  if (rErr) throw rErr;
+
+  const readIds = new Set((readRows ?? []).map((r) => r.announcement_id as string));
+  return ((announcementRows ?? []) as { id: string; audience: Audience | null }[]).filter((a) => {
+    if (readIds.has(a.id)) return false;
+    const audience = a.audience;
+    if (!audience) return false;
+    switch (audience.kind) {
+      case "whole_school": return true;
+      case "role": return audience.role === "parent";
+      case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
+      case "form_level": return childFormLevels.has(audience.form_level);
+      case "user": return audience.user_id === profileId;
+    }
+  }).length;
+}
+
 export function formatPhone(raw: string | null): string {
   if (!raw) return "";
   const d = raw.replace(/[^0-9]/g, "");
@@ -85,11 +169,11 @@ export function formatPhone(raw: string | null): string {
 export async function loadParentData(profileId: string): Promise<ParentData> {
   const { data: guardianRows, error: gErr } = await supabase()
     .from("guardians")
-    .select("students(id, full_name, admission_no, class_id, boarding, classes(name, form_level))")
+    .select("students(id, full_name, admission_no, class_id, boarding, classes(name, form_level, level))")
     .eq("profile_id", profileId);
   if (gErr) throw gErr;
 
-  const kids = ((guardianRows ?? []) as unknown as { students: { id: string; full_name: string; admission_no: string; class_id: string; boarding: boolean; classes: { name: string; form_level: number } } | null }[])
+  const kids = ((guardianRows ?? []) as unknown as { students: { id: string; full_name: string; admission_no: string; class_id: string; boarding: boolean; classes: { name: string; form_level: number; level: ClassLevel } } | null }[])
     .map((g) => g.students)
     .filter((s): s is NonNullable<typeof s> => s !== null)
     .sort((a, b) => a.admission_no.localeCompare(b.admission_no));
@@ -110,13 +194,14 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
 
   const exam = (examRows ?? [])[0] as { id: string; name: string } | undefined;
 
-  const [{ data: markRows }, { data: classMarkRows }, { data: feeItemRows }, { data: paymentRows }, { data: announcementRows }] = await Promise.all([
+  const [{ data: markRows }, classMeansByClass, { data: feeItemRows }, { data: paymentRows }, { data: announcementRows }, { data: readRows }] = await Promise.all([
     exam && studentIds.length
       ? supabase().from("marks").select("student_id, score, subject_id, subjects(name)").eq("exam_id", exam.id).in("student_id", studentIds)
       : Promise.resolve({ data: [] as { student_id: string; score: number | null; subject_id: string; subjects: { name: string } | null }[] }),
     exam && classIds.length
-      ? supabase().from("marks").select("subject_id, score, students!inner(class_id)").eq("exam_id", exam.id).in("students.class_id", classIds)
-      : Promise.resolve({ data: [] as { subject_id: string; score: number | null; students: { class_id: string } }[] }),
+      ? Promise.all(classIds.map((cid) => fetchClassMeans(exam.id, cid)))
+          .then((maps) => new Map(classIds.map((cid, i) => [cid, maps[i]!])))
+      : Promise.resolve(new Map<string, Map<string, number>>()),
     term
       ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as ParentData["feeItems"] }),
@@ -124,23 +209,11 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       ? supabase().from("payments").select("id, amount_cents, mpesa_receipt, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
       : Promise.resolve({ data: [] as { id: string; amount_cents: number; mpesa_receipt: string | null; msisdn: string | null; completed_at: string | null; created_at: string }[] }),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
+    supabase().from("announcement_reads").select("announcement_id").eq("profile_id", profileId),
   ]);
 
-  // Class means per subject, grouped by class then subject.
-  const classMeans = new Map<string, Map<string, number[]>>();
-  for (const row of (classMarkRows ?? []) as { subject_id: string; score: number | null; students: { class_id: string } | null }[]) {
-    if (row.score === null || !row.students) continue;
-    const byClass = classMeans.get(row.students.class_id) ?? new Map<string, number[]>();
-    const arr = byClass.get(row.subject_id) ?? [];
-    arr.push(row.score);
-    byClass.set(row.subject_id, arr);
-    classMeans.set(row.students.class_id, byClass);
-  }
-  const meanFor = (classId: string, subjectId: string): number | null => {
-    const arr = classMeans.get(classId)?.get(subjectId);
-    if (!arr || !arr.length) return null;
-    return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
-  };
+  const readIds = new Set((readRows ?? []).map((r) => r.announcement_id as string));
+  const meanFor = (classId: string, subjectId: string): number | null => classMeansByClass.get(classId)?.get(subjectId) ?? null;
 
   const invoices = new Map((invoiceRows ?? []).map((i) => [i.student_id, i]));
   const attendanceByStudent = new Map<string, { student_id: string; mark: string; taken_on: string }[]>();
@@ -187,6 +260,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       cls: k.classes?.name ?? "",
       adm: k.admission_no,
       classId: k.class_id,
+      classLevel: k.classes?.level ?? "secondary",
       formLevel: k.classes?.form_level ?? 1,
       boarding: k.boarding,
       balance: inv ? Math.max(inv.total_cents - inv.paid_cents, 0) : 0,
@@ -214,8 +288,9 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       switch (audience.kind) {
         case "whole_school": return true;
         case "role": return audience.role === "parent";
-        case "class": return childClassIds.has(audience.class_id);
+        case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
         case "form_level": return childFormLevels.has(audience.form_level);
+        case "user": return audience.user_id === profileId; // e.g. a promotion/repeat notice addressed to this guardian personally
       }
     })
     .map((a) => {
@@ -226,7 +301,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
         from: isTeacher ? (a.profiles?.full_name ?? "Class teacher") : "School office",
         subject: a.subject,
         when: formatWhen(a.created_at),
-        unread: true,
+        unread: !readIds.has(a.id),
         body: a.body,
       };
     });

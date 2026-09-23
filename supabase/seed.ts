@@ -13,7 +13,7 @@ import {
   FIRST_NAMES, LAST_NAMES, DEMO_LOGINS,
 } from "../packages/shared/src/demo";
 import { itemsForStudent, totalCents } from "../packages/shared/src/fees";
-import { studentLoginEmail } from "../packages/shared/src/auth";
+import { loginIdEmail } from "../packages/shared/src/auth";
 
 const url = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -38,21 +38,27 @@ async function main() {
   const alliance = tenants!.find((t) => t.slug === "alliance")!;
 
   // ---------------------------------------------------------------- staff accounts
+  // super_admin/school_admin keep a real email login; teacher/driver sign in
+  // with a school-assigned login_id instead (FIG-396) -- parent/student are
+  // handled separately below, since they need extra linking (guardians,
+  // students.profile_id) this simple profile-insert loop doesn't do.
   const staff: Record<string, string> = {};
   for (const login of DEMO_LOGINS) {
-    if (!("email" in login) || !login.email) continue;
-    const { data: user, error } = await db.auth.admin.createUser({
-      email: login.email,
-      password: "figbloom-dev",
-      email_confirm: true,
-    });
-    if (error) { console.warn(`  ! ${login.email}: ${error.message}`); continue; }
+    if (login.role === "parent" || login.role === "student") continue;
+    const isEmailBased = "email" in login;
+    const { data: user, error } = await db.auth.admin.createUser(
+      isEmailBased
+        ? { email: login.email, password: "figbloom-dev", email_confirm: true }
+        : { email: loginIdEmail(login.login_id, alliance.slug), password: "figbloom-dev", email_confirm: true },
+    );
+    if (error) { console.warn(`  ! ${login.role}: ${error.message}`); continue; }
     await db.from("profiles").insert({
       id: user.user.id,
       tenant_id: login.role === "super_admin" ? null : alliance.id,
       role: login.role,
       full_name: login.who,
-      email: login.email,
+      email: isEmailBased ? login.email : null,
+      login_id: isEmailBased ? null : login.login_id,
       staff_title: login.role === "school_admin" ? "Principal" : login.role === "teacher" ? "Chemistry teacher" : login.role === "driver" ? "Bus driver" : null,
     });
     staff[login.role] = user.user.id;
@@ -113,31 +119,38 @@ async function main() {
   console.log(`  ${inserted!.length} learners`);
 
   // ---------------------------------------------------------------- demo student login
-  // Students have no email, so sign-in derives a synthetic address from admission_no + PIN
-  // (see studentLoginEmail() in packages/shared/src/auth.ts) — kept in sync with DEMO_LOGINS.
+  // Students have no email, so sign-in derives a synthetic address from the
+  // assigned login_id (see loginIdEmail() in packages/shared/src/auth.ts) —
+  // kept in sync with DEMO_LOGINS' "student" entry.
   const demoStudent = inserted!.find((s) => s.admission_no === "4102")!;
+  const studentLogin = DEMO_LOGINS.find((l) => l.role === "student")!;
   const { data: studentUser, error: stuErr } = await db.auth.admin.createUser({
-    email: studentLoginEmail("4102", alliance.slug),
-    password: "8421",
+    email: loginIdEmail(studentLogin.login_id, alliance.slug),
+    password: "figbloom-dev",
     email_confirm: true,
   });
   if (stuErr) { console.warn(`  ! student 4102: ${stuErr.message}`); }
   else {
     await db.from("profiles").insert({
       id: studentUser.user.id, tenant_id: alliance.id, role: "student", full_name: demoStudent.full_name,
+      login_id: studentLogin.login_id,
     });
     await db.from("students").update({ profile_id: studentUser.user.id }).eq("id", demoStudent.id);
   }
-  console.log(`  1 student login (admission 4102)`);
+  console.log(`  1 student login (${studentLogin.login_id})`);
 
   // ---------------------------------------------------------------- parent with two children
+  // phone stays as optional contact metadata only -- login_id (not phone/SMS
+  // OTP) is the actual sign-in credential now, same as every other role
+  // below school_admin.
+  const parentLogin = DEMO_LOGINS.find((l) => l.role === "parent")!;
   const { data: parentUser } = await db.auth.admin.createUser({
-    phone: "+254722118004", phone_confirm: true, password: "figbloom-dev",
+    email: loginIdEmail(parentLogin.login_id, alliance.slug), password: "figbloom-dev", email_confirm: true,
   });
   if (parentUser?.user) {
     await db.from("profiles").insert({
       id: parentUser.user.id, tenant_id: alliance.id, role: "parent",
-      full_name: "Rose Achieng", phone: "+254722118004",
+      full_name: "Rose Achieng", phone: "+254722118004", login_id: parentLogin.login_id,
     });
     const faith = inserted!.find((s) => s.admission_no === "4102")!;
     const samuel = inserted!.find((s) => s.admission_no === "4103")!;
@@ -276,7 +289,7 @@ async function main() {
   ]);
 
   console.log("\nDone. Sign in with:");
-  for (const l of DEMO_LOGINS) console.log(`  ${l.role.padEnd(13)} ${("email" in l && l.email) || ("phone" in l && l.phone) || ("admission_no" in l && l.admission_no)}  ${l.password}`);
+  for (const l of DEMO_LOGINS) console.log(`  ${l.role.padEnd(13)} ${"email" in l ? l.email : l.login_id}  ${l.password}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

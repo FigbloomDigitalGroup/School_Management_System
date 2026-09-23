@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KES, itemsForStudent, supabase, totalCents } from "@figbloom/shared";
+import { formatMoney, itemsForStudent, supabase, totalCents } from "@figbloom/shared";
 import type { FeeItem, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -11,6 +11,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
+import { FeeItemsEditor } from "./FeeItemsEditor";
 
 interface OutstandingRow {
   id: string;
@@ -49,34 +50,39 @@ interface RawProofRow {
 interface FeesData {
   term: Term | null;
   feeItems: FeeItem[];
+  formLevels: number[];
   invoices: { total_cents: number; paid_cents: number }[];
   outstanding: OutstandingRow[];
   pendingProofs: PendingProofRow[];
 }
 
-async function fetchFees(): Promise<FeesData> {
+async function fetchFees(tenantId: string): Promise<FeesData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
-  const [{ data: feeItemRows }, invoicesRes, proofsRes] = await Promise.all([
+  const [{ data: feeItemRows }, invoicesRes, proofsRes, { data: classRows }] = await Promise.all([
     termId
-      ? sb.from("fee_items").select("*").eq("term_id", termId).returns<FeeItem[]>()
+      ? sb.from("fee_items").select("*").eq("tenant_id", tenantId).eq("term_id", termId).returns<FeeItem[]>()
       : Promise.resolve({ data: [] as FeeItem[] }),
     termId
-      ? sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))").eq("term_id", termId).returns<RawInvoiceRow[]>()
+      ? sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))").eq("tenant_id", tenantId).eq("term_id", termId).returns<RawInvoiceRow[]>()
       : Promise.resolve({ data: [] as RawInvoiceRow[] }),
     // Payment proofs are keyed by invoice, not term — reach the current term
     // through fee_invoices the same way the outstanding-balances query does.
     termId
       ? sb.from("payment_proofs")
           .select("id,file_path,file_name,note,uploaded_at,fee_invoices!inner(term_id,students(full_name,classes(name)))")
+          .eq("tenant_id", tenantId)
           .eq("status", "pending")
           .eq("fee_invoices.term_id", termId)
           .order("uploaded_at", { ascending: true })
           .returns<RawProofRow[]>()
       : Promise.resolve({ data: [] as RawProofRow[] }),
+    sb.from("classes").select("form_level").eq("tenant_id", tenantId).returns<{ form_level: number }[]>(),
   ]);
+
+  const formLevels = [...new Set((classRows ?? []).map((c) => c.form_level))].sort((a, b) => a - b);
 
   const rawInvoices = invoicesRes.data ?? [];
   const invoices = rawInvoices.map((r) => ({ total_cents: r.total_cents, paid_cents: r.paid_cents }));
@@ -103,14 +109,16 @@ async function fetchFees(): Promise<FeesData> {
     cls: r.fee_invoices?.students?.classes?.name ?? "—",
   }));
 
-  return { term: term ?? null, feeItems: feeItemRows ?? [], invoices, outstanding, pendingProofs };
+  return { term: term ?? null, feeItems: feeItemRows ?? [], formLevels, invoices, outstanding, pendingProofs };
 }
 
 export function Fees() {
   const toast = useToast();
-  const { profile } = useTenantSession();
-  const { data, loading, error } = useAsync(() => fetchFees(), []);
+  const { profile, tenant } = useTenantSession();
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchFees(tenant.id), [tenant.id, reloadKey]);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [editingItems, setEditingItems] = useState(false);
 
   async function reviewProof(id: string, status: "confirmed" | "rejected") {
     const { error: updateError } = await supabase()
@@ -134,10 +142,16 @@ export function Fees() {
     }
   }
 
-  // "A Form 2 boarder pays" — the representative figure the label promises,
-  // so it must include Form-2-scoped items too (KCSE registration etc.), not
-  // just the school-wide ones.
-  const boarderTotal = data ? totalCents(itemsForStudent(data.feeItems, { boarding: true }, 2)) : 0;
+  // What each form level actually pays in total, day vs boarding — not just
+  // one representative figure, since form-scoped items (KCSE registration
+  // etc.) mean the total genuinely differs form to form, not only by residence.
+  const totalsByForm = data
+    ? data.formLevels.map((form) => ({
+        form,
+        day: totalCents(itemsForStudent(data.feeItems, { boarding: false }, form)),
+        boarder: totalCents(itemsForStudent(data.feeItems, { boarding: true }, form)),
+      }))
+    : [];
 
   const billed = data ? data.invoices.reduce((a, i) => a + i.total_cents, 0) : 0;
   const collected = data ? data.invoices.reduce((a, i) => a + i.paid_cents, 0) : 0;
@@ -179,9 +193,9 @@ export function Fees() {
         ) : (
           <StatRow
             stats={[
-              { label: "Billed this term", value: KES(billed), sub: `${data.invoices.length.toLocaleString()} learners` },
-              { label: "Collected", value: KES(collected), sub: `${collectedPct}% of billed` },
-              { label: "Outstanding", value: KES(outstandingTotal), sub: `${owingCount.toLocaleString()} learners owe a balance`, alarming: true },
+              { label: "Billed this term", value: formatMoney(billed, tenant.country), sub: `${data.invoices.length.toLocaleString()} learners` },
+              { label: "Collected", value: formatMoney(collected, tenant.country), sub: `${collectedPct}% of billed` },
+              { label: "Outstanding", value: formatMoney(outstandingTotal, tenant.country), sub: `${owingCount.toLocaleString()} learners owe a balance`, alarming: true },
               { label: "Fully paid", value: `${fullyPaidPct}%`, sub: `${fullyPaidCount.toLocaleString()} invoices cleared` },
             ]}
           />
@@ -191,7 +205,7 @@ export function Fees() {
           <section className="overflow-hidden rounded-lg border border-line">
             <header className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-body font-semibold">{data?.term ? data.term.name : "Term"} fee items</h2>
-              <Button onClick={() => toast("Editing the fee structure")}>Edit</Button>
+              <Button onClick={() => setEditingItems(true)} disabled={!data?.term}>Edit</Button>
             </header>
             <div>
               {error ? null : loading || !data ? (
@@ -214,13 +228,26 @@ export function Fees() {
                             : `Form ${i.form_level} only`}
                         </div>
                       </div>
-                      <Mono>{KES(i.amount_cents)}</Mono>
+                      <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between bg-sunken px-4 py-3">
-                    <span className="text-[13px] font-semibold">A Form 2 boarder pays</span>
-                    <span className="font-mono text-[15px] font-medium">{KES(boarderTotal)}</span>
-                  </div>
+                  {totalsByForm.length > 0 && (
+                    <div className="bg-sunken px-4 py-3">
+                      <div className="mb-2 text-[12px] font-semibold">What each form level pays in total</div>
+                      <div className="grid gap-1.5">
+                        <div className="grid gap-2 text-[11px] font-semibold text-ink-faint" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                          <span>Form</span><span className="text-right">Day</span><span className="text-right">Boarder</span>
+                        </div>
+                        {totalsByForm.map((t) => (
+                          <div key={t.form} className="grid gap-2 text-[13px]" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                            <span className="font-medium">Form {t.form}</span>
+                            <div className="text-right"><Mono>{formatMoney(t.day, tenant.country)}</Mono></div>
+                            <div className="text-right"><Mono>{formatMoney(t.boarder, tenant.country)}</Mono></div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -233,10 +260,10 @@ export function Fees() {
               title="Largest outstanding balances"
               columns={[
                 { key: "name", header: "Learner", width: "1.6fr", render: (r: OutstandingRow) => <Cell sub={r.cls}>{r.name}</Cell> },
-                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => <Mono>{KES(r.billed)}</Mono> },
-                { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{KES(r.paid)}</Mono> },
+                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.billed, tenant.country)}</Mono> },
+                { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.paid, tenant.country)}</Mono> },
                 { key: "bal", header: "Balance", align: "right", render: (r: OutstandingRow) => (
-                  <span className="font-mono text-[12.5px] font-medium text-warn-ink">{KES(r.billed - r.paid)}</span>
+                  <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.billed - r.paid, tenant.country)}</span>
                 ) },
                 { key: "st", header: "", align: "right", render: (r: OutstandingRow) => (
                   <Badge tone={r.paid === 0 ? "warn" : "muted"}>{r.paid === 0 ? "Nothing paid" : "Part paid"}</Badge>
@@ -286,6 +313,16 @@ export function Fees() {
           )}
         </div>
       </div>
+
+      {editingItems && data?.term && (
+        <FeeItemsEditor
+          termId={data.term.id}
+          termName={data.term.name}
+          tenantId={tenant.id}
+          country={tenant.country}
+          onClose={() => { setEditingItems(false); setReloadKey((k) => k + 1); }}
+        />
+      )}
     </>
   );
 }

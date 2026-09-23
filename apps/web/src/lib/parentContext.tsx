@@ -1,6 +1,6 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { loadParentData, type ChildInfo, type ParentData } from "@figbloom/shared";
+import { loadParentData, subscribeAnnouncements, type ChildInfo, type ParentData } from "@figbloom/shared";
 import { useAsync } from "./useAsync";
 import { useTenantSession } from "./sessionContext";
 
@@ -20,11 +20,16 @@ const ParentCtx = createContext<ParentCtxValue | null>(null);
  * Loads a parent's whole picture once — every desktop screen (Home, Fees,
  * Results, Inbox, Account) reads from here instead of re-querying, and the
  * selected child survives a refresh because it lives in the URL, not state.
+ * Re-loads on any new tenant announcement (subscribeAnnouncements) so the
+ * Inbox's message list reacts the moment one arrives, not just on refresh.
  */
 export function ParentDataProvider({ children: kids }: { children: ReactNode }) {
-  const { profile } = useTenantSession();
-  const { data, loading, error } = useAsync(() => loadParentData(profile.id), [profile.id]);
+  const { profile, tenant } = useTenantSession();
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => loadParentData(profile.id), [profile.id, reloadKey]);
   const [params, setParams] = useSearchParams();
+
+  useEffect(() => subscribeAnnouncements(tenant.id, () => setReloadKey((k) => k + 1)), [tenant.id]);
 
   const list = useMemo(() => data?.children ?? [], [data]);
   const childId = params.get("child") ?? list[0]?.id ?? null;

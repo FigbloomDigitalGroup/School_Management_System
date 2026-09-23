@@ -1,6 +1,6 @@
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { KES, gradeFor } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren, useMessages } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
@@ -11,7 +11,7 @@ import { ChildSwitcher } from "../../components/ChildSwitcher";
  */
 export function ParentHome() {
   const nav = useNavigation<any>();
-  const { child, index, setIndex, accent } = useChild();
+  const { child, index, setIndex, accent, country } = useChild();
   const kids = useChildren();
   const messages = useMessages();
   const a = accentFor(accent);
@@ -34,12 +34,12 @@ export function ParentHome() {
         <View style={[s.card, { marginTop: -10 }]}>
           <Text style={s.eyebrow}>FEE BALANCE · TERM 3</Text>
           <Text style={{ fontSize: 30, fontWeight: "700", marginTop: 6, color: child.balance > 0 ? tint : t.status.okInk }}>
-            {child.balance > 0 ? KES(child.balance) : "Cleared"}
+            {child.balance > 0 ? formatMoney(child.balance, country) : "Cleared"}
           </Text>
           <Text style={[s.small, { marginTop: 6 }]}>
             {child.balance > 0
-              ? `Of ${KES(child.billed)} billed. Part payment is fine — many families pay across the term.`
-              : `All ${KES(child.billed)} paid. Nothing due until Term 1.`}
+              ? `Of ${formatMoney(child.billed, country)} billed. Part payment is fine — many families pay across the term.`
+              : `All ${formatMoney(child.billed, country)} paid. Nothing due until Term 1.`}
           </Text>
           {child.balance > 0 && (
             <TouchableOpacity
@@ -55,7 +55,7 @@ export function ParentHome() {
         <View style={[s.row, { marginTop: 16, gap: 10 }]}>
           {[
             { label: "ATTENDANCE", value: `${child.attendance}%`, note: "this term" },
-            { label: "MEAN GRADE", value: gradeFor(child.mean), note: `${child.mean} marks, Mock 1` },
+            { label: "MEAN GRADE", value: gradeFor(child.mean, gradingSchemeFor(country, child.classLevel)), note: `${child.mean} marks, Mock 1` },
           ].map((k) => (
             <View key={k.label} style={[s.card, { flex: 1, padding: 14 }]}>
               <Text style={s.eyebrow}>{k.label}</Text>

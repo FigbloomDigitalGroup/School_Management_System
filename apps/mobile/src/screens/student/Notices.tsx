@@ -4,10 +4,9 @@ import { accentFor, s } from "../../theme";
 import { useStudentData } from "../../studentData";
 
 export function StudentNotices() {
-  const { data, accent } = useStudentData();
+  const { data, accent, markNoticeRead } = useStudentData();
   const a = accentFor(accent);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [read, setRead] = useState<Record<string, boolean>>({});
   const notices = data.notices;
   const open = notices.find((n) => n.id === openId);
 
@@ -42,11 +41,11 @@ export function StudentNotices() {
           </View>
         ) : (
           notices.map((n) => {
-            const unread = n.unread && !read[n.id];
+            const unread = n.unread;
             return (
               <TouchableOpacity
                 key={n.id}
-                onPress={() => { setRead((r) => ({ ...r, [n.id]: true })); setOpenId(n.id); }}
+                onPress={() => { markNoticeRead(n.id); setOpenId(n.id); }}
                 style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}
               >
                 <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: unread ? a.deep : "#F1EDEC" }}>

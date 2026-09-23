@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, type Audience, type ClassGroup } from "@figbloom/shared";
+import { formatMoney, supabase, type Audience, type ClassGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
@@ -32,15 +32,15 @@ interface AnnouncementsData {
   recent: RecentAnnouncement[];
 }
 
-async function fetchAnnouncementsData(): Promise<AnnouncementsData> {
+async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsData> {
   const sb = supabase();
 
   const [{ data: classRows }, { data: studentRows }, { count: staffCount }, { data: guardianRows }, { data: recent }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level").order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
-    sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id", { count: "exact", head: true }).in("role", ["school_admin", "teacher"]),
-    sb.from("guardians").select("profile_id").returns<{ profile_id: string }[]>(),
-    sb.from("announcements").select("id,subject,published_at").not("published_at", "is", null)
+    sb.from("classes").select("id,name,form_level").eq("tenant_id", tenantId).order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
+    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
+    sb.from("guardians").select("profile_id").eq("tenant_id", tenantId).returns<{ profile_id: string }[]>(),
+    sb.from("announcements").select("id,subject,published_at").eq("tenant_id", tenantId).not("published_at", "is", null)
       .order("published_at", { ascending: false }).limit(5).returns<RecentAnnouncement[]>(),
   ]);
 
@@ -74,11 +74,11 @@ export function Announcements() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading } = useAsync(() => fetchAnnouncementsData(), [reloadKey]);
+  const { data, loading } = useAsync(() => fetchAnnouncementsData(tenant.id), [tenant.id, reloadKey]);
   const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
   const [formLevel, setFormLevel] = useState(1);
   const [classId, setClassId] = useState("");
-  const [channels, setChannels] = useState({ in_app: true, sms: false, email: false });
+  const [channels, setChannels] = useState({ in_app: true, push: true, sms: false, email: false });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -90,7 +90,7 @@ export function Announcements() {
     : audienceId === "form_level" ? data.countByForm.get(formLevel) ?? 0
     : data.countByClass.get(effectiveClassId) ?? 0;
 
-  const smsCost = channels.sms ? (reach * 0.8).toFixed(0) : "0";
+  const smsCostCents = channels.sms ? Math.round(reach * 0.8 * 100) : 0;
 
   function audienceValue(): Audience {
     switch (audienceId) {
@@ -98,6 +98,7 @@ export function Announcements() {
       case "role": return { kind: "role", role: "parent" };
       case "form_level": return { kind: "form_level", form_level: formLevel };
       case "class": return { kind: "class", class_id: effectiveClassId };
+      case "user": throw new Error("The composer never selects a per-person audience.");
     }
   }
 
@@ -107,7 +108,7 @@ export function Announcements() {
     setSending(true);
     try {
       const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
-      const { error } = await supabase().from("announcements").insert({
+      const { data: created, error } = await supabase().from("announcements").insert({
         tenant_id: tenant.id,
         author_id: profile.id,
         subject: subject.trim(),
@@ -115,9 +116,15 @@ export function Announcements() {
         audience: audienceValue(),
         channels: activeChannels,
         published_at: publish ? new Date().toISOString() : null,
-      });
+      }).select("id").single();
       if (error) throw error;
       toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
+
+      if (publish && channels.push) {
+        const { error: pushErr } = await supabase().functions.invoke("send-push", { body: { announcement_id: created.id } });
+        if (pushErr) toast(`Sent, but push notifications failed: ${pushErr.message}`);
+      }
+
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
@@ -188,6 +195,7 @@ export function Announcements() {
             {(
               [
                 ["in_app", "In the app", "Free. Everyone with an account sees it."],
+                ["push", "Push notification", "Free. Android only for now — reaches the phone even if the app is closed."],
                 ["sms", "SMS", "Charged per recipient. Reaches parents with no smartphone."],
                 ["email", "Email", "Free, but many parents have no working address."],
               ] as [keyof typeof channels, string, string][]
@@ -208,7 +216,7 @@ export function Announcements() {
             <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BEFORE YOU SEND</div>
             <dl className="mt-2.5 grid gap-2 text-[12.5px]">
               <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{reach.toLocaleString()} people</dd></div>
-              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">KSh {smsCost}</dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{formatMoney(smsCostCents, tenant.country)}</dd></div>
               <div className="flex justify-between"><dt className="text-ink-muted">Cannot be unsent</dt><dd className="font-mono">correct</dd></div>
             </dl>
             <div className="mt-3.5 grid gap-2">

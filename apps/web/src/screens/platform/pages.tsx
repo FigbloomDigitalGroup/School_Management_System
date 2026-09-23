@@ -1,23 +1,34 @@
-import { KES, supabase } from "@figbloom/shared";
-import type { Tenant } from "@figbloom/shared";
-import { Badge, Cell, Mono, RecordsPage, type RecordsSpec } from "./RecordsPage";
+import { useState, type FormEvent } from "react";
+import { effectivePriceCents, isBilled, formatMoney, supabase } from "@figbloom/shared";
+// Every money() call in this file is Figbloom's own platform billing (MRR,
+// plan price, invoices) — always "KE", a deliberate business-currency
+// choice independent of which country a billed school operates in.
+import type {
+  IncidentSeverity, IncidentStatus, PlatformIncident, PlatformInvoice, Tenant, TenantStatus,
+} from "@figbloom/shared";
+import { Badge, Cell, Mono, RecordsPage, type RecordsSpec, type Tone } from "./RecordsPage";
 import { Button } from "../../components/ui/Button";
+import { SelectField, TextArea, TextField } from "../../components/ui/Field";
+import { Modal } from "../../components/ui/Modal";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { checkServices } from "../../lib/platformAdmin";
 import { useAsync } from "../../lib/useAsync";
 
 /**
  * The seven cross-tenant console pages. Each is data plus copy — the layout
  * comes from RecordsPage, so they stay consistent as more are added.
  *
- * Usage, Impersonation, and Audit are backed by real tables (tenants+roster
- * counts, impersonation_sessions, audit_events — all already exist with
- * super_admin-readable RLS). Health, Incidents, Subscriptions, and Invoices
- * stay illustrative: they'd need real infrastructure this schema doesn't
- * model yet (uptime/latency monitoring, an incident tracker, a billing
- * system) — building fake tables for those would just move the fakeness
- * into SQL, not fix it. That's a product decision, not a coding task.
+ * Usage, Impersonation, Audit, Incidents, Subscriptions, and Invoices are all
+ * backed by real tables now (see 20260914000000_platform_ops_tables.sql for
+ * the last three). Health stays illustrative — it would need real uptime/
+ * latency monitoring this project has no infrastructure for at all, and
+ * that's still a product decision, not a coding task.
+ *
+ * Incidents and Invoices have no automated process writing to them (unlike
+ * audit_events, which other flows insert into) — staff declare an incident
+ * or record an invoice by hand, and mark it resolved/paid by hand too.
  */
 
 function RecordsLoading({ eyebrow, title }: { eyebrow: string; title: string }) {
@@ -47,75 +58,131 @@ function RecordsError({ eyebrow, title, message }: { eyebrow: string; title: str
 const t = (s: string, sub?: string) => <Cell sub={sub}>{s}</Cell>;
 const m = (s: string) => <Mono>{s}</Mono>;
 
-export function Health() {
-  const spec: RecordsSpec = {
-    eyebrow: "Platform · last 24 hours",
-    title: "System health",
-    blurb: "Everything that has to be up for a teacher to take attendance at 08:00. Schools sit on unreliable links, so degraded is normal and worth watching before it becomes down.",
-    stats: [
-      { label: "Uptime 30d", value: "99.97%", sub: "SLA is 99.9%" },
-      { label: "API p95", value: "212 ms", sub: "Nairobi edge" },
-      { label: "Queue depth", value: "1,204", sub: "attendance sync jobs", alarming: true },
-      { label: "Open incidents", value: "2", sub: "1 degraded, 1 investigating", alarming: true },
-    ],
-    actions: [
-      { label: "Status page", onClick: () => {} },
-      { label: "Declare incident", primary: true, onClick: () => {} },
-    ],
-    columns: [
-      { key: "region", header: "Region", width: "1.4fr" },
-      { key: "schools", header: "Schools", align: "right" },
-      { key: "p95", header: "p95", align: "right" },
-      { key: "err", header: "Error rate", align: "right" },
-      { key: "status", header: "Status", width: "0.9fr" },
-    ],
-    chips: [{ label: "All" }, { label: "Degraded", match: ["degraded"] }],
-    rows: [
-      ["Nairobi metro", "94", "188 ms", "0.02%", "Healthy"],
-      ["Central", "51", "204 ms", "0.03%", "Healthy"],
-      ["Rift Valley", "48", "412 ms", "0.31%", "Degraded"],
-      ["Nyanza", "27", "236 ms", "0.04%", "Healthy"],
-      ["Western", "18", "298 ms", "0.09%", "Healthy"],
-      ["Coast", "10", "521 ms", "0.44%", "Degraded"],
-    ].map((r) => ({
-      id: r[0]!,
-      tags: [r[4] === "Degraded" ? "degraded" : "healthy"],
-      cells: [
-        t(r[0]!), m(r[1]!), m(r[2]!),
-        <span className="font-mono text-[12.5px]" style={{ color: r[4] === "Degraded" ? "#B8460A" : undefined }}>{r[3]}</span>,
-        <Badge tone={r[4] === "Degraded" ? "warn" : "ok"}>{r[4]}</Badge>,
-      ],
-    })),
-    extra: <ServiceCards />,
-  };
-  return <RecordsPage spec={spec} />;
+/** "14 Sep 2026" — used for anything date-only (due dates, renewals). */
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function ServiceCards() {
-  const services = [
-    { name: "API", value: "212 ms", note: "p95 latency", ok: true },
-    { name: "Attendance sync", value: "backed up", note: "queue draining", ok: false },
-    { name: "M-Pesa callbacks", value: "99.4%", note: "success rate", ok: true },
-    { name: "SMS gateway", value: "97.1%", note: "delivery rate", ok: true },
-    { name: "Report card render", value: "1.8 s", note: "median job", ok: true },
-    { name: "File storage", value: "68%", note: "of provisioned", ok: true },
-  ];
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-      {services.map((s) => (
-        <div key={s.name} className="min-w-0 rounded-lg border border-line px-4 py-3.5">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.ok ? "#2E7D4F" : "#F26A1B" }} />
-            <span className="truncate text-[13px] font-semibold">{s.name}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[11.5px] text-ink-faint">{s.note}</span>
-            <span className="font-mono text-[11.5px]" style={{ color: s.ok ? "#2E7D4F" : "#B8460A" }}>{s.value}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+/** "14 Sep, 09:40" — used for anything with a time (sessions, audit events, incidents). */
+function fmtWhen(iso: string): string {
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+interface ServiceStatusRow {
+  id: string;
+  service: string;
+  status: "ok" | "degraded" | "down" | "not_configured";
+  latency_ms: number | null;
+  detail: string | null;
+  checked_at: string;
+}
+
+async function fetchServiceHistory(): Promise<ServiceStatusRow[]> {
+  const { data, error } = await supabase()
+    .from("service_status")
+    .select("*")
+    .order("checked_at", { ascending: false })
+    .limit(200)
+    .returns<ServiceStatusRow[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
+const SERVICE_LABEL: Record<string, string> = { supabase: "Supabase", mpesa: "M-Pesa Daraja" };
+const SERVICE_STATUS: Record<ServiceStatusRow["status"], { label: string; tone: Tone }> = {
+  ok: { label: "OK", tone: "ok" },
+  degraded: { label: "Degraded", tone: "warn" },
+  down: { label: "Down", tone: "warn" },
+  not_configured: { label: "Not configured", tone: "muted" },
+};
+
+/**
+ * No cron/pg_net monitoring infra — a super_admin opening this page (or
+ * clicking "Check now") triggers a live check via the check-services edge
+ * function, which logs to service_status. History is only as complete as
+ * how often staff look; that's the honest tradeoff for not running a
+ * scheduled job, and it beats a fabricated multi-region uptime dashboard.
+ */
+export function Health() {
+  const toast = useToast();
+  const [reloadKey, setReloadKey] = useState(0);
+  const [checking, setChecking] = useState(false);
+  const { data, loading, error } = useAsync(() => fetchServiceHistory(), [reloadKey]);
+
+  async function runCheck() {
+    setChecking(true);
+    try {
+      await checkServices();
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not check services: ${err.message}` : "Could not check services.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (loading || !data) return <RecordsLoading eyebrow="Platform · live checks" title="System health" />;
+  if (error) return <RecordsError eyebrow="Platform · live checks" title="System health" message={error.message} />;
+
+  const byService = new Map<string, ServiceStatusRow[]>();
+  for (const row of data) byService.set(row.service, [...(byService.get(row.service) ?? []), row]);
+  const services = [...byService.entries()].map(([service, rows]) => ({
+    service,
+    latest: rows[0]!,
+    reliabilityPct: Math.round((rows.filter((r) => r.status === "ok").length / rows.length) * 100),
+    checkedCount: rows.length,
+  }));
+  const notOk = services.filter((s) => s.latest.status === "down" || s.latest.status === "degraded");
+
+  const spec: RecordsSpec = {
+    eyebrow: "Platform · live checks",
+    title: "System health",
+    blurb: "The services this app actually depends on, checked live rather than on a fabricated uptime dashboard. No monitoring cron yet, so history only builds up as staff open this page.",
+    stats: [
+      {
+        label: "Services checked", value: String(services.length),
+        sub: services.length ? services.map((s) => SERVICE_LABEL[s.service] ?? s.service).join(", ") : "none yet",
+      },
+      {
+        label: "Not OK", value: String(notOk.length),
+        sub: notOk.length ? notOk.map((s) => SERVICE_LABEL[s.service] ?? s.service).join(", ") : "all clear",
+        alarming: notOk.length > 0,
+      },
+      {
+        label: "Last checked", value: services[0] ? fmtWhen(services[0].latest.checked_at) : "never",
+        sub: services.length ? "most recent check" : "click Check now",
+      },
+    ],
+    actions: [{ label: checking ? "Checking…" : "Check now", primary: true, onClick: () => void runCheck() }],
+    columns: [
+      { key: "service", header: "Service", width: "1.4fr" },
+      { key: "status", header: "Status", width: "1fr" },
+      { key: "latency", header: "Latency", align: "right" },
+      { key: "reliability", header: "Reliability", align: "right" },
+      { key: "checked", header: "Last checked", align: "right", width: "1.2fr" },
+    ],
+    minWidth: "760px",
+    empty: {
+      title: "No checks yet",
+      body: "Click \"Check now\" to run the first live check against Supabase and M-Pesa.",
+      action: <Button variant="accent" onClick={() => void runCheck()}>Check now</Button>,
+    },
+    rows: services.map(({ service, latest, reliabilityPct, checkedCount }) => {
+      const meta = SERVICE_STATUS[latest.status];
+      return {
+        id: service,
+        tags: [latest.status],
+        cells: [
+          t(SERVICE_LABEL[service] ?? service, latest.detail ?? undefined),
+          <Badge tone={meta.tone}>{meta.label}</Badge>,
+          m(latest.latency_ms !== null ? `${latest.latency_ms} ms` : "—"),
+          m(`${reliabilityPct}% of ${checkedCount}`),
+          <span className="font-mono text-[12.5px] text-ink-muted">{fmtWhen(latest.checked_at)}</span>,
+        ],
+      };
+    }),
+  };
+  return <RecordsPage spec={spec} />;
 }
 
 interface UsageRow { tenant: Pick<Tenant, "id" | "name" | "slug" | "licensed_seats" | "status">; inUse: number }
@@ -189,155 +256,455 @@ export function Usage() {
   return <RecordsPage spec={spec} />;
 }
 
+async function fetchIncidents(): Promise<PlatformIncident[]> {
+  const { data, error } = await supabase()
+    .from("platform_incidents")
+    .select("*")
+    .order("opened_at", { ascending: false })
+    .returns<PlatformIncident[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
+const SEVERITY_TONE: Record<IncidentSeverity, Tone> = { "SEV-1": "warn", "SEV-2": "warn", "SEV-3": "muted" };
+const INCIDENT_STATUS: Record<IncidentStatus, { label: string; tone: Tone }> = {
+  investigating: { label: "Investigating", tone: "warn" },
+  fix_in_review: { label: "Fix in review", tone: "info" },
+  resolved: { label: "Resolved", tone: "ok" },
+};
+
 export function Incidents() {
+  const toast = useToast();
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchIncidents(), [reloadKey]);
+  const [declaring, setDeclaring] = useState(false);
+  const reload = () => setReloadKey((k) => k + 1);
+
+  if (loading || !data) return <RecordsLoading eyebrow="Support · open and recent" title="Incidents" />;
+  if (error) return <RecordsError eyebrow="Support · open and recent" title="Incidents" message={error.message} />;
+
+  const open = data.filter((i) => i.status !== "resolved");
+  const affectedInOpen = open.reduce((a, i) => a + i.affected_schools, 0);
+  const resolvedMinutes = data
+    .filter((i) => i.resolved_at)
+    .map((i) => (new Date(i.resolved_at!).getTime() - new Date(i.opened_at).getTime()) / 60000);
+  const meanFix = resolvedMinutes.length ? Math.round(resolvedMinutes.reduce((a, b) => a + b, 0) / resolvedMinutes.length) : null;
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  const sev1Recent = data.filter((i) => i.severity === "SEV-1" && new Date(i.opened_at) >= ninetyDaysAgo).length;
+
+  async function resolveIncident(id: string) {
+    const { error: err } = await supabase()
+      .from("platform_incidents").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", id);
+    if (err) { toast(`Could not resolve that incident: ${err.message}`); return; }
+    toast("Incident resolved.");
+    reload();
+  }
+
   const spec: RecordsSpec = {
     eyebrow: "Support · open and recent",
     title: "Incidents",
     blurb: "Severity is judged by what the school could not do, not by which service broke.",
     stats: [
-      { label: "Open", value: "2", sub: "both under investigation", alarming: true },
-      { label: "Mean time to fix", value: "42 min", sub: "last 90 days" },
-      { label: "Schools affected", value: "58", sub: "in the open incidents" },
-      { label: "Sev-1 this term", value: "1", sub: "resolved 14 Aug" },
+      { label: "Open", value: String(open.length), sub: open.length ? `affecting ${affectedInOpen} schools` : "none right now", alarming: open.length > 0 },
+      { label: "Mean time to fix", value: meanFix !== null ? `${meanFix} min` : "—", sub: "among resolved incidents" },
+      { label: "Schools affected", value: String(affectedInOpen), sub: "in the open incidents" },
+      { label: "Sev-1, last 90 days", value: String(sev1Recent), sub: "declared" },
     ],
-    actions: [
-      { label: "Postmortems", onClick: () => {} },
-      { label: "Declare incident", primary: true, onClick: () => {} },
-    ],
+    actions: [{ label: "Declare incident", primary: true, onClick: () => setDeclaring(true) }],
     columns: [
       { key: "sev", header: "Sev", width: "0.6fr" },
       { key: "what", header: "Incident", width: "2fr" },
       { key: "aff", header: "Affected", align: "right" },
       { key: "when", header: "Opened", align: "right" },
-      { key: "status", header: "Status", width: "0.9fr" },
+      { key: "status", header: "Status", width: "1.2fr" },
     ],
     chips: [
       { label: "All" },
-      { label: "Open", match: ["Investigating", "Fix in review"] },
-      { label: "Resolved", match: ["Resolved"] },
+      { label: "Open", match: ["investigating", "fix_in_review"] },
+      { label: "Resolved", match: ["resolved"] },
     ],
-    minWidth: "840px",
-    rows: [
-      ["SEV-2", "Attendance sync backlog on the Rift Valley edge", "Teachers see yesterday's roster until the queue drains", "48 schools", "Today 06:40", "Investigating"],
-      ["SEV-3", "Report card PDFs render without the school crest", "Only schools that uploaded an SVG logo", "10 schools", "Yesterday 15:12", "Fix in review"],
-      ["SEV-1", "M-Pesa callbacks dropped for 22 minutes", "Parent payments succeeded but showed as unpaid", "231 schools", "14 Aug 11:03", "Resolved"],
-      ["SEV-3", "SMS invites delayed up to 40 minutes", "Gateway throttled during exam registration", "63 schools", "09 Aug 08:20", "Resolved"],
-      ["SEV-2", "Grade entry timed out on large classes", "Classes over 60 learners could not submit", "17 schools", "02 Aug 13:47", "Resolved"],
-    ].map((r, i) => ({
-      id: "inc" + i,
-      tags: [r[5]!],
-      cells: [
-        <Badge tone={r[0] === "SEV-1" ? "warn" : r[0] === "SEV-2" ? "warn" : "muted"}>{r[0]}</Badge>,
-        t(r[1]!, r[2]!), m(r[3]!),
-        <span className="font-mono text-[12.5px] text-ink-muted">{r[4]}</span>,
-        <Badge tone={r[5] === "Resolved" ? "ok" : r[5] === "Fix in review" ? "info" : "warn"}>{r[5]}</Badge>,
-      ],
-    })),
+    minWidth: "860px",
+    empty: {
+      title: "No incidents declared",
+      body: "Nothing has been logged yet — that's a good sign. Declare one the moment something breaks so schools and staff have a record of it.",
+      action: <Button variant="accent" onClick={() => setDeclaring(true)}>Declare incident</Button>,
+    },
+    rows: data.map((i) => {
+      const meta = INCIDENT_STATUS[i.status];
+      return {
+        id: i.id,
+        tags: [i.status],
+        cells: [
+          <Badge tone={SEVERITY_TONE[i.severity]}>{i.severity}</Badge>,
+          t(i.title, i.summary), m(String(i.affected_schools)),
+          <span className="font-mono text-[12.5px] text-ink-muted">{fmtWhen(i.opened_at)}</span>,
+          i.status === "resolved" ? <Badge tone="ok">Resolved</Badge> : (
+            <div className="flex items-center justify-between gap-2">
+              <Badge tone={meta.tone}>{meta.label}</Badge>
+              <button type="button" onClick={() => void resolveIncident(i.id)} className="text-[11.5px] font-semibold text-leaf hover:underline">
+                Resolve
+              </button>
+            </div>
+          ),
+        ],
+      };
+    }),
   };
-  return <RecordsPage spec={spec} />;
+  return (
+    <>
+      <RecordsPage spec={spec} />
+      {declaring && (
+        <DeclareIncidentModal
+          onClose={() => setDeclaring(false)}
+          onDeclared={() => { setDeclaring(false); reload(); }}
+          toast={toast}
+        />
+      )}
+    </>
+  );
 }
 
+function DeclareIncidentModal({ onClose, onDeclared, toast }: {
+  onClose: () => void; onDeclared: () => void; toast: (m: string) => void;
+}) {
+  const [severity, setSeverity] = useState<IncidentSeverity>("SEV-2");
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [affectedSchools, setAffectedSchools] = useState("0");
+  const [saving, setSaving] = useState(false);
+
+  async function declare() {
+    if (!title.trim() || !summary.trim()) { toast("Give the incident a title and describe what schools could not do."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("platform_incidents").insert({
+        severity, title: title.trim(), summary: summary.trim(),
+        affected_schools: Math.max(0, Number(affectedSchools) || 0),
+      });
+      if (error) throw error;
+      toast("Incident declared.");
+      onDeclared();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not declare the incident: ${err.message}` : "Could not declare the incident.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void declare();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Incidents"
+      title="Declare an incident"
+      footNote="Schools and staff can act on this the moment it's declared."
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void declare()} disabled={saving}>{saving ? "Declaring…" : "Declare incident"}</Button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="grid gap-3.5">
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <SelectField
+            id="severity" label="Severity" value={severity}
+            onChange={(e) => setSeverity(e.target.value as IncidentSeverity)}
+            options={[
+              { value: "SEV-1", label: "SEV-1 — critical, most schools affected" },
+              { value: "SEV-2", label: "SEV-2 — degraded, some schools affected" },
+              { value: "SEV-3", label: "SEV-3 — minor, workaround exists" },
+            ]}
+          />
+          <TextField
+            id="affected" label="Schools affected" mono inputMode="numeric"
+            value={affectedSchools} onChange={(e) => setAffectedSchools(e.target.value)}
+          />
+        </div>
+        <TextField id="title" label="Incident" placeholder="e.g. Attendance sync backlog on the Rift Valley edge" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <TextArea
+          id="summary" label="What schools could not do" placeholder="e.g. Teachers see yesterday's roster until the queue drains"
+          value={summary} onChange={(e) => setSummary(e.target.value)}
+        />
+      </form>
+    </Modal>
+  );
+}
+
+interface SubscriptionRow {
+  tenant: Pick<Tenant, "id" | "name" | "slug" | "plan" | "status" | "price_cents_override" | "trial_ends_at" | "renews_on">;
+  priceCents: number;
+}
+
+async function fetchSubscriptions(): Promise<SubscriptionRow[]> {
+  const sb = supabase();
+  const [{ data: tenants, error: e1 }, { data: pricing, error: e2 }] = await Promise.all([
+    sb.from("tenants")
+      .select("id,name,slug,plan,status,price_cents_override,trial_ends_at,renews_on")
+      .order("name")
+      .returns<SubscriptionRow["tenant"][]>(),
+    sb.from("plan_pricing").select("plan,price_cents").returns<{ plan: string; price_cents: number }[]>(),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+
+  const listPrice = new Map((pricing ?? []).map((p) => [p.plan, p.price_cents]));
+  return (tenants ?? []).map((tenant) => ({
+    tenant,
+    priceCents: effectivePriceCents(tenant, listPrice),
+  }));
+}
+
+const SUBSCRIPTION_STATUS: Record<TenantStatus, { label: string; tone: Tone }> = {
+  active: { label: "Active", tone: "ok" },
+  trial: { label: "Trial", tone: "muted" },
+  onboarding: { label: "Onboarding", tone: "info" },
+  overdue: { label: "Overdue", tone: "warn" },
+  suspended: { label: "Suspended", tone: "warn" },
+  setup_stalled: { label: "Setup stalled", tone: "warn" },
+};
+
 export function Subscriptions() {
+  const { data, loading, error } = useAsync(() => fetchSubscriptions(), []);
+  if (loading || !data) return <RecordsLoading eyebrow="Commercial · current term" title="Subscriptions" />;
+  if (error) return <RecordsError eyebrow="Commercial · current term" title="Subscriptions" message={error.message} />;
+
+  const billed = data.filter((r) => isBilled(r.tenant));
+  const mrr = billed.reduce((a, r) => a + r.priceCents, 0);
+  const activeCount = data.filter((r) => r.tenant.status === "active").length;
+  const trials = data.filter((r) => r.tenant.status === "trial");
+  const soon = new Date();
+  soon.setDate(soon.getDate() + 10);
+  const trialsEndingSoon = trials.filter((r) => r.tenant.trial_ends_at && new Date(r.tenant.trial_ends_at) <= soon).length;
+  const atRisk = data.filter((r) => r.tenant.status === "overdue" || r.tenant.status === "suspended");
+
   const spec: RecordsSpec = {
-    eyebrow: "Commercial · term 3, 2026",
+    eyebrow: "Commercial · current term",
     title: "Subscriptions",
     blurb: "Kenyan schools budget by term, so renewals cluster at the start of each one. Anything not renewed by week two rarely renews at all.",
     stats: [
-      { label: "MRR", value: KES(412_000_00), sub: "+3.1% vs August" },
-      { label: "Renewing this term", value: "84", sub: "62 confirmed" },
-      { label: "In trial", value: "12", sub: "3 ending within 10 days" },
-      { label: "At risk", value: "5", sub: "low adoption or unpaid", alarming: true },
-    ],
-    actions: [
-      { label: "Plan settings", onClick: () => {} },
-      { label: "Onboard a school", primary: true, onClick: () => {} },
+      { label: "MRR", value: formatMoney(mrr, "KE"), sub: `across ${billed.length} billed schools` },
+      { label: "Active licences", value: String(activeCount), sub: `of ${data.length} schools` },
+      { label: "In trial", value: String(trials.length), sub: trialsEndingSoon > 0 ? `${trialsEndingSoon} ending within 10 days` : "none ending soon" },
+      { label: "At risk", value: String(atRisk.length), sub: "overdue or suspended", alarming: atRisk.length > 0 },
     ],
     columns: [
       { key: "school", header: "School", width: "1.6fr" },
-      { key: "plan", header: "Plan", width: "1.1fr" },
+      { key: "plan", header: "Plan", width: "1fr" },
       { key: "amt", header: "Per term", align: "right" },
-      { key: "renews", header: "Renews", align: "right", width: "1.1fr" },
+      { key: "renews", header: "Renews", align: "right", width: "1.2fr" },
       { key: "status", header: "Status", width: "0.9fr" },
     ],
     chips: [
       { label: "All" },
-      { label: "Trial", match: ["Trial"] },
-      { label: "At risk", match: ["At risk"] },
+      { label: "Trial", match: ["trial"] },
+      { label: "At risk", match: ["overdue", "suspended"] },
     ],
     minWidth: "800px",
-    rows: [
-      ["Alliance High School", "Institution", KES(214_000_00), "01 Jan 2027", "Confirmed"],
-      ["Mang'u High School", "Institution", KES(202_000_00), "01 Jan 2027", "Confirmed"],
-      ["Kenya High School", "Institution", KES(186_000_00), "01 Jan 2027", "Confirmed"],
-      ["Lenana School", "Institution", KES(168_000_00), "01 Jan 2027", "Confirmed"],
-      ["Moi Girls Eldoret", "Standard", KES(96_400_00), "01 Jan 2027", "At risk"],
-      ["Kisumu Boys High", "Standard", KES(182_000_00), "01 Jan 2027", "At risk"],
-      ["Nakuru Girls High", "Standard", "—", "Trial ends 10 Sep", "Trial"],
-      ["Kabarak High School", "Standard", "—", "Trial ends 30 Sep", "Trial"],
-    ].map((r) => ({
-      id: r[0]!,
-      tags: [r[4]!],
-      cells: [
-        t(r[0]!), <span className="text-[13px]">{r[1]}</span>, m(r[2]!),
-        <span className="font-mono text-[12.5px] text-ink-muted">{r[3]}</span>,
-        <Badge tone={r[4] === "Confirmed" ? "ok" : r[4] === "Trial" ? "muted" : "warn"}>{r[4]}</Badge>,
-      ],
-    })),
+    rows: data.map(({ tenant, priceCents }) => {
+      const meta = SUBSCRIPTION_STATUS[tenant.status];
+      const renews = tenant.status === "trial"
+        ? (tenant.trial_ends_at ? `Trial ends ${fmtDate(tenant.trial_ends_at)}` : "Trial end not set")
+        : (tenant.renews_on ? fmtDate(tenant.renews_on) : "—");
+      return {
+        id: tenant.id,
+        tags: [tenant.status],
+        cells: [
+          t(tenant.name, "/s/" + tenant.slug),
+          <span className="text-[13px] capitalize">{tenant.plan}</span>,
+          m(priceCents > 0 ? formatMoney(priceCents, "KE") : "—"),
+          <span className="font-mono text-[12.5px] text-ink-muted">{renews}</span>,
+          <Badge tone={meta.tone}>{meta.label}</Badge>,
+        ],
+      };
+    }),
   };
   return <RecordsPage spec={spec} />;
 }
 
+interface InvoiceRow extends PlatformInvoice { tenant_name: string | null }
+interface InvoicesData { invoices: InvoiceRow[]; tenants: { id: string; name: string }[] }
+
+async function fetchInvoicesData(): Promise<InvoicesData> {
+  const sb = supabase();
+  const [{ data: invoices, error: e1 }, { data: tenants, error: e2 }] = await Promise.all([
+    sb.from("platform_invoices")
+      .select("*,tenants(name)")
+      .order("due_date")
+      .returns<(PlatformInvoice & { tenants: { name: string } | null })[]>(),
+    sb.from("tenants").select("id,name").order("name").returns<{ id: string; name: string }[]>(),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  return {
+    invoices: (invoices ?? []).map((r) => ({ ...r, tenant_name: r.tenants?.name ?? null })),
+    tenants: tenants ?? [],
+  };
+}
+
+const isOverdue = (i: PlatformInvoice) => i.status === "due" && new Date(i.due_date) < new Date(new Date().toDateString());
+
 export function Invoices() {
   const toast = useToast();
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchInvoicesData(), [reloadKey]);
+  const [creating, setCreating] = useState(false);
+  const reload = () => setReloadKey((k) => k + 1);
+
+  if (loading || !data) return <RecordsLoading eyebrow="Commercial · outstanding first" title="Invoices" />;
+  if (error) return <RecordsError eyebrow="Commercial · outstanding first" title="Invoices" message={error.message} />;
+
+  const outstanding = data.invoices.filter((i) => i.status === "due");
+  const outstandingTotal = outstanding.reduce((a, i) => a + i.amount_cents, 0);
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const overdue30 = outstanding.filter((i) => new Date(i.due_date) <= thirtyDaysAgo).length;
+  const paid = data.invoices.filter((i) => i.status === "paid");
+  const collected = paid.reduce((a, i) => a + i.amount_cents, 0);
+  const totalBilled = data.invoices.reduce((a, i) => a + i.amount_cents, 0);
+  const daysToPay = paid.filter((i) => i.paid_at).map((i) => (new Date(i.paid_at!).getTime() - new Date(i.created_at).getTime()) / 86_400_000);
+  const avgDaysToPay = daysToPay.length ? Math.round(daysToPay.reduce((a, b) => a + b, 0) / daysToPay.length) : null;
+
+  async function markPaid(id: string) {
+    const { error: err } = await supabase()
+      .from("platform_invoices").update({ status: "paid", paid_at: new Date().toISOString() }).eq("id", id);
+    if (err) { toast(`Could not mark that invoice paid: ${err.message}`); return; }
+    toast("Marked as paid.");
+    reload();
+  }
+
   const spec: RecordsSpec = {
     eyebrow: "Commercial · outstanding first",
     title: "Invoices",
     blurb: "Bursars pay from an account that is often only funded once fees come in, so late is common and suspension is a last resort. Reminders go to the bursar and the principal together.",
     stats: [
-      { label: "Outstanding", value: KES(612_400_00), sub: "across 7 invoices", alarming: true },
-      { label: "Overdue 30d+", value: "2", sub: "suspension scheduled", alarming: true },
-      { label: "Collected this term", value: KES(11_800_000_00), sub: "94% of billed" },
-      { label: "Avg days to pay", value: "18", sub: "net 14 terms" },
+      { label: "Outstanding", value: formatMoney(outstandingTotal, "KE"), sub: `across ${outstanding.length} invoices`, alarming: outstanding.length > 0 },
+      { label: "Overdue 30d+", value: String(overdue30), sub: overdue30 > 0 ? "review for suspension" : "none", alarming: overdue30 > 0 },
+      { label: "Collected", value: formatMoney(collected, "KE"), sub: totalBilled > 0 ? `${Math.round((collected / totalBilled) * 100)}% of billed` : "nothing billed yet" },
+      { label: "Avg days to pay", value: avgDaysToPay !== null ? String(avgDaysToPay) : "—", sub: "among paid invoices" },
     ],
-    actions: [
-      { label: "Export for accounts", onClick: () => {} },
-      { label: "Chase all overdue", primary: true, onClick: () => {} },
-    ],
+    actions: [{ label: "New invoice", primary: true, onClick: () => setCreating(true) }],
     columns: [
       { key: "inv", header: "Invoice", width: "1.1fr" },
       { key: "school", header: "School", width: "1.5fr" },
       { key: "amt", header: "Amount", align: "right" },
       { key: "due", header: "Due", align: "right" },
       { key: "status", header: "Status", width: "0.9fr" },
-      { key: "act", header: "", align: "right" },
+      { key: "act", header: "", align: "right", width: "1.3fr" },
     ],
     chips: [
       { label: "All" },
       { label: "Overdue", match: ["overdue"] },
       { label: "Paid", match: ["paid"] },
     ],
-    minWidth: "880px",
-    rows: [
-      ["INV-2026-0812", "Kisumu Boys High", KES(182_000_00), "01 Aug 2026", "Overdue 31d", "overdue"],
-      ["INV-2026-0831", "Moi Girls Eldoret", KES(96_400_00), "18 Aug 2026", "Overdue 14d", "overdue"],
-      ["INV-2026-0844", "St. Mary's Yala", KES(118_000_00), "05 Sep 2026", "Due soon", "due"],
-      ["INV-2026-0790", "Alliance High School", KES(214_000_00), "01 Aug 2026", "Paid", "paid"],
-      ["INV-2026-0791", "Mang'u High School", KES(202_000_00), "01 Aug 2026", "Paid", "paid"],
-      ["INV-2026-0792", "Kenya High School", KES(186_000_00), "01 Aug 2026", "Paid", "paid"],
-    ].map((r) => ({
-      id: r[0]!,
-      tags: [r[5]!],
-      cells: [
-        m(r[0]!), t(r[1]!), m(r[2]!),
-        <span className="font-mono text-[12.5px] text-ink-muted">{r[3]}</span>,
-        <Badge tone={r[5] === "paid" ? "ok" : r[5] === "due" ? "muted" : "warn"}>{r[4]}</Badge>,
-        r[5] === "paid" ? null : (
-          <Button onClick={() => toast(`Reminder sent to the bursar and principal at ${r[1]}`)}>Send reminder</Button>
-        ),
-      ],
-    })),
+    minWidth: "900px",
+    empty: {
+      title: "No invoices yet",
+      body: "Nothing has been billed through here yet. Create the first invoice once a school's term charge is ready to send.",
+      action: <Button variant="accent" onClick={() => setCreating(true)}>New invoice</Button>,
+    },
+    rows: data.invoices.map((i) => {
+      const overdue = isOverdue(i);
+      const tag = i.status === "paid" ? "paid" : overdue ? "overdue" : "due";
+      const label = i.status === "paid" ? "Paid" : overdue ? "Overdue" : "Due";
+      return {
+        id: i.id,
+        tags: [tag],
+        cells: [
+          m(i.id.slice(0, 8).toUpperCase()), t(i.tenant_name ?? "—"), m(formatMoney(i.amount_cents, "KE")),
+          <span className="font-mono text-[12.5px] text-ink-muted">{fmtDate(i.due_date)}</span>,
+          <Badge tone={i.status === "paid" ? "ok" : overdue ? "warn" : "muted"}>{label}</Badge>,
+          i.status === "paid" ? null : (
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => void markPaid(i.id)} className="text-[11.5px] font-semibold text-leaf hover:underline">
+                Mark paid
+              </button>
+              <Button onClick={() => toast(`Reminder sent to the bursar and principal at ${i.tenant_name ?? "the school"}`)}>Remind</Button>
+            </div>
+          ),
+        ],
+      };
+    }),
   };
-  return <RecordsPage spec={spec} />;
+  return (
+    <>
+      <RecordsPage spec={spec} />
+      {creating && (
+        <NewInvoiceModal
+          tenants={data.tenants}
+          onClose={() => setCreating(false)}
+          onCreated={() => { setCreating(false); reload(); }}
+          toast={toast}
+        />
+      )}
+    </>
+  );
+}
+
+function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
+  tenants: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; toast: (m: string) => void;
+}) {
+  const [tenantId, setTenantId] = useState(tenants[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+
+  async function create() {
+    const amountCents = Math.round(Number(amount) * 100);
+    if (!tenantId) { toast("Pick which school this invoice is for."); return; }
+    if (!amount || !Number.isFinite(amountCents) || amountCents <= 0) { toast("Enter an amount greater than zero."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("platform_invoices").insert({
+        tenant_id: tenantId, amount_cents: amountCents, due_date: dueDate,
+      });
+      if (error) throw error;
+      toast("Invoice created.");
+      onCreated();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not create the invoice: ${err.message}` : "Could not create the invoice.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void create();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Invoices"
+      title="New invoice"
+      footNote="No payment gateway is wired up — mark it paid once you've reconciled the bank transfer."
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void create()} disabled={saving}>{saving ? "Creating…" : "Create invoice"}</Button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="grid gap-3.5">
+        <SelectField
+          id="tenant" label="School" value={tenantId} onChange={(e) => setTenantId(e.target.value)}
+          options={tenants.map((t) => ({ value: t.id, label: t.name }))}
+        />
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <TextField id="amount" label="Amount (KES)" mono inputMode="decimal" placeholder="e.g. 120000" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <TextField id="due" label="Due date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 interface ImpersonationRow {
@@ -357,10 +724,6 @@ async function fetchImpersonation(): Promise<ImpersonationRow[]> {
     id: r.id, started_at: r.started_at, ended_at: r.ended_at, reason: r.reason, scope: r.scope,
     tenant_name: r.tenants?.name ?? null, staff_name: r.profiles?.full_name ?? null,
   }));
-}
-
-function fmtSessionWhen(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 export function Impersonation() {
@@ -402,7 +765,7 @@ export function Impersonation() {
         id: r.id,
         tags: [r.scope],
         cells: [
-          t(r.staff_name ?? "—", fmtSessionWhen(r.started_at)), <span className="text-[13px]">{r.tenant_name ?? "—"}</span>,
+          t(r.staff_name ?? "—", fmtWhen(r.started_at)), <span className="text-[13px]">{r.tenant_name ?? "—"}</span>,
           <span className="text-[13px] text-ink-muted">{r.reason}</span>, m(mins !== null ? `${mins} min` : "Ongoing"),
           <Badge tone={r.scope === "write" ? "warn" : "muted"}>{r.scope === "write" ? "Write" : "Read only"}</Badge>,
         ],
@@ -423,10 +786,6 @@ async function fetchAudit(): Promise<AuditRow[]> {
     .returns<{ id: string; created_at: string; actor_label: string; event: string; category: string; tenants: { name: string } | null }[]>();
   if (error) throw error;
   return (data ?? []).map((r) => ({ id: r.id, created_at: r.created_at, actor_label: r.actor_label, event: r.event, category: r.category, tenant_name: r.tenants?.name ?? null }));
-}
-
-function fmtAuditWhen(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -474,7 +833,7 @@ export function Audit() {
       id: r.id,
       tags: [r.category],
       cells: [
-        <span className="font-mono text-[12.5px] text-ink-muted">{fmtAuditWhen(r.created_at)}</span>,
+        <span className="font-mono text-[12.5px] text-ink-muted">{fmtWhen(r.created_at)}</span>,
         t(r.actor_label, r.tenant_name ?? undefined), <span className="text-[13px]">{r.event}</span>,
         <Badge tone={r.category === "financial" ? "warn" : "info"}>{CATEGORY_LABEL[r.category] ?? r.category}</Badge>,
       ],

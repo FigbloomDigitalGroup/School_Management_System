@@ -1,4 +1,5 @@
-import { KES, supabase } from "@figbloom/shared";
+import { useState } from "react";
+import { formatMoney, supabase } from "@figbloom/shared";
 import type { ClassGroup, FeeInvoice, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -8,31 +9,35 @@ import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { AttendanceDetail } from "./AttendanceDetail";
+import { CoverageCard } from "./CoverageCard";
 
 interface DashboardData {
   term: Term | null;
-  classes: Pick<ClassGroup, "id" | "name">[];
+  classes: Pick<ClassGroup, "id" | "name" | "class_teacher_id">[];
   studentsByClass: Map<string, number>;
   activeStudents: number;
   staffCount: number;
   invoices: Pick<FeeInvoice, "total_cents" | "paid_cents">[];
   attendanceDate: string | null;
   presentByClass: Map<string, number>;
+  lateByClass: Map<string, number>;
+  absentByClass: Map<string, number>;
   submittedClasses: Set<string>;
 }
 
-async function fetchDashboard(): Promise<DashboardData> {
+async function fetchDashboard(tenantId: string): Promise<DashboardData> {
   const sb = supabase();
 
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
-    sb.from("classes").select("id,name").order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id").in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
+    sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
+    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
     termId
-      ? sb.from("fee_invoices").select("total_cents,paid_cents").eq("term_id", termId).returns<Pick<FeeInvoice, "total_cents" | "paid_cents">[]>()
+      ? sb.from("fee_invoices").select("total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", termId).returns<Pick<FeeInvoice, "total_cents" | "paid_cents">[]>()
       : Promise.resolve({ data: [] as Pick<FeeInvoice, "total_cents" | "paid_cents">[] }),
   ]);
 
@@ -41,11 +46,13 @@ async function fetchDashboard(): Promise<DashboardData> {
 
   let attendanceDate: string | null = null;
   const presentByClass = new Map<string, number>();
+  const lateByClass = new Map<string, number>();
+  const absentByClass = new Map<string, number>();
   const submittedClasses = new Set<string>();
 
   if (termId) {
     const { data: latest } = await sb
-      .from("attendance").select("taken_on").eq("term_id", termId)
+      .from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
       .order("taken_on", { ascending: false }).limit(1)
       .returns<{ taken_on: string }[]>();
     attendanceDate = latest?.[0]?.taken_on ?? null;
@@ -53,11 +60,14 @@ async function fetchDashboard(): Promise<DashboardData> {
     if (attendanceDate) {
       const { data: rows } = await sb
         .from("attendance").select("class_id,mark")
-        .eq("term_id", termId).eq("taken_on", attendanceDate)
+        .eq("tenant_id", tenantId).eq("term_id", termId).eq("taken_on", attendanceDate)
         .returns<{ class_id: string; mark: string }[]>();
       for (const r of rows ?? []) {
         submittedClasses.add(r.class_id);
-        if (r.mark === "present") presentByClass.set(r.class_id, (presentByClass.get(r.class_id) ?? 0) + 1);
+        // A late arrival still attended — only "absent"/"excused" should read as not-here.
+        if (r.mark === "present" || r.mark === "late") presentByClass.set(r.class_id, (presentByClass.get(r.class_id) ?? 0) + 1);
+        if (r.mark === "late") lateByClass.set(r.class_id, (lateByClass.get(r.class_id) ?? 0) + 1);
+        if (r.mark === "absent") absentByClass.set(r.class_id, (absentByClass.get(r.class_id) ?? 0) + 1);
       }
     }
   }
@@ -71,6 +81,8 @@ async function fetchDashboard(): Promise<DashboardData> {
     invoices: invoicesRes.data ?? [],
     attendanceDate,
     presentByClass,
+    lateByClass,
+    absentByClass,
     submittedClasses,
   };
 }
@@ -80,9 +92,36 @@ async function fetchDashboard(): Promise<DashboardData> {
  * is the school running today, is anything on fire, and what needs a signature.
  */
 export function AdminDashboard() {
-  const { profile } = useTenantSession();
+  const { profile, tenant } = useTenantSession();
   const toast = useToast();
-  const { data, loading, error } = useAsync(() => fetchDashboard(), []);
+  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id]);
+  const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
+  const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
+
+  async function remindTeacher(cls: Pick<ClassGroup, "id" | "name" | "class_teacher_id">) {
+    if (!cls.class_teacher_id) {
+      toast(`${cls.name} has no class teacher assigned yet.`);
+      return;
+    }
+    setRemindingClassId(cls.id);
+    try {
+      const { error: sendError } = await supabase().from("announcements").insert({
+        tenant_id: tenant.id,
+        author_id: profile.id,
+        subject: `Attendance not yet taken — ${cls.name}`,
+        body: `${cls.name} hasn't submitted today's attendance register yet. Please take it as soon as you can.`,
+        audience: { kind: "user", user_id: cls.class_teacher_id },
+        channels: ["in_app"],
+        published_at: new Date().toISOString(),
+      });
+      if (sendError) throw sendError;
+      toast(`Reminded the class teacher for ${cls.name}`);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not send reminder: ${err.message}` : "Could not send reminder.");
+    } finally {
+      setRemindingClassId(null);
+    }
+  }
 
   const firstName = profile.full_name.split(" ")[0];
 
@@ -153,7 +192,7 @@ export function AdminDashboard() {
                   : "—",
                 sub: `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
               },
-              { label: "Fees collected", value: `${feePct}%`, sub: `${KES(totalPaid)} of ${KES(totalBilled)}` },
+              { label: "Fees collected", value: `${feePct}%`, sub: `${formatMoney(totalPaid, tenant.country)} of ${formatMoney(totalBilled, tenant.country)}` },
               { label: "Learners", value: data.activeStudents.toLocaleString(), sub: `across ${data.classes.length} classes` },
               { label: "Teaching & admin staff", value: String(data.staffCount), sub: "school admins and teachers" },
             ]}
@@ -179,6 +218,8 @@ export function AdminDashboard() {
                 data.classes.map((c) => {
                   const total = data.studentsByClass.get(c.id) ?? 0;
                   const present = data.presentByClass.get(c.id) ?? 0;
+                  const late = data.lateByClass.get(c.id) ?? 0;
+                  const absent = data.absentByClass.get(c.id) ?? 0;
                   const submitted = data.submittedClasses.has(c.id);
                   return (
                     <div key={c.id} className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
@@ -186,11 +227,25 @@ export function AdminDashboard() {
                       {!submitted ? (
                         <>
                           <Badge tone="warn">Not taken</Badge>
-                          <Button onClick={() => toast(`Reminded the class teacher for ${c.name}`)}>Remind teacher</Button>
+                          <Button disabled={remindingClassId === c.id} onClick={() => void remindTeacher(c)}>
+                            {remindingClassId === c.id ? "Reminding…" : "Remind teacher"}
+                          </Button>
                         </>
                       ) : (
                         <>
-                          <span className="font-mono text-[12.5px] text-ink-muted">{present} / {total}</span>
+                          {(late > 0 || absent > 0) && (
+                            <span className="text-[11px] text-ink-faint">
+                              {late > 0 ? `${late} late` : ""}{late > 0 && absent > 0 ? " · " : ""}{absent > 0 ? `${absent} absent` : ""}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDetailFor({ id: c.id, name: c.name })}
+                            className="font-mono text-[12.5px] text-ink-muted underline decoration-dotted underline-offset-2"
+                            title="See who was late, absent or excused"
+                          >
+                            {present} / {total}
+                          </button>
                           <div className="h-1.5 w-20 overflow-hidden rounded bg-sunken">
                             <div className="h-1.5 rounded bg-ok-dot" style={{ width: `${total > 0 ? (present / total) * 100 : 0}%` }} />
                           </div>
@@ -227,6 +282,8 @@ export function AdminDashboard() {
               </ul>
             </section>
 
+            <CoverageCard />
+
             <section className="overflow-hidden rounded-lg border border-line">
               <header className="border-b border-line px-4 py-3"><h2 className="text-body font-semibold">Fee collection · this term</h2></header>
               <div className="px-4 pb-3.5 pt-1.5">
@@ -258,6 +315,15 @@ export function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {detailFor && data?.attendanceDate && (
+        <AttendanceDetail
+          classId={detailFor.id}
+          className={detailFor.name}
+          date={data.attendanceDate}
+          onClose={() => setDetailFor(null)}
+        />
+      )}
     </>
   );
 }

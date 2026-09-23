@@ -1,34 +1,35 @@
-import { gradeFor, KES, summarise, supabase } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor, summarise, supabase, type GradingSchemeId } from "@figbloom/shared";
 import type { AttendanceMark, ClassGroup, Exam, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { DataTable, Mono } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
+import { useTenantSession } from "../../lib/sessionContext";
 
 interface ReportsData {
   term: Term | null;
-  classes: Pick<ClassGroup, "id" | "name" | "form_level">[];
+  classes: Pick<ClassGroup, "id" | "name" | "form_level" | "level">[];
   attendanceByClass: Map<string, { present: number; total: number }>;
   attendanceOverall: { present: number; total: number };
   feeByClass: Map<string, { billed: number; paid: number }>;
   feeOverall: { billed: number; paid: number };
   latestExam: Exam | null;
-  meanByClass: Map<string, { mean: number; entered: number; total: number }>;
+  meanByClass: Map<string, { mean: number; entered: number; total: number; scheme: GradingSchemeId }>;
 }
 
-async function fetchReports(): Promise<ReportsData> {
+async function fetchReports(tenantId: string, country: string): Promise<ReportsData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const { data: classRows } = await sb
-    .from("classes").select("id,name,form_level").order("form_level").order("name")
-    .returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>();
+    .from("classes").select("id,name,form_level,level").eq("tenant_id", tenantId).order("form_level").order("name")
+    .returns<Pick<ClassGroup, "id" | "name" | "form_level" | "level">[]>();
   const classes = classRows ?? [];
 
   const { data: studentRows } = await sb
-    .from("students").select("id,class_id").eq("active", true)
+    .from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true)
     .returns<{ id: string; class_id: string }[]>();
   const classIdByStudent = new Map((studentRows ?? []).map((s) => [s.id, s.class_id]));
   const rosterSizeByClass = new Map<string, number>();
@@ -39,14 +40,14 @@ async function fetchReports(): Promise<ReportsData> {
   const feeByClass = new Map<string, { billed: number; paid: number }>();
   const feeOverall = { billed: 0, paid: 0 };
   let latestExam: Exam | null = null;
-  const meanByClass = new Map<string, { mean: number; entered: number; total: number }>();
+  const meanByClass = new Map<string, { mean: number; entered: number; total: number; scheme: GradingSchemeId }>();
 
   if (termId) {
     const [{ data: attRows }, { data: invRows }, { data: examRows }] = await Promise.all([
-      sb.from("attendance").select("class_id,mark").eq("term_id", termId).returns<{ class_id: string; mark: AttendanceMark }[]>(),
-      sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("term_id", termId)
+      sb.from("attendance").select("class_id,mark").eq("tenant_id", tenantId).eq("term_id", termId).returns<{ class_id: string; mark: AttendanceMark }[]>(),
+      sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", termId)
         .returns<{ student_id: string; total_cents: number; paid_cents: number }[]>(),
-      sb.from("exams").select("*").eq("term_id", termId).not("published_at", "is", null)
+      sb.from("exams").select("*").eq("tenant_id", tenantId).eq("term_id", termId).not("published_at", "is", null)
         .order("published_at", { ascending: false }).limit(1).returns<Exam[]>(),
     ]);
 
@@ -75,7 +76,7 @@ async function fetchReports(): Promise<ReportsData> {
     latestExam = examRows?.[0] ?? null;
     if (latestExam) {
       const { data: markRows } = await sb
-        .from("marks").select("student_id,score").eq("exam_id", latestExam.id)
+        .from("marks").select("student_id,score").eq("tenant_id", tenantId).eq("exam_id", latestExam.id)
         .returns<{ student_id: string; score: number | null }[]>();
       const byClass = new Map<string, { subject: string; score: number | null }[]>();
       for (const m of markRows ?? []) {
@@ -87,8 +88,9 @@ async function fetchReports(): Promise<ReportsData> {
       }
       for (const c of classes) {
         const list = byClass.get(c.id) ?? [];
-        const s = summarise(list);
-        if (s.meanScore !== null) meanByClass.set(c.id, { mean: s.meanScore, entered: s.entered, total: rosterSizeByClass.get(c.id) ?? 0 });
+        const scheme = gradingSchemeFor(country, c.level);
+        const s = summarise(list, scheme);
+        if (s.meanScore !== null) meanByClass.set(c.id, { mean: s.meanScore, entered: s.entered, total: rosterSizeByClass.get(c.id) ?? 0, scheme });
       }
     }
   }
@@ -102,7 +104,8 @@ async function fetchReports(): Promise<ReportsData> {
  * snapshot, plus the one thing Dashboard never shows: academic performance.
  */
 export function AdminReports() {
-  const { data, loading, error } = useAsync(() => fetchReports(), []);
+  const { tenant } = useTenantSession();
+  const { data, loading, error } = useAsync(() => fetchReports(tenant.id, tenant.country), [tenant.id, tenant.country]);
 
   const overallAttendance = data && data.attendanceOverall.total > 0
     ? Math.round((data.attendanceOverall.present / data.attendanceOverall.total) * 100)
@@ -143,7 +146,7 @@ export function AdminReports() {
               },
               {
                 label: "Fees collected", value: overallFeePct !== null ? `${overallFeePct}%` : "—",
-                sub: `${KES(data.feeOverall.paid)} of ${KES(data.feeOverall.billed)}`,
+                sub: `${formatMoney(data.feeOverall.paid, tenant.country)} of ${formatMoney(data.feeOverall.billed, tenant.country)}`,
               },
               {
                 label: "Latest exam", value: data.latestExam?.name ?? "None published",
@@ -193,7 +196,7 @@ export function AdminReports() {
                 key: "balance", header: "Balance", align: "right",
                 render: (c: ReportsData["classes"][number]) => {
                   const f = data?.feeByClass.get(c.id);
-                  return <Mono>{KES(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0))}</Mono>;
+                  return <Mono>{formatMoney(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0), tenant.country)}</Mono>;
                 },
               },
             ]}
@@ -214,7 +217,7 @@ export function AdminReports() {
                 render: (c: ReportsData["classes"][number]) => {
                   const m = data?.meanByClass.get(c.id);
                   if (!m) return <span className="text-[12.5px] text-ink-faint">No marks</span>;
-                  return <Mono>{m.mean} · {gradeFor(m.mean)}</Mono>;
+                  return <Mono>{m.mean} · {gradeFor(m.mean, m.scheme)}</Mono>;
                 },
               },
               {

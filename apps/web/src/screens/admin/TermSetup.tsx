@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -20,19 +21,19 @@ interface TermSetupData {
   activeStudents: number;
 }
 
-async function fetchTermSetup(): Promise<TermSetupData> {
+async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
   const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("is_current", true).maybeSingle<Term>();
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
   const [{ data: classRows }, { count: subjectsCount }, feeItemsRes, { data: teacherRows }, { count: studentsCount }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level,class_teacher_id").order("form_level").order("name").returns<ClassRow[]>(),
-    sb.from("subjects").select("id", { count: "exact", head: true }),
+    sb.from("classes").select("id,name,form_level,class_teacher_id").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassRow[]>(),
+    sb.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
     termId
-      ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("term_id", termId)
+      ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("term_id", termId)
       : Promise.resolve({ count: 0 }),
-    sb.from("profiles").select("id,full_name").eq("role", "teacher").order("full_name").returns<Pick<Profile, "id" | "full_name">[]>(),
-    sb.from("students").select("id", { count: "exact", head: true }).eq("active", true),
+    sb.from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<Pick<Profile, "id" | "full_name">[]>(),
+    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
   ]);
 
   return {
@@ -54,9 +55,85 @@ const fmtDay = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "2-
  */
 export function TermSetup() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { tenant } = useTenantSession();
   const [open, setOpen] = useState<string | null>("teachers");
-  const { data, loading, error } = useAsync(() => fetchTermSetup(), []);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchTermSetup(tenant.id), [tenant.id, reloadKey]);
+  const reload = () => setReloadKey((k) => k + 1);
+
+  const [termYear, setTermYear] = useState(new Date().getFullYear());
+  const [termIndex, setTermIndex] = useState<1 | 2 | 3>(1);
+  const [termStartsOn, setTermStartsOn] = useState("");
+  const [termEndsOn, setTermEndsOn] = useState("");
+  const [savingTerm, setSavingTerm] = useState(false);
+
+  async function handleCreateTerm(e: FormEvent) {
+    e.preventDefault();
+    if (!termStartsOn || !termEndsOn) { toast("Give the term a start and end date."); return; }
+    if (termEndsOn < termStartsOn) { toast("The end date must be after the start date."); return; }
+    setSavingTerm(true);
+    try {
+      if (data?.term) {
+        const { error: endErr } = await supabase().from("terms").update({ is_current: false }).eq("id", data.term.id);
+        if (endErr) throw endErr;
+      }
+      const { error } = await supabase().from("terms").insert({
+        tenant_id: tenant.id,
+        name: `Term ${termIndex}, ${termYear}`,
+        year: termYear,
+        index: termIndex,
+        starts_on: termStartsOn,
+        ends_on: termEndsOn,
+        is_current: true,
+      });
+      if (error) throw error;
+      toast(`Term ${termIndex}, ${termYear} started.`);
+      setTermStartsOn("");
+      setTermEndsOn("");
+      reload();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not create the term: ${err.message}` : "Could not create the term.");
+    } finally {
+      setSavingTerm(false);
+    }
+  }
+
+  const [schoolName, setSchoolName] = useState(tenant.name);
+  const [schoolCounty, setSchoolCounty] = useState(tenant.county);
+  const [schoolMoe, setSchoolMoe] = useState(tenant.moe_registration ?? "");
+  const [savingDetails, setSavingDetails] = useState(false);
+
+  // An org_admin can act inside more than one school without this component
+  // unmounting (only the :slug param changes) — resync these fields to the
+  // newly-acted-for school instead of holding onto whichever school's name
+  // happened to be current when the form first mounted.
+  useEffect(() => {
+    setSchoolName(tenant.name);
+    setSchoolCounty(tenant.county);
+    setSchoolMoe(tenant.moe_registration ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant.id]);
+
+  async function handleSaveDetails(e: FormEvent) {
+    e.preventDefault();
+    if (!schoolName.trim()) { toast("The school needs a name."); return; }
+    setSavingDetails(true);
+    try {
+      const { error: rpcError } = await supabase().rpc("set_school_details", {
+        p_tenant_id: tenant.id,
+        p_name: schoolName,
+        p_county: schoolCounty,
+        p_moe_registration: schoolMoe,
+      });
+      if (rpcError) throw rpcError;
+      toast("School details saved — this page picks it up immediately; the sidebar and other screens pick it up next time they load.");
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save school details: ${err.message}` : "Could not save school details.");
+    } finally {
+      setSavingDetails(false);
+    }
+  }
 
   const [paybill, setPaybill] = useState(tenant.payment_paybill ?? "");
   const [till, setTill] = useState(tenant.payment_till ?? "");
@@ -66,12 +143,24 @@ export function TermSetup() {
     Boolean(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details),
   );
   const [savingPayment, setSavingPayment] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
+
+  useEffect(() => {
+    setPaybill(tenant.payment_paybill ?? "");
+    setTill(tenant.payment_till ?? "");
+    setBankDetails(tenant.payment_bank_details ?? "");
+    setPaymentNotes(tenant.payment_notes ?? "");
+    setPaymentSet(Boolean(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details));
+    setLogoUrl(tenant.logo_url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant.id]);
 
   async function handleSavePayment(e: FormEvent) {
     e.preventDefault();
     setSavingPayment(true);
     try {
       const { error: rpcError } = await supabase().rpc("set_school_payment_methods", {
+        p_tenant_id: tenant.id,
         p_paybill: paybill,
         p_till: till,
         p_bank_details: bankDetails,
@@ -87,7 +176,6 @@ export function TermSetup() {
     }
   }
 
-  const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
   const [crestFile, setCrestFile] = useState<File | null>(null);
   const [savingCrest, setSavingCrest] = useState(false);
 
@@ -97,7 +185,7 @@ export function TermSetup() {
     setSavingCrest(true);
     try {
       const url = await uploadTenantLogo(tenant.id, crestFile);
-      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_logo_url: url });
+      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_tenant_id: tenant.id, p_logo_url: url });
       if (rpcError) throw rpcError;
       // Cache-bust: the path is stable (logo.<ext>), so a browser that already fetched it
       // needs a new URL to notice the replacement.
@@ -172,6 +260,46 @@ export function TermSetup() {
       />
 
       <div className="max-w-[720px] px-7 py-6">
+        <div className="mb-5 overflow-hidden rounded-xl border border-line">
+          <header className="border-b border-line-soft px-4 py-3">
+            <h2 className="text-[13px] font-semibold">School details</h2>
+          </header>
+          <form onSubmit={handleSaveDetails} className="grid gap-3 px-4 py-3.5">
+            <div className="grid gap-3" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+              <label className="block">
+                <span className="mb-1.5 block text-[12px] font-semibold">School name</span>
+                <input
+                  value={schoolName}
+                  onChange={(e) => setSchoolName(e.target.value)}
+                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-[12px] font-semibold">County</span>
+                <input
+                  value={schoolCounty}
+                  onChange={(e) => setSchoolCounty(e.target.value)}
+                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="mb-1.5 block text-[12px] font-semibold">MOE registration (optional)</span>
+              <input
+                value={schoolMoe}
+                onChange={(e) => setSchoolMoe(e.target.value)}
+                placeholder="e.g. MOE/SEC/1234"
+                className="w-full max-w-[280px] rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
+              />
+            </label>
+            <div>
+              <Button type="submit" variant="primary" disabled={savingDetails}>
+                {savingDetails ? "Saving…" : "Save school details"}
+              </Button>
+            </div>
+          </form>
+        </div>
+
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load term setup: {error.message}
@@ -220,7 +348,79 @@ export function TermSetup() {
 
                     {expanded && (
                       <div className="border-t border-line-soft bg-page px-4 py-3.5">
-                        {s.id === "branding" ? (
+                        {s.id === "term" ? (
+                          <form onSubmit={handleCreateTerm} className="grid gap-3">
+                            {data.term && (
+                              <p className="text-[12.5px] leading-relaxed text-ink-muted">
+                                Starting a new term ends {data.term.name} and makes this the current one everywhere in the app.
+                              </p>
+                            )}
+                            <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Term</span>
+                                <select
+                                  value={termIndex}
+                                  onChange={(e) => setTermIndex(Number(e.target.value) as 1 | 2 | 3)}
+                                  className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+                                >
+                                  <option value={1}>Term 1</option>
+                                  <option value={2}>Term 2</option>
+                                  <option value={3}>Term 3</option>
+                                </select>
+                              </label>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Year</span>
+                                <input
+                                  type="number"
+                                  value={termYear}
+                                  onChange={(e) => setTermYear(Number(e.target.value))}
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Starts on</span>
+                                <input
+                                  type="date"
+                                  value={termStartsOn}
+                                  onChange={(e) => setTermStartsOn(e.target.value)}
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                                />
+                              </label>
+                              <label className="block">
+                                <span className="mb-1.5 block text-[12px] font-semibold">Ends on</span>
+                                <input
+                                  type="date"
+                                  value={termEndsOn}
+                                  onChange={(e) => setTermEndsOn(e.target.value)}
+                                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <div>
+                              <Button type="submit" variant="primary" disabled={savingTerm}>
+                                {savingTerm ? "Saving…" : data.term ? "Start this term" : "Create the first term"}
+                              </Button>
+                            </div>
+                          </form>
+                        ) : s.id === "classes" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              Classes, streams and their class teachers are set up under Classes, not here.
+                            </p>
+                            <Button variant="primary" onClick={() => navigate("../admin/classes")}>Go to Classes</Button>
+                          </div>
+                        ) : s.id === "fees" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              {data.term
+                                ? "Fee items for the current term are set up under Fees."
+                                : "A current term is needed first — set up Term dates above, then come back here."}
+                            </p>
+                            <Button variant="primary" disabled={!data.term} onClick={() => navigate("../admin/fees")}>Go to Fees</Button>
+                          </div>
+                        ) : s.id === "branding" ? (
                           <form onSubmit={handleSaveCrest} className="flex flex-wrap items-end gap-3">
                             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-white">
                               {logoUrl ? (
@@ -246,25 +446,30 @@ export function TermSetup() {
                         ) : s.id === "payment" ? (
                           <form onSubmit={handleSavePayment} className="grid gap-3">
                             <p className="text-[12px] leading-relaxed text-ink-muted">
-                              Real-time M-Pesa auto-pay isn't wired up yet — for now, parents pay to whichever of
-                              these the school uses and upload proof for the bursar to confirm.
+                              {tenant.country === "KE"
+                                ? "Real-time M-Pesa auto-pay isn't wired up yet — for now, parents pay to whichever of these the school uses and upload proof for the bursar to confirm."
+                                : "Automated payment isn't wired up yet — for now, parents pay to whichever of these the school uses and upload proof for the bursar to confirm."}
                             </p>
                             <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
                               <label className="block">
-                                <span className="mb-1.5 block text-[12px] font-semibold">Paybill number</span>
+                                {/* "Paybill"/"Till" are Safaricom-specific terms — the columns
+                                    themselves are plain free text, so a non-Kenyan school gets
+                                    a generic label over the same field rather than confusing
+                                    M-Pesa terminology. */}
+                                <span className="mb-1.5 block text-[12px] font-semibold">{tenant.country === "KE" ? "Paybill number" : "Payment reference 1"}</span>
                                 <input
                                   value={paybill}
                                   onChange={(e) => setPaybill(e.target.value)}
-                                  placeholder="e.g. 522533"
+                                  placeholder={tenant.country === "KE" ? "e.g. 522533" : "e.g. account or reference number"}
                                   className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
                                 />
                               </label>
                               <label className="block">
-                                <span className="mb-1.5 block text-[12px] font-semibold">Till number</span>
+                                <span className="mb-1.5 block text-[12px] font-semibold">{tenant.country === "KE" ? "Till number" : "Payment reference 2"}</span>
                                 <input
                                   value={till}
                                   onChange={(e) => setTill(e.target.value)}
-                                  placeholder="e.g. 5028417"
+                                  placeholder={tenant.country === "KE" ? "e.g. 5028417" : "e.g. a second reference number"}
                                   className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none"
                                 />
                               </label>
@@ -299,14 +504,7 @@ export function TermSetup() {
                           ) : (
                             <div className="grid gap-2">
                               {unassigned.map((c) => (
-                                <div key={c.id} className="flex flex-wrap items-center gap-2.5 rounded-lg bg-white px-3.5 py-2.5">
-                                  <span className="min-w-0 flex-1 text-[13px] font-medium">{c.name}</span>
-                                  <select aria-label={`Class teacher for ${c.name}`} className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
-                                    <option>Choose a teacher</option>
-                                    {data.teacherOptions.map((t) => <option key={t.id}>{t.full_name}</option>)}
-                                  </select>
-                                  <Button variant="primary" onClick={() => toast(`Class teacher assigned for ${c.name}`)}>Assign</Button>
-                                </div>
+                                <ClassTeacherRow key={c.id} classId={c.id} className={c.name} teachers={data.teacherOptions} toast={toast} onAssigned={reload} />
                               ))}
                               <p className="mt-1 text-[12px] leading-relaxed text-ink-muted">
                                 A class with no teacher cannot have attendance taken, which is why this blocks the first day
@@ -314,6 +512,22 @@ export function TermSetup() {
                               </p>
                             </div>
                           )
+                        ) : s.id === "subjects" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              Subjects, and who teaches which one in each class, are set up per class — under Classes, next to that
+                              class's Timetable link.
+                            </p>
+                            <Button variant="primary" onClick={() => navigate("../admin/classes")}>Go to Classes</Button>
+                          </div>
+                        ) : s.id === "roll" ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
+                              There's no blanket "bump everyone" — each class teacher reviews their own roster and picks who's
+                              promoted, who repeats, and who's leaving. Under Classes, next to that class's Timetable link.
+                            </p>
+                            <Button variant="primary" onClick={() => navigate("../admin/classes")}>Go to Classes</Button>
+                          </div>
                         ) : (
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">{s.note}</p>
@@ -340,5 +554,46 @@ export function TermSetup() {
         </div>
       </div>
     </>
+  );
+}
+
+function ClassTeacherRow({ classId, className, teachers, toast, onAssigned }: {
+  classId: string; className: string;
+  teachers: Pick<Profile, "id" | "full_name">[];
+  toast: (m: string) => void;
+  onAssigned: () => void;
+}) {
+  const [teacherId, setTeacherId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function assign() {
+    if (!teacherId) { toast("Choose a teacher first."); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
+      if (error) throw error;
+      toast(`Class teacher assigned for ${className}.`);
+      onAssigned();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not assign a class teacher: ${err.message}` : "Could not assign a class teacher.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2.5 rounded-lg bg-white px-3.5 py-2.5">
+      <span className="min-w-0 flex-1 text-[13px] font-medium">{className}</span>
+      <select
+        value={teacherId}
+        onChange={(e) => setTeacherId(e.target.value)}
+        aria-label={`Class teacher for ${className}`}
+        className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
+      >
+        <option value="">Choose a teacher</option>
+        {teachers.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+      </select>
+      <Button variant="primary" disabled={saving} onClick={() => void assign()}>{saving ? "Assigning…" : "Assign"}</Button>
+    </div>
   );
 }
