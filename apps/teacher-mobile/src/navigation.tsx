@@ -1,7 +1,7 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { Text } from "react-native";
+import { Bell, Mail, Menu, SquareCheck, Table2, type LucideIcon } from "lucide-react-native";
 import { accentFor } from "./theme";
 
 import { TeacherAttendance } from "./screens/teacher/Attendance";
@@ -17,7 +17,9 @@ import { TeacherAccount } from "./screens/teacher/Account";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-const glyph = (g: string) => ({ tabBarIcon: () => <Text style={{ fontSize: 17 }}>{g}</Text> });
+const tabIcon = (Icon: LucideIcon) => ({
+  tabBarIcon: ({ color, size }: { color: string; size: number }) => <Icon color={color} size={size} />,
+});
 
 export interface TeacherSession {
   profileId: string;
@@ -56,19 +58,19 @@ export function Navigation({ session }: { session: TeacherSession }) {
           tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         }}
       >
-        <Tab.Screen name="Attendance" options={glyph("✓")}>
+        <Tab.Screen name="Attendance" options={tabIcon(SquareCheck)}>
           {() => <TeacherAttendance session={session} />}
         </Tab.Screen>
-        <Tab.Screen name="Gradebook" options={glyph("▦")}>
+        <Tab.Screen name="Gradebook" options={tabIcon(Table2)}>
           {() => <TeacherGradebook session={session} />}
         </Tab.Screen>
-        <Tab.Screen name="Messages" options={glyph("◉")}>
+        <Tab.Screen name="Messages" options={tabIcon(Mail)}>
           {() => <TeacherMessages session={session} />}
         </Tab.Screen>
-        <Tab.Screen name="Notices" options={glyph("●")}>
+        <Tab.Screen name="Notices" options={tabIcon(Bell)}>
           {() => <TeacherNotices session={session} />}
         </Tab.Screen>
-        <Tab.Screen name="More" options={glyph("≡")}>
+        <Tab.Screen name="More" options={tabIcon(Menu)}>
           {() => <MoreStack session={session} />}
         </Tab.Screen>
       </Tab.Navigator>
