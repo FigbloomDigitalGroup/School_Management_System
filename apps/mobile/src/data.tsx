@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, subscribeAnnouncements, type ChildInfo, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
+import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -45,6 +45,7 @@ function toChild(c: ChildInfo): Child {
 interface Ctx {
   children: Child[];
   messages: MessageInfo[];
+  markMessageRead: (id: string) => void;
   feeItems: ParentData["feeItems"];
   termLabel: string | null;
   subjectsFor: (childId: string) => [string, number][];
@@ -86,6 +87,21 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
   // parentContext.tsx — so a new message shows up without a manual reload.
   useEffect(() => subscribeAnnouncements(tenantId, () => setReloadKey((k) => k + 1)), [tenantId]);
 
+  /** Optimistic local update (so the Inbox screen and the tab badge — both
+   *  reading from this same state — agree immediately) plus the real write,
+   *  same split web's ParentInbox.tsx does. Previously this only ever
+   *  happened in ParentInbox's own local state, so the badge (reading from
+   *  here) never budged and the "read" mark didn't survive leaving Inbox. */
+  function markRead(id: string) {
+    setData((d) => {
+      if (!d) return d;
+      const target = d.messages.find((m) => m.id === id);
+      if (!target?.unread) return d;
+      return { ...d, messages: d.messages.map((m) => (m.id === id ? { ...m, unread: false } : m)) };
+    });
+    void markMessageRead(profileId, id).catch(() => {});
+  }
+
   if (!data) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.page }}>
@@ -108,6 +124,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
   const value: Ctx = {
     children: data.children.map(toChild),
     messages: data.messages,
+    markMessageRead: markRead,
     feeItems: data.feeItems,
     termLabel: data.termLabel,
     subjectsFor: (childId) => (data.children.find((c) => c.id === childId)?.subjects ?? []).map((s) => [s.name, s.score]),
@@ -137,6 +154,12 @@ export function useChildren(): Child[] {
 
 export function useMessages(): MessageInfo[] {
   return useParentData().messages;
+}
+
+/** Marks a message read for real — updates the badge and the shared list
+ *  immediately, and persists it server-side so it stays read next launch. */
+export function useMarkMessageRead(): (id: string) => void {
+  return useParentData().markMessageRead;
 }
 
 export function useSubjects(): [string, number][] {

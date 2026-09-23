@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchClassTimetable, loadStudentData, subscribeAnnouncements, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
+import { fetchClassTimetable, loadStudentData, markStudentNoticeRead, subscribeAnnouncements, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -20,6 +20,7 @@ interface Cached {
 interface Ctx {
   data: StudentData;
   timetable: Record<Weekday, TimetableRow[]>;
+  markNoticeRead: (id: string) => void;
   accent: string;
   country: string;
 }
@@ -66,6 +67,19 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
   // parentContext.tsx — so a new notice shows up without a manual reload.
   useEffect(() => subscribeAnnouncements(tenantId, () => setReloadKey((k) => k + 1)), [tenantId]);
 
+  /** Optimistic local update (so the Notices screen and the tab badge — both
+   *  reading from this same state — agree immediately) plus the real write. */
+  function markRead(id: string) {
+    setState((s) => {
+      if (s.status !== "ready") return s;
+      const target = s.cached.data.notices.find((n) => n.id === id);
+      if (!target?.unread) return s;
+      const notices = s.cached.data.notices.map((n) => (n.id === id ? { ...n, unread: false } : n));
+      return { status: "ready", cached: { ...s.cached, data: { ...s.cached.data, notices } } };
+    });
+    void markStudentNoticeRead(profileId, id).catch(() => {});
+  }
+
   if (state.status === "loading") {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.page }}>
@@ -86,7 +100,7 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
   }
 
   return (
-    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, accent, country }}>
+    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, markNoticeRead: markRead, accent, country }}>
       {children}
     </StudentDataCtx.Provider>
   );

@@ -233,3 +233,11 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
     examName: exam?.name ?? null,
   };
 }
+
+/** Records that this student has opened a notice, so it drops off the unread badge for good. */
+export async function markStudentNoticeRead(profileId: string, announcementId: string): Promise<void> {
+  const { error } = await supabase()
+    .from("announcement_reads")
+    .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
+  if (error) throw new Error(error.message);
+}
