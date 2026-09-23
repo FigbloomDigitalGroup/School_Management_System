@@ -11,8 +11,8 @@ import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
 
 type Session =
-  | { role: "parent"; accent: string; profileId: string; country: string }
-  | { role: "student"; accent: string; profileId: string; country: string }
+  | { role: "parent"; accent: string; profileId: string; country: string; tenantId: string }
+  | { role: "student"; accent: string; profileId: string; country: string; tenantId: string }
   | { role: "driver"; accent: string; profileId: string; tenantId: string; fullName: string };
 
 /**
@@ -52,7 +52,7 @@ export default function App() {
 
       const session: Session = profile.role === "driver"
         ? { role: "driver", accent, profileId: user.id, tenantId: profile.tenant_id!, fullName: profile.full_name }
-        : { role: profile.role, accent, profileId: user.id, country };
+        : { role: profile.role, accent, profileId: user.id, country, tenantId: profile.tenant_id! };
       if (alive) { setSession(session); setLoading(false); }
     }
 
@@ -82,11 +82,11 @@ export default function App() {
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
       {session ? (
         session.role === "parent" ? (
-          <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country}>
+          <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
             <Navigation role="parent" accent={session.accent} />
           </ParentDataProvider>
         ) : session.role === "student" ? (
-          <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country}>
+          <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
             <Navigation role="student" accent={session.accent} />
           </StudentDataProvider>
         ) : (

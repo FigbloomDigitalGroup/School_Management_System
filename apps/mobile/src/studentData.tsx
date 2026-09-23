@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchClassTimetable, loadStudentData, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
+import { fetchClassTimetable, loadStudentData, subscribeAnnouncements, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -31,8 +31,9 @@ type State =
 
 const StudentDataCtx = createContext<Ctx | null>(null);
 
-export function StudentDataProvider({ profileId, accent, country, children }: { profileId: string; accent: string; country: string; children: ReactNode }) {
+export function StudentDataProvider({ profileId, accent, country, tenantId, children }: { profileId: string; accent: string; country: string; tenantId: string; children: ReactNode }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -59,7 +60,11 @@ export function StudentDataProvider({ profileId, accent, country, children }: { 
     })();
 
     return () => { alive = false; };
-  }, [profileId]);
+  }, [profileId, reloadKey]);
+
+  // Re-loads the moment a new announcement lands — same pattern as web's
+  // parentContext.tsx — so a new notice shows up without a manual reload.
+  useEffect(() => subscribeAnnouncements(tenantId, () => setReloadKey((k) => k + 1)), [tenantId]);
 
   if (state.status === "loading") {
     return (

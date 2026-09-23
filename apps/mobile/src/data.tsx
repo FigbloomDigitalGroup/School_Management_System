@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, type ChildInfo, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
+import { loadParentData, subscribeAnnouncements, type ChildInfo, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -56,9 +56,10 @@ interface Ctx {
 
 const ParentDataCtx = createContext<Ctx | null>(null);
 
-export function ParentDataProvider({ profileId, accent, country, children }: { profileId: string; accent: string; country: string; children: ReactNode }) {
+export function ParentDataProvider({ profileId, accent, country, tenantId, children }: { profileId: string; accent: string; country: string; tenantId: string; children: ReactNode }) {
   const [data, setData] = useState<ParentData | null>(null);
   const [index, setIndex] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -79,7 +80,11 @@ export function ParentDataProvider({ profileId, accent, country, children }: { p
     })();
 
     return () => { alive = false; };
-  }, [profileId]);
+  }, [profileId, reloadKey]);
+
+  // Re-loads the moment a new announcement lands — same pattern as web's
+  // parentContext.tsx — so a new message shows up without a manual reload.
+  useEffect(() => subscribeAnnouncements(tenantId, () => setReloadKey((k) => k + 1)), [tenantId]);
 
   if (!data) {
     return (
