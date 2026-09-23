@@ -81,8 +81,8 @@ export const DEMO_TIMETABLE: Record<string, [string, string, string][]> = {
 export const DEMO_LOGINS = [
   { role: "super_admin",  who: "Joyce Kimani",  email: "joyce@figbloom.co.ke",        password: "figbloom-dev" },
   { role: "school_admin", who: "Peter Mwangi",  email: "principal@alliance.sc.ke",    password: "figbloom-dev" },
-  { role: "teacher",      who: "Mr Otieno",     login_id: "TC-0001", school: "Alliance High School", password: "figbloom-dev" },
-  { role: "driver",       who: "James Kariuki", login_id: "BD-0001", school: "Alliance High School", password: "figbloom-dev" },
-  { role: "parent",       who: "Rose Achieng",  login_id: "PT-0001", school: "Alliance High School", password: "figbloom-dev" },
-  { role: "student",      who: "Faith Achieng", login_id: "ST-0001", school: "Alliance High School", password: "figbloom-dev" },
+  { role: "teacher",      who: "Michael Kiruti", login_id: "TC-0002", school: "Alliance High School Girls", password: "figbloom-dev" },
+  { role: "driver",       who: "James Kariuki",  login_id: "BD-0001", school: "Alliance High School Girls", password: "figbloom-dev" },
+  { role: "parent",       who: "Esther Hawi",    login_id: "PT-0002", school: "Alliance High School Girls", password: "figbloom-dev" },
+  { role: "student",      who: "Alex Chebet",    login_id: "ST-0002", school: "Alliance High School Girls", password: "figbloom-dev" },
 ] as const;
