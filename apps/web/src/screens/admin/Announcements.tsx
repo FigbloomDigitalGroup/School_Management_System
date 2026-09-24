@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { formatMoney, supabase, type Audience, type ClassGroup } from "@figbloom/shared";
+import { formatMoney, supabase, yearGroupKey, yearGroupsOf, yearLabel, type Audience, type ClassGroup, type YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
@@ -13,7 +13,7 @@ type AudienceKind = Audience["kind"];
 const AUDIENCE_META: { id: AudienceKind; label: string }[] = [
   { id: "whole_school", label: "Whole school" },
   { id: "role", label: "All parents" },
-  { id: "form_level", label: "One form level" },
+  { id: "form_level", label: "One year group" },
   { id: "class", label: "One class" },
 ];
 
@@ -24,10 +24,13 @@ interface RecentAnnouncement {
 }
 
 interface AnnouncementsData {
-  classes: Pick<ClassGroup, "id" | "name" | "form_level">[];
+  classes: Pick<ClassGroup, "id" | "name" | "level" | "form_level">[];
   wholeSchoolCount: number;
   parentsCount: number;
-  countByForm: Map<number, number>;
+  /** Keyed by yearGroupKey(level, form_level) — Grade 1 and Form 1 are both form_level 1. */
+  countByForm: Map<string, number>;
+  /** Year groups that actually have classes, youngest first. */
+  years: YearGroup[];
   countByClass: Map<string, number>;
   recent: RecentAnnouncement[];
 }
@@ -36,7 +39,7 @@ async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsDa
   const sb = supabase();
 
   const [{ data: classRows }, { data: studentRows }, { count: staffCount }, { data: guardianRows }, { data: recent }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level").eq("tenant_id", tenantId).order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
+    sb.from("classes").select("id,name,level,form_level").eq("tenant_id", tenantId).order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "level" | "form_level">[]>(),
     sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
     sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
     sb.from("guardians").select("profile_id").eq("tenant_id", tenantId).returns<{ profile_id: string }[]>(),
@@ -49,11 +52,11 @@ async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsDa
   const students = studentRows ?? [];
 
   const countByClass = new Map<string, number>();
-  const countByForm = new Map<number, number>();
+  const countByForm = new Map<string, number>();
   for (const s of students) {
     countByClass.set(s.class_id, (countByClass.get(s.class_id) ?? 0) + 1);
-    const form = classById.get(s.class_id)?.form_level;
-    if (form != null) countByForm.set(form, (countByForm.get(form) ?? 0) + 1);
+    const cls = classById.get(s.class_id);
+    if (cls) { const k = yearGroupKey(cls.level, cls.form_level); countByForm.set(k, (countByForm.get(k) ?? 0) + 1); }
   }
 
   return {
@@ -61,6 +64,7 @@ async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsDa
     wholeSchoolCount: students.length + (staffCount ?? 0),
     parentsCount: new Set((guardianRows ?? []).map((g) => g.profile_id)).size,
     countByForm,
+    years: yearGroupsOf(classRows ?? []),
     countByClass,
     recent: recent ?? [],
   };
@@ -76,7 +80,9 @@ export function Announcements() {
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading } = useAsync(() => fetchAnnouncementsData(tenant.id), [tenant.id, reloadKey]);
   const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
-  const [formLevel, setFormLevel] = useState(1);
+  const [pickedYear, setPickedYear] = useState<string | null>(null);
+  const yearGroup = data ? (data.years.find((y) => y.key === pickedYear) ?? data.years[0] ?? null) : null;
+  const formLevel = yearGroup?.key ?? "";
   const [classId, setClassId] = useState("");
   const [channels, setChannels] = useState({ in_app: true, push: true, sms: false, email: false });
   const [subject, setSubject] = useState("");
@@ -96,7 +102,9 @@ export function Announcements() {
     switch (audienceId) {
       case "whole_school": return { kind: "whole_school" };
       case "role": return { kind: "role", role: "parent" };
-      case "form_level": return { kind: "form_level", form_level: formLevel };
+      case "form_level": return yearGroup
+        ? { kind: "form_level", form_level: yearGroup.year, level: yearGroup.level }
+        : { kind: "form_level", form_level: 1 };
       case "class": return { kind: "class", class_id: effectiveClassId };
       case "user": throw new Error("The composer never selects a per-person audience.");
     }
@@ -163,9 +171,9 @@ export function Announcements() {
                       {loading || count === null ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{count.toLocaleString()} people</span>}
                     </button>
                     {audienceId === a.id && a.id === "form_level" && (
-                      <select value={formLevel} onChange={(e) => setFormLevel(Number(e.target.value))}
-                        aria-label="Form level" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
-                        {[1, 2, 3, 4].map((f) => <option key={f} value={f}>Form {f}</option>)}
+                      <select value={formLevel} onChange={(e) => setPickedYear(e.target.value)}
+                        aria-label="Year group" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
+                        {(data?.years ?? []).map((y) => <option key={y.key} value={y.key}>{yearLabel(y.level, y.year)}</option>)}
                       </select>
                     )}
                     {audienceId === a.id && a.id === "class" && (

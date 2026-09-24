@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { SCHOOL_LEVEL_OPTIONS, countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { CountrySelect } from "../../components/ui/CountrySelect";
 import { SelectField, TextField } from "../../components/ui/Field";
@@ -201,7 +201,7 @@ export function OnboardSchool({
           <div className="grid gap-3.5 sm:grid-cols-2">
             {form.institutionType === "k12" ? (
               <SelectField id="level" label="Level" value={form.level} onChange={(e) => set("level", e.target.value)}
-                options={[{ value: "secondary", label: "Secondary" }, { value: "primary", label: "Primary" }, { value: "combined", label: "Combined" }]} />
+                options={SCHOOL_LEVEL_OPTIONS} />
             ) : (
               <SelectField id="higherEdSubtype" label="Type" value={form.higherEdSubtype} onChange={(e) => set("higherEdSubtype", e.target.value)}
                 options={[

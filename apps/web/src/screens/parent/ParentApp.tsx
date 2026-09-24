@@ -126,7 +126,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
     );
   }
 
-  const feeItems = itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel);
+  const feeItems = itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel);
   const scheme = gradingSchemeFor(tenant.country, child.classLevel);
   const statCards = [
     {

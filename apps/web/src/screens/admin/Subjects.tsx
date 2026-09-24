@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, type Subject } from "@figbloom/shared";
+import { LEVELS, isValidYear, levelsForTenant, supabase, yearLabel, type ClassLevel, type Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -42,6 +42,15 @@ function downloadSubjectsCsv(subjects: Subject[], unit: string): void {
 }
 
 function rangeLabel(s: Subject, unit: string): string {
+  if (s.level) {
+    const lvl = s.level;
+    const label = (n: number) => yearLabel(lvl, n);
+    if (s.min_form_level == null && s.max_form_level == null) return `All of ${LEVELS[lvl].label.toLowerCase()}`;
+    if (s.min_form_level != null && s.max_form_level != null) {
+      return s.min_form_level === s.max_form_level ? `${label(s.min_form_level)} only` : `${label(s.min_form_level)}–${label(s.max_form_level)}`;
+    }
+    return s.min_form_level != null ? `${label(s.min_form_level)} and up` : `Up to ${label(s.max_form_level!)}`;
+  }
   if (s.min_form_level == null && s.max_form_level == null) return `Every ${unit.toLowerCase()}`;
   if (s.min_form_level != null && s.max_form_level != null) {
     return s.min_form_level === s.max_form_level ? `${unit} ${s.min_form_level} only` : `${unit} ${s.min_form_level}-${s.max_form_level}`;
@@ -70,6 +79,8 @@ export function AdminSubjects() {
   const [code, setCode] = useState("");
   const [minForm, setMinForm] = useState("");
   const [maxForm, setMaxForm] = useState("");
+  // "" = any level: the subject's bounds are compared against every class's year.
+  const [level, setLevel] = useState<ClassLevel | "">("");
   const [creating, setCreating] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -82,15 +93,21 @@ export function AdminSubjects() {
 
   async function createSubject() {
     if (!name.trim() || !code.trim()) { toast("Give the subject a name and a short code."); return; }
+    const lo = parseFormBound(minForm), hi = parseFormBound(maxForm);
+    if (level && [lo, hi].some((n) => n != null && !isValidYear(level, n))) {
+      const { min, max } = LEVELS[level];
+      toast(`${LEVELS[level].label} runs ${yearLabel(level, min)} to ${yearLabel(level, max)} — pick years in that range.`);
+      return;
+    }
     setCreating(true);
     try {
       const { error: err } = await supabase().from("subjects").insert({
         tenant_id: tenant.id, name: name.trim(), code: code.trim().toUpperCase(), is_core: true,
-        min_form_level: parseFormBound(minForm), max_form_level: parseFormBound(maxForm),
+        level: level || null, min_form_level: lo, max_form_level: hi,
       });
       if (err) throw err;
       toast(`${name.trim()} added.`);
-      setName(""); setCode(""); setMinForm(""); setMaxForm("");
+      setName(""); setCode(""); setMinForm(""); setMaxForm(""); setLevel("");
       reload();
     } catch (err) {
       toast(err instanceof Error ? `Could not add the subject: ${err.message}` : "Could not add the subject.");
@@ -186,7 +203,7 @@ export function AdminSubjects() {
 
             <div className="grid gap-2.5 rounded-lg border border-line-soft bg-white p-3.5">
               <h2 className="text-[13px] font-semibold">New subject</h2>
-              <div className="grid gap-2.5" style={{ gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.8fr" }}>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: "1.6fr 0.8fr 1.2fr 0.8fr 0.8fr" }}>
                 <label className="block">
                   <span className="mb-1 block text-[11.5px] font-semibold">Name</span>
                   <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Computer Studies"
@@ -198,17 +215,29 @@ export function AdminSubjects() {
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 font-mono text-[13px] outline-none" />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-[11.5px] font-semibold">From {unit.toLowerCase()}</span>
+                  <span className="mb-1 block text-[11.5px] font-semibold">Level</span>
+                  <select value={level} onChange={(e) => setLevel(e.target.value as ClassLevel | "")}
+                    className="w-full rounded-md border border-[#D3DAD5] bg-white px-2 py-1.5 text-[13px]">
+                    <option value="">Any level</option>
+                    {levelsForTenant(tenant.level).map((l) => <option key={l} value={l}>{LEVELS[l].label}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11.5px] font-semibold">From {level ? "year" : unit.toLowerCase()}</span>
                   <input value={minForm} onChange={(e) => setMinForm(e.target.value)} placeholder="Any" inputMode="numeric"
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-[11.5px] font-semibold">To {unit.toLowerCase()}</span>
+                  <span className="mb-1 block text-[11.5px] font-semibold">To {level ? "year" : unit.toLowerCase()}</span>
                   <input value={maxForm} onChange={(e) => setMaxForm(e.target.value)} placeholder="Any" inputMode="numeric"
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
                 </label>
               </div>
-              <p className="text-[11px] text-ink-faint">Leave "From"/"To" blank for a subject every class offers, regardless of {unit.toLowerCase()}.</p>
+              <p className="text-[11px] text-ink-faint">
+                {level
+                  ? `Years are numbered as ${LEVELS[level].label.toLowerCase()} numbers them (${yearLabel(level, LEVELS[level].min)} is ${LEVELS[level].min}). Leave blank for all of ${LEVELS[level].label.toLowerCase()}.`
+                  : `Leave "From"/"To" blank for a subject every class offers, regardless of ${unit.toLowerCase()}.`}
+              </p>
               <Button className="justify-self-start" onClick={() => void createSubject()} disabled={creating}>
                 {creating ? "Adding…" : "Add subject"}
               </Button>

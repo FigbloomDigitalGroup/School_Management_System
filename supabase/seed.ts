@@ -80,7 +80,7 @@ async function main() {
     .insert(DEMO_SUBJECTS.map((s) => ({ ...s, tenant_id: alliance.id }))).select("id, name, code");
 
   const { data: classes } = await db.from("classes")
-    .insert(DEMO_CLASSES.map((c) => ({ ...c, tenant_id: alliance.id }))).select("id, name, form_level");
+    .insert(DEMO_CLASSES.map((c) => ({ ...c, tenant_id: alliance.id }))).select("id, name, form_level, level");
 
   // teacher takes Chemistry across every class, and is class teacher of Form 2 West
   const form2west = classes!.find((c) => c.name === "Form 2 West")!;
@@ -165,8 +165,8 @@ async function main() {
     .insert(DEMO_FEE_ITEMS.map((f) => ({ ...f, tenant_id: alliance.id, term_id: term!.id }))).select("*");
 
   const invoices = inserted!.map((s) => {
-    const level = classes!.find((c) => c.id === s.class_id)!.form_level;
-    const applicable = itemsForStudent(feeItems as never, { boarding: s.boarding }, level);
+    const cls = classes!.find((c) => c.id === s.class_id)!;
+    const applicable = itemsForStudent(feeItems as never, { boarding: s.boarding }, cls.form_level, cls.level);
     const total = totalCents(applicable as never);
     const paidRatio = r();
     return {

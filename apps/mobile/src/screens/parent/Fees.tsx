@@ -9,7 +9,7 @@ export function ParentFees() {
   const { child, index, accent, country } = useChild();
   const feeItems = useFeeItems();
   const termLabel = useTermLabel();
-  const items = itemsForStudent(feeItems as never, { boarding: child.boarding }, child.formLevel);
+  const items = itemsForStudent(feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel);
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
   const paid = child.billed - child.balance;

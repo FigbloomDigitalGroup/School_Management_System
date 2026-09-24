@@ -168,7 +168,7 @@ export function useSubjects(): [string, number][] {
   return subjectsFor(child.id);
 }
 
-/** Raw term fee items — filter with itemsForStudent(items, child, child.formLevel) for one child. */
+/** Raw term fee items — filter with itemsForStudent(items, child, child.formLevel, child.classLevel) for one child. */
 export function useFeeItems(): FeeItem[] {
   return useParentData().feeItems as unknown as FeeItem[];
 }

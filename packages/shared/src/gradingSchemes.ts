@@ -44,7 +44,7 @@ export const CBC_SCALE: GradeBand[] = [
 export const SCHEMES: Record<GradingSchemeId, GradeBand[]> = { kcse: KCSE_SCALE, cbc: CBC_SCALE };
 
 const K12_SCHEME_REGISTRY: Record<string, Partial<Record<ClassLevel, GradingSchemeId>>> = {
-  KE: { primary: "cbc", junior_secondary: "cbc", secondary: "kcse" },
+  KE: { pre_primary: "cbc", primary: "cbc", junior_secondary: "cbc", senior_school: "cbc", secondary: "kcse" },
 };
 
 /** Falls back to kcse for an unregistered country — matches the product's

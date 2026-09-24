@@ -139,7 +139,7 @@ export function ParentFees() {
     window.setTimeout(() => setPayState(amount > child.balance ? "failed" : "done"), 1800);
   }
 
-  const feeItems = child && data ? itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel) : [];
+  const feeItems = child && data ? itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel) : [];
 
   return (
     <>

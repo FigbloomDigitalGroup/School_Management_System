@@ -100,7 +100,7 @@ export function StudentFees() {
     window.setTimeout(() => setPayState(amount > data.balance ? "failed" : "done"), 1800);
   }
 
-  const feeItems = data ? itemsForStudent(data.feeItems as never, { boarding: data.boarding }, data.formLevel) : [];
+  const feeItems = data ? itemsForStudent(data.feeItems as never, { boarding: data.boarding }, data.formLevel, data.classLevel) : [];
 
   return (
     <>

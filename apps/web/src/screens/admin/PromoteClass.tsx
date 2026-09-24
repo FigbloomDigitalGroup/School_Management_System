@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase, type ClassGroup } from "@figbloom/shared";
+import { nextYear, supabase, yearSortKey, type ClassGroup } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -50,11 +50,16 @@ async function fetchLatestExamMeans(tenantId: string, studentIds: string[]): Pro
   return out;
 }
 
-/** Same level, one form up, matching stream first — the common case for a
- *  school with parallel streams (East stays East). Falls back to any class
- *  at that next form, then to "graduating" once there's nowhere higher to go. */
+/** The next year up — across levels where CBE crosses them (PP2 → Grade 1,
+ *  Grade 6 → Grade 7, Grade 9 → Grade 10; levels.ts nextYear) — matching
+ *  stream first, the common case for a school with parallel streams (East
+ *  stays East). Falls back to any class in that year, then to "graduating"
+ *  once there's nowhere higher to go in this school (Grade 12, Form 4, or a
+ *  primary school with no junior classes). Comparing form_level + 1 within
+ *  the same level used to send every Grade 6 class to "graduate". */
 function defaultTargetFor(source: ClassGroup, allClasses: ClassGroup[]): string {
-  const nextForm = allClasses.filter((c) => c.level === source.level && c.form_level === source.form_level + 1);
+  const next = nextYear(source.level, source.form_level);
+  const nextForm = next ? allClasses.filter((c) => c.level === next.level && c.form_level === next.year) : [];
   if (nextForm.length === 0) return GRADUATE;
   const sameStream = nextForm.find((c) => c.stream === source.stream);
   return (sameStream ?? nextForm[0]!).id;
@@ -233,7 +238,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
 
   const otherClasses = allClasses
     .filter((c) => c.id !== sourceClass.id)
-    .sort((a, b) => a.form_level - b.form_level || a.name.localeCompare(b.name));
+    .sort((a, b) => yearSortKey(a.level, a.form_level) - yearSortKey(b.level, b.form_level) || a.name.localeCompare(b.name));
 
   return (
     <Modal

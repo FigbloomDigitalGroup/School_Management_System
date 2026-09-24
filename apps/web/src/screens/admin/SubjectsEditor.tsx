@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, type Subject } from "@figbloom/shared";
+import { subjectOffered, supabase, type ClassLevel, type Subject } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -10,7 +10,7 @@ interface TeacherOption { id: string; full_name: string }
 interface SubjectRow { subject: Subject; teacherId: string | null }
 interface ClassSubjectsData { rows: SubjectRow[]; qualifiedTeacherIdsBySubject: Map<string, Set<string>> }
 
-async function fetchClassSubjects(tenantId: string, classId: string, formLevel: number): Promise<ClassSubjectsData> {
+async function fetchClassSubjects(tenantId: string, classId: string, classLevel: ClassLevel, formLevel: number): Promise<ClassSubjectsData> {
   const sb = supabase();
   const [{ data: subjects, error: e1 }, { data: assignments, error: e2 }, { data: specializations, error: e3 }] = await Promise.all([
     sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
@@ -25,10 +25,7 @@ async function fetchClassSubjects(tenantId: string, classId: string, formLevel: 
   // A subject applies here unless it's explicitly bounded to a form/grade
   // range that excludes this class — e.g. "Computer Studies" set to
   // Form 1-2 only won't show up on this list for a Form 3 class at all.
-  const offered = (subjects ?? []).filter((s) =>
-    (s.min_form_level == null || s.min_form_level <= formLevel)
-    && (s.max_form_level == null || s.max_form_level >= formLevel),
-  );
+  const offered = (subjects ?? []).filter((s) => subjectOffered(s, { level: classLevel, year: formLevel }));
 
   const teacherBySubject = new Map((assignments ?? []).map((a) => [a.subject_id, a.teacher_id]));
   const rows = offered.map((s) => ({ subject: s, teacherId: teacherBySubject.get(s.id) ?? null }));
@@ -53,14 +50,14 @@ async function fetchClassSubjects(tenantId: string, classId: string, formLevel: 
  * managed school-wide under Subjects, not here (FIG-406) — this only
  * assigns a teacher to whichever subjects actually apply to this class.
  */
-export function SubjectsEditor({ classId, className, tenantId, formLevel, teachers, onClose }: {
-  classId: string; className: string; tenantId: string; formLevel: number;
+export function SubjectsEditor({ classId, className, tenantId, classLevel, formLevel, teachers, onClose }: {
+  classId: string; className: string; tenantId: string; classLevel: ClassLevel; formLevel: number;
   teachers: TeacherOption[];
   onClose: () => void;
 }) {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchClassSubjects(tenantId, classId, formLevel), [tenantId, classId, formLevel, reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchClassSubjects(tenantId, classId, classLevel, formLevel), [tenantId, classId, classLevel, formLevel, reloadKey]);
   const rows = data?.rows;
   const reload = () => setReloadKey((k) => k + 1);
 

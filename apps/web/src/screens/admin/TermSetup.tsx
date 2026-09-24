@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { accentFor, schoolAccents, supabase } from "@figbloom/shared";
+import { accentFor, gradingSchemeFor, schoolAccents, supabase, yearGroupsOf, yearLabel } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { applyAccent } from "../../components/TenantTheme";
@@ -11,7 +11,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadTenantLogo } from "../../lib/uploads";
 
-type ClassRow = Pick<ClassGroup, "id" | "name" | "form_level" | "class_teacher_id">;
+type ClassRow = Pick<ClassGroup, "id" | "name" | "level" | "form_level" | "class_teacher_id">;
 
 interface TermSetupData {
   term: Term | null;
@@ -28,7 +28,7 @@ async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
   const termId = term?.id ?? null;
 
   const [{ data: classRows }, { count: subjectsCount }, feeItemsRes, { data: teacherRows }, { count: studentsCount }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level,class_teacher_id").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassRow[]>(),
+    sb.from("classes").select("id,name,level,form_level,class_teacher_id").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassRow[]>(),
     sb.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
     termId
       ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("term_id", termId)
@@ -223,9 +223,16 @@ export function TermSetup() {
 
   const unassigned = data ? data.classes.filter((c) => !c.class_teacher_id) : [];
   const assignedCount = data ? data.classes.length - unassigned.length : 0;
-  const formLevels = data && data.classes.length > 0 ? data.classes.map((c) => c.form_level) : [];
-  const minForm = formLevels.length ? Math.min(...formLevels) : 1;
-  const maxForm = formLevels.length ? Math.max(...formLevels) : 4;
+  // Youngest and oldest year group actually running — "PP1 to Grade 6",
+  // "Form 1 to Form 4", "Grade 7 to Form 4" — never a bare form_level range,
+  // which reads nonsensically once a school runs more than one level.
+  const yearGroups = data ? yearGroupsOf(data.classes) : [];
+  const yearSpan = yearGroups.length
+    ? `${yearLabel(yearGroups[0]!.level, yearGroups[0]!.year)} to ${yearLabel(yearGroups[yearGroups.length - 1]!.level, yearGroups[yearGroups.length - 1]!.year)}`
+    : null;
+  // Which grading the school's classes actually use (gradingSchemes.ts).
+  const schemes = new Set(yearGroups.map((g) => gradingSchemeFor(tenant.country, g.level)));
+  const gradingNote = [schemes.has("cbc") && "CBC rubric (EE–BE)", schemes.has("kcse") && "12-point KCSE scale"].filter(Boolean).join(" and ");
 
   const steps = data
     ? [
@@ -237,11 +244,11 @@ export function TermSetup() {
         },
         {
           id: "classes", label: "Classes and streams", done: data.classes.length > 0,
-          note: `${data.classes.length} classes across Forms ${minForm} to ${maxForm}.`,
+          note: yearSpan ? `${data.classes.length} classes, ${yearSpan}.` : "No classes yet.",
         },
         {
           id: "subjects", label: "Subjects and grading", done: data.subjectsCount > 0,
-          note: `${data.subjectsCount} subjects, 12-point KCSE scale.`,
+          note: `${data.subjectsCount} subjects${gradingNote ? `, ${gradingNote}` : ""}.`,
         },
         {
           id: "teachers", label: "Assign class teachers", done: unassigned.length === 0,
