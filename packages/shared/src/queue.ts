@@ -25,6 +25,20 @@ export interface QueuedWrite {
 
 const KEY = "figbloom.queue.v1";
 
+/**
+ * The natural key each queued table upserts on. Replaying a write without it
+ * makes Postgres treat the rows as new inserts, so a register or a marks
+ * draft that was already partly saved fails on the unique constraint and the
+ * queue stalls behind it forever. Tables that only ever insert fresh rows
+ * (announcements, vehicle_locations) have no entry.
+ */
+export const QUEUE_CONFLICT_KEYS: Readonly<Record<string, string>> = {
+  attendance: "student_id,taken_on",
+  marks: "exam_id,student_id,subject_id",
+};
+
+export const conflictKeyFor = (table: string): string | undefined => QUEUE_CONFLICT_KEYS[table];
+
 export class WriteQueue {
   constructor(
     private store: KeyValueStore,
