@@ -4,7 +4,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 
 const APPLIES_TO_OPTIONS: { value: FeeItem["applies_to"]; label: string }[] = [
@@ -32,7 +32,7 @@ async function fetchTermFeeItems(termId: string): Promise<FeeItem[]> {
 function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
   item: FeeItem; country: string;
   onSaved: () => void; onDeleted: () => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [name, setName] = useState(item.name);
   const [amount, setAmount] = useState(String(item.amount_cents / 100));
@@ -41,14 +41,14 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
 
   async function save() {
     const cents = Math.round(parseFloat(amount) * 100);
-    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) { toast("Give it a name and a positive amount."); return; }
+    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) { toast("Give it a name and a positive amount.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("fee_items").update({ name: name.trim(), amount_cents: cents }).eq("id", item.id);
       if (error) throw error;
       onSaved();
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSaving(false);
     }
@@ -57,7 +57,7 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
   async function remove() {
     if (!window.confirm(`Remove "${item.name}" from this term's fee structure?`)) return;
     const { error } = await supabase().from("fee_items").delete().eq("id", item.id);
-    if (error) { toast(`Could not remove that item: ${error.message}`); return; }
+    if (error) { toast(`Could not remove that item: ${error.message}`, "error"); return; }
     onDeleted();
   }
 
@@ -116,8 +116,8 @@ export function FeeItemsEditor({ termId, termName, tenantId, country, onClose }:
 
   async function createItem() {
     const cents = Math.round(parseFloat(amount) * 100);
-    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) { toast("Give the item a name and a positive amount."); return; }
-    if (appliesTo === "form_level" && !yearGroup) { toast("Pick which year group this item is for."); return; }
+    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) { toast("Give the item a name and a positive amount.", "error"); return; }
+    if (appliesTo === "form_level" && !yearGroup) { toast("Pick which year group this item is for.", "error"); return; }
     setCreating(true);
     try {
       const { error: err } = await supabase().from("fee_items").insert({
@@ -132,7 +132,7 @@ export function FeeItemsEditor({ termId, termName, tenantId, country, onClose }:
       setAmount("");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not add that item: ${err.message}` : "Could not add that item.");
+      toast(err instanceof Error ? `Could not add that item: ${err.message}` : "Could not add that item.", "error");
     } finally {
       setCreating(false);
     }

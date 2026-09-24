@@ -424,8 +424,8 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
   const slugOk = ORG_SLUG_RE.test(slugValue);
 
   async function submit() {
-    if (!name.trim()) { toast("Give the organization a name."); return; }
-    if (!slugOk) { toast("Pick a valid address — 3-40 lowercase letters, numbers and hyphens."); return; }
+    if (!name.trim()) { toast("Give the organization a name.", "error"); return; }
+    if (!slugOk) { toast("Pick a valid address — 3-40 lowercase letters, numbers and hyphens.", "error"); return; }
     setSaving(true);
     try {
       const result = await createMyOrganization({
@@ -437,7 +437,7 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
       onClose();
       nav(`/org/${result.slug}/dashboard`);
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the organization: ${err.message}` : "Could not create the organization.");
+      toast(err instanceof Error ? `Could not create the organization: ${err.message}` : "Could not create the organization.", "error");
     } finally {
       setSaving(false);
     }

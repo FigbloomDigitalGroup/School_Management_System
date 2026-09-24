@@ -36,7 +36,7 @@ export function CoverageCard() {
       setPicked((p) => { const next = { ...p }; delete next[key]; return next; });
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSavingKey(null);
     }
