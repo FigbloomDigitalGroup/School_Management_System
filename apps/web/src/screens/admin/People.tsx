@@ -10,7 +10,7 @@ import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { Pagination } from "../../components/ui/Pagination";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
@@ -147,7 +147,7 @@ export function People() {
   async function deleteStudent(student: Pick<StudentRow, "id" | "full_name">) {
     if (!window.confirm(`Delete ${student.full_name}? This removes their attendance, marks, fees and guardian links too — it cannot be undone.`)) return;
     const { error: err } = await supabase().from("students").delete().eq("id", student.id);
-    if (err) { toast(`Could not delete ${student.full_name}: ${err.message}`); return; }
+    if (err) { toast(`Could not delete ${student.full_name}: ${err.message}`, "error"); return; }
     toast(`${student.full_name} deleted.`);
     setManage(null);
     setReloadKey((k) => k + 1);
@@ -157,7 +157,7 @@ export function People() {
     const ids = [...picked];
     if (!window.confirm(`Delete ${ids.length} learner${ids.length === 1 ? "" : "s"}? This removes their attendance, marks, fees and guardian links too — it cannot be undone.`)) return;
     const { error: err } = await supabase().from("students").delete().in("id", ids);
-    if (err) { toast(`Could not delete: ${err.message}`); return; }
+    if (err) { toast(`Could not delete: ${err.message}`, "error"); return; }
     toast(`${ids.length} learner${ids.length === 1 ? "" : "s"} deleted.`);
     setPicked(new Set());
     setReloadKey((k) => k + 1);
@@ -172,7 +172,7 @@ export function People() {
       setManage(null);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not remove ${staff.full_name}: ${err.message}` : `Could not remove ${staff.full_name}.`);
+      toast(err instanceof Error ? `Could not remove ${staff.full_name}: ${err.message}` : `Could not remove ${staff.full_name}.`, "error");
     } finally {
       setDeletingStaff(false);
     }
@@ -473,7 +473,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
   existingAdmissionNos: Set<string>;
   onClose: () => void;
   onAdded: (name: string) => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [admissionNo, setAdmissionNo] = useState("");
   const [fullName, setFullName] = useState("");
@@ -485,11 +485,11 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
 
   async function handleAdd() {
     if (!admissionNo.trim() || !fullName.trim() || !classId || !gender) {
-      toast("Admission number, name, gender and class are all required.");
+      toast("Admission number, name, gender and class are all required.", "error");
       return;
     }
     if (existingAdmissionNos.has(admissionNo.trim())) {
-      toast(`Admission ${admissionNo.trim()} is already on the roster.`);
+      toast(`Admission ${admissionNo.trim()} is already on the roster.`, "error");
       return;
     }
     setSaving(true);
@@ -507,7 +507,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
       if (error) throw error;
       onAdded(fullName.trim());
     } catch (err) {
-      toast(err instanceof Error ? `Could not add the learner: ${err.message}` : "Could not add the learner.");
+      toast(err instanceof Error ? `Could not add the learner: ${err.message}` : "Could not add the learner.", "error");
     } finally {
       setSaving(false);
     }
@@ -601,7 +601,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
   existingAdmissionNos: Set<string>;
   onClose: () => void;
   onImported: (count: number) => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [rows, setRows] = useState<ImportRow[] | null>(null);
   const [fileName, setFileName] = useState("");
@@ -637,7 +637,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
       const count = await importStudents(tenantId, classIdByName, rows);
       onImported(count);
     } catch (err) {
-      toast(err instanceof Error ? `Import failed: ${err.message}` : "Import failed.");
+      toast(err instanceof Error ? `Import failed: ${err.message}` : "Import failed.", "error");
     } finally {
       setImporting(false);
     }
@@ -711,7 +711,7 @@ const STAFF_ROLE_OPTIONS = [
  *  (e.g. "TC-0001") instead, shown once on success the same way every other
  *  credential-reveal modal in this app works. */
 function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
-  tenantId: string; onClose: () => void; onAdded: () => void; toast: (m: string) => void;
+  tenantId: string; onClose: () => void; onAdded: () => void; toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<"teacher" | "driver">("teacher");
@@ -721,14 +721,14 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [result, setResult] = useState<InviteStaffResult | null>(null);
 
   async function add() {
-    if (!fullName.trim()) { toast("A name is required."); return; }
+    if (!fullName.trim()) { toast("A name is required.", "error"); return; }
     setSaving(true);
     try {
       const r = await inviteStaff({ tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined });
       setResult(r);
       onAdded();
     } catch (err) {
-      toast(err instanceof Error ? `Could not add staff: ${err.message}` : "Could not add staff.");
+      toast(err instanceof Error ? `Could not add staff: ${err.message}` : "Could not add staff.", "error");
     } finally {
       setSaving(false);
     }
@@ -773,7 +773,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
  *  (FIG-399/400) — links one new guardian account to every learner selected
  *  on the roster, with an assigned login_id instead of email/phone OTP. */
 function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }: {
-  tenantId: string; students: { id: string; name: string }[]; onClose: () => void; onInvited: () => void; toast: (m: string) => void;
+  tenantId: string; students: { id: string; name: string }[]; onClose: () => void; onInvited: () => void; toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState("");
   const [relationship, setRelationship] = useState<"mother" | "father" | "guardian">("guardian");
@@ -783,7 +783,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
   const [result, setResult] = useState<ProvisionGuardianResult | null>(null);
 
   async function invite() {
-    if (!fullName.trim()) { toast("A name is required."); return; }
+    if (!fullName.trim()) { toast("A name is required.", "error"); return; }
     setSaving(true);
     try {
       const r = await provisionGuardian({
@@ -795,7 +795,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
       setResult(r);
       onInvited();
     } catch (err) {
-      toast(err instanceof Error ? `Could not add the guardian: ${err.message}` : "Could not add the guardian.");
+      toast(err instanceof Error ? `Could not add the guardian: ${err.message}` : "Could not add the guardian.", "error");
     } finally {
       setSaving(false);
     }
@@ -850,7 +850,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
  *  provision-student per learner (each needs its own auth account/login_id),
  *  run in sequence so a failure partway through still shows what succeeded. */
 function CreateStudentLoginsModal({ tenantId, students, onClose, onCreated, toast }: {
-  tenantId: string; students: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; toast: (m: string) => void;
+  tenantId: string; students: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; toast: ToastFn;
 }) {
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<{ name: string; login_id: string; password: string }[] | null>(null);
@@ -864,7 +864,7 @@ function CreateStudentLoginsModal({ tenantId, students, onClose, onCreated, toas
           const r: ProvisionStudentResult = await provisionStudent({ tenant_id: tenantId, student_id: s.id });
           done.push({ name: s.name, login_id: r.login_id, password: r.password });
         } catch (err) {
-          toast(err instanceof Error ? `${s.name}: ${err.message}` : `Could not create a login for ${s.name}.`);
+          toast(err instanceof Error ? `${s.name}: ${err.message}` : `Could not create a login for ${s.name}.`, "error");
         }
       }
       setResults(done);
@@ -917,7 +917,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
   student: StudentRow;
   classes: Pick<ClassGroup, "id" | "name">[];
   onSaved: () => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState(student.full_name);
   const [admissionNo, setAdmissionNo] = useState(student.admission_no);
@@ -927,7 +927,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!fullName.trim() || !admissionNo.trim()) { toast("Name and admission number are required."); return; }
+    if (!fullName.trim() || !admissionNo.trim()) { toast("Name and admission number are required.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("students").update({
@@ -941,7 +941,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
       toast("Details saved.");
       onSaved();
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSaving(false);
     }
@@ -996,7 +996,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
 function StaffProfileEditor({ staff, onSaved, toast }: {
   staff: StaffRow;
   onSaved: () => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState(staff.full_name);
   const [staffTitle, setStaffTitle] = useState(staff.staff_title ?? "");
@@ -1004,7 +1004,7 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!fullName.trim()) { toast("A name is required."); return; }
+    if (!fullName.trim()) { toast("A name is required.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("profiles").update({
@@ -1016,7 +1016,7 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
       toast("Details saved.");
       onSaved();
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSaving(false);
     }
@@ -1050,7 +1050,7 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
 }
 
 function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
-  tenantId: string; uploaderId: string; studentId: string; toast: (m: string) => void;
+  tenantId: string; uploaderId: string; studentId: string; toast: ToastFn;
 }) {
   const [docs, setDocs] = useState<StudentDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1063,7 +1063,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
     setLoading(true);
     listStudentDocuments(studentId)
       .then((d) => { if (alive) setDocs(d); })
-      .catch((err: Error) => { if (alive) toast("Could not load documents: " + err.message); })
+      .catch((err: Error) => { if (alive) toast("Could not load documents: " + err.message, "error"); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1074,7 +1074,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
       const url = await privateDocUrl(doc.file_path);
       window.open(url, "_blank");
     } catch (err) {
-      toast("Could not open document: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not open document: " + (err instanceof Error ? err.message : String(err)), "error");
     }
   }
 
@@ -1089,7 +1089,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
       toast("Document added");
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) {
-      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setUploading(false);
     }
@@ -1143,7 +1143,7 @@ function TeacherSubjectsEditor({ teacherId, tenantId, subjects, selectedIds, onC
   subjects: Subject[];
   selectedIds: Set<string>;
   onChange: () => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -1161,7 +1161,7 @@ function TeacherSubjectsEditor({ teacherId, tenantId, subjects, selectedIds, onC
       }
       onChange();
     } catch (err) {
-      toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.");
+      toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.", "error");
     } finally {
       setBusyId(null);
     }

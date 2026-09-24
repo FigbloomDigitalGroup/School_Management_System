@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Cell, Mono } from "../../components/ui/DataTable";
 import { TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
@@ -61,7 +61,7 @@ export function OrgAdmins() {
 }
 
 function InviteAdminModal({ organizationId, onClose, onInvited, toast }: {
-  organizationId: string; onClose: () => void; onInvited: () => void; toast: (m: string) => void;
+  organizationId: string; onClose: () => void; onInvited: () => void; toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -69,14 +69,14 @@ function InviteAdminModal({ organizationId, onClose, onInvited, toast }: {
   const [result, setResult] = useState<OrgAdminInviteResult | null>(null);
 
   async function invite() {
-    if (!fullName.trim() || !email.trim()) { toast("Name and email are required."); return; }
+    if (!fullName.trim() || !email.trim()) { toast("Name and email are required.", "error"); return; }
     setSaving(true);
     try {
       const r = await inviteOrgAdmin({ organization_id: organizationId, full_name: fullName.trim(), email: email.trim() });
       setResult(r);
       onInvited();
     } catch (err) {
-      toast(err instanceof Error ? `Could not invite the admin: ${err.message}` : "Could not invite the admin.");
+      toast(err instanceof Error ? `Could not invite the admin: ${err.message}` : "Could not invite the admin.", "error");
     } finally {
       setSaving(false);
     }

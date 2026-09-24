@@ -37,7 +37,7 @@ export function MyAccountFields() {
   }, [data]);
 
   async function save() {
-    if (!fullName.trim()) { toast("A name is required."); return; }
+    if (!fullName.trim()) { toast("A name is required.", "error"); return; }
     setSaving(true);
     try {
       await updateMyProfile(profile.id, { full_name: fullName.trim(), phone: phone.trim() || null });
@@ -45,7 +45,7 @@ export function MyAccountFields() {
       setDirty(false);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSaving(false);
     }

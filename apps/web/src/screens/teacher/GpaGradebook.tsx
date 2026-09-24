@@ -8,7 +8,7 @@ import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
@@ -119,7 +119,7 @@ export function GpaGradebook() {
       setReloadKey((k) => k + 1);
       toast("Draft saved. Nothing is visible to students yet.");
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     }
   }
 
@@ -135,7 +135,7 @@ export function GpaGradebook() {
       setReloadKey((k) => k + 1);
       toast(`${assessment.name} published to ${roster.length} student${roster.length === 1 ? "" : "s"}.`);
     } catch (err) {
-      toast(err instanceof Error ? `Could not publish: ${err.message}` : "Could not publish.");
+      toast(err instanceof Error ? `Could not publish: ${err.message}` : "Could not publish.", "error");
     }
   }
 
@@ -148,7 +148,7 @@ export function GpaGradebook() {
         ? `Finalized grades for ${studentsGraded} student${studentsGraded === 1 ? "" : "s"}.`
         : "Nothing to finalize yet — publish at least one graded assessment first.");
     } catch (err) {
-      toast(err instanceof Error ? `Could not finalize grades: ${err.message}` : "Could not finalize grades.");
+      toast(err instanceof Error ? `Could not finalize grades: ${err.message}` : "Could not finalize grades.", "error");
     } finally {
       setFinalizing(false);
     }
@@ -276,7 +276,7 @@ export function GpaGradebook() {
 }
 
 function AddAssessmentModal({ tenantId, sectionId, onClose, onCreated, toast }: {
-  tenantId: string; sectionId: string; onClose: () => void; onCreated: (a: CourseAssessment) => void; toast: (m: string) => void;
+  tenantId: string; sectionId: string; onClose: () => void; onCreated: (a: CourseAssessment) => void; toast: ToastFn;
 }) {
   const [name, setName] = useState("");
   const [weightPct, setWeightPct] = useState(20);
@@ -284,14 +284,14 @@ function AddAssessmentModal({ tenantId, sectionId, onClose, onCreated, toast }: 
   const [saving, setSaving] = useState(false);
 
   async function create() {
-    if (!name.trim()) { toast("Give the assessment a name."); return; }
+    if (!name.trim()) { toast("Give the assessment a name.", "error"); return; }
     setSaving(true);
     try {
       const a = await createAssessment({ tenant_id: tenantId, course_section_id: sectionId, name: name.trim(), weight_pct: weightPct, out_of: outOf });
       toast(`${name.trim()} added.`);
       onCreated(a);
     } catch (err) {
-      toast(err instanceof Error ? `Could not add the assessment: ${err.message}` : "Could not add the assessment.");
+      toast(err instanceof Error ? `Could not add the assessment: ${err.message}` : "Could not add the assessment.", "error");
     } finally {
       setSaving(false);
     }
