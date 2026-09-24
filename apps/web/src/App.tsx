@@ -43,7 +43,7 @@ import { AdminLeave } from "./screens/admin/Leave";
 import { AdminAccount } from "./screens/admin/Account";
 
 import { Attendance } from "./screens/teacher/Attendance";
-import { Gradebook } from "./screens/teacher/Gradebook";
+import { K12Gradebook } from "./screens/teacher/K12Gradebook";
 import { GpaGradebook } from "./screens/teacher/GpaGradebook";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
@@ -356,7 +356,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
 /** One "Gradebook" nav entry, two different screens underneath — K-12's letter-grade/class-mean model vs higher-ed's credit/GPA one (FIG-330). */
 function GradebookRouter() {
   const { tenant } = useTenantSession();
-  return tenant.institution_type === "higher_ed" ? <GpaGradebook /> : <Gradebook />;
+  return tenant.institution_type === "higher_ed" ? <GpaGradebook /> : <K12Gradebook />;
 }
 
 const ParentShell = ({ children }: { children: ReactNode }) => {

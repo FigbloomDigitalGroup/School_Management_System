@@ -47,6 +47,65 @@ const K12_SCHEME_REGISTRY: Record<string, Partial<Record<ClassLevel, GradingSche
   KE: { pre_primary: "cbc", primary: "cbc", junior_secondary: "cbc", senior_school: "cbc", secondary: "kcse" },
 };
 
+// ---------------------------------------------------------------- CBE rubric
+
+/**
+ * A judgement level on the CBE rubric — what a teacher records per learner
+ * per strand (cbe_results.level_code). Not a band over a percentage: there is
+ * no score behind it. Mirrors rubric_points() in
+ * supabase/migrations/20260924060000_cbe_assessment.sql; keep them in step.
+ */
+export interface RubricLevel { code: string; label: string; points: number }
+
+/** Four levels — pre-primary and primary. */
+export const CBC_RUBRIC_4: RubricLevel[] = [
+  { code: "EE", label: "Exceeding expectations", points: 4 },
+  { code: "ME", label: "Meeting expectations", points: 3 },
+  { code: "AE", label: "Approaching expectations", points: 2 },
+  { code: "BE", label: "Below expectations", points: 1 },
+];
+
+/** Eight levels — junior and senior school. Each of the four split high/low. */
+export const CBC_RUBRIC_8: RubricLevel[] = [
+  { code: "EE1", label: "Exceeding expectations (high)", points: 8 },
+  { code: "EE2", label: "Exceeding expectations", points: 7 },
+  { code: "ME1", label: "Meeting expectations (high)", points: 6 },
+  { code: "ME2", label: "Meeting expectations", points: 5 },
+  { code: "AE1", label: "Approaching expectations (high)", points: 4 },
+  { code: "AE2", label: "Approaching expectations", points: 3 },
+  { code: "BE1", label: "Below expectations (high)", points: 2 },
+  { code: "BE2", label: "Below expectations", points: 1 },
+];
+
+const RUBRIC_REGISTRY: Record<string, Partial<Record<ClassLevel, RubricLevel[]>>> = {
+  KE: { pre_primary: CBC_RUBRIC_4, primary: CBC_RUBRIC_4, junior_secondary: CBC_RUBRIC_8, senior_school: CBC_RUBRIC_8 },
+};
+
+/** The rubric a class is judged on, or null where it's graded by exam marks instead (8-4-4 Forms). */
+export function rubricFor(country: string, classLevel: ClassLevel): RubricLevel[] | null {
+  return RUBRIC_REGISTRY[country]?.[classLevel] ?? null;
+}
+
+export interface StrandSummary {
+  entered: number;
+  total: number;
+  meanPoints: number | null;
+  /** The rubric level nearest the mean; null until at least one strand is judged. */
+  overall: RubricLevel | null;
+}
+
+/** Overall level across a learner's strands: the mean of their points, read
+ *  back onto the rubric. Never invented from nothing — no judgements, no level. */
+export function summariseStrands(codes: (string | null | undefined)[], rubric: RubricLevel[]): StrandSummary {
+  const points = codes
+    .map((c) => rubric.find((l) => l.code === c)?.points)
+    .filter((p): p is number => p !== undefined);
+  if (!points.length) return { entered: 0, total: codes.length, meanPoints: null, overall: null };
+  const mean = points.reduce((a, b) => a + b, 0) / points.length;
+  const overall = rubric.reduce((best, l) => (Math.abs(l.points - mean) < Math.abs(best.points - mean) ? l : best));
+  return { entered: points.length, total: codes.length, meanPoints: Math.round(mean * 10) / 10, overall };
+}
+
 /** Falls back to kcse for an unregistered country — matches the product's
  *  only real customers today (all Kenyan) rather than throwing, so onboarding
  *  a tenant with a not-yet-modeled country doesn't hard-fail. */

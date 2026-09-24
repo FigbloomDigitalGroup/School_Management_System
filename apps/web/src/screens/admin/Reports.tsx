@@ -6,6 +6,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { DataTable, Mono } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { CbeReport } from "./CbeReport";
 
 interface ReportsData {
   term: Term | null;
@@ -237,6 +238,8 @@ export function AdminReports() {
             }}
           />
         </div>
+
+        <CbeReport tenantId={tenant.id} termId={data?.term?.id ?? null} country={tenant.country} />
       </div>
     </>
   );

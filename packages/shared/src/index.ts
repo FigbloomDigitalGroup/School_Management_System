@@ -11,6 +11,7 @@ export * from "./queue";
 export * from "./levels";
 export * from "./csv";
 export * from "./curriculum";
+export * from "./cbeData";
 export * from "./auth";
 export * from "./parentData";
 export * from "./studentData";

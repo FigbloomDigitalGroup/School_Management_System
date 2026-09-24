@@ -1,4 +1,6 @@
-import { GRADE_INK, againstMean, gradeFor, gradingSchemeFor } from "@figbloom/shared";
+import { GRADE_INK, againstMean, gradeFor, gradingSchemeFor, loadPublishedCbeResults } from "@figbloom/shared";
+import { CbeResults } from "../../components/CbeResults";
+import { useAsync } from "../../lib/useAsync";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
@@ -15,6 +17,12 @@ export function ParentResults() {
   const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
   const scheme = gradingSchemeFor(tenant.country, child?.classLevel ?? "secondary");
+  // CBE strand results (published assessments), alongside any exam marks.
+  const { data: cbeByStudent } = useAsync(
+    () => (child ? loadPublishedCbeResults([child.id], tenant.country) : Promise.resolve(new Map())),
+    [child?.id, tenant.country],
+  );
+  const cbe = (child && cbeByStudent?.get(child.id)) || [];
 
   const strongestWeakest = child && child.subjects.length > 0
     ? (() => {
@@ -28,7 +36,7 @@ export function ParentResults() {
       <PageHead
         eyebrow={child ? `${child.cls} · ADM ${child.adm}` : "Results"}
         title={child ? `${child.first}'s results` : "Results"}
-        blurb={child?.examName ? `Most recently published: ${child.examName}.` : undefined}
+        blurb={child?.examName && child.mean !== null ? `Most recently published: ${child.examName}.` : undefined}
         actions={<ChildSwitcher />}
       />
 
@@ -47,13 +55,15 @@ export function ParentResults() {
             title="No child linked"
             body="This account is not yet linked to a learner. Contact the school office."
           />
-        ) : child.mean === null ? (
+        ) : child.mean === null && !cbe.length ? (
           <EmptyState
             title="Not published yet"
             body={`${child.first}'s results will appear here as soon as the school publishes them.`}
           />
         ) : (
           <>
+            {cbe.length > 0 && <div className="mb-6"><CbeResults results={cbe} /></div>}
+            {child.mean !== null && (<>
             <div className="rounded-lg p-5 text-white" style={{ background: "var(--accent-deep)" }}>
               <div className="font-mono text-micro tracking-[0.12em] text-white/70">
                 MEAN GRADE{child.examName ? ` · ${child.examName.toUpperCase()}` : ""}
@@ -98,6 +108,7 @@ export function ParentResults() {
                 empty={{ title: "No subjects marked yet", body: "Scores will appear here once teachers submit them for this exam." }}
               />
             </div>
+            </>)}
           </>
         )}
       </div>

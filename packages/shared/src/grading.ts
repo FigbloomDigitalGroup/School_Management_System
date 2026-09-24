@@ -28,6 +28,8 @@ export const GRADE_INK: Record<string, string> = {
   "D+": "#B8460A", D: "#B8460A", "D-": "#B8460A", E: "#B8460A",
   EE1: "#1B4D2E", EE2: "#2E7D4F", ME1: "#2E7D4F", ME2: "#8A6D08",
   AE1: "#8A3D08", AE2: "#8A3D08", BE1: "#B8460A", BE2: "#B8460A",
+  // The 4-level CBE rubric (pre-primary, primary).
+  EE: "#1B4D2E", ME: "#2E7D4F", AE: "#8A3D08", BE: "#B8460A",
 };
 
 export interface SubjectResult { subject: string; score: number | null }
