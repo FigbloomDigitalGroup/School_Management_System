@@ -42,5 +42,41 @@
   .hit { min-height: 44px; min-width: 44px; }
 }
 
+/* ── Accessibility preferences (lib/a11y.ts) ──────────────────────────────
+   Text size zooms #root, and zoom scales 100vh too — a 100vh box inside a
+   150% root is 1.5 screens tall, which pushed the sidebar's Sign out off the
+   bottom. Anything sized to the viewport divides the zoom back out. */
+:root { --ui-zoom: 1; --screen-h: calc(100vh / var(--ui-zoom)); }
+html .h-screen { height: var(--screen-h); }
+html .min-h-screen { min-height: var(--screen-h); }
+
+html[data-a11y-bold] body { font-weight: 500; }
+html[data-a11y-bold] .font-normal { font-weight: 500; }
+html[data-a11y-bold] .font-medium { font-weight: 600; }
+html[data-a11y-bold] .font-semibold { font-weight: 700; }
+html[data-a11y-bold] .font-bold { font-weight: 800; }
+
+/* Secondary text is deliberately quiet by default; here it only just steps back from ink. */
+html[data-a11y-contrast] .text-ink-muted,
+html[data-a11y-contrast] .text-ink-faint { color: #2f3a33; }
+html[data-a11y-contrast] .text-app-muted,
+html[data-a11y-contrast] .text-app-faint { color: #3a3031; }
+html[data-a11y-contrast] .text-white\/50,
+html[data-a11y-contrast] .text-white\/60,
+html[data-a11y-contrast] .text-white\/75 { color: #fff; }
+html[data-a11y-contrast] .border-line,
+html[data-a11y-contrast] .border-app-line { border-color: #9aa59d; }
+html[data-a11y-contrast] ::placeholder { color: #4f5a53; opacity: 1; }
+html[data-a11y-contrast] main a { text-decoration: underline; text-underline-offset: 2px; }
+
+html[data-a11y-reduce-motion] *,
+html[data-a11y-reduce-motion] *::before,
+html[data-a11y-reduce-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .animate-rise { animation: rise 0.2s ease; }
