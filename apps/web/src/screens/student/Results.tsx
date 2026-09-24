@@ -1,4 +1,6 @@
-import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, pointsFor } from "@figbloom/shared";
+import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, loadPublishedCbeResults, pointsFor } from "@figbloom/shared";
+import { CbeResults } from "../../components/CbeResults";
+import { useAsync } from "../../lib/useAsync";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -20,6 +22,11 @@ import { StudentCourseResults } from "./CourseResults";
 export function StudentResults() {
   const { tenant } = useTenantSession();
   const { data, loading, error } = useStudentData();
+  // CBE strand results (published assessments), alongside any exam marks.
+  const { data: cbeByStudent } = useAsync(
+    () => (data?.studentId ? loadPublishedCbeResults([data.studentId], tenant.country) : Promise.resolve(new Map())),
+    [data?.studentId, tenant.country],
+  );
 
   if (tenant.institution_type === "higher_ed") return <StudentCourseResults />;
 
@@ -60,6 +67,7 @@ export function StudentResults() {
   const subjects = data.subjects;
   const meanMark = subjects.length ? Math.round(subjects.reduce((a, s) => a + s.score, 0) / subjects.length) : null;
   const points = subjects.reduce((a, s) => a + pointsFor(s.score, scheme), 0);
+  const cbe = cbeByStudent?.get(data.studentId) ?? [];
 
   return (
     <>
@@ -70,8 +78,9 @@ export function StudentResults() {
       />
 
       <div className="px-7 py-6">
+        {cbe.length > 0 && <div className="mb-6"><CbeResults results={cbe} heading="Your learning areas" /></div>}
         {subjects.length === 0 || meanMark === null ? (
-          <EmptyState title="Not published yet" body="Your results will appear here as soon as the school publishes them." />
+          cbe.length ? null : <EmptyState title="Not published yet" body="Your results will appear here as soon as the school publishes them." />
         ) : (
           <>
             <StatRow
