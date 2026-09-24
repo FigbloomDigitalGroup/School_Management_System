@@ -26,7 +26,7 @@ import { TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { TripHistory } from "./TripHistory";
@@ -93,7 +93,7 @@ export function Fleet() {
       await acknowledgeAlert(alertId, profile.id);
       refresh();
     } catch (err) {
-      toast("Could not acknowledge the alert: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not acknowledge the alert: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setAcking(null);
     }
@@ -280,7 +280,7 @@ export function Fleet() {
 }
 
 function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
-  route: Route; tenantId: string; open: boolean; onToggle: () => void; onSaved: () => void; toast: (m: string) => void;
+  route: Route; tenantId: string; open: boolean; onToggle: () => void; onSaved: () => void; toast: ToastFn;
 }) {
   return (
     <li className="overflow-hidden rounded-xl border" style={{ borderColor: open ? "var(--accent)" : "#E2E6E2" }}>
@@ -304,7 +304,7 @@ function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
 interface StopRow { name: string; lat: string; lng: string }
 
 function StopsEditor({ routeId, tenantId, toast, onSaved }: {
-  routeId: string; tenantId: string; toast: (m: string) => void; onSaved: () => void;
+  routeId: string; tenantId: string; toast: ToastFn; onSaved: () => void;
 }) {
   const { data: stops, loading, error } = useAsync(() => listRouteStops(routeId), [routeId]);
   const [rows, setRows] = useState<StopRow[] | null>(null);
@@ -334,7 +334,7 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
       await replaceRouteStops(tenantId, routeId, parsed);
       onSaved();
     } catch (err) {
-      toast("Could not save stops: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not save stops: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }
@@ -378,7 +378,7 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
 
 function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssigned }: {
   vehicle: Vehicle; drivers: DriverOption[]; routes: Route[]; current: AssignmentRow | null;
-  tenantId: string; toast: (m: string) => void; onAssigned: () => void;
+  tenantId: string; toast: ToastFn; onAssigned: () => void;
 }) {
   const [driverId, setDriverId] = useState(current?.driver_id ?? "");
   const [routeId, setRouteId] = useState(current?.route_id ?? "");
@@ -391,7 +391,7 @@ function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssig
       await assignDriver({ tenantId, vehicleId: vehicle.id, driverId, routeId: routeId || null });
       onAssigned();
     } catch (err) {
-      toast("Could not assign driver: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not assign driver: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }
@@ -427,7 +427,7 @@ function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssig
 }
 
 function AddVehicleModal({ open, onClose, tenantId, toast, onCreated }: {
-  open: boolean; onClose: () => void; tenantId: string; toast: (m: string) => void; onCreated: () => void;
+  open: boolean; onClose: () => void; tenantId: string; toast: ToastFn; onCreated: () => void;
 }) {
   const [plate, setPlate] = useState("");
   const [makeModel, setMakeModel] = useState("");
@@ -451,7 +451,7 @@ function AddVehicleModal({ open, onClose, tenantId, toast, onCreated }: {
       onCreated();
       onClose();
     } catch (err) {
-      toast("Could not add vehicle: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not add vehicle: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }
@@ -480,7 +480,7 @@ function AddVehicleModal({ open, onClose, tenantId, toast, onCreated }: {
 }
 
 function AddRouteModal({ open, onClose, tenantId, toast, onCreated }: {
-  open: boolean; onClose: () => void; tenantId: string; toast: (m: string) => void; onCreated: () => void;
+  open: boolean; onClose: () => void; tenantId: string; toast: ToastFn; onCreated: () => void;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -498,7 +498,7 @@ function AddRouteModal({ open, onClose, tenantId, toast, onCreated }: {
       onCreated();
       onClose();
     } catch (err) {
-      toast("Could not add route: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not add route: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }

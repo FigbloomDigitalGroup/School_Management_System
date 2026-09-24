@@ -84,7 +84,7 @@ export function ParentFees() {
       setProofNote("");
       setProofReload((n) => n + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.");
+      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.", "error");
     } finally {
       setUploadingProof(false);
     }
@@ -95,7 +95,7 @@ export function ParentFees() {
       const url = await privateDocUrl(path);
       window.open(url, "_blank", "noopener");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not open that file.");
+      toast(err instanceof Error ? err.message : "Could not open that file.", "error");
     }
   }
 

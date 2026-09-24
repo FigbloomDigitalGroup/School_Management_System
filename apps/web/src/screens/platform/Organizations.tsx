@@ -11,7 +11,7 @@ import { Modal } from "../../components/ui/Modal";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 
 const KIND_LABEL: Record<Organization["kind"], string> = {
@@ -150,7 +150,7 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
       toast(`${organization.name} approved.`);
       onChanged();
     } catch (err) {
-      toast(err instanceof Error ? `Could not approve: ${err.message}` : "Could not approve.");
+      toast(err instanceof Error ? `Could not approve: ${err.message}` : "Could not approve.", "error");
     } finally {
       setApproving(false);
     }
@@ -246,7 +246,7 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
   );
 }
 
-function AddOrganizationModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: (o: Organization) => void; toast: (m: string) => void }) {
+function AddOrganizationModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: (o: Organization) => void; toast: ToastFn }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [kind, setKind] = useState<Organization["kind"]>("county");
@@ -256,7 +256,7 @@ function AddOrganizationModal({ onClose, onCreated, toast }: { onClose: () => vo
   const [saving, setSaving] = useState(false);
 
   async function create() {
-    if (!name.trim() || !slug.trim()) { toast("Name and a slug are required."); return; }
+    if (!name.trim() || !slug.trim()) { toast("Name and a slug are required.", "error"); return; }
     setSaving(true);
     try {
       const input: NewOrganizationInput = {
@@ -268,7 +268,7 @@ function AddOrganizationModal({ onClose, onCreated, toast }: { onClose: () => vo
       toast(`${name.trim()} created.`);
       onCreated(o);
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the organization: ${err.message}` : "Could not create the organization.");
+      toast(err instanceof Error ? `Could not create the organization: ${err.message}` : "Could not create the organization.", "error");
     } finally {
       setSaving(false);
     }
@@ -299,7 +299,7 @@ function AddOrganizationModal({ onClose, onCreated, toast }: { onClose: () => vo
 }
 
 function InviteOrgAdminModal({ organizationId, onClose, onInvited, toast }: {
-  organizationId: string; onClose: () => void; onInvited: () => void; toast: (m: string) => void;
+  organizationId: string; onClose: () => void; onInvited: () => void; toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -307,14 +307,14 @@ function InviteOrgAdminModal({ organizationId, onClose, onInvited, toast }: {
   const [result, setResult] = useState<OrgAdminInviteResult | null>(null);
 
   async function invite() {
-    if (!fullName.trim() || !email.trim()) { toast("Name and email are required."); return; }
+    if (!fullName.trim() || !email.trim()) { toast("Name and email are required.", "error"); return; }
     setSaving(true);
     try {
       const r = await inviteOrgAdmin({ organization_id: organizationId, full_name: fullName.trim(), email: email.trim() });
       setResult(r);
       onInvited();
     } catch (err) {
-      toast(err instanceof Error ? `Could not invite the org admin: ${err.message}` : "Could not invite the org admin.");
+      toast(err instanceof Error ? `Could not invite the org admin: ${err.message}` : "Could not invite the org admin.", "error");
     } finally {
       setSaving(false);
     }

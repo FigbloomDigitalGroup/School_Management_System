@@ -6,7 +6,7 @@ import { PageHead } from "../../components/ConsoleShell";
 import { applyAccent } from "../../components/TenantTheme";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadTenantLogo } from "../../lib/uploads";
@@ -71,8 +71,8 @@ export function TermSetup() {
 
   async function handleCreateTerm(e: FormEvent) {
     e.preventDefault();
-    if (!termStartsOn || !termEndsOn) { toast("Give the term a start and end date."); return; }
-    if (termEndsOn < termStartsOn) { toast("The end date must be after the start date."); return; }
+    if (!termStartsOn || !termEndsOn) { toast("Give the term a start and end date.", "error"); return; }
+    if (termEndsOn < termStartsOn) { toast("The end date must be after the start date.", "error"); return; }
     setSavingTerm(true);
     try {
       if (data?.term) {
@@ -94,7 +94,7 @@ export function TermSetup() {
       setTermEndsOn("");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the term: ${err.message}` : "Could not create the term.");
+      toast(err instanceof Error ? `Could not create the term: ${err.message}` : "Could not create the term.", "error");
     } finally {
       setSavingTerm(false);
     }
@@ -118,7 +118,7 @@ export function TermSetup() {
 
   async function handleSaveDetails(e: FormEvent) {
     e.preventDefault();
-    if (!schoolName.trim()) { toast("The school needs a name."); return; }
+    if (!schoolName.trim()) { toast("The school needs a name.", "error"); return; }
     setSavingDetails(true);
     try {
       const { error: rpcError } = await supabase().rpc("set_school_details", {
@@ -130,7 +130,7 @@ export function TermSetup() {
       if (rpcError) throw rpcError;
       toast("School details saved — this page picks it up immediately; the sidebar and other screens pick it up next time they load.");
     } catch (err) {
-      toast(err instanceof Error ? `Could not save school details: ${err.message}` : "Could not save school details.");
+      toast(err instanceof Error ? `Could not save school details: ${err.message}` : "Could not save school details.", "error");
     } finally {
       setSavingDetails(false);
     }
@@ -175,7 +175,7 @@ export function TermSetup() {
       setPaymentSet(Boolean(paybill.trim() || till.trim() || bankDetails.trim()));
       toast("Payment methods saved — parents will see these on the Fees screen.");
     } catch (err) {
-      toast(err instanceof Error ? `Could not save payment methods: ${err.message}` : "Could not save payment methods.");
+      toast(err instanceof Error ? `Could not save payment methods: ${err.message}` : "Could not save payment methods.", "error");
     } finally {
       setSavingPayment(false);
     }
@@ -198,7 +198,7 @@ export function TermSetup() {
       setCrestFile(null);
       toast("Crest updated. It appears here immediately; other screens pick it up next time they load.");
     } catch (err) {
-      toast(err instanceof Error ? `Could not update the crest: ${err.message}` : "Could not update the crest.");
+      toast(err instanceof Error ? `Could not update the crest: ${err.message}` : "Could not update the crest.", "error");
     } finally {
       setSavingCrest(false);
     }
@@ -215,7 +215,7 @@ export function TermSetup() {
       applyAccent(accent);
       toast(`Accent set to ${accentFor(accent).name}. Everyone at the school sees it next time they load the app.`);
     } catch (err) {
-      toast(err instanceof Error ? `Could not update the accent: ${err.message}` : "Could not update the accent.");
+      toast(err instanceof Error ? `Could not update the accent: ${err.message}` : "Could not update the accent.", "error");
     } finally {
       setSavingAccent(false);
     }
@@ -611,14 +611,14 @@ export function TermSetup() {
 function ClassTeacherRow({ classId, className, teachers, toast, onAssigned }: {
   classId: string; className: string;
   teachers: Pick<Profile, "id" | "full_name">[];
-  toast: (m: string) => void;
+  toast: ToastFn;
   onAssigned: () => void;
 }) {
   const [teacherId, setTeacherId] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function assign() {
-    if (!teacherId) { toast("Choose a teacher first."); return; }
+    if (!teacherId) { toast("Choose a teacher first.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
@@ -626,7 +626,7 @@ function ClassTeacherRow({ classId, className, teachers, toast, onAssigned }: {
       toast(`Class teacher assigned for ${className}.`);
       onAssigned();
     } catch (err) {
-      toast(err instanceof Error ? `Could not assign a class teacher: ${err.message}` : "Could not assign a class teacher.");
+      toast(err instanceof Error ? `Could not assign a class teacher: ${err.message}` : "Could not assign a class teacher.", "error");
     } finally {
       setSaving(false);
     }

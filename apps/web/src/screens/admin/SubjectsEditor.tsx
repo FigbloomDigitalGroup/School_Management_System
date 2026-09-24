@@ -79,7 +79,7 @@ export function SubjectsEditor({ classId, className, tenantId, formLevel, teache
       }
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not update that assignment: ${err.message}` : "Could not update that assignment.");
+      toast(err instanceof Error ? `Could not update that assignment: ${err.message}` : "Could not update that assignment.", "error");
     }
   }
 

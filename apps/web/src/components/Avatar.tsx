@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from "react";
 import { supabase } from "@figbloom/shared";
 import { uploadAvatar } from "../lib/uploads";
+import type { ToastFn } from "./ui/Toast";
 
 const AVATAR_TONES = [
   { bg: "#E3EFE7", ink: "#1B4D2E" },
@@ -45,7 +46,7 @@ export function Avatar({ id, name, url, size = 30 }: { id: string; name: string;
  */
 export function AvatarEditor({ id, name, kind, tenantId, url, onUploaded, toast }: {
   id: string; name: string; kind: "students" | "staff"; tenantId: string; url?: string | null;
-  onUploaded: (url: string) => void; toast: (m: string) => void;
+  onUploaded: (url: string) => void; toast: ToastFn;
 }) {
   const [uploading, setUploading] = useState(false);
 
@@ -61,7 +62,7 @@ export function AvatarEditor({ id, name, kind, tenantId, url, onUploaded, toast 
       onUploaded(newUrl);
       toast("Photo updated");
     } catch (err) {
-      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not upload: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setUploading(false);
       e.target.value = "";

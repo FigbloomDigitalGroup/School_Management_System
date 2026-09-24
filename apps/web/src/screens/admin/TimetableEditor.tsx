@@ -161,7 +161,7 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
         if (!alive) return;
         setRows(slotsToRows(slots));
       })
-      .catch((err: Error) => { if (alive) toast(`Could not load the timetable: ${err.message}`); });
+      .catch((err: Error) => { if (alive) toast(`Could not load the timetable: ${err.message}`, "error"); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId]);
@@ -210,10 +210,10 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
 
   function addPeriod() {
     const t = newTime.trim();
-    if (!TIME_RE.test(t)) { toast("Enter a time as HH:MM, e.g. 08:00."); return; }
+    if (!TIME_RE.test(t)) { toast("Enter a time as HH:MM, e.g. 08:00.", "error"); return; }
     setRows((rs) => {
       const existing = rs ?? [];
-      if (existing.some((r) => r.time === t)) { toast("That period already exists."); return existing; }
+      if (existing.some((r) => r.time === t)) { toast("That period already exists.", "error"); return existing; }
       return [...existing, { id: nextRowId(), time: t, cells: emptyCells() }].sort((a, b) => a.time.localeCompare(b.time));
     });
     setNewTime("");
@@ -231,10 +231,10 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
     reader.onload = () => {
       const { slots, blocking, warnings } = parseTimetableCsv(String(reader.result ?? ""), subjects ?? []);
       if (blocking.length > 0) {
-        toast(`Could not import: ${blocking[0]}${blocking.length > 1 ? ` (+${blocking.length - 1} more)` : ""}`);
+        toast(`Could not import: ${blocking[0]}${blocking.length > 1 ? ` (+${blocking.length - 1} more)` : ""}`, "error");
         return;
       }
-      if (slots.length === 0) { toast("Nothing to import — the file has no valid rows."); return; }
+      if (slots.length === 0) { toast("Nothing to import — the file has no valid rows.", "error"); return; }
       if ((rows?.length ?? 0) > 0 && !window.confirm(`Replace the ${rows!.length} period${rows!.length === 1 ? "" : "s"} already here with ${slots.length} imported row${slots.length === 1 ? "" : "s"}?`)) return;
       setRows(slotsToRows(slots));
       toast(
@@ -249,11 +249,11 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
   async function handleSave() {
     if (!rows) return;
     for (const r of rows) {
-      if (!TIME_RE.test(r.time)) { toast(`"${r.time}" isn't a valid time — use HH:MM, e.g. 08:00.`); return; }
+      if (!TIME_RE.test(r.time)) { toast(`"${r.time}" isn't a valid time — use HH:MM, e.g. 08:00.`, "error"); return; }
     }
     const seen = new Set<string>();
     for (const r of rows) {
-      if (seen.has(r.time)) { toast(`Two periods are both set to ${r.time} — give one a different time first.`); return; }
+      if (seen.has(r.time)) { toast(`Two periods are both set to ${r.time} — give one a different time first.`, "error"); return; }
       seen.add(r.time);
     }
 
@@ -269,7 +269,7 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
       toast(`Timetable saved for ${title}.`);
       onClose();
     } catch (err) {
-      toast(err instanceof Error ? `Could not save the timetable: ${err.message}` : "Could not save the timetable.");
+      toast(err instanceof Error ? `Could not save the timetable: ${err.message}` : "Could not save the timetable.", "error");
     } finally {
       setSaving(false);
     }
