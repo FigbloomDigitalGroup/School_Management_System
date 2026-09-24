@@ -48,7 +48,7 @@ async function fetchClasses(tenantId: string): Promise<ClassesData> {
 
 // A class's level (FIG-356, CBE) decides its valid years and what a year is
 // called — PP1, Grade 7, Form 3 — all from packages/shared/src/levels.ts.
-const levelOptionLabel = (l: ClassLevel) => LEVELS[l].label;
+const levelOptionLabel = (l: ClassLevel) => LEVELS[l].short;
 
 /** Level plus the years it covers, e.g. "Junior school (Grade 7–9)". */
 function levelOptionText(l: ClassLevel): string {

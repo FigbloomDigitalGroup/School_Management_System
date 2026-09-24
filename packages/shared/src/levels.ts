@@ -16,6 +16,8 @@ export type Pathway = "stem" | "social_sciences" | "arts_sports";
 export interface LevelInfo {
   /** Section heading, e.g. "Junior school". */
   label: string;
+  /** For narrow table cells. */
+  short: string;
   /** What a single year is called: "PP1", "Grade 7", "Form 3". */
   prefix: "PP" | "Grade" | "Form";
   min: number;
@@ -24,11 +26,11 @@ export interface LevelInfo {
 }
 
 export const LEVELS: Record<ClassLevel, LevelInfo> = {
-  pre_primary: { label: "Pre-primary", prefix: "PP", min: 1, max: 2, track: "cbe" },
-  primary: { label: "Primary", prefix: "Grade", min: 1, max: 6, track: "cbe" },
-  junior_secondary: { label: "Junior school", prefix: "Grade", min: 7, max: 9, track: "cbe" },
-  senior_school: { label: "Senior school", prefix: "Grade", min: 10, max: 12, track: "cbe" },
-  secondary: { label: "Secondary (8-4-4)", prefix: "Form", min: 1, max: 4, track: "844" },
+  pre_primary: { label: "Pre-primary", short: "Pre-primary", prefix: "PP", min: 1, max: 2, track: "cbe" },
+  primary: { label: "Primary", short: "Primary", prefix: "Grade", min: 1, max: 6, track: "cbe" },
+  junior_secondary: { label: "Junior school", short: "Junior school", prefix: "Grade", min: 7, max: 9, track: "cbe" },
+  senior_school: { label: "Senior school", short: "Senior school", prefix: "Grade", min: 10, max: 12, track: "cbe" },
+  secondary: { label: "Secondary (8-4-4)", short: "8-4-4", prefix: "Form", min: 1, max: 4, track: "844" },
 };
 
 /** Youngest to oldest, CBE first, then the 8-4-4 track. */
