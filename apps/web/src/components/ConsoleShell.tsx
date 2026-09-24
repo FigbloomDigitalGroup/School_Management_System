@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { NAV, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
+import { AccessibilityModal } from "./AccessibilityModal";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { useTenant } from "./TenantTheme";
@@ -37,8 +39,11 @@ interface Props {
  * hunting one school needs the labels; a bursar who lives here does not.
  */
 export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner }: Props) {
-  const [open, setOpen] = useState(true);
+  // Start collapsed when the labelled sidebar would eat too much of a narrow
+  // (or heavily zoomed) window; the person can still expand it.
+  const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
   const [changingPw, setChangingPw] = useState(false);
+  const [a11yOpen, setA11yOpen] = useState(false);
   const { slug, orgSlug } = useParams();
   const tenant = useTenant();
   const nav = useNavigate();
@@ -87,12 +92,17 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
+      {/* Header and account footer stay put; only the page list between them
+          scrolls. Previously the whole column was overflow-hidden, so on a
+          short or zoomed-in window the footer (Sign out included) was simply
+          clipped off the bottom with no way to reach it. The nav itself also
+          scrolls as a last resort for windows too short even for that. */}
       <nav
         aria-label="Main"
-        className="flex shrink-0 flex-col gap-0.5 overflow-hidden px-3 py-4 transition-[width] duration-150"
+        className="flex shrink-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-4 transition-[width] duration-150"
         style={{ width: open ? 224 : 68, background: tenantScoped ? "var(--accent-deep)" : "#17402A" }}
       >
-        <div className="flex min-h-[34px] items-center gap-3 px-0.5 pb-2">
+        <div className="flex min-h-[34px] shrink-0 items-center gap-3 px-0.5 pb-2">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-white p-1">
             <img
               src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/logo-mark.png"}
@@ -136,6 +146,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           </button>
         )}
 
+        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
         {items.map((it) => {
           const to = tenantScoped
             ? `/s/${slug}/${it.to.replace(/^\//, "")}`
@@ -165,8 +176,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </NavLink>
           );
         })}
+        </div>
 
-        <div className="mt-auto flex flex-col gap-1.5">
+        <div className="flex shrink-0 flex-col gap-1.5 pt-2">
           {accountHref ? (
             <NavLink
               to={accountHref}
@@ -192,6 +204,15 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
               )}
             </div>
           )}
+          <button
+            onClick={() => setA11yOpen(true)}
+            title="Accessibility"
+            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
+            style={{ height: 34 }}
+          >
+            <Icon name="text" size={13} />
+            {open && <span className="text-small">Accessibility</span>}
+          </button>
           <button
             onClick={() => setChangingPw(true)}
             title="Change password"
@@ -234,6 +255,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
       </div>
 
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
+      {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
     </div>
   );
 }

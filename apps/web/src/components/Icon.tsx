@@ -8,6 +8,7 @@ const GLYPH: Record<string, string> = {
   grid: "\u2593", megaphone: "\u25C9", chart: "\u25A6", check: "\u2713", clock: "\u25F7",
   chat: "\u25CB", pencil: "\u270E", bell: "\u25C9", back: "\u2039", forward: "\u203A",
   warn: "!", tick: "\u2713", search: "\u2315", close: "\u2715", signout: "\u23FB",
+  text: "A",
 };
 
 export function Icon({ name, size = 14 }: { name: string; size?: number }) {
