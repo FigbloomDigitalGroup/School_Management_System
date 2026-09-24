@@ -36,8 +36,8 @@ export function TeacherLeave() {
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!startsOn || !endsOn) { toast("Pick a start and end date."); return; }
-    if (endsOn < startsOn) { toast("The end date is before the start date."); return; }
+    if (!startsOn || !endsOn) { toast("Pick a start and end date.", "error"); return; }
+    if (endsOn < startsOn) { toast("The end date is before the start date.", "error"); return; }
     setSaving(true);
     try {
       await requestLeave({ tenantId: tenant.id, teacherId: profile.id, startsOn, endsOn, reason });
@@ -47,7 +47,7 @@ export function TeacherLeave() {
       setReason("");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not request leave: ${err.message}` : "Could not request leave.");
+      toast(err instanceof Error ? `Could not request leave: ${err.message}` : "Could not request leave.", "error");
     } finally {
       setSaving(false);
     }
@@ -60,7 +60,7 @@ export function TeacherLeave() {
       toast("Request withdrawn.");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not withdraw: ${err.message}` : "Could not withdraw.");
+      toast(err instanceof Error ? `Could not withdraw: ${err.message}` : "Could not withdraw.", "error");
     }
   }
 

@@ -164,7 +164,7 @@ export function Attendance() {
     if (online) {
       void writeAttendance(reg, tenant.id, profile.id).catch((err: Error) => {
         console.error(err);
-        toast("Could not save the register — check your connection and try again.");
+        toast("Could not save the register — check your connection and try again.", "error");
       });
       setSubmitted(true);
       setProgressReloadKey((k) => k + 1);

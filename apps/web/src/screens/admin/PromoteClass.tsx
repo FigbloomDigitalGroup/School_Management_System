@@ -137,9 +137,9 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
 
   function applyByPassMark() {
     const threshold = parseFloat(passMark);
-    if (!Number.isFinite(threshold)) { toast("Enter a valid pass mark."); return; }
+    if (!Number.isFinite(threshold)) { toast("Enter a valid pass mark.", "error"); return; }
     if (!rows || !rows.some((r) => examMeans.has(r.id))) {
-      toast("No exam marks on record for this class yet — nothing to judge by.");
+      toast("No exam marks on record for this class yet — nothing to judge by.", "error");
       return;
     }
     const promoteTarget = defaultTargetFor(sourceClass, allClasses);
@@ -217,7 +217,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
       try {
         await notifyGuardians(rows);
       } catch (notifyErr) {
-        toast(`${sourceClass.name} was updated, but notices could not be sent: ${notifyErr instanceof Error ? notifyErr.message : "unknown error"}`);
+        toast(`${sourceClass.name} was updated, but notices could not be sent: ${notifyErr instanceof Error ? notifyErr.message : "unknown error"}`, "error");
         onDone();
         return;
       }
@@ -225,7 +225,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
       toast(`${sourceClass.name}: ${rows.length} learner${rows.length === 1 ? "" : "s"} processed and notified.`);
       onDone();
     } catch (err) {
-      toast(err instanceof Error ? `Could not finish promoting: ${err.message}` : "Could not finish promoting.");
+      toast(err instanceof Error ? `Could not finish promoting: ${err.message}` : "Could not finish promoting.", "error");
     } finally {
       setSaving(false);
     }

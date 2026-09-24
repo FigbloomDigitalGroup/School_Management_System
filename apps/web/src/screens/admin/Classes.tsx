@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { TimetableEditor } from "./TimetableEditor";
@@ -73,16 +73,16 @@ export function AdminClasses() {
 
   async function setClassTeacher(classId: string, teacherId: string) {
     const { error: err } = await supabase().from("classes").update({ class_teacher_id: teacherId || null }).eq("id", classId);
-    if (err) { toast(`Could not update the class teacher: ${err.message}`); return; }
+    if (err) { toast(`Could not update the class teacher: ${err.message}`, "error"); return; }
     reload();
   }
 
   async function deleteClass(c: ClassGroup) {
     const count = data?.studentCountByClass.get(c.id) ?? 0;
-    if (count > 0) { toast(`${c.name} has ${count} learner${count === 1 ? "" : "s"} on it — move them first.`); return; }
+    if (count > 0) { toast(`${c.name} has ${count} learner${count === 1 ? "" : "s"} on it — move them first.`, "error"); return; }
     if (!window.confirm(`Delete ${c.name}? This cannot be undone.`)) return;
     const { error: err } = await supabase().from("classes").delete().eq("id", c.id);
-    if (err) { toast(`Could not delete ${c.name}: ${err.message}`); return; }
+    if (err) { toast(`Could not delete ${c.name}: ${err.message}`, "error"); return; }
     toast(`${c.name} deleted.`);
     reload();
   }
@@ -248,7 +248,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
   existingNames: Set<string>;
   onClose: () => void;
   onCreated: (count: number) => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
   const combined = tenant.level === "combined";
@@ -291,7 +291,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
   const toCreate = rows.filter((r) => r.checked);
 
   async function createAll() {
-    if (toCreate.length === 0) { toast("Pick at least one class to create."); return; }
+    if (toCreate.length === 0) { toast("Pick at least one class to create.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("classes").insert(
@@ -308,7 +308,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
       if (error) throw error;
       onCreated(toCreate.length);
     } catch (err) {
-      toast(err instanceof Error ? `Could not create those classes: ${err.message}` : "Could not create those classes.");
+      toast(err instanceof Error ? `Could not create those classes: ${err.message}` : "Could not create those classes.", "error");
     } finally {
       setSaving(false);
     }
@@ -408,7 +408,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
   teachers: TeacherOption[];
   onClose: () => void;
   onCreated: () => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
   const combined = tenant.level === "combined";
@@ -431,7 +431,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
   }
 
   async function createClass() {
-    if (!name.trim()) { toast("Give the class a name."); return; }
+    if (!name.trim()) { toast("Give the class a name.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("classes").insert({
@@ -447,7 +447,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
       toast(`${name.trim()} created.`);
       onCreated();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the class: ${err.message}` : "Could not create the class.");
+      toast(err instanceof Error ? `Could not create the class: ${err.message}` : "Could not create the class.", "error");
     } finally {
       setSaving(false);
     }

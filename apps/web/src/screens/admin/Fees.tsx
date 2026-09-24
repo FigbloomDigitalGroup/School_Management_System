@@ -126,7 +126,7 @@ export function Fees() {
       .update({ status, reviewed_by: profile.id, reviewed_at: new Date().toISOString() })
       .eq("id", id);
     if (updateError) {
-      toast(`Could not update: ${updateError.message}`);
+      toast(`Could not update: ${updateError.message}`, "error");
       return;
     }
     setReviewedIds((s) => new Set(s).add(id));
@@ -138,7 +138,7 @@ export function Fees() {
       const url = await privateDocUrl(path);
       window.open(url, "_blank", "noopener");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not open that file.");
+      toast(err instanceof Error ? err.message : "Could not open that file.", "error");
     }
   }
 

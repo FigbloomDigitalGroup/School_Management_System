@@ -104,7 +104,7 @@ export function Announcements() {
 
   async function submit(publish: boolean) {
     if (!subject.trim() || !body.trim()) return;
-    if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first."); return; }
+    if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first.", "error"); return; }
     setSending(true);
     try {
       const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
@@ -122,14 +122,14 @@ export function Announcements() {
 
       if (publish && channels.push) {
         const { error: pushErr } = await supabase().functions.invoke("send-push", { body: { announcement_id: created.id } });
-        if (pushErr) toast(`Sent, but push notifications failed: ${pushErr.message}`);
+        if (pushErr) toast(`Sent, but push notifications failed: ${pushErr.message}`, "error");
       }
 
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.");
+      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
     } finally {
       setSending(false);
     }

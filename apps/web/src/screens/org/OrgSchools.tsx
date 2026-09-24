@@ -10,7 +10,7 @@ import { CountrySelect } from "../../components/ui/CountrySelect";
 import { Mono } from "../../components/ui/DataTable";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
@@ -112,7 +112,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   organizationId: string;
   onClose: () => void;
   onCreated: (name: string) => void;
-  toast: (m: string) => void;
+  toast: ToastFn;
 }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -164,7 +164,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
 
       onCreated(tenant.name);
     } catch (err) {
-      toast(err instanceof Error ? `Could not add the school: ${err.message}` : "Could not add the school.");
+      toast(err instanceof Error ? `Could not add the school: ${err.message}` : "Could not add the school.", "error");
     } finally {
       setSaving(false);
     }

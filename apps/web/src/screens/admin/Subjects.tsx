@@ -3,7 +3,7 @@ import { supabase, type Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
@@ -81,7 +81,7 @@ export function AdminSubjects() {
   }
 
   async function createSubject() {
-    if (!name.trim() || !code.trim()) { toast("Give the subject a name and a short code."); return; }
+    if (!name.trim() || !code.trim()) { toast("Give the subject a name and a short code.", "error"); return; }
     setCreating(true);
     try {
       const { error: err } = await supabase().from("subjects").insert({
@@ -93,7 +93,7 @@ export function AdminSubjects() {
       setName(""); setCode(""); setMinForm(""); setMaxForm("");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not add the subject: ${err.message}` : "Could not add the subject.");
+      toast(err instanceof Error ? `Could not add the subject: ${err.message}` : "Could not add the subject.", "error");
     } finally {
       setCreating(false);
     }
@@ -130,7 +130,7 @@ export function AdminSubjects() {
       }
       toCreate.push({ name: subjName, code: rawCode ? uniqueCode(rawCode) : uniqueCode(subjName), min, max });
     }
-    if (toCreate.length === 0) { toast("Nothing new to add — check the names aren't already on file."); return; }
+    if (toCreate.length === 0) { toast("Nothing new to add — check the names aren't already on file.", "error"); return; }
 
     setBulkCreating(true);
     try {
@@ -143,7 +143,7 @@ export function AdminSubjects() {
       setBulkOpen(false);
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not add those subjects: ${err.message}` : "Could not add those subjects.");
+      toast(err instanceof Error ? `Could not add those subjects: ${err.message}` : "Could not add those subjects.", "error");
     } finally {
       setBulkCreating(false);
     }
@@ -251,7 +251,7 @@ export function AdminSubjects() {
 }
 
 function SubjectRow({ subject, unit, onSaved, toast }: {
-  subject: Subject; unit: string; onSaved: () => void; toast: (m: string) => void;
+  subject: Subject; unit: string; onSaved: () => void; toast: ToastFn;
 }) {
   const [name, setName] = useState(subject.name);
   const [code, setCode] = useState(subject.code);
@@ -265,7 +265,7 @@ function SubjectRow({ subject, unit, onSaved, toast }: {
     || maxForm !== (subject.max_form_level != null ? String(subject.max_form_level) : "");
 
   async function save() {
-    if (!name.trim() || !code.trim()) { toast("A subject needs both a name and a code."); return; }
+    if (!name.trim() || !code.trim()) { toast("A subject needs both a name and a code.", "error"); return; }
     setSaving(true);
     try {
       const parse = (raw: string) => { const n = parseInt(raw.trim(), 10); return Number.isFinite(n) ? n : null; };
@@ -276,7 +276,7 @@ function SubjectRow({ subject, unit, onSaved, toast }: {
       if (err) throw err;
       onSaved();
     } catch (err) {
-      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.");
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSaving(false);
     }
