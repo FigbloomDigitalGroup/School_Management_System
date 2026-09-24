@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@figbloom/shared";
+import { accentFor, schoolAccents, supabase } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { applyAccent } from "../../components/TenantTheme";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
@@ -144,6 +145,8 @@ export function TermSetup() {
   );
   const [savingPayment, setSavingPayment] = useState(false);
   const [logoUrl, setLogoUrl] = useState(tenant.logo_url);
+  const [accent, setAccent] = useState<string>(accentFor(tenant.accent).hex);
+  const [savedAccent, setSavedAccent] = useState<string>(accentFor(tenant.accent).hex);
 
   useEffect(() => {
     setPaybill(tenant.payment_paybill ?? "");
@@ -152,6 +155,8 @@ export function TermSetup() {
     setPaymentNotes(tenant.payment_notes ?? "");
     setPaymentSet(Boolean(tenant.payment_paybill || tenant.payment_till || tenant.payment_bank_details));
     setLogoUrl(tenant.logo_url);
+    setAccent(accentFor(tenant.accent).hex);
+    setSavedAccent(accentFor(tenant.accent).hex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant.id]);
 
@@ -199,6 +204,23 @@ export function TermSetup() {
     }
   }
 
+  const [savingAccent, setSavingAccent] = useState(false);
+
+  async function handleSaveAccent() {
+    setSavingAccent(true);
+    try {
+      const { error: rpcError } = await supabase().rpc("set_school_accent", { p_tenant_id: tenant.id, p_accent: accent });
+      if (rpcError) throw rpcError;
+      setSavedAccent(accent);
+      applyAccent(accent);
+      toast(`Accent set to ${accentFor(accent).name}. Everyone at the school sees it next time they load the app.`);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not update the accent: ${err.message}` : "Could not update the accent.");
+    } finally {
+      setSavingAccent(false);
+    }
+  }
+
   const unassigned = data ? data.classes.filter((c) => !c.class_teacher_id) : [];
   const assignedCount = data ? data.classes.length - unassigned.length : 0;
   const formLevels = data && data.classes.length > 0 ? data.classes.map((c) => c.form_level) : [];
@@ -234,8 +256,10 @@ export function TermSetup() {
             : "No fee items have been set up for this term yet.",
         },
         {
-          id: "branding", label: "School crest", done: Boolean(logoUrl),
-          note: logoUrl ? "A crest is set. Replace it any time." : "No crest uploaded yet — the school's initials are shown instead.",
+          id: "branding", label: "School crest and accent", done: Boolean(logoUrl),
+          note: logoUrl
+            ? `A crest is set and the accent is ${accentFor(savedAccent).name}. Change either any time.`
+            : "No crest uploaded yet — the school's initials are shown instead.",
         },
         {
           id: "payment", label: "Payment methods", done: paymentSet,
@@ -421,6 +445,7 @@ export function TermSetup() {
                             <Button variant="primary" disabled={!data.term} onClick={() => navigate("../admin/fees")}>Go to Fees</Button>
                           </div>
                         ) : s.id === "branding" ? (
+                          <div className="grid gap-5">
                           <form onSubmit={handleSaveCrest} className="flex flex-wrap items-end gap-3">
                             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-white">
                               {logoUrl ? (
@@ -443,6 +468,32 @@ export function TermSetup() {
                               {savingCrest ? "Uploading…" : "Save crest"}
                             </Button>
                           </form>
+                          <div className="flex flex-wrap items-end gap-3">
+                            <div className="min-w-[200px] flex-1">
+                              <span className="mb-1.5 block text-[12px] font-semibold">Accent colour</span>
+                              <div className="flex flex-wrap gap-2.5">
+                                {schoolAccents.map((a) => (
+                                  <button
+                                    key={a.hex}
+                                    type="button"
+                                    onClick={() => setAccent(a.hex)}
+                                    aria-label={a.name}
+                                    aria-pressed={accent === a.hex}
+                                    title={a.name}
+                                    className="h-9 w-9 rounded-[10px]"
+                                    style={{ background: a.hex, boxShadow: accent === a.hex ? "0 0 0 2px #fff, 0 0 0 4px #16201A" : undefined }}
+                                  />
+                                ))}
+                              </div>
+                              <p className="mt-2 text-[12px] text-ink-faint">
+                                Used on the header, primary buttons and the active menu item. Every option is readable on white.
+                              </p>
+                            </div>
+                            <Button variant="primary" disabled={accent === savedAccent || savingAccent} onClick={() => void handleSaveAccent()}>
+                              {savingAccent ? "Saving…" : "Save accent"}
+                            </Button>
+                          </div>
+                          </div>
                         ) : s.id === "payment" ? (
                           <form onSubmit={handleSavePayment} className="grid gap-3">
                             <p className="text-[12px] leading-relaxed text-ink-muted">
