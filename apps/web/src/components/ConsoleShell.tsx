@@ -44,6 +44,8 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
   const [changingPw, setChangingPw] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountBtn = useRef<HTMLButtonElement>(null);
   const { slug, orgSlug } = useParams();
   const tenant = useTenant();
   const nav = useNavigate();
@@ -91,7 +93,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div className="relative flex h-screen overflow-hidden bg-white">
       {/* Header and account footer stay put; only the page list between them
           scrolls. Previously the whole column was overflow-hidden, so on a
           short or zoomed-in window the footer (Sign out included) was simply
@@ -178,58 +180,26 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         })}
         </div>
 
-        <div className="flex shrink-0 flex-col gap-1.5 pt-2">
-          {accountHref ? (
-            <NavLink
-              to={accountHref}
-              title="My account"
-              className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] border-t border-white/10 px-0.5 pt-2.5 hover:bg-white/10"
-            >
-              <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
-              {open && (
+        <div className="shrink-0 border-t border-white/10 pt-2">
+          <button
+            ref={accountBtn}
+            type="button"
+            onClick={() => setAccountOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            title={`${user.name} — account menu`}
+            className={`hit flex w-full items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-0.5 py-1.5 text-left hover:bg-white/10 ${accountOpen ? "bg-white/10" : ""} ${open ? "" : "justify-center"}`}
+          >
+            <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
+            {open && (
+              <>
                 <div className="min-w-0 flex-1 leading-tight">
                   <div className="truncate text-small text-white">{user.name}</div>
                   <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
                 </div>
-              )}
-            </NavLink>
-          ) : (
-            <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap border-t border-white/10 px-0.5 pt-2.5">
-              <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
-              {open && (
-                <div className="min-w-0 flex-1 leading-tight">
-                  <div className="truncate text-small text-white">{user.name}</div>
-                  <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
-                </div>
-              )}
-            </div>
-          )}
-          <button
-            onClick={() => setA11yOpen(true)}
-            title="Accessibility"
-            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
-            style={{ height: 34 }}
-          >
-            <Icon name="text" size={13} />
-            {open && <span className="text-small">Accessibility</span>}
-          </button>
-          <button
-            onClick={() => setChangingPw(true)}
-            title="Change password"
-            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
-            style={{ height: 34 }}
-          >
-            <Icon name="gear" size={13} />
-            {open && <span className="text-small">Change password</span>}
-          </button>
-          <button
-            onClick={() => { void signOut(); }}
-            title="Sign out"
-            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
-            style={{ height: 34 }}
-          >
-            <Icon name="signout" size={13} />
-            {open && <span className="text-small">Sign out</span>}
+                <span aria-hidden className="shrink-0 pr-1.5 text-[10px] text-white/50">▴</span>
+              </>
+            )}
           </button>
         </div>
       </nav>
@@ -254,8 +224,98 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         <main className="min-w-0 flex-1 overflow-auto">{children}</main>
       </div>
 
+      {accountOpen && (
+        // Outside the <nav> on purpose: the nav scrolls, and an absolutely
+        // positioned menu inside it would be clipped. Anchored to the
+        // sidebar's bottom edge, opening to its right, so it works the same
+        // expanded or collapsed.
+        <AccountMenu
+          left={(open ? 224 : 68) + 8}
+          user={user}
+          accountHref={accountHref}
+          anchor={accountBtn}
+          onClose={() => setAccountOpen(false)}
+          onAccessibility={() => setA11yOpen(true)}
+          onChangePassword={() => setChangingPw(true)}
+          onSignOut={() => void signOut()}
+        />
+      )}
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
       {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
+    </div>
+  );
+}
+
+/** The avatar/name in the sidebar footer opens this — everything about "me"
+ *  in one place, instead of three always-visible rows eating sidebar height. */
+function AccountMenu({ left, user, accountHref, anchor, onClose, onAccessibility, onChangePassword, onSignOut }: {
+  left: number;
+  user: Props["user"];
+  accountHref: string | null;
+  anchor: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onAccessibility: () => void;
+  onChangePassword: () => void;
+  onSignOut: () => void;
+}) {
+  const menu = useRef<HTMLDivElement>(null);
+  const nav = useNavigate();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const items = () => Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    items()[0]?.focus();
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node;
+      if (!menu.current?.contains(t) && !anchor.current?.contains(t)) onCloseRef.current();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); onCloseRef.current(); anchor.current?.focus(); return; }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const list = items();
+      const i = list.indexOf(document.activeElement as HTMLElement);
+      list[(i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length]?.focus();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey, { capture: true }); };
+  }, [anchor]);
+
+  const pick = (fn: () => void) => () => { onClose(); fn(); };
+  const itemCls = "hit flex w-full items-center gap-3 px-3.5 text-left text-[13px] text-ink hover:bg-page focus:bg-page focus:outline-none";
+
+  return (
+    <div
+      ref={menu}
+      role="menu"
+      aria-label="Account"
+      className="animate-rise absolute bottom-3 z-40 w-60 overflow-hidden rounded-xl border border-line bg-white py-1 shadow-lg"
+      style={{ left }}
+    >
+      <div className="flex items-center gap-2.5 border-b border-line-soft px-3.5 pb-2.5 pt-2">
+        <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
+        <div className="min-w-0 leading-tight">
+          <div className="truncate text-[13px] font-semibold">{user.name}</div>
+          <div className="font-mono text-[9.5px] tracking-[0.08em] text-ink-faint">{user.roleLabel.toUpperCase()}</div>
+        </div>
+      </div>
+      {accountHref && (
+        <button type="button" role="menuitem" className={itemCls} onClick={pick(() => nav(accountHref))}>
+          <Icon name="people" size={13} /> My account
+        </button>
+      )}
+      <button type="button" role="menuitem" className={itemCls} onClick={pick(onAccessibility)}>
+        <Icon name="text" size={13} /> Accessibility
+      </button>
+      <button type="button" role="menuitem" className={itemCls} onClick={pick(onChangePassword)}>
+        <Icon name="gear" size={13} /> Change password
+      </button>
+      <div className="my-1 border-t border-line-soft" />
+      <button type="button" role="menuitem" className={`${itemCls} font-semibold`} onClick={pick(onSignOut)}>
+        <Icon name="signout" size={13} /> Sign out
+      </button>
     </div>
   );
 }
