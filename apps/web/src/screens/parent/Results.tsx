@@ -36,7 +36,7 @@ export function ParentResults() {
       <PageHead
         eyebrow={child ? `${child.cls} · ADM ${child.adm}` : "Results"}
         title={child ? `${child.first}'s results` : "Results"}
-        blurb={child?.examName ? `Most recently published: ${child.examName}.` : undefined}
+        blurb={child?.examName && child.mean !== null ? `Most recently published: ${child.examName}.` : undefined}
         actions={<ChildSwitcher />}
       />
 
