@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { LEVELS, isValidYear, levelsForTenant, supabase, yearLabel, type ClassLevel, type Subject } from "@figbloom/shared";
+import {
+  LEVELS, PATHWAY_LABEL, fetchLearningAreas, isValidYear, levelsForTenant, supabase, yearLabel, yearRangeLabel,
+  type ClassLevel, type LearningArea, type Pathway, type Subject,
+} from "@figbloom/shared";
+import { Modal } from "../../components/ui/Modal";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -47,7 +51,7 @@ function rangeLabel(s: Subject, unit: string): string {
     const label = (n: number) => yearLabel(lvl, n);
     if (s.min_form_level == null && s.max_form_level == null) return `All of ${LEVELS[lvl].label.toLowerCase()}`;
     if (s.min_form_level != null && s.max_form_level != null) {
-      return s.min_form_level === s.max_form_level ? `${label(s.min_form_level)} only` : `${label(s.min_form_level)}–${label(s.max_form_level)}`;
+      return s.min_form_level === s.max_form_level ? `${label(s.min_form_level)} only` : yearRangeLabel(lvl, s.min_form_level, s.max_form_level);
     }
     return s.min_form_level != null ? `${label(s.min_form_level)} and up` : `Up to ${label(s.max_form_level!)}`;
   }
@@ -85,6 +89,7 @@ export function AdminSubjects() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkCreating, setBulkCreating] = useState(false);
+  const [kicdOpen, setKicdOpen] = useState(false);
 
   function parseFormBound(raw: string): number | null {
     const n = parseInt(raw.trim(), 10);
@@ -177,9 +182,10 @@ export function AdminSubjects() {
             : "Loading subjects…"
         }
         actions={
-          subjects && subjects.length > 0 ? (
-            <Button onClick={() => downloadSubjectsCsv(subjects, unit)}>Export CSV</Button>
-          ) : undefined
+          <>
+            {subjects && subjects.length > 0 && <Button onClick={() => downloadSubjectsCsv(subjects, unit)}>Export CSV</Button>}
+            <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>
+          </>
         }
       />
       <div className="px-7 py-6">
@@ -275,7 +281,126 @@ export function AdminSubjects() {
           </div>
         )}
       </div>
+      {kicdOpen && subjects && (
+        <AddFromKicdModal
+          existing={subjects}
+          onClose={() => setKicdOpen(false)}
+          onAdded={(n) => { setKicdOpen(false); toast(`${n} learning area${n === 1 ? "" : "s"} added.`); reload(); }}
+          toast={toast}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * Picks KICD learning areas (Platform > Curriculum) into this school's
+ * subjects, linked by learning_area_id so strands and CBE assessment can
+ * find them. Only the bands this kind of school runs are offered; areas
+ * already added are shown ticked and locked.
+ */
+function AddFromKicdModal({ existing, onClose, onAdded, toast }: {
+  existing: Subject[]; onClose: () => void; onAdded: (count: number) => void; toast: (m: string) => void;
+}) {
+  const { tenant } = useTenantSession();
+  const levels = levelsForTenant(tenant.level).filter((l) => LEVELS[l].track === "cbe");
+  const { data: areas, loading, error } = useAsync(() => fetchLearningAreas(), []);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const linked = new Set(existing.map((s) => s.learning_area_id).filter(Boolean));
+  const offered = (areas ?? []).filter((a) => levels.includes(a.level));
+
+  function toggle(id: string) {
+    setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  async function add() {
+    const chosen = offered.filter((a) => picked.has(a.id));
+    if (!chosen.length) return;
+    const taken = new Set(existing.map((s) => s.code.toUpperCase()));
+    const codeFor = (base: string) => { let c = base, n = 2; while (taken.has(c)) c = `${base}-${n++}`; taken.add(c); return c; };
+    setSaving(true);
+    try {
+      const { error: err } = await supabase().from("subjects").insert(chosen.map((a) => ({
+        tenant_id: tenant.id, name: a.name, code: codeFor(a.code), is_core: a.is_core,
+        level: a.level, min_form_level: a.min_grade, max_form_level: a.max_grade, learning_area_id: a.id,
+      })));
+      if (err) throw err;
+      onAdded(chosen.length);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not add those learning areas: ${err.message}` : "Could not add those learning areas.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const groups: { key: string; title: string; items: LearningArea[] }[] = [];
+  for (const level of levels) {
+    const inLevel = offered.filter((a) => a.level === level);
+    const bands = [...new Set(inLevel.map((a) => `${a.min_grade}-${a.max_grade}`))];
+    for (const band of bands) {
+      const inBand = inLevel.filter((a) => `${a.min_grade}-${a.max_grade}` === band);
+      const [lo, hi] = band.split("-").map(Number) as [number, number];
+      const core = inBand.filter((a) => !a.pathway);
+      if (core.length) groups.push({ key: `${level}-${band}`, title: `${LEVELS[level].label} · ${yearRangeLabel(level, lo, hi)}`, items: core });
+      for (const p of Object.keys(PATHWAY_LABEL) as Pathway[]) {
+        const electives = inBand.filter((a) => a.pathway === p);
+        if (electives.length) groups.push({ key: `${level}-${band}-${p}`, title: `${LEVELS[level].label} electives · ${PATHWAY_LABEL[p]}`, items: electives });
+      }
+    }
+  }
+  const unverified = offered.some((a) => !a.verified_at);
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Subjects"
+      title="Add from the KICD curriculum"
+      blurb="Tick the learning areas your school teaches. Each becomes a subject for the right grades, linked to KICD's strands for CBE assessment."
+      width={680}
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void add()} disabled={saving || picked.size === 0}>
+            {saving ? "Adding…" : picked.size ? `Add ${picked.size} learning area${picked.size === 1 ? "" : "s"}` : "Add learning areas"}
+          </Button>
+        </>
+      }
+    >
+      {error ? (
+        <p className="text-[12.5px] text-warn-ink">Could not load the catalogue: {error.message}</p>
+      ) : loading || !areas ? (
+        <TableSkeleton rows={6} />
+      ) : !levels.length || !groups.length ? (
+        <p className="text-[12.5px] text-ink-muted">The KICD catalogue has nothing for the levels this school runs yet.</p>
+      ) : (
+        <div className="grid gap-4">
+          {unverified && (
+            <p className="rounded-md bg-sunken px-3 py-2 text-[12px] text-ink-muted">
+              Parts of this list are still being checked against KICD's official curriculum designs, so a name may change. Anything you add stays linked and picks up corrections.
+            </p>
+          )}
+          {groups.map((g) => (
+            <section key={g.key}>
+              <h3 className="mb-1.5 text-[12.5px] font-semibold">{g.title}</h3>
+              <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+                {g.items.map((a) => {
+                  const done = linked.has(a.id);
+                  return (
+                    <label key={a.id} className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${done ? "text-ink-faint" : "hover:bg-page"}`}>
+                      <input type="checkbox" checked={done || picked.has(a.id)} disabled={done} onChange={() => toggle(a.id)} style={{ accentColor: "#17402A" }} />
+                      <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                      {done ? <span className="text-[11px]">added</span> : !a.is_core && !a.pathway ? <span className="text-[11px] text-ink-faint">alternative</span> : null}
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 

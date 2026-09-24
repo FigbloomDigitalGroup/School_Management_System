@@ -1,4 +1,4 @@
-import { supabase } from "@figbloom/shared";
+import { splitCsvLine, supabase } from "@figbloom/shared";
 
 /**
  * Bulk/CSV student import. One admission per term intake, forty-plus rows at
@@ -20,29 +20,6 @@ export interface ImportRow {
   errors: string[];
 }
 
-/** Handles quoted fields (a name with a comma in it) without pulling in a CSV library for one form. */
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]!;
-    if (inQuotes) {
-      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (c === '"') inQuotes = false;
-      else cur += c;
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      out.push(cur);
-      cur = "";
-    } else {
-      cur += c;
-    }
-  }
-  out.push(cur);
-  return out.map((c) => c.trim());
-}
 
 const YES = new Set(["yes", "y", "true", "1", "boarder", "boarding"]);
 

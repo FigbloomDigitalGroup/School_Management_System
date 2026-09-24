@@ -20,6 +20,7 @@ import { Signup } from "./screens/Signup";
 import { ResetPassword } from "./screens/ResetPassword";
 import { Tenants } from "./screens/platform/Tenants";
 import { Organizations } from "./screens/platform/Organizations";
+import { Curriculum } from "./screens/platform/Curriculum";
 import { Audit, Health, Impersonation, Incidents, Invoices, Subscriptions, Usage } from "./screens/platform/pages";
 
 import { OrgDashboard } from "./screens/org/OrgDashboard";
@@ -106,6 +107,7 @@ const PLATFORM_PAGES: Record<string, JSX.Element> = {
   invoices: <Invoices />,
   impersonation: <Impersonation />,
   audit: <Audit />,
+  curriculum: <Curriculum />,
 };
 
 /** Counts, not fake round numbers — a badge is omitted rather than shown as "0". */

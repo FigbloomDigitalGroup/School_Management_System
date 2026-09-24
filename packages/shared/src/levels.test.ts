@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidYear, levelsForTenant, nextYear, subjectOffered, yearLabel, yearMatches, yearSortKey, yearsFor } from "./levels";
+import { isValidYear, levelsForTenant, nextYear, subjectOffered, yearLabel, yearMatches, yearRangeLabel, yearSortKey, yearsFor } from "./levels";
 
 describe("yearLabel", () => {
   it("names a year the way the school does", () => {
@@ -8,6 +8,14 @@ describe("yearLabel", () => {
     expect(yearLabel("junior_secondary", 7)).toBe("Grade 7");
     expect(yearLabel("senior_school", 12)).toBe("Grade 12");
     expect(yearLabel("secondary", 3)).toBe("Form 3");
+  });
+});
+
+describe("yearRangeLabel", () => {
+  it("writes a span the short way", () => {
+    expect(yearRangeLabel("primary", 4, 6)).toBe("Grade 4–6");
+    expect(yearRangeLabel("pre_primary", 1, 2)).toBe("PP1–PP2");
+    expect(yearRangeLabel("secondary", 3, 3)).toBe("Form 3");
   });
 });
 

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { LEVELS, PATHWAY_LABEL, defaultLevelForTenant, fetchClassTimetableSlots, levelsForTenant, saveClassTimetable, supabase, yearLabel, yearSortKey, yearsFor } from "@figbloom/shared";
+import { LEVELS, PATHWAY_LABEL, defaultLevelForTenant, fetchClassTimetableSlots, levelsForTenant, saveClassTimetable, supabase, yearLabel, yearRangeLabel, yearSortKey, yearsFor } from "@figbloom/shared";
 import type { ClassGroup, ClassLevel, Pathway } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -52,8 +52,7 @@ const levelOptionLabel = (l: ClassLevel) => LEVELS[l].short;
 
 /** Level plus the years it covers, e.g. "Junior school (Grade 7–9)". */
 function levelOptionText(l: ClassLevel): string {
-  const years = yearsFor(l);
-  return `${LEVELS[l].label} (${yearLabel(l, years[0]!)}–${LEVELS[l].prefix === "PP" ? yearLabel(l, years[years.length - 1]!) : years[years.length - 1]})`;
+  return `${LEVELS[l].label} (${yearRangeLabel(l, LEVELS[l].min, LEVELS[l].max)})`;
 }
 
 function LevelSelect({ value, onChange }: { value: ClassLevel; onChange: (l: ClassLevel) => void }) {
