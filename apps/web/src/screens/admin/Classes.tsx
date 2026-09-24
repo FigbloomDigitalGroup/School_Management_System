@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { fetchClassTimetableSlots, saveClassTimetable, supabase } from "@figbloom/shared";
-import type { ClassGroup, ClassLevel } from "@figbloom/shared";
+import { LEVELS, PATHWAY_LABEL, defaultLevelForTenant, fetchClassTimetableSlots, levelsForTenant, saveClassTimetable, supabase, yearLabel, yearSortKey, yearsFor } from "@figbloom/shared";
+import type { ClassGroup, ClassLevel, Pathway } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
@@ -39,19 +39,54 @@ async function fetchClasses(tenantId: string): Promise<ClassesData> {
   const studentCountByClass = new Map<string, number>();
   for (const s of studentRows ?? []) studentCountByClass.set(s.class_id, (studentCountByClass.get(s.class_id) ?? 0) + 1);
 
-  return { classes: classRows ?? [], teachers: teacherRows ?? [], subjects: subjectRows ?? [], studentCountByClass };
+  // Youngest first: PP1 … Grade 12, then Form 1 … 4 — form_level alone can't
+  // order a school that runs more than one level (Grade 1 and Form 1 are both 1).
+  const classes = [...(classRows ?? [])].sort((a, b) =>
+    yearSortKey(a.level, a.form_level) - yearSortKey(b.level, b.form_level) || a.name.localeCompare(b.name));
+  return { classes, teachers: teacherRows ?? [], subjects: subjectRows ?? [], studentCountByClass };
 }
 
-// A class's own grading band (FIG-356) — independent of tenant.level, which
-// only matters for a 'combined' tenant where individual classes differ from
-// each other. The range and label ("Grade" vs "Form") both depend on it.
-const FORM_LEVEL_RANGE_BY_LEVEL: Record<ClassLevel, number[]> = {
-  primary: [1, 2, 3, 4, 5, 6],
-  junior_secondary: [7, 8, 9],
-  secondary: [1, 2, 3, 4],
-};
-const LEVEL_LABEL: Record<ClassLevel, string> = { primary: "Grade", junior_secondary: "Grade", secondary: "Form" };
-const LEVEL_OPTION_LABEL: Record<ClassLevel, string> = { primary: "Primary", junior_secondary: "Junior secondary", secondary: "Secondary" };
+// A class's level (FIG-356, CBE) decides its valid years and what a year is
+// called — PP1, Grade 7, Form 3 — all from packages/shared/src/levels.ts.
+const levelOptionLabel = (l: ClassLevel) => LEVELS[l].short;
+
+/** Level plus the years it covers, e.g. "Junior school (Grade 7–9)". */
+function levelOptionText(l: ClassLevel): string {
+  const years = yearsFor(l);
+  return `${LEVELS[l].label} (${yearLabel(l, years[0]!)}–${LEVELS[l].prefix === "PP" ? yearLabel(l, years[years.length - 1]!) : years[years.length - 1]})`;
+}
+
+function LevelSelect({ value, onChange }: { value: ClassLevel; onChange: (l: ClassLevel) => void }) {
+  const { tenant } = useTenantSession();
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[12.5px] font-semibold">Level</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as ClassLevel)}
+        className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+      >
+        {levelsForTenant(tenant.level).map((l) => <option key={l} value={l}>{levelOptionText(l)}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function PathwaySelect({ value, onChange }: { value: Pathway | ""; onChange: (p: Pathway | "") => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[12.5px] font-semibold">Pathway (optional)</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as Pathway | "")}
+        className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
+      >
+        <option value="">Not set</option>
+        {(Object.keys(PATHWAY_LABEL) as Pathway[]).map((p) => <option key={p} value={p}>{PATHWAY_LABEL[p]}</option>)}
+      </select>
+    </label>
+  );
+}
 
 /**
  * The list every other class-teacher assignment shortcut (TermSetup's
@@ -61,7 +96,6 @@ const LEVEL_OPTION_LABEL: Record<ClassLevel, string> = { primary: "Primary", jun
 export function AdminClasses() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
-  const combined = tenant.level === "combined";
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClasses(tenant.id), [tenant.id, reloadKey]);
   const [creating, setCreating] = useState(false);
@@ -70,6 +104,9 @@ export function AdminClasses() {
   const [editingSubjectsFor, setEditingSubjectsFor] = useState<ClassGroup | null>(null);
   const [promotingFrom, setPromotingFrom] = useState<ClassGroup | null>(null);
   const reload = () => setReloadKey((k) => k + 1);
+  // Only worth a Level column once classes actually differ — a secondary
+  // school's list stays "Form 1 East … Form 4 West" until it adds CBE years.
+  const multiLevel = tenant.level === "combined" || new Set((data?.classes ?? []).map((c) => c.level)).size > 1;
 
   async function setClassTeacher(classId: string, teacherId: string) {
     const { error: err } = await supabase().from("classes").update({ class_teacher_id: teacherId || null }).eq("id", classId);
@@ -112,10 +149,10 @@ export function AdminClasses() {
           <DataTable
             columns={[
               { key: "name", header: "Class", width: "1.4fr", render: (c: ClassGroup) => <Cell sub={c.stream ?? undefined}>{c.name}</Cell> },
-              ...(combined
-                ? [{ key: "level", header: "Level", render: (c: ClassGroup) => <span className="text-[13px]">{LEVEL_OPTION_LABEL[c.level]}</span> }]
+              ...(multiLevel
+                ? [{ key: "level", header: "Level", render: (c: ClassGroup) => <Cell sub={c.pathway ? PATHWAY_LABEL[c.pathway] : undefined}>{levelOptionLabel(c.level)}</Cell> }]
                 : []),
-              { key: "form", header: "Form", render: (c: ClassGroup) => <Mono>{c.form_level}</Mono> },
+              { key: "form", header: "Year", render: (c: ClassGroup) => <Mono>{yearLabel(c.level, c.form_level)}</Mono> },
               { key: "room", header: "Room", render: (c: ClassGroup) => <span className="text-[13px]">{c.room ?? "—"}</span> },
               {
                 key: "teacher", header: "Class teacher", width: "1.4fr",
@@ -217,6 +254,7 @@ export function AdminClasses() {
           classId={editingSubjectsFor.id}
           className={editingSubjectsFor.name}
           tenantId={tenant.id}
+          classLevel={editingSubjectsFor.level}
           formLevel={editingSubjectsFor.form_level}
           teachers={data?.teachers ?? []}
           onClose={() => setEditingSubjectsFor(null)}
@@ -251,9 +289,9 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
   toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
-  const combined = tenant.level === "combined";
-  const [level, setLevel] = useState<ClassLevel>(tenant.level === "primary" ? "primary" : "secondary");
-  const formRange = FORM_LEVEL_RANGE_BY_LEVEL[level];
+  const [level, setLevel] = useState<ClassLevel>(defaultLevelForTenant(tenant.level));
+  const [pathway, setPathway] = useState<Pathway | "">("");
+  const formRange = yearsFor(level);
   const [selectedForms, setSelectedForms] = useState<Set<number>>(new Set(formRange));
   const [streamsText, setStreamsText] = useState("");
   // A row's checked state is its default (checked, unless it already
@@ -265,7 +303,8 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
 
   function changeLevel(next: ClassLevel) {
     setLevel(next);
-    setSelectedForms(new Set(FORM_LEVEL_RANGE_BY_LEVEL[next]));
+    setSelectedForms(new Set(yearsFor(next)));
+    if (next !== "senior_school") setPathway("");
     setToggled(new Set());
   }
 
@@ -282,7 +321,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
   const rows = formRange
     .filter((f) => selectedForms.has(f))
     .flatMap((formLevel) => (streams.length ? streams : [null]).map((stream) => {
-      const name = `${LEVEL_LABEL[level]} ${formLevel}${stream ? ` ${stream}` : ""}`;
+      const name = `${yearLabel(level, formLevel)}${stream ? ` ${stream}` : ""}`;
       const already = existingNames.has(name.toLowerCase());
       const checked = toggled.has(name) ? already : !already;
       return { formLevel, stream, name, already, checked };
@@ -300,6 +339,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
           name: r.name,
           level,
           form_level: r.formLevel,
+          pathway: pathway || null,
           stream: r.stream,
           room: null,
           class_teacher_id: null,
@@ -320,7 +360,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
       onClose={onClose}
       eyebrow="Classes"
       title="Bulk add classes"
-      blurb="Every form level crossed with every stream you list — untick anything you don't actually need."
+      blurb="Every year crossed with every stream you list — untick anything you don't actually need."
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -331,21 +371,11 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
       }
     >
       <div className="grid gap-3">
-        {combined && (
-          <label className="block">
-            <span className="mb-1.5 block text-[12.5px] font-semibold">Level</span>
-            <select
-              value={level}
-              onChange={(e) => changeLevel(e.target.value as ClassLevel)}
-              className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
-            >
-              {(Object.keys(LEVEL_OPTION_LABEL) as ClassLevel[]).map((l) => <option key={l} value={l}>{LEVEL_OPTION_LABEL[l]}</option>)}
-            </select>
-          </label>
-        )}
+        <LevelSelect value={level} onChange={changeLevel} />
+        {level === "senior_school" && <PathwaySelect value={pathway} onChange={setPathway} />}
 
         <div>
-          <span className="mb-1.5 block text-[12.5px] font-semibold">{LEVEL_LABEL[level]} levels</span>
+          <span className="mb-1.5 block text-[12.5px] font-semibold">Years</span>
           <div className="flex flex-wrap gap-1.5">
             {formRange.map((f) => (
               <button
@@ -357,7 +387,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
                   ? { borderColor: "var(--accent)", background: "var(--accent)", color: "#fff", fontWeight: 600 }
                   : { borderColor: "#D3DAD5", background: "#fff", color: "#5F6B62" }}
               >
-                {LEVEL_LABEL[level]} {f}
+                {yearLabel(level, f)}
               </button>
             ))}
           </div>
@@ -372,8 +402,7 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
             className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
           />
           <span className="mt-1.5 block text-[11.5px] text-ink-faint">
-            Comma-separated. One class per {LEVEL_LABEL[level].toLowerCase()} level for each stream — leave blank for
-            one class per {LEVEL_LABEL[level].toLowerCase()} level, no stream.
+            Comma-separated. One class per year for each stream — leave blank for one class per year, no stream.
           </span>
         </label>
 
@@ -411,15 +440,13 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
   toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
-  const combined = tenant.level === "combined";
-  // A non-combined tenant's classes always match the tenant's own level —
-  // no reason to make every admin think about a field that's never anything
-  // else. tenant.level's 'primary'/'secondary' map directly onto ClassLevel;
-  // 'combined' has no ClassLevel equivalent, so it only ever reaches here as
-  // the picker's starting point, never as the stored value.
-  const [level, setLevel] = useState<ClassLevel>(tenant.level === "primary" ? "primary" : "secondary");
+  // Pre-selected from the school's kind (levels.ts); every school now runs
+  // more than one level — a primary school has PP and junior years, a
+  // secondary school junior/senior CBE alongside its last 8-4-4 Forms.
+  const [level, setLevel] = useState<ClassLevel>(defaultLevelForTenant(tenant.level));
+  const [pathway, setPathway] = useState<Pathway | "">("");
   const [name, setName] = useState("");
-  const [formLevel, setFormLevel] = useState<number>(FORM_LEVEL_RANGE_BY_LEVEL[level][0]!);
+  const [formLevel, setFormLevel] = useState<number>(yearsFor(level)[0]!);
   const [stream, setStream] = useState("");
   const [room, setRoom] = useState("");
   const [classTeacherId, setClassTeacherId] = useState("");
@@ -427,7 +454,8 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
 
   function changeLevel(next: ClassLevel) {
     setLevel(next);
-    setFormLevel(FORM_LEVEL_RANGE_BY_LEVEL[next][0]!);
+    setFormLevel(yearsFor(next)[0]!);
+    if (next !== "senior_school") setPathway("");
   }
 
   async function createClass() {
@@ -439,6 +467,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
         name: name.trim(),
         level,
         form_level: formLevel,
+        pathway: pathway || null,
         stream: stream.trim() || null,
         room: room.trim() || null,
         class_teacher_id: classTeacherId || null,
@@ -479,32 +508,22 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Form 2 East"
+            placeholder={`e.g. ${yearLabel(level, formLevel)} East`}
             autoFocus
             className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
           />
         </label>
-        {combined && (
-          <label className="block">
-            <span className="mb-1.5 block text-[12.5px] font-semibold">Level</span>
-            <select
-              value={level}
-              onChange={(e) => changeLevel(e.target.value as ClassLevel)}
-              className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
-            >
-              {(Object.keys(LEVEL_OPTION_LABEL) as ClassLevel[]).map((l) => <option key={l} value={l}>{LEVEL_OPTION_LABEL[l]}</option>)}
-            </select>
-          </label>
-        )}
+        <LevelSelect value={level} onChange={changeLevel} />
+        {level === "senior_school" && <PathwaySelect value={pathway} onChange={setPathway} />}
         <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">
-            <span className="mb-1.5 block text-[12.5px] font-semibold">{LEVEL_LABEL[level]}</span>
+            <span className="mb-1.5 block text-[12.5px] font-semibold">Year</span>
             <select
               value={formLevel}
               onChange={(e) => setFormLevel(Number(e.target.value))}
               className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
             >
-              {FORM_LEVEL_RANGE_BY_LEVEL[level].map((f) => <option key={f} value={f}>{LEVEL_LABEL[level]} {f}</option>)}
+              {yearsFor(level).map((f) => <option key={f} value={f}>{yearLabel(level, f)}</option>)}
             </select>
           </label>
           <label className="block">

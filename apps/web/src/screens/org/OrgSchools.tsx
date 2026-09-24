@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney,
+  SCHOOL_LEVEL_OPTIONS, fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney,
   type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
@@ -210,7 +210,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
         </div>
         {institutionType === "k12" ? (
           <SelectField id="school-level" label="Level" value={level} onChange={(e) => setLevel(e.target.value as Tenant["level"])}
-            options={[{ value: "secondary", label: "Secondary" }, { value: "primary", label: "Primary" }, { value: "combined", label: "Combined" }]} />
+            options={SCHOOL_LEVEL_OPTIONS} />
         ) : (
           <SelectField id="school-higher-ed-subtype" label="Type" value={higherEdSubtype} onChange={(e) => setHigherEdSubtype(e.target.value as NonNullable<Tenant["higher_ed_subtype"]>)}
             options={[

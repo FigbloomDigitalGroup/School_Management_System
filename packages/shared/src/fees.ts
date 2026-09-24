@@ -1,4 +1,5 @@
-import type { FeeInvoice, FeeItem, InvoiceStatus, Student } from "./types";
+import type { ClassLevel, FeeInvoice, FeeItem, InvoiceStatus, Student } from "./types";
+import { yearMatches } from "./levels";
 import { countryProfile } from "./countries";
 import { normalisePhoneForCountry } from "./phone";
 
@@ -23,13 +24,14 @@ export function invoiceStatus(i: Pick<FeeInvoice, "total_cents" | "paid_cents" |
   return i.paid_cents > 0 ? "part_paid" : "unpaid";
 }
 
-export function itemsForStudent(items: FeeItem[], student: Pick<Student, "boarding">, formLevel: number): FeeItem[] {
+/** classLevel keeps a Grade 1 item off a Form 1 learner's bill in a school that runs both. */
+export function itemsForStudent(items: FeeItem[], student: Pick<Student, "boarding">, formLevel: number, classLevel?: ClassLevel | null): FeeItem[] {
   return items.filter((it) => {
     switch (it.applies_to) {
       case "all": return true;
       case "boarders": return student.boarding;
       case "day": return !student.boarding;
-      case "form_level": return it.form_level === formLevel;
+      case "form_level": return it.form_level != null && yearMatches({ level: it.level, year: it.form_level }, { level: classLevel, year: formLevel });
     }
   });
 }

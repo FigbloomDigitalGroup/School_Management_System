@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { formatMoney, itemsForStudent, supabase, totalCents } from "@figbloom/shared";
-import type { FeeItem, Term } from "@figbloom/shared";
+import { formatMoney, itemsForStudent, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel } from "@figbloom/shared";
+import type { ClassLevel, FeeItem, Term, YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
@@ -50,7 +50,7 @@ interface RawProofRow {
 interface FeesData {
   term: Term | null;
   feeItems: FeeItem[];
-  formLevels: number[];
+  formLevels: YearGroup[];
   invoices: { total_cents: number; paid_cents: number }[];
   outstanding: OutstandingRow[];
   pendingProofs: PendingProofRow[];
@@ -79,10 +79,11 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
           .order("uploaded_at", { ascending: true })
           .returns<RawProofRow[]>()
       : Promise.resolve({ data: [] as RawProofRow[] }),
-    sb.from("classes").select("form_level").eq("tenant_id", tenantId).returns<{ form_level: number }[]>(),
+    sb.from("classes").select("level, form_level").eq("tenant_id", tenantId).returns<{ level: ClassLevel; form_level: number }[]>(),
   ]);
 
-  const formLevels = [...new Set((classRows ?? []).map((c) => c.form_level))].sort((a, b) => a - b);
+  // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
+  const formLevels = yearGroupsOf(classRows ?? []);
 
   const rawInvoices = invoicesRes.data ?? [];
   const invoices = rawInvoices.map((r) => ({ total_cents: r.total_cents, paid_cents: r.paid_cents }));
@@ -142,14 +143,15 @@ export function Fees() {
     }
   }
 
-  // What each form level actually pays in total, day vs boarding — not just
-  // one representative figure, since form-scoped items (KCSE registration
-  // etc.) mean the total genuinely differs form to form, not only by residence.
+  // What each year group actually pays in total, day vs boarding — not just
+  // one representative figure, since year-scoped items (KCSE registration
+  // etc.) mean the total genuinely differs year to year, not only by residence.
   const totalsByForm = data
-    ? data.formLevels.map((form) => ({
-        form,
-        day: totalCents(itemsForStudent(data.feeItems, { boarding: false }, form)),
-        boarder: totalCents(itemsForStudent(data.feeItems, { boarding: true }, form)),
+    ? data.formLevels.map((g) => ({
+        key: g.key,
+        label: yearLabel(g.level, g.year),
+        day: totalCents(itemsForStudent(data.feeItems, { boarding: false }, g.year, g.level)),
+        boarder: totalCents(itemsForStudent(data.feeItems, { boarding: true }, g.year, g.level)),
       }))
     : [];
 
@@ -225,7 +227,7 @@ export function Fees() {
                           {i.applies_to === "all" ? "Every learner"
                             : i.applies_to === "boarders" ? "Boarders only"
                             : i.applies_to === "day" ? "Day scholars only"
-                            : `Form ${i.form_level} only`}
+                            : `${targetYearLabel(i.level, i.form_level ?? 0)} only`}
                         </div>
                       </div>
                       <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
@@ -233,14 +235,14 @@ export function Fees() {
                   ))}
                   {totalsByForm.length > 0 && (
                     <div className="bg-sunken px-4 py-3">
-                      <div className="mb-2 text-[12px] font-semibold">What each form level pays in total</div>
+                      <div className="mb-2 text-[12px] font-semibold">What each year group pays in total</div>
                       <div className="grid gap-1.5">
                         <div className="grid gap-2 text-[11px] font-semibold text-ink-faint" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                          <span>Form</span><span className="text-right">Day</span><span className="text-right">Boarder</span>
+                          <span>Year</span><span className="text-right">Day</span><span className="text-right">Boarder</span>
                         </div>
                         {totalsByForm.map((t) => (
-                          <div key={t.form} className="grid gap-2 text-[13px]" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                            <span className="font-medium">Form {t.form}</span>
+                          <div key={t.key} className="grid gap-2 text-[13px]" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                            <span className="font-medium">{t.label}</span>
                             <div className="text-right"><Mono>{formatMoney(t.day, tenant.country)}</Mono></div>
                             <div className="text-right"><Mono>{formatMoney(t.boarder, tenant.country)}</Mono></div>
                           </div>

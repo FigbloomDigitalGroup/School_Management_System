@@ -8,6 +8,7 @@ export * from "./phone";
 export * from "./fees";
 export * from "./attendance";
 export * from "./queue";
+export * from "./levels";
 export * from "./auth";
 export * from "./parentData";
 export * from "./studentData";

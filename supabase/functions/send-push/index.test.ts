@@ -207,6 +207,28 @@ describe("send-push handle", () => {
     assertEquals(out.sent, 1);
   });
 
+  it("keeps a Grade 2 announcement away from Form 2 in a school that runs both", async () => {
+    const { admin, asUser } = makeClients();
+    seedAnnouncement(admin, { audience: { kind: "form_level", form_level: 2, level: "primary" } });
+    admin.seed("students", [
+      { id: "student-1", tenant_id: TENANT_ID, class_id: "c1", profile_id: null, active: true, classes: { form_level: 2, level: "primary" } },
+      { id: "student-2", tenant_id: TENANT_ID, class_id: "c2", profile_id: null, active: true, classes: { form_level: 2, level: "secondary" } },
+    ]);
+    admin.seed("guardians", [
+      { student_id: "student-1", profile_id: "parent-of-1" },
+      { student_id: "student-2", profile_id: "parent-of-2" },
+    ]);
+    admin.seed("device_tokens", [
+      { id: "dt1", profile_id: "parent-of-1", token: "tok-parent-1", platform: "android" },
+      { id: "dt2", profile_id: "parent-of-2", token: "tok-parent-2", platform: "android" },
+    ]);
+
+    const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ name: "ok" }), { status: 200 }));
+    const res = await handle(request(), { admin, asUser }, fetchImpl);
+    const out = await res.json();
+    assertEquals(out.sent, 1);
+  });
+
   it("returns a clean 502 instead of crashing when the FCM call throws", async () => {
     const { admin, asUser } = makeClients();
     seedAnnouncement(admin);

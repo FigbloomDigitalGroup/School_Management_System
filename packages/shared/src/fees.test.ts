@@ -82,6 +82,15 @@ describe("itemsForStudent", () => {
     expect(ids).toContain("form2");
     expect(ids).not.toContain("form3");
   });
+  it("keeps a Grade 1 item off a Form 1 learner's bill once the item names its level", () => {
+    const mixed = [
+      item({ id: "grade1", applies_to: "form_level", form_level: 1, level: "primary" }),
+      item({ id: "form1", applies_to: "form_level", form_level: 1, level: "secondary" }),
+      item({ id: "any1", applies_to: "form_level", form_level: 1 }),
+    ];
+    expect(itemsForStudent(mixed, { boarding: false }, 1, "secondary").map((i) => i.id)).toEqual(["form1", "any1"]);
+    expect(itemsForStudent(mixed, { boarding: false }, 1, "primary").map((i) => i.id)).toEqual(["grade1", "any1"]);
+  });
 });
 
 describe("totalCents", () => {

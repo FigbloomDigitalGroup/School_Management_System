@@ -14,7 +14,7 @@ export type HigherEdSubtype = "university" | "college" | "short_course" | "tvet"
 /** A class's own grading band — independent of Tenant.level, which stays a
  *  whole-tenant descriptor. A 'combined' tenant's classes each carry their
  *  own ClassLevel so grading can key per-class (FIG-356). */
-export type ClassLevel = "primary" | "junior_secondary" | "secondary";
+export type ClassLevel = "pre_primary" | "primary" | "junior_secondary" | "senior_school" | "secondary";
 
 /** Descriptive only (FIG-358 v1) — attendance/timetable stay roll-call/
  *  fixed-grid regardless of this value; only nav/routes (Fleet, Bus) are
@@ -161,8 +161,9 @@ export interface ClassGroup {
   id: string;
   tenant_id: string;
   name: string;              // "Form 2 West"
-  level: ClassLevel;         // primary: form_level 1-6, junior_secondary: 7-9, secondary: 1-4 (Form 1-4)
+  level: ClassLevel;         // pre_primary 1-2 (PP1-2), primary 1-6, junior_secondary 7-9, senior_school 10-12, secondary 1-4 (8-4-4 Form 1-4) — see levels.ts
   form_level: number;
+  pathway?: import("./levels").Pathway | null; // senior_school only
   stream: string | null;     // "West"
   class_teacher_id: string | null;
   room: string | null;
@@ -190,6 +191,8 @@ export interface Subject {
   name: string;
   code: string;
   is_core: boolean;
+  /** The level min/max_form_level are read within; null = any level (subjects created before levels were recorded). */
+  level?: ClassLevel | null;
   min_form_level: number | null; // null = no lower bound, applies from the first form/grade
   max_form_level: number | null; // null = no upper bound, applies through the last form/grade
 }
@@ -258,6 +261,8 @@ export interface FeeItem {
   amount_cents: number;
   applies_to: "all" | "boarders" | "day" | "form_level";
   form_level: number | null;
+  /** The level form_level is read within; null = every class with that form_level (items created before levels were recorded). */
+  level?: ClassLevel | null;
 }
 
 export type InvoiceStatus = "unpaid" | "part_paid" | "paid" | "overdue";
@@ -299,7 +304,8 @@ export type Audience =
    *  ever sets it) picks one explicitly, since "to parents" and "to
    *  students" are genuinely different audiences reading the same inbox. */
   | { kind: "class"; class_id: string; recipients?: "guardians" | "students" | "both" }
-  | { kind: "form_level"; form_level: number }
+  /** level omitted = every class with that form_level (announcements sent before levels were recorded). */
+  | { kind: "form_level"; form_level: number; level?: ClassLevel }
   | { kind: "user"; user_id: string };
 
 /** Whether a `class`-kind Audience's `recipients` (undefined included)

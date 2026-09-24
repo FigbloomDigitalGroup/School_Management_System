@@ -19,6 +19,8 @@ interface Audience {
   role?: string;
   class_id?: string;
   form_level?: number;
+  /** Omitted on announcements sent before levels were recorded: every class with that form_level. */
+  level?: string;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -41,12 +43,15 @@ async function resolveAudienceProfileIds(admin: any, tenantId: string, audience:
 
   const { data: students } = await admin
     .from("students")
-    .select("id, profile_id, class_id, classes(form_level)")
+    .select("id, profile_id, class_id, classes(form_level, level)")
     .eq("tenant_id", tenantId)
     .eq("active", true);
   // deno-lint-ignore no-explicit-any
   const matched = (students ?? []).filter((s: any) =>
-    audience.kind === "class" ? s.class_id === audience.class_id : s.classes?.form_level === audience.form_level
+    audience.kind === "class"
+      ? s.class_id === audience.class_id
+      // Grade 1 and Form 1 are both form_level 1 — the level tells them apart.
+      : s.classes?.form_level === audience.form_level && (!audience.level || s.classes?.level === audience.level)
   );
   // deno-lint-ignore no-explicit-any
   const studentIds = matched.map((s: any) => s.id as string);

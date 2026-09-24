@@ -81,21 +81,22 @@ export interface StudentFeeData {
   admissionNo: string;
   className: string;
   formLevel: number;
+  classLevel: ClassLevel | null;
   boarding: boolean;
   balance: number;
   billed: number;
   dueOn: string | null;
   termLabel: string | null;
-  feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null }[];
+  feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null; level: ClassLevel | null }[];
   receipts: Receipt[];
 }
 
 export async function loadStudentFeeData(profileId: string): Promise<StudentFeeData | null> {
   const { data: studentRow } = await supabase()
     .from("students")
-    .select("id, full_name, admission_no, boarding, classes(name, form_level)")
+    .select("id, full_name, admission_no, boarding, classes(name, form_level, level)")
     .eq("profile_id", profileId)
-    .maybeSingle<{ id: string; full_name: string; admission_no: string; boarding: boolean; classes: { name: string; form_level: number } | null }>();
+    .maybeSingle<{ id: string; full_name: string; admission_no: string; boarding: boolean; classes: { name: string; form_level: number; level: ClassLevel } | null }>();
   if (!studentRow) return null;
 
   const { data: term } = await supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle<{ id: string; name: string }>();
@@ -105,7 +106,7 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
       ? supabase().from("fee_invoices").select("id, total_cents, paid_cents, due_on").eq("student_id", studentRow.id).eq("term_id", term.id).maybeSingle<{ id: string; total_cents: number; paid_cents: number; due_on: string }>()
       : Promise.resolve({ data: null }),
     term
-      ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level").eq("term_id", term.id)
+      ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level, level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as StudentFeeData["feeItems"] }),
     supabase()
       .from("payments")
@@ -130,6 +131,7 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
     admissionNo: studentRow.admission_no,
     className: studentRow.classes?.name ?? "",
     formLevel: studentRow.classes?.form_level ?? 1,
+    classLevel: studentRow.classes?.level ?? null,
     boarding: studentRow.boarding,
     balance: invoice ? Math.max(invoice.total_cents - invoice.paid_cents, 0) : 0,
     billed: invoice ? invoice.total_cents : 0,

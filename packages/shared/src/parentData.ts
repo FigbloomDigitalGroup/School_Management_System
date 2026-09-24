@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { classAudienceIncludes, type Audience, type ClassLevel } from "./types";
+import { yearMatches } from "./levels";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -53,7 +54,7 @@ export interface MessageInfo {
 
 export interface ParentData {
   children: ChildInfo[];
-  feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null }[];
+  feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null; level: ClassLevel | null }[];
   termLabel: string | null;
   messages: MessageInfo[];
 }
@@ -125,15 +126,15 @@ export async function markMessageRead(profileId: string, announcementId: string)
 export async function fetchParentUnreadCount(profileId: string): Promise<number> {
   const { data: guardianRows, error: gErr } = await supabase()
     .from("guardians")
-    .select("students(class_id, classes(form_level))")
+    .select("students(class_id, classes(form_level, level))")
     .eq("profile_id", profileId);
   if (gErr) throw gErr;
 
-  const kids = ((guardianRows ?? []) as unknown as { students: { class_id: string; classes: { form_level: number } | null } | null }[])
+  const kids = ((guardianRows ?? []) as unknown as { students: { class_id: string; classes: { form_level: number; level: ClassLevel } | null } | null }[])
     .map((g) => g.students)
     .filter((s): s is NonNullable<typeof s> => s !== null);
   const childClassIds = new Set(kids.map((k) => k.class_id));
-  const childFormLevels = new Set(kids.map((k) => k.classes?.form_level ?? 1));
+  const childYears = kids.filter((k) => k.classes).map((k) => ({ level: k.classes!.level, year: k.classes!.form_level }));
 
   const [{ data: announcementRows, error: aErr }, { data: readRows, error: rErr }] = await Promise.all([
     supabase().from("announcements").select("id, audience"),
@@ -151,7 +152,7 @@ export async function fetchParentUnreadCount(profileId: string): Promise<number>
       case "whole_school": return true;
       case "role": return audience.role === "parent";
       case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
-      case "form_level": return childFormLevels.has(audience.form_level);
+      case "form_level": return childYears.some((y) => yearMatches({ level: audience.level, year: audience.form_level }, y));
       case "user": return audience.user_id === profileId;
     }
   }).length;
@@ -203,7 +204,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
           .then((maps) => new Map(classIds.map((cid, i) => [cid, maps[i]!])))
       : Promise.resolve(new Map<string, Map<string, number>>()),
     term
-      ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level").eq("term_id", term.id)
+      ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level, level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as ParentData["feeItems"] }),
     studentIds.length
       ? supabase().from("payments").select("id, amount_cents, mpesa_receipt, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
@@ -276,7 +277,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   });
 
   const childClassIds = new Set(children.map((c) => c.classId));
-  const childFormLevels = new Set(children.map((c) => c.formLevel));
+  const childYears = children.map((c) => ({ level: c.classLevel, year: c.formLevel }));
   const messages: MessageInfo[] = ((announcementRows ?? []) as unknown as {
     id: string; subject: string; body: string; created_at: string;
     audience: Audience | null;
@@ -289,7 +290,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
         case "whole_school": return true;
         case "role": return audience.role === "parent";
         case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
-        case "form_level": return childFormLevels.has(audience.form_level);
+        case "form_level": return childYears.some((y) => yearMatches({ level: audience.level, year: audience.form_level }, y));
         case "user": return audience.user_id === profileId; // e.g. a promotion/repeat notice addressed to this guardian personally
       }
     })
