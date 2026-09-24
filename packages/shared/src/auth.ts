@@ -122,6 +122,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   super_admin: [
     { to: "/platform/tenants", label: "Tenants", icon: "table" },
     { to: "/platform/organizations", label: "Organizations", icon: "people" },
+    { to: "/platform/curriculum", label: "Curriculum", icon: "grid" },
     { to: "/platform/health", label: "System health", icon: "pulse" },
     { to: "/platform/usage", label: "Usage & capacity", icon: "gauge" },
     { to: "/platform/incidents", label: "Incidents", icon: "flag" },

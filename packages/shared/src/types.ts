@@ -194,6 +194,8 @@ export interface Subject {
   /** The level min/max_form_level are read within; null = any level (subjects created before levels were recorded). */
   level?: ClassLevel | null;
   min_form_level: number | null; // null = no lower bound, applies from the first form/grade
+  /** The KICD learning area this subject was added from (curriculum.ts); null for a school's own subject. */
+  learning_area_id?: string | null;
   max_form_level: number | null; // null = no upper bound, applies through the last form/grade
 }
 

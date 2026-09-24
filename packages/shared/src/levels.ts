@@ -48,6 +48,12 @@ export function yearLabel(level: ClassLevel, year: number): string {
   return prefix === "PP" ? `PP${year}` : `${prefix} ${year}`;
 }
 
+/** "Grade 4–6", "PP1–PP2", "Form 3" — a span within one level. */
+export function yearRangeLabel(level: ClassLevel, from: number, to: number): string {
+  if (from === to) return yearLabel(level, from);
+  return LEVELS[level].prefix === "PP" ? `${yearLabel(level, from)}–${yearLabel(level, to)}` : `${yearLabel(level, from)}–${to}`;
+}
+
 export function yearsFor(level: ClassLevel): number[] {
   const { min, max } = LEVELS[level];
   return Array.from({ length: max - min + 1 }, (_, i) => min + i);
