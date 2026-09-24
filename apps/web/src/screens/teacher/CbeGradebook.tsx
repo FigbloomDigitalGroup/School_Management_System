@@ -100,7 +100,7 @@ export function CbeGradebook() {
         comments: Object.entries(comments).map(([studentId, c]) => ({ studentId, comment: c })),
       });
     } catch (err) {
-      toast(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
+      toast(`Could not save: ${err instanceof Error ? err.message : String(err)}`, "error");
       return false;
     }
     setLevels({});
@@ -124,7 +124,7 @@ export function CbeGradebook() {
       setVersion((v) => v + 1);
       toast(`${subject.name} · ${assessment.title} published to ${roster.length} learners and their parents.`);
     } catch (err) {
-      toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`);
+      toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setBusy(false);
     }
@@ -285,7 +285,7 @@ export function CbeGradebook() {
               setAssessmentId(a.id);
               toast(`${title} created.`);
             } catch (err) {
-              toast(`Could not create the assessment: ${err instanceof Error ? err.message : String(err)}`);
+              toast(`Could not create the assessment: ${err instanceof Error ? err.message : String(err)}`, "error");
             }
           }}
         />
@@ -301,7 +301,7 @@ export function CbeGradebook() {
               setVersion((v) => v + 1);
               toast(`${name} added for this school.`);
             } catch (err) {
-              toast(`Could not add the strand: ${err instanceof Error ? err.message : String(err)}`);
+              toast(`Could not add the strand: ${err instanceof Error ? err.message : String(err)}`, "error");
             }
           }}
         />

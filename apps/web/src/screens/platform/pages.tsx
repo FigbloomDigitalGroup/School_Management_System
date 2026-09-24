@@ -12,7 +12,7 @@ import { SelectField, TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { checkServices } from "../../lib/platformAdmin";
 import { useAsync } from "../../lib/useAsync";
 
@@ -115,7 +115,7 @@ export function Health() {
       await checkServices();
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not check services: ${err.message}` : "Could not check services.");
+      toast(err instanceof Error ? `Could not check services: ${err.message}` : "Could not check services.", "error");
     } finally {
       setChecking(false);
     }
@@ -296,7 +296,7 @@ export function Incidents() {
   async function resolveIncident(id: string) {
     const { error: err } = await supabase()
       .from("platform_incidents").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", id);
-    if (err) { toast(`Could not resolve that incident: ${err.message}`); return; }
+    if (err) { toast(`Could not resolve that incident: ${err.message}`, "error"); return; }
     toast("Incident resolved.");
     reload();
   }
@@ -366,7 +366,7 @@ export function Incidents() {
 }
 
 function DeclareIncidentModal({ onClose, onDeclared, toast }: {
-  onClose: () => void; onDeclared: () => void; toast: (m: string) => void;
+  onClose: () => void; onDeclared: () => void; toast: ToastFn;
 }) {
   const [severity, setSeverity] = useState<IncidentSeverity>("SEV-2");
   const [title, setTitle] = useState("");
@@ -375,7 +375,7 @@ function DeclareIncidentModal({ onClose, onDeclared, toast }: {
   const [saving, setSaving] = useState(false);
 
   async function declare() {
-    if (!title.trim() || !summary.trim()) { toast("Give the incident a title and describe what schools could not do."); return; }
+    if (!title.trim() || !summary.trim()) { toast("Give the incident a title and describe what schools could not do.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("platform_incidents").insert({
@@ -386,7 +386,7 @@ function DeclareIncidentModal({ onClose, onDeclared, toast }: {
       toast("Incident declared.");
       onDeclared();
     } catch (err) {
-      toast(err instanceof Error ? `Could not declare the incident: ${err.message}` : "Could not declare the incident.");
+      toast(err instanceof Error ? `Could not declare the incident: ${err.message}` : "Could not declare the incident.", "error");
     } finally {
       setSaving(false);
     }
@@ -574,7 +574,7 @@ export function Invoices() {
   async function markPaid(id: string) {
     const { error: err } = await supabase()
       .from("platform_invoices").update({ status: "paid", paid_at: new Date().toISOString() }).eq("id", id);
-    if (err) { toast(`Could not mark that invoice paid: ${err.message}`); return; }
+    if (err) { toast(`Could not mark that invoice paid: ${err.message}`, "error"); return; }
     toast("Marked as paid.");
     reload();
   }
@@ -648,7 +648,7 @@ export function Invoices() {
 }
 
 function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
-  tenants: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; toast: (m: string) => void;
+  tenants: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; toast: ToastFn;
 }) {
   const [tenantId, setTenantId] = useState(tenants[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -657,8 +657,8 @@ function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
 
   async function create() {
     const amountCents = Math.round(Number(amount) * 100);
-    if (!tenantId) { toast("Pick which school this invoice is for."); return; }
-    if (!amount || !Number.isFinite(amountCents) || amountCents <= 0) { toast("Enter an amount greater than zero."); return; }
+    if (!tenantId) { toast("Pick which school this invoice is for.", "error"); return; }
+    if (!amount || !Number.isFinite(amountCents) || amountCents <= 0) { toast("Enter an amount greater than zero.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("platform_invoices").insert({
@@ -668,7 +668,7 @@ function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
       toast("Invoice created.");
       onCreated();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the invoice: ${err.message}` : "Could not create the invoice.");
+      toast(err instanceof Error ? `Could not create the invoice: ${err.message}` : "Could not create the invoice.", "error");
     } finally {
       setSaving(false);
     }

@@ -10,10 +10,8 @@ import { Button } from "../../components/ui/Button";
 import { TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
-
-type ToastFn = ReturnType<typeof useToast>;
 
 async function fetchCurriculum() {
   const [areas, coverage] = await Promise.all([fetchLearningAreas(), fetchOfficialStrandCoverage()]);
@@ -130,7 +128,7 @@ function AreaRow({ area, coverage, onChanged, toast }: {
   async function run(fn: () => Promise<void>, done: string) {
     setBusy(true);
     try { await fn(); toast(done); onChanged(); }
-    catch (err) { toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save."); }
+    catch (err) { toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error"); }
     finally { setBusy(false); }
   }
 
@@ -211,14 +209,14 @@ function ImportStrandsModal({ areas, onClose, onImported, toast }: {
 
   async function doImport() {
     if (!parsed || !parsed.strands.length) return;
-    if (!source.trim()) { toast("Say which KICD design these strands come from."); return; }
+    if (!source.trim()) { toast("Say which KICD design these strands come from.", "error"); return; }
     setSaving(true);
     try {
       const r = await importOfficialStrands(parsed.strands, source.trim());
       toast(`Added ${r.strandsAdded} strand${r.strandsAdded === 1 ? "" : "s"} and ${r.subStrandsAdded} sub-strand${r.subStrandsAdded === 1 ? "" : "s"}.`);
       onImported();
     } catch (err) {
-      toast(err instanceof Error ? `Could not import: ${err.message}` : "Could not import.");
+      toast(err instanceof Error ? `Could not import: ${err.message}` : "Could not import.", "error");
     } finally {
       setSaving(false);
     }

@@ -49,7 +49,7 @@ export function TeacherMessages() {
       setBody("");
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.");
+      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
     } finally {
       setSending(false);
     }

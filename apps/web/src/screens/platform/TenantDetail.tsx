@@ -82,7 +82,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
       setStatus("active");
       toast(`${tenant.name} activated — sign-in is open now.`);
     } catch (err) {
-      toast(err instanceof Error ? `Could not activate: ${err.message}` : "Could not activate.");
+      toast(err instanceof Error ? `Could not activate: ${err.message}` : "Could not activate.", "error");
     } finally {
       setActivating(false);
     }
@@ -95,7 +95,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
       setOrgId(organizationId);
       toast(organizationId ? "School assigned to organization." : "School removed from its organization.");
     } catch (err) {
-      toast(err instanceof Error ? `Could not update the organization: ${err.message}` : "Could not update the organization.");
+      toast(err instanceof Error ? `Could not update the organization: ${err.message}` : "Could not update the organization.", "error");
     } finally {
       setOrgSaving(false);
     }

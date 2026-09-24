@@ -142,7 +142,7 @@ export function Gradebook() {
     try {
       await saveExamMarks(rows);
     } catch (err) {
-      toast(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
+      toast(`Could not save: ${err instanceof Error ? err.message : String(err)}`, "error");
       return;
     }
     setMarksVersion((v) => v + 1);
@@ -158,7 +158,7 @@ export function Gradebook() {
       await saveExamMarks(buildMarkRows());
       await publishExam(examId);
     } catch (err) {
-      toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`);
+      toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`, "error");
       return;
     }
     setMarksVersion((v) => v + 1);

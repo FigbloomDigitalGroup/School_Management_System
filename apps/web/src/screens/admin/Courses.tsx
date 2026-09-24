@@ -12,7 +12,7 @@ import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
@@ -73,7 +73,7 @@ export function AdminCourses() {
       toast("Current semester updated.");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not update the current semester.");
+      toast(err instanceof Error ? err.message : "Could not update the current semester.", "error");
     }
   }
 
@@ -82,7 +82,7 @@ export function AdminCourses() {
       await assignSectionInstructor(sectionId, instructorId || null);
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not assign an instructor: ${err.message}` : "Could not assign an instructor.");
+      toast(err instanceof Error ? `Could not assign an instructor: ${err.message}` : "Could not assign an instructor.", "error");
     }
   }
 
@@ -238,7 +238,7 @@ export function AdminCourses() {
   );
 }
 
-function AddSemesterModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: () => void; toast: (m: string) => void }) {
+function AddSemesterModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: () => void; toast: ToastFn }) {
   const { tenant } = useTenantSession();
   const [name, setName] = useState("");
   const [year, setYear] = useState(new Date().getFullYear());
@@ -248,14 +248,14 @@ function AddSemesterModal({ onClose, onCreated, toast }: { onClose: () => void; 
   const [saving, setSaving] = useState(false);
 
   async function create() {
-    if (!name.trim() || !startsOn || !endsOn) { toast("Name and both dates are required."); return; }
+    if (!name.trim() || !startsOn || !endsOn) { toast("Name and both dates are required.", "error"); return; }
     setSaving(true);
     try {
       await createSemester({ tenant_id: tenant.id, name: name.trim(), year, index, starts_on: startsOn, ends_on: endsOn, is_current: false });
       toast(`${name.trim()} created.`);
       onCreated();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the semester: ${err.message}` : "Could not create the semester.");
+      toast(err instanceof Error ? `Could not create the semester: ${err.message}` : "Could not create the semester.", "error");
     } finally {
       setSaving(false);
     }
@@ -303,7 +303,7 @@ function AddSemesterModal({ onClose, onCreated, toast }: { onClose: () => void; 
   );
 }
 
-function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: () => void; toast: (m: string) => void }) {
+function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: () => void; toast: ToastFn }) {
   const { tenant } = useTenantSession();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -312,14 +312,14 @@ function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; on
   const [saving, setSaving] = useState(false);
 
   async function create() {
-    if (!code.trim() || !name.trim()) { toast("Code and name are required."); return; }
+    if (!code.trim() || !name.trim()) { toast("Code and name are required.", "error"); return; }
     setSaving(true);
     try {
       await createCourse({ tenant_id: tenant.id, code: code.trim().toUpperCase(), name: name.trim(), credits, department: department.trim() || null });
       toast(`${code.trim().toUpperCase()} created.`);
       onCreated();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the course: ${err.message}` : "Could not create the course.");
+      toast(err instanceof Error ? `Could not create the course: ${err.message}` : "Could not create the course.", "error");
     } finally {
       setSaving(false);
     }
@@ -362,7 +362,7 @@ function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; on
 
 function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCreated, toast }: {
   semesters: Semester[]; courses: Course[]; defaultSemesterId: string;
-  onClose: () => void; onCreated: () => void; toast: (m: string) => void;
+  onClose: () => void; onCreated: () => void; toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
   const [semesterId, setSemesterId] = useState(defaultSemesterId);
@@ -373,7 +373,7 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
   const [saving, setSaving] = useState(false);
 
   async function create() {
-    if (!semesterId || !courseId || !label.trim()) { toast("Semester, course and a section label are required."); return; }
+    if (!semesterId || !courseId || !label.trim()) { toast("Semester, course and a section label are required.", "error"); return; }
     setSaving(true);
     try {
       await createCourseSection({
@@ -383,7 +383,7 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
       toast(`Section ${label.trim()} created.`);
       onCreated();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the section: ${err.message}` : "Could not create the section.");
+      toast(err instanceof Error ? `Could not create the section: ${err.message}` : "Could not create the section.", "error");
     } finally {
       setSaving(false);
     }
@@ -434,7 +434,7 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
 
 function RosterModal({ section, students, onClose, onChanged, toast }: {
   section: CourseSectionRow; students: StudentOption[];
-  onClose: () => void; onChanged: () => void; toast: (m: string) => void;
+  onClose: () => void; onChanged: () => void; toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
@@ -454,7 +454,7 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
       setReloadKey((k) => k + 1);
       onChanged();
     } catch (err) {
-      toast(err instanceof Error ? `Could not enroll: ${err.message}` : "Could not enroll those students.");
+      toast(err instanceof Error ? `Could not enroll: ${err.message}` : "Could not enroll those students.", "error");
     } finally {
       setEnrolling(false);
     }
@@ -466,7 +466,7 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
       setReloadKey((k) => k + 1);
       onChanged();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not drop that student.");
+      toast(err instanceof Error ? err.message : "Could not drop that student.", "error");
     }
   }
 

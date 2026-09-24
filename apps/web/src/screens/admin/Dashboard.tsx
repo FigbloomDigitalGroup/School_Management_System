@@ -117,7 +117,7 @@ export function AdminDashboard() {
       if (sendError) throw sendError;
       toast(`Reminded the class teacher for ${cls.name}`);
     } catch (err) {
-      toast(err instanceof Error ? `Could not send reminder: ${err.message}` : "Could not send reminder.");
+      toast(err instanceof Error ? `Could not send reminder: ${err.message}` : "Could not send reminder.", "error");
     } finally {
       setRemindingClassId(null);
     }

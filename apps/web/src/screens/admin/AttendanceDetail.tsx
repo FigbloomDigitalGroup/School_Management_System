@@ -42,7 +42,7 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
     let alive = true;
     fetchClassAttendance(classId, date)
       .then((r) => { if (alive) setRows(r); })
-      .catch((err: Error) => { if (alive) toast(`Could not load attendance: ${err.message}`); });
+      .catch((err: Error) => { if (alive) toast(`Could not load attendance: ${err.message}`, "error"); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId, date]);

@@ -52,11 +52,11 @@ export function AdminLeave() {
         published_at: new Date().toISOString(),
       });
 
-      if (notifyErr) toast(`Recorded, but ${r.teacherName} could not be notified: ${notifyErr.message}`);
+      if (notifyErr) toast(`Recorded, but ${r.teacherName} could not be notified: ${notifyErr.message}`, "error");
       else toast(`${status === "approved" ? "Approved" : "Rejected"} — ${r.teacherName} notified.`);
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.");
+      toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.", "error");
     } finally {
       setReviewingId(null);
     }

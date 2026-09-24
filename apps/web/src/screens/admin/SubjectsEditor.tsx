@@ -76,7 +76,7 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
       }
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not update that assignment: ${err.message}` : "Could not update that assignment.");
+      toast(err instanceof Error ? `Could not update that assignment: ${err.message}` : "Could not update that assignment.", "error");
     }
   }
 
