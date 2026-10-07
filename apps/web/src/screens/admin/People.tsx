@@ -18,7 +18,7 @@ import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } 
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null };
-type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id"> & { avatar_url: string | null };
+type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
   { value: "birth_certificate", label: "Birth certificate" },
@@ -44,7 +44,7 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
@@ -311,6 +311,9 @@ export function People() {
                 <div className="flex items-center gap-2.5">
                   <Avatar id={s.id} name={s.full_name} url={avatarOverrides[s.id] ?? s.avatar_url} />
                   <Cell sub={s.staff_title ?? undefined}>{s.full_name}</Cell>
+                  {s.photo_changed_at && (
+                    <span className="shrink-0 rounded-full bg-warn-bg px-2 py-0.5 text-[11px] font-semibold text-warn-ink">New photo</span>
+                  )}
                 </div>
               ) },
               { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} tenant={tenant} /> },
@@ -389,6 +392,16 @@ export function People() {
             onUploaded={(url) => setAvatarOverrides((m) => ({ ...m, [manageRow.id]: url }))}
             toast={toast}
           />
+          {manage.kind === "staff" && (manageRow as StaffRow).photo_changed_at && (
+            <PhotoReview
+              staff={manageRow as StaffRow}
+              onDone={(removed) => {
+                if (removed) setAvatarOverrides((m) => ({ ...m, [manageRow.id]: "" }));
+                setReloadKey((k) => k + 1);
+              }}
+              toast={toast}
+            />
+          )}
           {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
           )}
@@ -699,6 +712,41 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
         )}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * A driver changed their own photo. It's already live, because parents
+ * recognise drivers by it, so it shouldn't wait on an admin, but an admin
+ * should see it once: keep it, or take it down if it isn't them.
+ */
+function PhotoReview({ staff, onDone, toast }: { staff: StaffRow; onDone: (removed: boolean) => void; toast: ToastFn }) {
+  const [busy, setBusy] = useState(false);
+  async function review(remove: boolean) {
+    setBusy(true);
+    try {
+      // Removing the photo clears the flag too (guard_profile_self_edit).
+      const { error } = await supabase().from("profiles")
+        .update(remove ? { avatar_url: null } : { photo_changed_at: null }).eq("id", staff.id);
+      if (error) throw error;
+      toast(remove ? `Removed ${staff.full_name}'s photo` : "Photo kept");
+      onDone(remove);
+    } catch (err) {
+      toast("Could not save: " + (err instanceof Error ? err.message : String(err)), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-warn-bg px-3 py-2.5">
+      <p className="text-[12.5px] text-warn-ink">
+        {staff.full_name.split(" ")[0]} changed this photo on {new Date(staff.photo_changed_at!).toLocaleDateString()}. Parents already see it.
+      </p>
+      <div className="flex gap-2">
+        <Button onClick={() => void review(true)} disabled={busy}>Remove</Button>
+        <Button variant="primary" onClick={() => void review(false)} disabled={busy}>Keep</Button>
+      </div>
+    </div>
   );
 }
 

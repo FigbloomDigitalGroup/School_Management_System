@@ -68,7 +68,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const items = NAV[role].filter((item) => {
     if (item.to === "admin/classes" || item.to === "admin/subjects" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
-    if (item.to === "admin/fleet" || item.to === "parent/bus") return !online;
+    if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
     return true;
   });
   // Three link-prefix regimes, not two: /platform/* (super_admin, absolute
@@ -107,7 +107,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         <div className="flex min-h-[34px] shrink-0 items-center gap-3 px-0.5 pb-2">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-white p-1">
             <img
-              src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/logo-mark.png"}
+              src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/figbloom-mark.png"}
               alt={tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
               className="h-full w-full object-contain"
             />

@@ -11,6 +11,8 @@ import {
   listRouteStops,
   listRoutes,
   listVehicles,
+  listBusesOnRoutes,
+  type BusOnRoute,
   replaceRouteStops,
   subscribeVehicleAlerts,
   type AlertRow,
@@ -18,7 +20,7 @@ import {
   type DriverOption,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
-import { VehicleMap } from "../../components/VehicleMap";
+import { FleetLiveMap } from "../../components/fleet/FleetLiveMap";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
@@ -37,17 +39,19 @@ interface FleetData {
   drivers: DriverOption[];
   assignments: AssignmentRow[];
   alerts: AlertRow[];
+  buses: BusOnRoute[];
 }
 
 async function fetchFleet(tenantId: string): Promise<FleetData> {
-  const [vehicles, routes, drivers, assignments, alerts] = await Promise.all([
+  const [vehicles, routes, drivers, assignments, alerts, buses] = await Promise.all([
     listVehicles(tenantId),
     listRoutes(tenantId),
     listDrivers(tenantId),
     listAssignments(tenantId),
     listAlerts(tenantId),
+    listBusesOnRoutes(tenantId),
   ]);
-  return { vehicles, routes, drivers, assignments, alerts };
+  return { vehicles, routes, drivers, assignments, alerts, buses };
 }
 
 function fmtLastSeen(iso: string | null): string {
@@ -170,7 +174,7 @@ export function Fleet() {
 
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Live map</h2>
-              <VehicleMap tenantId={tenant.id} vehicles={data.vehicles} />
+              <FleetLiveMap tenantId={tenant.id} buses={data.buses} className="h-[560px] rounded-xl border border-line" />
             </section>
 
             <section>

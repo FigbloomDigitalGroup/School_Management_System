@@ -52,6 +52,7 @@ import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
 import { TeacherLeave } from "./screens/teacher/Leave";
 import { TeacherAccount } from "./screens/teacher/Account";
+import { TeacherBuses } from "./screens/teacher/Buses";
 
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
@@ -68,6 +69,8 @@ import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
 
 import { DriverTrip } from "./screens/driver/Trip";
+import { DriverPasswordGate, DriverProfile } from "./screens/driver/Profile";
+import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -186,6 +189,7 @@ function TenantRoutes() {
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
+          <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
@@ -203,7 +207,8 @@ function TenantRoutes() {
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
-          <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
+          <Route path="driver" element={<RoleGate allow={["driver"]}><DriverPasswordGate><DriverTrip /></DriverPasswordGate></RoleGate>} />
+          <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverPasswordGate><DriverProfile /></DriverPasswordGate></RoleGate>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -381,6 +386,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
   return (
     <RoleGate allow={["parent"]}>
       <ParentDataProvider>
+        {session.tenant.delivery_mode !== "online" && <BusUpdatesListener />}
         <ConsoleShell
           role="parent"
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "parent") }}

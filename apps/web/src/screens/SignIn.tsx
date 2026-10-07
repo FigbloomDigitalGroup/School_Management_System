@@ -1,25 +1,68 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   DEMO_LOGINS, homeRouteFor, resolveLoginId, searchSchools, supabase,
   type Role, type SchoolSearchResult, type Tenant,
 } from "@figbloom/shared";
+import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
 type Mode = "id" | "email";
+type Portal = "admin" | "teacher" | "student" | "parent" | "driver";
+
+/** The illustrated side before a portal is picked. */
+const WELCOME: Scene = {
+  art: "/portals/welcome.webp", tint: "#E3F0E8", accent: "#17402A", accentDeep: "#123420",
+  headline: "One school, everyone in it.",
+  tagline: "Admins, teachers, learners, parents and drivers each have their own way in.",
+};
+
+/** The portals on the first step. A portal is a front door, not a permission:
+ *  `roles` is checked against the account's real profile.role after sign-in. */
+const PORTALS: (Scene & { id: Portal; label: string; blurb: string; idHint: string; roles: Role[] })[] = [
+  {
+    id: "admin", label: "Admin", blurb: "School and organization administrators", idHint: "e.g. AD-0001",
+    roles: ["school_admin", "org_admin", "super_admin"],
+    art: "/portals/admin.webp", tint: "#E6E8F6", accent: "#4453A6", accentDeep: "#36438A",
+    headline: "Run the whole school from one desk.", tagline: "Students and staff, classes, fees and reports.",
+  },
+  {
+    id: "teacher", label: "Teacher", blurb: "Classes, attendance and gradebook", idHint: "e.g. TC-0001", roles: ["teacher"],
+    art: "/portals/teacher.webp", tint: "#EAE6F8", accent: "#6443B5", accentDeep: "#523596",
+    headline: "Teach more, file less.", tagline: "Attendance, the gradebook, CBE assessments and your timetable.",
+  },
+  {
+    id: "student", label: "Student", blurb: "Timetable, work and results", idHint: "e.g. ST-0001", roles: ["student"],
+    art: "/portals/student.webp", tint: "#E2EDFA", accent: "#2563AE", accentDeep: "#1D4F8C",
+    headline: "Everything for your school day.", tagline: "Your timetable, homework, results and notices.",
+  },
+  {
+    id: "parent", label: "Parent", blurb: "Fees, results and the school bus", idHint: "e.g. PT-0001", roles: ["parent"],
+    art: "/portals/parent.webp", tint: "#FCEADF", accent: "#BC4A26", accentDeep: "#9C3B1C",
+    headline: "Stay close to your child's school life.", tagline: "Fees, results, announcements and the school bus.",
+  },
+  {
+    id: "driver", label: "Driver", blurb: "Start and end bus trips", idHint: "e.g. BD-0001", roles: ["driver"],
+    art: "/portals/driver.webp", tint: "#FFF0D4", accent: "#9A5A08", accentDeep: "#7D4806",
+    headline: "Safe trips, on time.", tagline: "Start and end trips so parents can follow the bus live.",
+  },
+];
+const portalOfRole = (role: Role) => PORTALS.find((p) => p.roles.includes(role));
 
 /**
- * Unified sign-in (FIG-396/402) — no visible role tabs. Two entry modes,
- * chosen by MECHANISM rather than role: "email" (org owners, Figbloom
- * staff — the only two roles ever provisioned by real email) and "id"
- * (everyone else — pick a school, then a school-assigned login_id like
- * "TC-0001", no SMS OTP). Which flow and pages someone lands on is still
- * resolved entirely after authentication, from their real profile.role —
- * the mode toggle only picks a credential shape, never an identity claim.
+ * Sign-in starts with a portal choice (Admin, Teacher, Student, Parent,
+ * Driver), then asks for credentials. Two entry modes, chosen by MECHANISM
+ * (FIG-396/402): "email" (org owners, Figbloom staff, and school admins
+ * provisioned by email -- offered under the Admin portal only) and "id" (pick
+ * a school, then a school-assigned login_id like "TC-0001", no SMS OTP).
+ * Neither the portal nor the mode is an identity claim: which pages someone
+ * lands on is resolved after authentication from their real profile.role,
+ * and an account signing in through the wrong portal is signed straight out.
  */
 export function SignIn() {
   const nav = useNavigate();
+  const [portal, setPortal] = useState<Portal | null>(null);
   const [mode, setMode] = useState<Mode>("id");
 
   const [school, setSchool] = useState<SchoolSearchResult | null>(null);
@@ -35,6 +78,17 @@ export function SignIn() {
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+
+  function choosePortal(p: Portal | null) {
+    setPortal(p);
+    setMode("id");
+    setError("");
+    setResetSent(false);
+    setPassword("");
+    setResolved(null);
+    setLoginId("");
+    setIdHint("");
+  }
 
   function switchMode(m: Mode) {
     setMode(m);
@@ -106,6 +160,14 @@ export function SignIn() {
         .from("profiles").select("role, tenant_id").eq("id", userId).maybeSingle();
       if (!profile) { setError("Your account isn't fully set up yet. Contact the school office."); return; }
 
+      const chosen = PORTALS.find((p) => p.id === portal);
+      if (chosen && !chosen.roles.includes(profile.role as Role)) {
+        await supabase().auth.signOut();
+        const right = portalOfRole(profile.role as Role);
+        setError(`That's not a ${chosen.label.toLowerCase()} account.${right ? ` Use the ${right.label} portal instead.` : ""}`);
+        return;
+      }
+
       let destSlug: string | null = null;
       let institutionType: Tenant["institution_type"] | undefined;
       if (profile.tenant_id) {
@@ -138,28 +200,55 @@ export function SignIn() {
     }
   }
 
+  const activePortal = PORTALS.find((p) => p.id === portal) ?? null;
   const canSubmit = mode === "email" ? !!email.trim() && !!password : !!resolved && !!password;
 
   return (
-    <div className="grid min-h-screen place-items-center bg-page p-6">
-      <div className="w-full max-w-[420px]">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-line">
-            <img src="/logo-mark.png" alt="Figbloom" className="h-full w-full object-contain" />
+    <AuthLayout scene={activePortal ?? WELCOME} subtitle={activePortal ? `${activePortal.label.toUpperCase()} PORTAL` : "SIGN IN"}>
+        {!activePortal ? (
+          <div className="animate-rise">
+            <h2 className="text-[22px] font-semibold tracking-tight">Welcome back</h2>
+            <p className="mt-1 text-body text-ink-muted">Choose your portal to sign in.</p>
+            <div className="mt-5 grid gap-2.5">
+              {PORTALS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => choosePortal(p.id)}
+                  // each card previews its own portal colour on hover
+                  style={{ "--portal": p.accent } as CSSProperties}
+                  className="group flex items-center gap-3.5 rounded-xl border border-line bg-white p-2.5 pr-4 text-left transition-all hover:-translate-y-px hover:border-[var(--portal)] hover:shadow-sm"
+                >
+                  <span className="grid h-14 w-[76px] shrink-0 place-items-center rounded-lg" style={{ backgroundColor: p.tint }}>
+                    <img src={p.art} alt="" className="h-12 w-[68px] object-contain" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-body font-semibold">{p.label} portal</span>
+                    <span className="block truncate text-[12px] text-ink-muted">{p.blurb}</span>
+                  </span>
+                  <span aria-hidden className="text-ink-faint transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--portal)]">→</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div>
-            <div className="text-[17px] font-semibold tracking-tight">Figbloom School Systems</div>
-            <div className="font-mono text-[9.5px] tracking-[0.12em] text-ink-faint">SIGN IN</div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-line bg-white p-5">
+        ) : (
+        <div key={activePortal.id} className="animate-rise">
+          <button
+            type="button"
+            onClick={() => choosePortal(null)}
+            className="mb-4 text-[12px] font-medium text-forest hover:underline"
+          >
+            ← Choose a different portal
+          </button>
+          <h2 className="text-[22px] font-semibold tracking-tight">{activePortal.label} sign in</h2>
+          <p className="mt-1 text-body text-ink-muted">{activePortal.tagline}</p>
+        <div className="mt-5 rounded-xl border border-line bg-white p-5">
           {mode === "id" ? (
             <div className="grid gap-3.5">
               <SchoolPicker selected={school} onSelect={selectSchool} onClear={clearSchool} />
               {school && (
                 <TextField
-                  id="login-id" label="Your ID" mono placeholder="e.g. TC-0001"
+                  id="login-id" label="Your ID" mono placeholder={activePortal.idHint}
                   value={loginId}
                   onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); }}
                   onBlur={() => void resolveId()}
@@ -199,16 +288,20 @@ export function SignIn() {
             {busy ? "One moment…" : "Sign in"}
           </Button>
 
-          <button
-            type="button"
-            onClick={() => switchMode(mode === "id" ? "email" : "id")}
-            className="mt-3 w-full text-center text-[12px] font-medium text-ink-muted hover:text-forest hover:underline"
-          >
-            {mode === "id" ? "Sign in with email instead" : "Sign in with your school and ID instead"}
-          </button>
+          {activePortal.id === "admin" && (
+            <button
+              type="button"
+              onClick={() => switchMode(mode === "id" ? "email" : "id")}
+              className="mt-3 w-full text-center text-[12px] font-medium text-forest hover:underline"
+            >
+              {mode === "id" ? "Sign in with email instead" : "Sign in with your school and ID instead"}
+            </button>
+          )}
         </div>
+        </div>
+        )}
 
-        <p className="mt-4 text-center text-small text-ink-muted">
+        <p className="mt-5 text-center text-small text-ink-muted">
           New organization? <Link to="/signup" className="font-medium text-forest hover:underline">Get started</Link>
         </p>
 
@@ -229,8 +322,7 @@ export function SignIn() {
             </tbody>
           </table>
         </details>
-      </div>
-    </div>
+    </AuthLayout>
   );
 }
 

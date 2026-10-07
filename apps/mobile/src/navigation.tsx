@@ -1,7 +1,7 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { BarChart3, Bell, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
+import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
 import { accentFor } from "./theme";
 import { useChild, useMessages } from "./data";
 import { useStudentData } from "./studentData";
@@ -11,6 +11,7 @@ import { ParentFees } from "./screens/parent/Fees";
 import { ParentPay } from "./screens/parent/Pay";
 import { ParentResults } from "./screens/parent/Results";
 import { ParentInbox } from "./screens/parent/Inbox";
+import { ParentBus } from "./screens/parent/Bus";
 import { ParentAccount } from "./screens/parent/Account";
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
@@ -82,6 +83,7 @@ function ParentTabs() {
       <Tab.Screen name="Home" component={ParentHome} options={tabIcon(Home)} />
       <Tab.Screen name="Fees" component={ParentFees} options={tabIcon(Wallet)} />
       <Tab.Screen name="Results" component={ParentResults} options={tabIcon(BarChart3)} />
+      <Tab.Screen name="Bus" component={ParentBus} options={tabIcon(Bus)} />
       <Tab.Screen
         name="Inbox"
         component={ParentInbox}

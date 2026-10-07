@@ -143,6 +143,10 @@ export interface Profile {
    *  except org_admin/super_admin, who keep real email (FIG-396/397). */
   login_id: string | null;
   avatar_url: string | null;
+  /** The password was handed out by an admin; ask for their own before anything else. */
+  must_change_password: boolean;
+  /** A driver changed their own photo and no admin has looked at it yet. */
+  photo_changed_at: string | null;
   created_at: string;
 }
 
