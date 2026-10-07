@@ -80,3 +80,18 @@ html[data-a11y-reduce-motion] *::after {
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .animate-rise { animation: rise 0.2s ease; }
+
+/* Signed-out pages (AuthLayout): the shared UI's forest-green accents take the
+   portal's own colour, set as --portal / --portal-deep on .auth-theme. Scoped
+   here so Button and Field stay untouched everywhere else. */
+.auth-theme .bg-forest { background-color: var(--portal); border-color: var(--portal); }
+.auth-theme .hover\:bg-forest-deep:hover { background-color: var(--portal-deep); border-color: var(--portal-deep); }
+/* a disabled button doesn't react to hover, but must not fall back to green either */
+.auth-theme .hover\:bg-forest-deep:hover:disabled { background-color: var(--portal); border-color: var(--portal); }
+.auth-theme .text-forest,
+.auth-theme .hover\:text-forest:hover { color: var(--portal); }
+.auth-theme .hover\:border-forest:hover,
+.auth-theme .focus\:border-forest:focus { border-color: var(--portal); }
+.auth-theme .focus\:border-forest:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal) 18%, transparent); }
+/* list rows (e.g. the school search results) hover in a faint wash of the portal colour */
+.auth-theme .hover\:bg-page:hover { background-color: color-mix(in srgb, var(--portal) 8%, #fff); }

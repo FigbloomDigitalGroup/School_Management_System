@@ -39,7 +39,7 @@ export function OrgPicker() {
       <div className="w-full max-w-[480px]">
         <div className="mb-6 flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-line">
-            <img src="/logo-mark.png" alt="Figbloom" className="h-full w-full object-contain" />
+            <img src="/figbloom-mark.png" alt="Figbloom" className="h-full w-full object-contain" />
           </div>
           <div>
             <div className="text-[15px] font-semibold">Choose a workspace</div>

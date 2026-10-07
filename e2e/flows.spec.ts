@@ -37,9 +37,20 @@ async function waitForSignedIn(page: Page) {
   await page.waitForURL((url) => !url.pathname.startsWith("/signin"), { timeout: 15000 });
 }
 
-/** org owners and Figbloom staff — the only two roles still on real email. */
+type PortalName = "Admin" | "Teacher" | "Student" | "Parent" | "Driver";
+
+/** Sign-in opens on a portal choice; the real role is still checked after auth. */
+async function choosePortal(page: Page, portal: PortalName) {
+  await page.getByRole("button", { name: `${portal} portal` }).click();
+}
+
+const portalForId = (loginId: string): PortalName =>
+  ({ AD: "Admin", TC: "Teacher", ST: "Student", PT: "Parent", BD: "Driver" } as const)[loginId.slice(0, 2) as "AD"];
+
+/** org owners, Figbloom staff and email-provisioned school admins — Admin portal only. */
 async function signInEmail(page: Page, email: string, password: string) {
   await page.goto("/signin");
+  await choosePortal(page, "Admin");
   await page.getByRole("button", { name: "Sign in with email instead" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -48,8 +59,11 @@ async function signInEmail(page: Page, email: string, password: string) {
 }
 
 /** Everyone else: school + school-assigned login_id + password (FIG-396). */
-async function signInWithId(page: Page, school: string, loginId: string, password: string) {
+async function signInWithId(
+  page: Page, school: string, loginId: string, password: string, portal: PortalName = portalForId(loginId),
+) {
   await page.goto("/signin");
+  await choosePortal(page, portal);
   await page.getByLabel("School").fill(school);
   await page.getByRole("button").filter({ hasText: school }).first().click();
   await page.getByLabel("Your ID").fill(loginId);
@@ -61,13 +75,40 @@ async function signInWithId(page: Page, school: string, loginId: string, passwor
 }
 
 test.describe("sign in", () => {
-  test("no role is named anywhere on the door", async ({ page }) => {
+  test("the door offers the five portals, and no credentials until one is chosen", async ({ page }) => {
     await page.goto("/signin");
-    await expect(page.getByText(/\bStaff\b|\bParent\b|\bStudent\b|\bPlatform\b/)).toHaveCount(0);
+    for (const portal of ["Admin", "Teacher", "Student", "Parent", "Driver"]) {
+      await expect(page.getByRole("button", { name: `${portal} portal` })).toBeVisible();
+    }
+    await expect(page.getByLabel("School")).toHaveCount(0);
+  });
+
+  test("email sign-in is offered under the Admin portal only", async ({ page }) => {
+    await page.goto("/signin");
+    await choosePortal(page, "Teacher");
+    await expect(page.getByRole("button", { name: "Sign in with email instead" })).toHaveCount(0);
+    await page.getByRole("button", { name: /Choose a different portal/ }).click();
+    await choosePortal(page, "Admin");
+    await expect(page.getByRole("button", { name: "Sign in with email instead" })).toBeVisible();
+  });
+
+  test("an account signing in through the wrong portal is turned away and signed out", async ({ page }) => {
+    await page.goto("/signin");
+    await choosePortal(page, "Student");
+    await page.getByLabel("School").fill(LOGINS.teacher.school);
+    await page.getByRole("button").filter({ hasText: LOGINS.teacher.school }).first().click();
+    await page.getByLabel("Your ID").fill(LOGINS.teacher.loginId);
+    await page.getByLabel("Your ID").blur();
+    await expect(page.getByText(/^Signing in as /)).toBeVisible({ timeout: 5000 });
+    await page.getByLabel("Password").fill(LOGINS.teacher.password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByText(/not a student account.*Teacher portal/i)).toBeVisible({ timeout: 15000 });
+    await expect(page).toHaveURL(/\/signin/);
   });
 
   test("the school+ID mode is the default; picking a school reveals the ID field", async ({ page }) => {
     await page.goto("/signin");
+    await choosePortal(page, "Teacher");
     await expect(page.getByLabel("School")).toBeVisible();
     await page.getByLabel("School").fill("Alliance High School");
     await page.getByRole("button").filter({ hasText: "Alliance High School" }).first().click();
@@ -76,6 +117,7 @@ test.describe("sign in", () => {
 
   test("an unrecognized ID shows a hint instead of silently failing", async ({ page }) => {
     await page.goto("/signin");
+    await choosePortal(page, "Teacher");
     await page.getByLabel("School").fill("Alliance High School");
     await page.getByRole("button").filter({ hasText: "Alliance High School" }).first().click();
     await page.getByLabel("Your ID").fill("TC-9999");

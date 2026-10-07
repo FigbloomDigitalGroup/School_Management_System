@@ -153,6 +153,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/sections", label: "My sections", icon: "people" },
     { to: "teacher/messages", label: "Messages", icon: "chat" },
     { to: "teacher/notices", label: "Notices", icon: "bell" },
+    { to: "teacher/buses", label: "Buses", icon: "pulse" },
     { to: "teacher/leave", label: "Leave", icon: "flag" },
     { to: "teacher/account", label: "Account", icon: "pencil" },
   ],

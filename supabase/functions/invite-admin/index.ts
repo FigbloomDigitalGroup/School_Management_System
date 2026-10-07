@@ -146,6 +146,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     phone: phone ? normalisePhone(phone, tenant.country) : null,
     staff_title: role === "school_admin" ? (staffTitle || "Principal") : (staffTitle || null),
     login_id: loginId ?? null,
+    // A driver picks their own password at first sign-in (DriverPasswordGate).
+    must_change_password: role === "driver",
   });
   if (profileErr) {
     // Roll back the orphaned auth account rather than leaving a login with no profile.

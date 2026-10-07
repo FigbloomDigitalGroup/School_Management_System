@@ -53,6 +53,7 @@ interface Ctx {
   setIndex: (i: number) => void;
   accent: string;
   country: string;
+  tenantId: string;
 }
 
 const ParentDataCtx = createContext<Ctx | null>(null);
@@ -132,6 +133,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
     setIndex,
     accent,
     country,
+    tenantId,
   };
 
   return <ParentDataCtx.Provider value={value}>{children}</ParentDataCtx.Provider>;
@@ -146,6 +148,11 @@ function useParentData(): Ctx {
 export function useChild() {
   const { children, index, setIndex, accent, country } = useParentData();
   return { child: children[index] ?? children[0]!, index, setIndex, accent, country };
+}
+
+/** The school's id, for Realtime subscriptions scoped to it (the Bus tab's live updates). */
+export function useTenantId(): string {
+  return useParentData().tenantId;
 }
 
 export function useChildren(): Child[] {

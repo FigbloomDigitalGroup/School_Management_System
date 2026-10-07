@@ -48,6 +48,9 @@ enable_confirmations = true
 [functions.invite-admin]
 verify_jwt = true
 
+[functions.bus-tick]
+verify_jwt = true              # the driver's own session (or the service role, for simulate-trip.ts)
+
 [functions.mpesa-stk-push]
 verify_jwt = true
 

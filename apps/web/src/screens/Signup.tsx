@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { suggestSlug, supabase } from "@figbloom/shared";
+import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { SelectField, TextField } from "../components/ui/Field";
 import { signupOrganization } from "../lib/signup";
@@ -16,6 +17,13 @@ import { signupOrganization } from "../lib/signup";
  * console — which shows a "pending approval" holding screen (FIG-372) until
  * a super_admin approves them.
  */
+
+/** Same illustrated layout as sign-in; the admin art, since the signer becomes the org admin. */
+const SCENE: Scene = {
+  art: "/portals/admin.webp", tint: "#E3F0E8", accent: "#17402A", accentDeep: "#123420",
+  headline: "Bring your schools onto Figbloom.",
+  tagline: "One console for every school you run: learners, staff, fees, CBE results and the school bus.",
+};
 
 const KIND_OPTIONS = [
   { value: "group_owner", label: "I own/manage a group of schools" },
@@ -88,24 +96,18 @@ export function Signup() {
   }
 
   return (
-    <div className="grid min-h-screen place-items-center bg-page p-6">
-      <div className="w-full max-w-[440px] py-6">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-line">
-            <img src="/logo-mark.png" alt="Figbloom" className="h-full w-full object-contain" />
-          </div>
-          <div>
-            <div className="text-[17px] font-semibold tracking-tight">Figbloom School Systems</div>
-            <div className="font-mono text-[9.5px] tracking-[0.12em] text-ink-faint">GET STARTED</div>
-          </div>
-        </div>
+    <AuthLayout scene={SCENE} subtitle="GET STARTED" width={440}>
+      <div className="animate-rise">
+        <Link to="/signin" className="mb-4 inline-block text-[12px] font-medium text-forest hover:underline">
+          ← Back to sign in
+        </Link>
+        <h2 className="text-[22px] font-semibold tracking-tight">Register your organization</h2>
+        <p className="mt-1 text-body text-ink-muted">
+          A group of schools, or a government body. Our team reviews new organizations before they go live, usually
+          within a day.
+        </p>
 
-        <div className="rounded-xl border border-line bg-white p-5">
-          <p className="mb-4 text-small leading-relaxed text-ink-muted">
-            Register your organization — a group of schools, or a government body. A member of our team reviews new
-            organizations before they go live, usually within a day.
-          </p>
-
+        <div className="mt-5 rounded-xl border border-line bg-white p-5">
           <div className="grid gap-3.5">
             <TextField id="orgName" label="Organization name" placeholder="e.g. Riverside Schools Trust" value={name} onChange={(e) => setName(e.target.value)} />
             <TextField
@@ -134,10 +136,10 @@ export function Signup() {
           </div>
         </div>
 
-        <p className="mt-4 text-center text-small text-ink-muted">
+        <p className="mt-5 text-center text-small text-ink-muted">
           Already have an account? <Link to="/signin" className="font-medium text-forest hover:underline">Sign in</Link>
         </p>
       </div>
-    </div>
+    </AuthLayout>
   );
 }

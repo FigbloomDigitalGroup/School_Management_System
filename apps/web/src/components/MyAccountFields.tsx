@@ -17,7 +17,10 @@ import { useTenantSession } from "../lib/sessionContext";
  * of role — login_id/email/role stay read-only here since those are the
  * sign-in credential, not descriptive info.
  */
-export function MyAccountFields() {
+export function MyAccountFields({ nameLocked = false }: {
+  /** Drivers: the school set the name parents know them by, so it isn't theirs to change. */
+  nameLocked?: boolean;
+} = {}) {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
@@ -40,8 +43,8 @@ export function MyAccountFields() {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
     setSaving(true);
     try {
-      await updateMyProfile(profile.id, { full_name: fullName.trim(), phone: phone.trim() || null });
-      toast("Saved — the sidebar picks it up next time you sign in or reload.");
+      await updateMyProfile(profile.id, nameLocked ? { phone: phone.trim() || null } : { full_name: fullName.trim(), phone: phone.trim() || null });
+      toast(nameLocked ? "Saved" : "Saved — the sidebar picks it up next time you sign in or reload.");
       setDirty(false);
       setReloadKey((k) => k + 1);
     } catch (err) {
@@ -72,7 +75,8 @@ export function MyAccountFields() {
         toast={toast}
       />
       <TextField
-        id="my-full-name" label="Full name" value={fullName}
+        id="my-full-name" label="Full name" value={fullName} disabled={nameLocked}
+        hint={nameLocked ? "Set by the school. Ask the office if it's wrong." : undefined}
         onChange={(e) => { setFullName(e.target.value); setDirty(true); }}
       />
       <TextField

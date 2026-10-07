@@ -22,7 +22,9 @@
     "test:unit": "vitest run",
     "test:edge": "deno test --allow-env --config supabase/functions/deno.json supabase/functions",
     "db:reset": "supabase db reset",
-    "db:seed": "tsx --env-file=.env supabase/seed.ts"
+    "db:seed": "tsx --env-file=.env supabase/seed.ts",
+    "db:seed-cbe": "tsx --env-file=.env supabase/seed-cbe.ts",
+    "db:simulate-trip": "tsx --env-file=.env supabase/simulate-trip.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.10.0",

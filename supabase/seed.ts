@@ -255,29 +255,31 @@ async function main() {
     }).select("id").single();
 
     const { data: route } = await db.from("routes").insert({
-      tenant_id: alliance.id, name: "Route A · Kiambu Road", description: "Runnda, Kiambu Road, school gate.",
+      tenant_id: alliance.id, name: "Route A · Enterprise Road", description: "Alliance Girls gate to SMK Business Center, Enterprise Road.",
     }).select("id").single();
 
     if (vehicle && route) {
       const { data: stops } = await db.from("route_stops").insert([
-        { tenant_id: alliance.id, route_id: route.id, name: "Runda roundabout", lat: -1.2214, lng: 36.8172, sequence: 1 },
-        { tenant_id: alliance.id, route_id: route.id, name: "Kiambu Road junction", lat: -1.2110, lng: 36.8330, sequence: 2 },
-        { tenant_id: alliance.id, route_id: route.id, name: "Alliance High School gate", lat: -1.1725, lng: 36.8390, sequence: 3 },
+        { tenant_id: alliance.id, route_id: route.id, name: "Alliance Girls High School", lat: -1.2662556, lng: 36.662933, sequence: 1 },
+        { tenant_id: alliance.id, route_id: route.id, name: "SMK Business Center, Enterprise Road", lat: -1.3191032, lng: 36.865249, sequence: 2 },
       ]).select("id, sequence");
 
       await db.from("vehicle_assignments").insert({
         tenant_id: alliance.id, vehicle_id: vehicle.id, driver_id: staff.driver, route_id: route.id,
       });
 
-      const firstStop = stops?.find((s) => s.sequence === 1);
+      // The destination stop, not the origin — this is what lets the parent Bus
+      // screen's "Route to stop" button draw a blue line to where the driver is
+      // actually headed, rather than back to where the route started.
+      const destStop = stops?.reduce((a, b) => (b.sequence > a.sequence ? b : a));
       const demoSibling = inserted!.find((s) => s.admission_no === "4103");
       await db.from("student_transport").insert([
-        { tenant_id: alliance.id, student_id: demoStudent.id, route_id: route.id, stop_id: firstStop?.id ?? null },
+        { tenant_id: alliance.id, student_id: demoStudent.id, route_id: route.id, stop_id: destStop?.id ?? null },
         // siblings riding together, same stop — lets the parent demo show the
         // "not every child is on a route" case turn into "both children are" too
-        ...(demoSibling ? [{ tenant_id: alliance.id, student_id: demoSibling.id, route_id: route.id, stop_id: firstStop?.id ?? null }] : []),
+        ...(demoSibling ? [{ tenant_id: alliance.id, student_id: demoSibling.id, route_id: route.id, stop_id: destStop?.id ?? null }] : []),
       ]);
-      console.log("  1 bus, 1 route with 3 stops, 1 driver assignment, 2 riders");
+      console.log("  1 bus, 1 route with 2 stops, 1 driver assignment, 2 riders");
     }
   }
 
