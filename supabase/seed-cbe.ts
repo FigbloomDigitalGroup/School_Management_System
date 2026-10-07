@@ -35,9 +35,10 @@ const db = createClient(url, key, { auth: { persistSession: false } });
 
 const SLUG = "kijani-ridge";
 // Local runs keep the well-known dev password. Against a remote project every
-// login gets a random one instead, printed once at the end.
+// login gets a random one instead, printed once at the end -- unless
+// SEED_PASSWORD sets one (a demo project where one shared password is fine).
 const REMOTE = url.includes("supabase.co");
-const PASSWORD = REMOTE ? randomBytes(9).toString("base64url") : "figbloom-dev";
+const PASSWORD = process.env.SEED_PASSWORD ?? (REMOTE ? randomBytes(9).toString("base64url") : "figbloom-dev");
 // WITH_ORG=1 also creates a group-owner organisation that owns the school, with
 // an org_admin login (see organizations.sql). Existing organisations are never touched.
 const WITH_ORG = process.env.WITH_ORG === "1";
