@@ -211,6 +211,7 @@ export function Tenants() {
         open={wizard}
         onClose={() => setWizard(false)}
         existingSlugs={all.map((t) => t.slug)}
+        existingNames={all.map((t) => t.name)}
         onCreated={(t) => { setRefreshKey((k) => k + 1); setSelectedId(t.id); }}
       />
     </>
