@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatMoney, formatShortDate, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
+import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
@@ -133,6 +134,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
             <Button variant="primary" onClick={() => toast(`Impersonating ${tenant.name} — session logged, expires in 30 minutes`)}>
               Impersonate admin
             </Button>
+            <AccessibilityButton />
           </div>
         </div>
 

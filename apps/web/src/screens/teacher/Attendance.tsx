@@ -7,6 +7,7 @@ import {
   type AttendanceMark, type ClassGroup, type Register,
 } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
+import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
@@ -223,6 +224,7 @@ export function Attendance() {
             </div>
           </div>
           <Button variant="primary" onClick={() => setSubmitted(false)}>Correct a mark</Button>
+          <AccessibilityButton />
         </header>
 
         <div className="px-6 py-6">
@@ -304,11 +306,14 @@ export function Attendance() {
               {rosterLoading ? <Skeleton className="h-3 w-20" /> : <span className="text-[13px] text-ink-muted">{roster.length} learners</span>}
             </div>
           </div>
-          {!online && (
-            <div className="flex items-center gap-2 rounded-lg bg-orange-soft px-3 py-2 text-[12.5px] text-orange-ink">
-              <span className="h-2 w-2 rounded-full bg-orange" /> No signal — this will save on the phone
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {!online && (
+              <div className="flex items-center gap-2 rounded-lg bg-orange-soft px-3 py-2 text-[12.5px] text-orange-ink">
+                <span className="h-2 w-2 rounded-full bg-orange" /> No signal — this will save on the phone
+              </div>
+            )}
+            <AccessibilityButton />
+          </div>
         </div>
       </header>
 

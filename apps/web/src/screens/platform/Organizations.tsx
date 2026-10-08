@@ -4,6 +4,7 @@ import {
 } from "../../lib/platformAdmin";
 import { supabase, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
+import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
@@ -189,7 +190,10 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
               {KIND_LABEL[organization.kind]}{organization.county ? ` · ${organization.county}` : ""} · {organization.slug}
             </div>
           </div>
-          <Button variant="accent" onClick={() => setInvitingAdmin(true)}>Invite org admin</Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="accent" onClick={() => setInvitingAdmin(true)}>Invite org admin</Button>
+            <AccessibilityButton />
+          </div>
         </div>
       </div>
 
