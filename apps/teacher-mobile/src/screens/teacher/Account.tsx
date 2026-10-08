@@ -5,6 +5,7 @@ import { fetchMyProfile, supabase, updateMyAvatarUrl, updateMyProfile, type MyPr
 import { accentFor, HIT, s, t } from "../../theme";
 import { uploadAvatar } from "../../lib/uploads";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { Skeleton } from "../../components/Skeleton";
 import type { TeacherSession } from "../../navigation";
 
 function initialsOf(name: string): string {
@@ -23,6 +24,8 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  /** Until the profile lands the fields would read as blank (and anything typed would be overwritten). */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -31,7 +34,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
       setProfile(p);
       setFullName(p.full_name);
       setPhone(p.phone ?? "");
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
   }, [session.profileId]);
 
@@ -94,27 +97,33 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
 
           <View>
             <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Full name</Text>
-            <TextInput
-              value={fullName}
-              onChangeText={(v) => { setFullName(v); setDirty(true); }}
-              style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
-            />
+            {loaded ? (
+              <TextInput
+                value={fullName}
+                onChangeText={(v) => { setFullName(v); setDirty(true); }}
+                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
+              />
+            ) : <Skeleton height={44} radius={12} />}
           </View>
 
           <View>
             <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Phone</Text>
-            <TextInput
-              value={phone}
-              onChangeText={(v) => { setPhone(v); setDirty(true); }}
-              placeholder="e.g. 0712 345 678"
-              keyboardType="phone-pad"
-              style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
-            />
+            {loaded ? (
+              <TextInput
+                value={phone}
+                onChangeText={(v) => { setPhone(v); setDirty(true); }}
+                placeholder="e.g. 0712 345 678"
+                keyboardType="phone-pad"
+                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
+              />
+            ) : <Skeleton height={44} radius={12} />}
           </View>
 
-          <View style={{ flexDirection: "row", gap: 6 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={s.faint}>Login:</Text>
-            <Text style={[s.faint, { fontFamily: "monospace" }]}>{profile?.login_id ?? profile?.email ?? "—"}</Text>
+            {loaded ? (
+              <Text style={[s.faint, { fontFamily: "monospace" }]}>{profile?.login_id ?? profile?.email ?? "—"}</Text>
+            ) : <Skeleton width={120} height={10} />}
           </View>
 
           <TouchableOpacity

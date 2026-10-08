@@ -8,7 +8,6 @@ import { Button } from "../../components/ui/Button";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
-import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
@@ -49,7 +48,9 @@ async function fetchOrgAdmins(organizationId: string): Promise<OrgAdminRow[]> {
 export function Organizations() {
   const toast = useToast();
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data: orgs, loading } = useAsync(() => fetchOrganizations(), [refreshKey]);
+  const { data: orgs, loading: orgsFetching } = useAsync(() => fetchOrganizations(), [refreshKey]);
+  // First load only — a refresh after adding or approving keeps the list up.
+  const loading = orgsFetching && !orgs;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -67,10 +68,10 @@ export function Organizations() {
       <div className="flex h-screen flex-col overflow-hidden">
         <div className="shrink-0 border-b border-line bg-white px-7 py-4">
           <StatRow stats={[
-            { label: "Organizations", value: String(all.length) },
-            { label: "Government/county", value: String(all.filter((o) => o.kind === "government" || o.kind === "county").length) },
-            { label: "Constituencies", value: String(all.filter((o) => o.kind === "constituency").length) },
-            { label: "Group owners", value: String(all.filter((o) => o.kind === "group_owner").length) },
+            { label: "Organizations", value: String(all.length), loading },
+            { label: "Government/county", value: String(all.filter((o) => o.kind === "government" || o.kind === "county").length), loading },
+            { label: "Constituencies", value: String(all.filter((o) => o.kind === "constituency").length), loading },
+            { label: "Group owners", value: String(all.filter((o) => o.kind === "group_owner").length), loading },
           ]} />
         </div>
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -83,7 +84,7 @@ export function Organizations() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={`Search ${all.length} organizations`}
+                placeholder={loading ? "Search organizations" : `Search ${all.length} organizations`}
                 aria-label="Search organizations"
                 className="w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none"
               />
@@ -115,7 +116,9 @@ export function Organizations() {
           </div>
           <div className="min-w-0 flex-1 overflow-auto">
             {selected ? (
-              <OrganizationDetail organization={selected} onChanged={() => setRefreshKey((k) => k + 1)} />
+              // Keyed so switching organizations starts from a clean load
+              // rather than showing the last one's schools and admins.
+              <OrganizationDetail key={selected.id} organization={selected} onChanged={() => setRefreshKey((k) => k + 1)} />
             ) : (
               !loading && <EmptyState title="No organization selected" body="Choose an organization from the list on the left, or add one." />
             )}
@@ -134,8 +137,11 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
   const [approving, setApproving] = useState(false);
-  const { data: tenants, loading: tenantsLoading } = useAsync(() => fetchMemberTenants(organization.id), [organization.id, reloadKey]);
-  const { data: admins, loading: adminsLoading, error: adminsError } = useAsync(() => fetchOrgAdmins(organization.id), [organization.id, reloadKey]);
+  const { data: tenants, loading: tenantsFetching } = useAsync(() => fetchMemberTenants(organization.id), [organization.id, reloadKey]);
+  const { data: admins, loading: adminsFetching, error: adminsError } = useAsync(() => fetchOrgAdmins(organization.id), [organization.id, reloadKey]);
+  // First load only — inviting an admin bumps reloadKey and must not blank the lists.
+  const tenantsLoading = tenantsFetching && !tenants;
+  const adminsLoading = adminsFetching && !admins;
   const [invitingAdmin, setInvitingAdmin] = useState(false);
 
   // One-click approve (FIG-375) — a self-registered org (FIG-370/371) sits
@@ -189,8 +195,8 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
 
       <div className="px-7 py-6">
         <StatRow stats={[
-          { label: "Member schools", value: String(tenants?.length ?? 0) },
-          { label: "Org admins", value: String(admins?.length ?? 0) },
+          { label: "Member schools", value: String(tenants?.length ?? 0), loading: tenantsLoading },
+          { label: "Org admins", value: String(admins?.length ?? 0), loading: adminsLoading },
         ]} />
 
         <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)" }}>

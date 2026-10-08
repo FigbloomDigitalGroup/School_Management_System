@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -86,7 +86,9 @@ export function DriverTrip() {
   }, []);
 
   // Resume an in-progress trip found on load (e.g. the driver refreshed mid-trip).
-  useEffect(() => {
+  // A layout effect so it lands before the first paint — otherwise a driver
+  // mid-trip sees "Start trip" for a frame before the trip view appears.
+  useLayoutEffect(() => {
     if (data?.activeTrip) {
       setTrip(data.activeTrip);
       setDirection(data.activeTrip.direction);

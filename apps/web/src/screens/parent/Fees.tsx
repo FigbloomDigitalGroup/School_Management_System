@@ -58,18 +58,22 @@ export function ParentFees() {
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofReload, setProofReload] = useState(0);
 
-  const { data: invoiceId } = useAsync(
+  const { data: invoiceId, loading: invoiceLoading } = useAsync(
     () => (child ? fetchCurrentInvoiceId(child.id) : Promise.resolve(null)),
     [child?.id],
   );
-  const { data: proofs, loading: proofsLoading } = useAsync(
-    () => (invoiceId ? listPaymentProofs(invoiceId) : Promise.resolve([] as PaymentProof[])),
+  // Tagged with the invoice they belong to: after a child switch the previous
+  // child's proofs must not show, but a reload after an upload keeps the list up.
+  const { data: proofsFor, loading: proofsLoading } = useAsync(
+    async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload],
   );
+  const proofs = !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
+  const proofsPending = !proofs && (invoiceLoading || proofsLoading);
 
   async function handleUploadProof(e: FormEvent) {
     e.preventDefault();
-    if (!invoiceId || !proofFile) return;
+    if (!invoiceId || invoiceLoading || !proofFile) return;
     setUploadingProof(true);
     try {
       await uploadPaymentProof({
@@ -281,14 +285,19 @@ export function ParentFees() {
                     className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[12.5px] outline-none"
                   />
                 </label>
-                <Button type="submit" variant="accent" disabled={!proofFile || !invoiceId || uploadingProof}>
+                <Button type="submit" variant="accent" disabled={!proofFile || !invoiceId || invoiceLoading || uploadingProof}>
                   {uploadingProof ? "Uploading…" : "Upload proof"}
                 </Button>
               </form>
 
               <div>
-                {proofsLoading ? (
-                  <div className="px-4 py-4 text-[12.5px] text-ink-faint">Loading…</div>
+                {proofsPending ? (
+                  Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-3 last:border-0">
+                      <Skeleton className="h-3 w-40" />
+                      <Skeleton className="h-4 w-24 rounded-full" />
+                    </div>
+                  ))
                 ) : !proofs || proofs.length === 0 ? (
                   <div className="px-4 py-6 text-center text-[12.5px] text-ink-faint">No payment proof uploaded yet.</div>
                 ) : (

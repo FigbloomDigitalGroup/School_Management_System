@@ -97,6 +97,11 @@ export function AdminClasses() {
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClasses(tenant.id), [tenant.id, reloadKey]);
+  // A reloadKey refetch keeps what's already on screen; switching to a different school's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const [loadedFor, setLoadedFor] = useState(tenant.id);
+  if (!loading && loadedFor !== tenant.id) setLoadedFor(tenant.id);
+  const pending = loading && (!data || loadedFor !== tenant.id);
   const [creating, setCreating] = useState(false);
   const [bulkCreating, setBulkCreating] = useState(false);
   const [editingTimetableFor, setEditingTimetableFor] = useState<ClassGroup | null>(null);
@@ -142,7 +147,7 @@ export function AdminClasses() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load classes: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : pending || !data ? (
           <TableSkeleton rows={8} />
         ) : (
           <DataTable

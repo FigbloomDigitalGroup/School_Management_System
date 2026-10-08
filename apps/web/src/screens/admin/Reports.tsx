@@ -2,7 +2,7 @@ import { formatMoney, gradeFor, gradingSchemeFor, summarise, supabase, type Grad
 import type { AttendanceMark, ClassGroup, Exam, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
-import { Skeleton } from "../../components/ui/Skeleton";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { DataTable, Mono } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -157,87 +157,101 @@ export function AdminReports() {
           />
         )}
 
-        <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
-          <DataTable
-            title="Attendance by class · this term"
-            columns={[
-              { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
-              {
-                key: "rate", header: "Rate", align: "right",
-                render: (c: ReportsData["classes"][number]) => {
-                  const a = data?.attendanceByClass.get(c.id);
-                  if (!a || a.total === 0) return <span className="text-[12.5px] text-ink-faint">No data</span>;
-                  return <Mono>{Math.round((a.present / a.total) * 100)}%</Mono>;
-                },
-              },
-              {
-                key: "entries", header: "Entries", align: "right",
-                render: (c: ReportsData["classes"][number]) => <Mono>{data?.attendanceByClass.get(c.id)?.total ?? 0}</Mono>,
-              },
-            ]}
-            rows={data?.classes ?? []}
-            rowKey={(c) => c.id}
-            minWidth="360px"
-            empty={{ title: "No classes yet.", body: "Add classes under School settings first." }}
-          />
+        {/* Until the report lands, the tables would read "No classes yet." —
+            hold their place instead. */}
+        {!error && (loading || !data) ? (
+          <>
+            <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
+              <TableSkeleton rows={5} />
+              <TableSkeleton rows={5} />
+            </div>
+            <div className="mt-4"><TableSkeleton rows={5} /></div>
+          </>
+        ) : (
+          <>
+            <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
+              <DataTable
+                title="Attendance by class · this term"
+                columns={[
+                  { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
+                  {
+                    key: "rate", header: "Rate", align: "right",
+                    render: (c: ReportsData["classes"][number]) => {
+                      const a = data?.attendanceByClass.get(c.id);
+                      if (!a || a.total === 0) return <span className="text-[12.5px] text-ink-faint">No data</span>;
+                      return <Mono>{Math.round((a.present / a.total) * 100)}%</Mono>;
+                    },
+                  },
+                  {
+                    key: "entries", header: "Entries", align: "right",
+                    render: (c: ReportsData["classes"][number]) => <Mono>{data?.attendanceByClass.get(c.id)?.total ?? 0}</Mono>,
+                  },
+                ]}
+                rows={data?.classes ?? []}
+                rowKey={(c) => c.id}
+                minWidth="360px"
+                empty={{ title: "No classes yet.", body: "Add classes under School settings first." }}
+              />
 
-          <DataTable
-            title="Fee collection by class · this term"
-            columns={[
-              { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
-              {
-                key: "pct", header: "Collected", align: "right",
-                render: (c: ReportsData["classes"][number]) => {
-                  const f = data?.feeByClass.get(c.id);
-                  if (!f || f.billed === 0) return <span className="text-[12.5px] text-ink-faint">Not billed</span>;
-                  return <Mono>{Math.round((f.paid / f.billed) * 100)}%</Mono>;
-                },
-              },
-              {
-                key: "balance", header: "Balance", align: "right",
-                render: (c: ReportsData["classes"][number]) => {
-                  const f = data?.feeByClass.get(c.id);
-                  return <Mono>{formatMoney(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0), tenant.country)}</Mono>;
-                },
-              },
-            ]}
-            rows={data?.classes ?? []}
-            rowKey={(c) => c.id}
-            minWidth="360px"
-            empty={{ title: "No classes yet.", body: "Add classes under School settings first." }}
-          />
-        </div>
+              <DataTable
+                title="Fee collection by class · this term"
+                columns={[
+                  { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
+                  {
+                    key: "pct", header: "Collected", align: "right",
+                    render: (c: ReportsData["classes"][number]) => {
+                      const f = data?.feeByClass.get(c.id);
+                      if (!f || f.billed === 0) return <span className="text-[12.5px] text-ink-faint">Not billed</span>;
+                      return <Mono>{Math.round((f.paid / f.billed) * 100)}%</Mono>;
+                    },
+                  },
+                  {
+                    key: "balance", header: "Balance", align: "right",
+                    render: (c: ReportsData["classes"][number]) => {
+                      const f = data?.feeByClass.get(c.id);
+                      return <Mono>{formatMoney(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0), tenant.country)}</Mono>;
+                    },
+                  },
+                ]}
+                rows={data?.classes ?? []}
+                rowKey={(c) => c.id}
+                minWidth="360px"
+                empty={{ title: "No classes yet.", body: "Add classes under School settings first." }}
+              />
+            </div>
 
-        <div className="mt-4">
-          <DataTable
-            title={data?.latestExam ? `Academic performance · ${data.latestExam.name}` : "Academic performance"}
-            columns={[
-              { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
-              {
-                key: "mean", header: "Class mean", align: "right",
-                render: (c: ReportsData["classes"][number]) => {
-                  const m = data?.meanByClass.get(c.id);
-                  if (!m) return <span className="text-[12.5px] text-ink-faint">No marks</span>;
-                  return <Mono>{m.mean} · {gradeFor(m.mean, m.scheme)}</Mono>;
-                },
-              },
-              {
-                key: "entered", header: "Marks entered", align: "right",
-                render: (c: ReportsData["classes"][number]) => {
-                  const m = data?.meanByClass.get(c.id);
-                  return <span className="text-[12.5px] text-ink-muted">{m ? `${m.entered} of ${m.total || "—"}` : "—"}</span>;
-                },
-              },
-            ]}
-            rows={data?.classes ?? []}
-            rowKey={(c) => c.id}
-            minWidth="420px"
-            empty={{
-              title: "No published exam yet.",
-              body: "Once a teacher publishes marks in Gradebook, the class means appear here.",
-            }}
-          />
-        </div>
+            <div className="mt-4">
+              <DataTable
+                title={data?.latestExam ? `Academic performance · ${data.latestExam.name}` : "Academic performance"}
+                columns={[
+                  { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
+                  {
+                    key: "mean", header: "Class mean", align: "right",
+                    render: (c: ReportsData["classes"][number]) => {
+                      const m = data?.meanByClass.get(c.id);
+                      if (!m) return <span className="text-[12.5px] text-ink-faint">No marks</span>;
+                      return <Mono>{m.mean} · {gradeFor(m.mean, m.scheme)}</Mono>;
+                    },
+                  },
+                  {
+                    key: "entered", header: "Marks entered", align: "right",
+                    render: (c: ReportsData["classes"][number]) => {
+                      const m = data?.meanByClass.get(c.id);
+                      return <span className="text-[12.5px] text-ink-muted">{m ? `${m.entered} of ${m.total || "—"}` : "—"}</span>;
+                    },
+                  },
+                ]}
+                rows={data?.classes ?? []}
+                rowKey={(c) => c.id}
+                minWidth="420px"
+                empty={{
+                  title: "No published exam yet.",
+                  body: "Once a teacher publishes marks in Gradebook, the class means appear here.",
+                }}
+              />
+            </div>
+          </>
+        )}
 
         <CbeReport tenantId={tenant.id} termId={data?.term?.id ?? null} country={tenant.country} />
       </div>

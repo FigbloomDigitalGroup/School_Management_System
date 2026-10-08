@@ -160,6 +160,14 @@ async function main() {
   const singleLap = process.env.ONE === "1";
   let reverse = process.env.REVERSE === "1";
 
+  // START_DELAY_MIN=5 holds the bus at school before its first trip, so a second bus on the
+  // same road can be started together with the first and still leave a few minutes behind it.
+  const delayMin = Number(process.env.START_DELAY_MIN ?? 0);
+  if (delayMin > 0) {
+    console.log(`Waiting ${delayMin} min at ${stopsAsc[0]!.name} before leaving…`);
+    for (let waited = 0; waited < delayMin * 60_000 && !stopRequested; waited += TICK_MS) await sleep(TICK_MS);
+  }
+
   while (!stopRequested) {
     const stops = reverse ? [...stopsAsc].reverse() : stopsAsc;
 

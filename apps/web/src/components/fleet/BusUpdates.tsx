@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listBusUpdates, personaliseBusTitle, subscribeBusUpdates, type BusUpdate, type ChildInfo } from "@figbloom/shared";
+import { Skeleton } from "../ui/Skeleton";
 import { useToast } from "../ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useParentData } from "../../lib/parentContext";
@@ -41,18 +42,24 @@ export function BusUpdatesListener() {
   return null;
 }
 
-/** Today's updates for these children, kept live. */
-export function useTodaysBusUpdates(studentIds: string[]): BusUpdate[] {
+/** Today's updates for these children, kept live. `loading` is only the
+ *  first fetch — a realtime insert never puts the feed back into loading. */
+export function useTodaysBusUpdates(studentIds: string[]): { updates: BusUpdate[]; loading: boolean } {
   const { tenant } = useTenantSession();
   const [updates, setUpdates] = useState<BusUpdate[]>([]);
   const key = studentIds.join(",");
+  // The id list the first fetch has come back for; until then the feed is loading, not empty.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (!studentIds.length) return;
     let alive = true;
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
-    listBusUpdates(studentIds, midnight).then((u) => { if (alive) setUpdates(u); }).catch(() => {});
+    listBusUpdates(studentIds, midnight)
+      .then((u) => { if (alive) setUpdates(u); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoadedFor(key); });
     const off = subscribeBusUpdates(tenant.id, (u) => {
       if (u.student_ids.some((id) => studentIds.includes(id))) setUpdates((prev) => [u, ...prev.filter((p) => p.id !== u.id)]);
     });
@@ -60,7 +67,7 @@ export function useTodaysBusUpdates(studentIds: string[]): BusUpdate[] {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id list
   }, [tenant.id, key]);
 
-  return updates;
+  return { updates, loading: studentIds.length > 0 && loadedFor !== key };
 }
 
 /** Offer browser notifications once, for when the bus page is in a background tab. */
@@ -81,7 +88,20 @@ export function NotifyButton() {
 const ICON: Record<BusUpdate["kind"], string> = { trip_started: "🚌", distance: "📍", arrived: "✅", delay: "⏱" };
 
 /** A child's updates today, newest first: the trail of what the family was told. */
-export function UpdateFeed({ updates, limit = 4 }: { updates: BusUpdate[]; limit?: number }) {
+export function UpdateFeed({ updates, limit = 4, loading = false }: { updates: BusUpdate[]; limit?: number; loading?: boolean }) {
+  if (loading && !updates.length) {
+    return (
+      <div className="grid gap-1.5" aria-busy="true">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Skeleton className="h-3.5 w-4 shrink-0" />
+            <Skeleton className="h-3 flex-1" />
+            <Skeleton className="h-2.5 w-9 shrink-0" />
+          </div>
+        ))}
+      </div>
+    );
+  }
   if (!updates.length) return null;
   return (
     <ol className="grid gap-1.5">

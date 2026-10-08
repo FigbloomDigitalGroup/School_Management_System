@@ -61,6 +61,11 @@ export function TermSetup() {
   const [open, setOpen] = useState<string | null>("teachers");
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchTermSetup(tenant.id), [tenant.id, reloadKey]);
+  // A reloadKey refetch keeps what's already on screen; switching to a different school's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const [loadedFor, setLoadedFor] = useState(tenant.id);
+  if (!loading && loadedFor !== tenant.id) setLoadedFor(tenant.id);
+  const pending = loading && (!data || loadedFor !== tenant.id);
   const reload = () => setReloadKey((k) => k + 1);
 
   const [termYear, setTermYear] = useState(new Date().getFullYear());
@@ -335,7 +340,7 @@ export function TermSetup() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load term setup: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : pending || !data ? (
           <>
             <div className="mb-5 flex items-center gap-3">
               <Skeleton className="h-2 flex-1" />

@@ -105,6 +105,11 @@ export function People() {
   const [pageSize, setPageSize] = useState(50);
 
   const { data, loading, error } = useAsync(() => fetchPeople(tenant.id), [tenant.id, reloadKey]);
+  // A reloadKey refetch keeps what's already on screen; switching to a different school's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const [loadedFor, setLoadedFor] = useState(tenant.id);
+  if (!loading && loadedFor !== tenant.id) setLoadedFor(tenant.id);
+  const pending = loading && (!data || loadedFor !== tenant.id);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -240,7 +245,7 @@ export function People() {
           </label>
         )}
         <span className="ml-auto font-mono text-[11px] text-ink-faint">
-          {loading ? "…" : `${activeTotal.toLocaleString()} total`}
+          {pending ? "…" : `${activeTotal.toLocaleString()} total`}
         </span>
       </div>
 
@@ -263,7 +268,7 @@ export function People() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load people: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : pending || !data ? (
           <TableSkeleton rows={8} />
         ) : tab === "students" ? (
           <DataTable
@@ -342,7 +347,7 @@ export function People() {
             }}
           />
         )}
-        {!error && !loading && data && activeTotal > 0 && (
+        {!error && !pending && data && activeTotal > 0 && (
           <Pagination page={page} pageSize={pageSize} total={activeTotal} onPageChange={setPage} onPageSizeChange={setPageSize} />
         )}
       </div>

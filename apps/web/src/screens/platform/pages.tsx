@@ -31,6 +31,9 @@ import { useAsync } from "../../lib/useAsync";
  * or record an invoice by hand, and mark it resolved/paid by hand too.
  */
 
+/** First load only: callers check `!data` (not `loading`), so a reload after
+ *  "Check now" or a save keeps the page up, and `error` is checked first
+ *  because a failed fetch also leaves `data` null. */
 function RecordsLoading({ eyebrow, title }: { eyebrow: string; title: string }) {
   return (
     <>
@@ -107,7 +110,7 @@ export function Health() {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
   const [checking, setChecking] = useState(false);
-  const { data, loading, error } = useAsync(() => fetchServiceHistory(), [reloadKey]);
+  const { data, error } = useAsync(() => fetchServiceHistory(), [reloadKey]);
 
   async function runCheck() {
     setChecking(true);
@@ -121,8 +124,8 @@ export function Health() {
     }
   }
 
-  if (loading || !data) return <RecordsLoading eyebrow="Platform · live checks" title="System health" />;
   if (error) return <RecordsError eyebrow="Platform · live checks" title="System health" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Platform · live checks" title="System health" />;
 
   const byService = new Map<string, ServiceStatusRow[]>();
   for (const row of data) byService.set(row.service, [...(byService.get(row.service) ?? []), row]);
@@ -206,9 +209,9 @@ async function fetchUsage(): Promise<UsageRow[]> {
 }
 
 export function Usage() {
-  const { data, loading, error } = useAsync(() => fetchUsage(), []);
-  if (loading || !data) return <RecordsLoading eyebrow="Platform · current term" title="Usage & capacity" />;
+  const { data, error } = useAsync(() => fetchUsage(), []);
   if (error) return <RecordsError eyebrow="Platform · current term" title="Usage & capacity" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Platform · current term" title="Usage & capacity" />;
 
   const totalLicensed = data.reduce((a, r) => a + r.tenant.licensed_seats, 0);
   const totalInUse = data.reduce((a, r) => a + r.inUse, 0);
@@ -276,12 +279,12 @@ const INCIDENT_STATUS: Record<IncidentStatus, { label: string; tone: Tone }> = {
 export function Incidents() {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchIncidents(), [reloadKey]);
+  const { data, error } = useAsync(() => fetchIncidents(), [reloadKey]);
   const [declaring, setDeclaring] = useState(false);
   const reload = () => setReloadKey((k) => k + 1);
 
-  if (loading || !data) return <RecordsLoading eyebrow="Support · open and recent" title="Incidents" />;
   if (error) return <RecordsError eyebrow="Support · open and recent" title="Incidents" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Support · open and recent" title="Incidents" />;
 
   const open = data.filter((i) => i.status !== "resolved");
   const affectedInOpen = open.reduce((a, i) => a + i.affected_schools, 0);
@@ -471,9 +474,9 @@ const SUBSCRIPTION_STATUS: Record<TenantStatus, { label: string; tone: Tone }> =
 };
 
 export function Subscriptions() {
-  const { data, loading, error } = useAsync(() => fetchSubscriptions(), []);
-  if (loading || !data) return <RecordsLoading eyebrow="Commercial · current term" title="Subscriptions" />;
+  const { data, error } = useAsync(() => fetchSubscriptions(), []);
   if (error) return <RecordsError eyebrow="Commercial · current term" title="Subscriptions" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Commercial · current term" title="Subscriptions" />;
 
   const billed = data.filter((r) => isBilled(r.tenant));
   const mrr = billed.reduce((a, r) => a + r.priceCents, 0);
@@ -553,12 +556,12 @@ const isOverdue = (i: PlatformInvoice) => i.status === "due" && new Date(i.due_d
 export function Invoices() {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchInvoicesData(), [reloadKey]);
+  const { data, error } = useAsync(() => fetchInvoicesData(), [reloadKey]);
   const [creating, setCreating] = useState(false);
   const reload = () => setReloadKey((k) => k + 1);
 
-  if (loading || !data) return <RecordsLoading eyebrow="Commercial · outstanding first" title="Invoices" />;
   if (error) return <RecordsError eyebrow="Commercial · outstanding first" title="Invoices" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Commercial · outstanding first" title="Invoices" />;
 
   const outstanding = data.invoices.filter((i) => i.status === "due");
   const outstandingTotal = outstanding.reduce((a, i) => a + i.amount_cents, 0);
@@ -727,9 +730,9 @@ async function fetchImpersonation(): Promise<ImpersonationRow[]> {
 }
 
 export function Impersonation() {
-  const { data, loading, error } = useAsync(() => fetchImpersonation(), []);
-  if (loading || !data) return <RecordsLoading eyebrow="Support · immutable record" title="Impersonation log" />;
+  const { data, error } = useAsync(() => fetchImpersonation(), []);
   if (error) return <RecordsError eyebrow="Support · immutable record" title="Impersonation log" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Support · immutable record" title="Impersonation log" />;
 
   const now = new Date();
   const thisMonth = data.filter((r) => { const d = new Date(r.started_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
@@ -793,9 +796,9 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export function Audit() {
-  const { data, loading, error } = useAsync(() => fetchAudit(), []);
-  if (loading || !data) return <RecordsLoading eyebrow="Platform · all tenants" title="Audit trail" />;
+  const { data, error } = useAsync(() => fetchAudit(), []);
   if (error) return <RecordsError eyebrow="Platform · all tenants" title="Audit trail" message={error.message} />;
+  if (!data) return <RecordsLoading eyebrow="Platform · all tenants" title="Audit trail" />;
 
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
   const today = data.filter((r) => new Date(r.created_at) >= startOfToday);

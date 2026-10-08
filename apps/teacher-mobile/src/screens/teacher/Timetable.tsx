@@ -70,7 +70,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
     <View style={s.screen}>
       <ScreenHeader
         title="Timetable"
-        sub={isClassTeacher ? "Whole week — you're the class teacher" : "Your periods only"}
+        sub={!byDay ? undefined : isClassTeacher ? "Whole week — you're the class teacher" : "Your periods only"}
         color={a.deep}
         back
       />

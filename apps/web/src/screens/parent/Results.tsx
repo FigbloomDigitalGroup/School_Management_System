@@ -18,7 +18,7 @@ export function ParentResults() {
   const { data, loading, error, child } = useParentData();
   const scheme = gradingSchemeFor(tenant.country, child?.classLevel ?? "secondary");
   // CBE strand results (published assessments), alongside any exam marks.
-  const { data: cbeByStudent } = useAsync(
+  const { data: cbeByStudent, loading: cbeLoading } = useAsync(
     () => (child ? loadPublishedCbeResults([child.id], tenant.country) : Promise.resolve(new Map())),
     [child?.id, tenant.country],
   );
@@ -45,7 +45,7 @@ export function ParentResults() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load results: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : loading || !data || cbeLoading ? (
           <>
             <Skeleton className="h-24 rounded-lg" />
             <div className="mt-5"><TableSkeleton rows={5} /></div>

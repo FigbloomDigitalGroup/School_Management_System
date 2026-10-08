@@ -8,6 +8,7 @@ import {
 } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { EmptyState } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
 import { queue } from "../../lib/queue";
 import { useOnline } from "../../lib/useOnline";
@@ -78,7 +79,7 @@ export function Attendance() {
   const { profile, tenant } = useTenantSession();
 
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
-  const { data: term } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
+  const { data: term, loading: termLoading } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
   const [params] = useSearchParams();
 
@@ -180,6 +181,23 @@ export function Attendance() {
 
   const cls = classesData.find((c) => c.id === classId);
 
+  // Loaded and empty, as opposed to still loading: a sentence, not a skeleton
+  // that never resolves. A register needs both a class and an open term.
+  const noClasses = !classesLoading && classesData.length === 0;
+  if (noClasses || (!termLoading && !term)) {
+    return (
+      <div className="min-h-screen bg-page p-6">
+        <div className="rounded-lg border border-line bg-white">
+          {noClasses ? (
+            <EmptyState title="No classes yet" body="You aren't assigned to any classes yet. Ask the school admin to add you to a class." />
+          ) : (
+            <EmptyState title="No term open" body="No term is open yet. Ask the school admin to open the current term in Term setup." />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (classesLoading || !cls || submitted === null) {
     return (
       <div className="min-h-screen bg-page p-6">
@@ -196,7 +214,9 @@ export function Attendance() {
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-semibold">{cls.name} register is in</div>
             <div className="mt-0.5 truncate text-[12px] text-ink-muted">
-              {counts.present} present · {counts.absent} absent · {counts.late} late —{" "}
+              {/* The register (term + roster) can still be loading behind an
+                  already-submitted day — don't report it as 0/0/0. */}
+              {reg ? `${counts.present} present · ${counts.absent} absent · ${counts.late} late` : <Skeleton className="inline-block h-3 w-40 align-middle" />} —{" "}
               {online
                 ? "parents of absent learners get an SMS at 09:00, not immediately"
                 : `held on this phone${held > 1 ? ` with ${held - 1} other register(s)` : ""}, sends itself once you have signal`}
@@ -281,7 +301,7 @@ export function Attendance() {
               >
                 {classesData.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <span className="text-[13px] text-ink-muted">{roster.length} learners</span>
+              {rosterLoading ? <Skeleton className="h-3 w-20" /> : <span className="text-[13px] text-ink-muted">{roster.length} learners</span>}
             </div>
           </div>
           {!online && (
@@ -293,7 +313,9 @@ export function Attendance() {
       </header>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-white px-5 py-2.5">
-        {(["present", "absent", "late"] as AttendanceMark[]).map((k) => (
+        {(["present", "absent", "late"] as AttendanceMark[]).map((k) => !reg ? (
+          <Skeleton key={k} className="h-[26px] w-20 rounded-full" />
+        ) : (
           <span key={k} className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: MARK_STYLE[k].bg, color: MARK_STYLE[k].ink }}>
             {counts[k]} {MARK_LABEL[k].toLowerCase()}
           </span>

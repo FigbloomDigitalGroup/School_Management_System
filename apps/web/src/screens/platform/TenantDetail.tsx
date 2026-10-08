@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { formatMoney, formatShortDate, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
@@ -70,8 +71,10 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
   const nav = useNavigate();
   const alert = ALERTS[status];
   const low = status !== "active";
-  const { data: overview } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
-  const { data: organizations } = useAsync(() => fetchOrganizations(), []);
+  // Not first-load-only: switching schools keeps the previous school's counts
+  // in `data` until the new ones land, and those must not show under this name.
+  const { data: overview, loading: overviewLoading } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
+  const { data: organizations, loading: organizationsLoading } = useAsync(() => fetchOrganizations(), []);
   const [orgId, setOrgId] = useState(tenant.organization_id ?? "");
   const [orgSaving, setOrgSaving] = useState(false);
 
@@ -174,9 +177,9 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
 
           <StatRow
             stats={[
-              { label: "Learners", value: (overview?.learners ?? 0).toLocaleString(), sub: `of ${tenant.licensed_seats.toLocaleString()} licensed` },
-              { label: "Staff accounts", value: (overview?.staff ?? 0).toLocaleString(), sub: "school admin + teacher logins" },
-              { label: "Parent accounts", value: (overview?.parents ?? 0).toLocaleString(), sub: "with a login" },
+              { label: "Learners", value: (overview?.learners ?? 0).toLocaleString(), sub: `of ${tenant.licensed_seats.toLocaleString()} licensed`, loading: overviewLoading },
+              { label: "Staff accounts", value: (overview?.staff ?? 0).toLocaleString(), sub: "school admin + teacher logins", loading: overviewLoading },
+              { label: "Parent accounts", value: (overview?.parents ?? 0).toLocaleString(), sub: "with a login", loading: overviewLoading },
               {
                 label: "Billing",
                 value: (overview?.outstandingCents ?? 0) > 0 ? "Outstanding" : "Current",
@@ -188,6 +191,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
                   ? `${formatMoney(overview!.outstandingCents, "KE")} outstanding${overview?.nextDueOn ? ` · due ${formatShortDate(overview.nextDueOn)}` : ""}`
                   : "nothing outstanding",
                 alarming: (overview?.outstandingCents ?? 0) > 0,
+                loading: overviewLoading,
               },
             ]}
           />
@@ -199,7 +203,8 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
                 A county, constituency or group-owner this school reports into for cross-school visibility. Optional.
               </p>
             </div>
-            <select
+            {/* Until the list lands an assigned school's select would read "Not assigned". */}
+            {organizationsLoading ? <Skeleton className="h-8 w-44" /> : <select
               value={orgId}
               disabled={orgSaving}
               onChange={(e) => void setOrganization(e.target.value)}
@@ -208,7 +213,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
             >
               <option value="">Not assigned</option>
               {(organizations ?? []).map((o: Organization) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
+            </select>}
           </div>
 
           {/* Daily active users and role adoption stay illustrative — they need real

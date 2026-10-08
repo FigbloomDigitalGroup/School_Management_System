@@ -45,10 +45,15 @@ export function StudentFees() {
   const [proofReload, setProofReload] = useState(0);
 
   const invoiceId = data?.invoiceId ?? null;
-  const { data: proofs, loading: proofsLoading } = useAsync(
-    () => (invoiceId ? listPaymentProofs(invoiceId) : Promise.resolve([] as PaymentProof[])),
+  // Tagged with the invoice they belong to, so the proofs fetched for "no
+  // invoice yet" (while fees load) never read as "none uploaded" — but a
+  // reload after an upload keeps the list up.
+  const { data: proofsFor, loading: proofsLoading } = useAsync(
+    async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload],
   );
+  const proofs = proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
+  const proofsPending = !proofs && proofsLoading;
 
   async function handleUploadProof(e: FormEvent) {
     e.preventDefault();
@@ -238,8 +243,13 @@ export function StudentFees() {
               </form>
 
               <div>
-                {proofsLoading ? (
-                  <div className="px-4 py-4 text-[12.5px] text-ink-faint">Loading…</div>
+                {proofsPending ? (
+                  Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-3 last:border-0">
+                      <Skeleton className="h-3 w-40" />
+                      <Skeleton className="h-4 w-24 rounded-full" />
+                    </div>
+                  ))
                 ) : !proofs || proofs.length === 0 ? (
                   <div className="px-4 py-6 text-center text-[12.5px] text-ink-faint">No payment proof uploaded yet.</div>
                 ) : (

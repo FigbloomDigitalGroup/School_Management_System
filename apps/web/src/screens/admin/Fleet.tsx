@@ -75,7 +75,8 @@ export function Fleet() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchFleet(tenant.id), [tenant.id, refreshKey]);
+  // first load only: a refresh (alerts, saved stops) must not blank the page and remount the live map
+  const { data, error } = useAsync(() => fetchFleet(tenant.id), [tenant.id, refreshKey]);
   const refresh = () => setRefreshKey((k) => k + 1);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
@@ -129,7 +130,7 @@ export function Fleet() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the fleet: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : !data ? (
           <div className="grid gap-6">
             <TableSkeleton rows={3} />
             <TableSkeleton rows={3} />

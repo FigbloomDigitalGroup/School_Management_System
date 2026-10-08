@@ -223,8 +223,9 @@ export function Announcements() {
           <div className="rounded-xl bg-sunken p-4">
             <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BEFORE YOU SEND</div>
             <dl className="mt-2.5 grid gap-2 text-[12.5px]">
-              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{reach.toLocaleString()} people</dd></div>
-              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{formatMoney(smsCostCents, tenant.country)}</dd></div>
+              {/* reach is 0 until the counts land — never show that as the answer. */}
+              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{loading && !data ? <Skeleton className="h-3 w-16" /> : `${reach.toLocaleString()} people`}</dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{channels.sms && loading && !data ? <Skeleton className="h-3 w-16" /> : formatMoney(smsCostCents, tenant.country)}</dd></div>
               <div className="flex justify-between"><dt className="text-ink-muted">Cannot be unsent</dt><dd className="font-mono">correct</dd></div>
             </dl>
             <div className="mt-3.5 grid gap-2">
@@ -236,7 +237,19 @@ export function Announcements() {
             </div>
           </div>
 
-          {!loading && data && data.recent.length > 0 && (
+          {loading && !data ? (
+            <div className="rounded-xl border border-line p-4">
+              <Skeleton className="h-2.5 w-28" />
+              <div className="mt-2.5 grid gap-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i}>
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="mt-1 h-2.5 w-20" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : data && data.recent.length > 0 && (
             <div className="rounded-xl border border-line p-4">
               <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">RECENTLY SENT</div>
               <ul className="mt-2.5 grid gap-2">

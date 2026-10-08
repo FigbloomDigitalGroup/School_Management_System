@@ -102,6 +102,11 @@ export function FeeItemsEditor({ termId, termName, tenantId, country, onClose }:
   const { tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
   const { data: items, loading, error } = useAsync(() => fetchTermFeeItems(termId), [termId, reloadKey]);
+  // A reloadKey refetch keeps what's already on screen; switching to a different term's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const [loadedFor, setLoadedFor] = useState(termId);
+  if (!loading && loadedFor !== termId) setLoadedFor(termId);
+  const pending = loading && (!items || loadedFor !== termId);
   const { data: yearGroups } = useAsync(() => fetchYearGroups(tenantId, tenant.level), [tenantId, tenant.level]);
   const reload = () => setReloadKey((k) => k + 1);
 
@@ -150,7 +155,7 @@ export function FeeItemsEditor({ termId, termName, tenantId, country, onClose }:
     >
       {error ? (
         <p className="text-[12.5px] text-warn-ink">Could not load fee items: {error.message}</p>
-      ) : loading || !items ? (
+      ) : pending || !items ? (
         <TableSkeleton rows={4} />
       ) : (
         <div className="grid gap-3">

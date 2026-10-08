@@ -11,7 +11,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
-import { TableSkeleton } from "../../components/ui/Skeleton";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
@@ -49,8 +49,8 @@ export function AdminCourses() {
 
   const { data: semesters, loading: semestersLoading } = useAsync(() => fetchSemesters(tenant.id), [reloadKey]);
   const { data: courses, loading: coursesLoading } = useAsync(() => fetchCourses(tenant.id), [reloadKey]);
-  const { data: teachers } = useAsync(() => fetchTeachers(tenant.id), []);
-  const { data: students } = useAsync(() => fetchActiveStudents(tenant.id), []);
+  const { data: teachers, loading: teachersLoading } = useAsync(() => fetchTeachers(tenant.id), []);
+  const { data: students, loading: studentsLoading } = useAsync(() => fetchActiveStudents(tenant.id), []);
 
   const [semesterId, setSemesterId] = useState<string>("");
   const currentSemesterId = useMemo(() => semesters?.find((s) => s.is_current)?.id ?? semesters?.[0]?.id ?? "", [semesters]);
@@ -160,7 +160,7 @@ export function AdminCourses() {
         )}
 
         {tab === "sections" && (
-          !semesters?.length ? (
+          semestersLoading && !semesters ? <TableSkeleton rows={6} /> : !semesters?.length ? (
             <p className="text-[13px] text-ink-muted">Add a semester first.</p>
           ) : sectionsLoading || !sections ? <TableSkeleton rows={6} /> : (
             <DataTable
@@ -169,7 +169,8 @@ export function AdminCourses() {
                 { key: "section", header: "Section", render: (s: CourseSectionRow) => <Mono>{s.section_label}</Mono> },
                 { key: "room", header: "Room", render: (s: CourseSectionRow) => <span className="text-[13px]">{s.room ?? "—"}</span> },
                 { key: "instructor", header: "Instructor", width: "1.4fr", render: (s: CourseSectionRow) => (
-                  <select
+                  // Without the teacher list the select would read "Unassigned" for every section.
+                  teachersLoading && !teachers ? <Skeleton className="h-8 w-full" /> : <select
                     value={s.instructor_id ?? ""}
                     onChange={(e) => void setInstructor(s.id, e.target.value)}
                     aria-label={`Instructor for ${s.course_name} ${s.section_label}`}
@@ -206,7 +207,7 @@ export function AdminCourses() {
       {addingCourse && (
         <AddCourseModal onClose={() => setAddingCourse(false)} onCreated={() => { setAddingCourse(false); reload(); }} toast={toast} />
       )}
-      {addingSection && semesters && semesters.length > 0 && (
+      {addingSection && semesters && semesters.length > 0 && (courses || !coursesLoading) && (
         <AddSectionModal
           semesters={semesters}
           courses={courses ?? []}
@@ -219,7 +220,7 @@ export function AdminCourses() {
       {rosterFor && (
         <RosterModal
           section={rosterFor}
-          students={students ?? []}
+          students={studentsLoading ? null : students ?? []}
           onClose={() => setRosterFor(null)}
           onChanged={() => reload()}
           toast={toast}
@@ -433,17 +434,17 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
 }
 
 function RosterModal({ section, students, onClose, onChanged, toast }: {
-  section: CourseSectionRow; students: StudentOption[];
+  section: CourseSectionRow; students: StudentOption[] | null;
   onClose: () => void; onChanged: () => void; toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data: roster, loading } = useAsync(() => fetchEnrollmentsForSection(section.id), [section.id, reloadKey]);
+  const { data: roster } = useAsync(() => fetchEnrollmentsForSection(section.id), [section.id, reloadKey]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [enrolling, setEnrolling] = useState(false);
 
   const enrolledIds = new Set((roster ?? []).filter((r) => r.status === "enrolled").map((r) => r.student_id));
-  const available = students.filter((s) => !enrolledIds.has(s.id));
+  const available = (students ?? []).filter((s) => !enrolledIds.has(s.id));
 
   async function enroll() {
     if (!picked.size) return;
@@ -475,8 +476,12 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
       <div className="grid gap-4">
         <section>
           <h3 className="mb-2 text-[12.5px] font-semibold">Enrolled</h3>
-          {loading || !roster ? (
-            <p className="text-[12.5px] text-ink-faint">Loading…</p>
+          {!roster ? (
+            <div className="overflow-hidden rounded-lg border border-line">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="border-b border-line-soft px-3.5 py-2.5 last:border-0"><Skeleton className="h-3 w-1/2" /></div>
+              ))}
+            </div>
           ) : roster.filter((r) => r.status === "enrolled").length === 0 ? (
             <p className="text-[12.5px] text-ink-faint">No one enrolled yet.</p>
           ) : (
@@ -493,7 +498,18 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
 
         <section>
           <h3 className="mb-2 text-[12.5px] font-semibold">Add students</h3>
-          {available.length === 0 ? (
+          {/* Until both lists are in, "available" would be wrong — either empty or
+              still including learners who are already enrolled. */}
+          {!students || !roster ? (
+            <div className="overflow-hidden rounded-lg border border-line">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-2.5 border-b border-line-soft px-3.5 py-2.5 last:border-0">
+                  <Skeleton className="h-3.5 w-3.5 shrink-0" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : available.length === 0 ? (
             <p className="text-[12.5px] text-ink-faint">Everyone active is already enrolled.</p>
           ) : (
             <>
@@ -503,7 +519,7 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
                     <input
                       type="checkbox"
                       checked={picked.has(s.id)}
-                      onChange={() => setPicked((p) => { const n = new Set(p); n.has(s.id) ? n.delete(s.id) : n.add(s.id); return n; })}
+                      onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; })}
                     />
                     <Cell sub={`ADM ${s.admission_no}`}>{s.full_name}</Cell>
                   </label>

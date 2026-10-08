@@ -7,10 +7,11 @@ import {
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { EmptyState } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { TableSkeleton } from "../../components/ui/Skeleton";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 
 /**
  * Bulk entry, keyboard first. A teacher entering 40 marks should never touch
@@ -22,7 +23,7 @@ export function Gradebook() {
   const { profile, tenant } = useTenantSession();
 
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
-  const { data: term } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
+  const { data: term, loading: termLoading } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
   const [params] = useSearchParams();
 
@@ -44,18 +45,27 @@ export function Gradebook() {
   // Subjects are scoped per class — reset the selection whenever the class changes.
   useEffect(() => { setSubjectId(null); }, [classId]);
 
+  // Tagged with its class so a class switch can't auto-select the previous
+  // class's first subject before this class's list lands.
   const { data: subjectListData } = useAsync(
-    () => (classId ? fetchTeacherSubjectsForClass(profile.id, classId) : Promise.resolve([])),
+    async () => ({ classId, list: classId ? await fetchTeacherSubjectsForClass(profile.id, classId) : [] }),
     [classId, profile.id],
   );
-  const subjectsData = useMemo(() => subjectListData ?? [], [subjectListData]);
+  const subjectsData = useMemo(
+    () => (subjectListData?.classId === classId ? subjectListData.list : []),
+    [subjectListData, classId],
+  );
 
   useEffect(() => {
     if (!subjectId && subjectsData.length > 0) setSubjectId(subjectsData[0]!.id);
   }, [subjectId, subjectsData]);
 
-  const { data: examListData } = useAsync(() => (term?.id ? fetchExamsForTerm(term.id) : Promise.resolve([])), [term?.id]);
+  const { data: examListData, loading: examsLoading } = useAsync(() => (term?.id ? fetchExamsForTerm(term.id) : Promise.resolve([])), [term?.id]);
   const examsData = useMemo(() => examListData ?? [], [examListData]);
+  // Loaded and empty, as opposed to still loading: these get a sentence, not a skeleton.
+  const noTerm = !termLoading && !term;
+  const noExams = !!term && !examsLoading && examsData.length === 0;
+  const noSubjects = subjectListData?.classId === classId && subjectsData.length === 0;
 
   useEffect(() => {
     if (!examId && examsData.length > 0) setExamId(examsData[0]!.id);
@@ -67,13 +77,20 @@ export function Gradebook() {
   );
   const roster = rosterData ?? [];
 
-  const { data: existingMarksData } = useAsync(
+  // Tagged with the selection it was fetched for: a save (marksVersion)
+  // refetches behind the grid without blanking it, but a new exam, subject
+  // or roster must not show the previous one's marks — or blank inputs — as
+  // if they were this one's.
+  const { data: existingMarksData, error: marksError } = useAsync(
     () => (examId && subjectId && rosterData && rosterData.length
       ? fetchMarksForExamSubject(examId, subjectId, rosterData.map((s) => s.id))
-      : Promise.resolve({} as Record<string, number | null>)),
+      : Promise.resolve({} as Record<string, number | null>))
+      .then((marks) => ({ examId, subjectId, rosterData, marks })),
     [examId, subjectId, rosterData, marksVersion],
   );
-  const existingMarks = useMemo(() => existingMarksData ?? {}, [existingMarksData]);
+  const marksReady = !rosterLoading && (!!marksError || (!!existingMarksData && existingMarksData.examId === examId
+    && existingMarksData.subjectId === subjectId && existingMarksData.rosterData === rosterData));
+  const existingMarks = useMemo(() => (marksReady && existingMarksData ? existingMarksData.marks : {}), [marksReady, existingMarksData]);
 
   const subject = subjectsData.find((s) => s.id === subjectId);
   const exam = examsData.find((e) => e.id === examId);
@@ -165,6 +182,19 @@ export function Gradebook() {
     toast(`${subject.name} ${exam.name} published to ${roster.length} learners and their parents`);
   }
 
+  if (!classesLoading && classesData.length === 0) {
+    return (
+      <>
+        <PageHead eyebrow="Gradebook" title="Gradebook" />
+        <div className="px-7 py-6">
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState title="No classes yet" body="You aren't assigned to any classes yet. Ask the school admin to add you to a class." />
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (classesLoading || !classId) {
     return (
       <>
@@ -178,17 +208,17 @@ export function Gradebook() {
     <>
       <PageHead
         eyebrow="Gradebook"
-        title={subject && exam ? `${subject.name} · ${exam.name}` : "Loading…"}
+        title={subject && exam ? `${subject.name} · ${exam.name}` : noTerm || noExams || noSubjects ? "Gradebook" : "Loading…"}
         blurb="Type a mark and press Enter to drop to the next learner. Type abs for anyone who missed the paper — it is recorded as missing, not as zero."
         actions={
           <>
             <Button onClick={() => { void saveDraft(); }}>Save draft</Button>
             <Button
               variant="accent"
-              disabled={entered < roster.length}
+              disabled={!marksReady || entered < roster.length}
               onClick={() => { void publish(); }}
             >
-              {entered < roster.length ? `${roster.length - entered} still to enter` : "Publish marks"}
+              {marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish marks"}
             </Button>
           </>
         }
@@ -204,19 +234,33 @@ export function Gradebook() {
         <select value={examId ?? ""} onChange={(e) => setExamId(e.target.value)} aria-label="Exam" className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
           {examsData.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
-        <div className="ml-auto flex items-center gap-4 text-[12.5px] text-ink-muted">
-          <span>{entered} of {roster.length} entered</span>
-          <span className="font-mono">
-            {summary.meanScore === null ? "no mean yet" : `your mean ${summary.meanScore}`}
-          </span>
-          <span className="font-mono">
-            {mean === null ? "no class mean yet" : `class mean ${mean}`}
-          </span>
-        </div>
+        {marksReady ? (
+          <div className="ml-auto flex items-center gap-4 text-[12.5px] text-ink-muted">
+            <span>{entered} of {roster.length} entered</span>
+            <span className="font-mono">
+              {summary.meanScore === null ? "no mean yet" : `your mean ${summary.meanScore}`}
+            </span>
+            <span className="font-mono">
+              {mean === null ? "no class mean yet" : `class mean ${mean}`}
+            </span>
+          </div>
+        ) : (
+          <div className="ml-auto flex items-center gap-4"><Skeleton className="h-3 w-24" /><Skeleton className="h-3 w-20" /><Skeleton className="h-3 w-24" /></div>
+        )}
       </div>
 
       <div className="px-7 py-6">
-        {rosterLoading ? (
+        {noTerm || noExams || noSubjects ? (
+          <div className="rounded-lg border border-line bg-white">
+            {noTerm ? (
+              <EmptyState title="No term open" body="No term is open yet. Ask the school admin to open the current term in Term setup." />
+            ) : noSubjects ? (
+              <EmptyState title="No subjects yet" body="You aren't assigned any subjects in this class yet. Ask the school admin to add you to one." />
+            ) : (
+              <EmptyState title="No exams yet" body="No exams are set for this term yet. Ask the school admin to set one up." />
+            )}
+          </div>
+        ) : termLoading || !marksReady ? (
           <TableSkeleton rows={8} />
         ) : (
           <div className="overflow-hidden rounded-lg border border-line bg-white">

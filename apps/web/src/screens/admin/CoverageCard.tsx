@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { formatShortDate } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
@@ -19,11 +20,24 @@ export function CoverageCard() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data: coverage } = useAsync(() => fetchCoverageThisWeek(tenant.id), [tenant.id, reloadKey]);
+  const { data: coverage, loading } = useAsync(() => fetchCoverageThisWeek(tenant.id), [tenant.id, reloadKey]);
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
+  // First load only: hold the card's place instead of popping it in. A reload
+  // after assigning keeps the list on screen.
+  if (loading && !coverage) {
+    return (
+      <section className="rounded-lg border border-line p-4">
+        <Skeleton className="h-3.5 w-40" />
+        <div className="mt-2.5 rounded-lg px-3 py-2.5">
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="mt-1.5 h-3 w-full" />
+        </div>
+      </section>
+    );
+  }
   if (!coverage || coverage.length === 0) return null;
 
   async function assign(item: CoverageItem, coveringTeacherId: string | null) {
