@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { NAV, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
@@ -11,6 +11,10 @@ import { Button } from "./ui/Button";
 import { SelectField, TextField } from "./ui/Field";
 import { Modal } from "./ui/Modal";
 import { useToast } from "./ui/Toast";
+
+/** Opens the shell's Accessibility dialog from a page header. Null outside a
+ *  ConsoleShell, where PageHead then shows no accessibility button. */
+const OpenAccessibility = createContext<(() => void) | null>(null);
 
 interface Props {
   role: Role;
@@ -93,6 +97,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   }
 
   return (
+    <OpenAccessibility.Provider value={() => setA11yOpen(true)}>
     <div className="relative flex h-screen overflow-hidden bg-white">
       {/* Header and account footer stay put; only the page list between them
           scrolls. Previously the whole column was overflow-hidden, so on a
@@ -243,6 +248,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
       {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
     </div>
+    </OpenAccessibility.Provider>
   );
 }
 
@@ -529,7 +535,41 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Page header used by every console screen. */
+/**
+ * The universal-access figure, drawn rather than one of Icon's glyphs: the
+ * typographic set has nothing people recognise as "accessibility", and this
+ * is the one control whose users most need to spot it without hunting.
+ */
+function AccessibilityGlyph() {
+  return (
+    <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="7.2" r="1.3" fill="currentColor" stroke="none" />
+      <path d="M7.5 10h9M12 10v4M12 14l-2.5 4.5M12 14l2.5 4.5" />
+    </svg>
+  );
+}
+
+/** Opens the Accessibility dialog. Sits at the right end of every page header
+ *  (the same place Bloom HR keeps it) so it's never more than one click away.
+ *  Renders nothing outside a ConsoleShell. */
+export function AccessibilityButton() {
+  const openAccessibility = useContext(OpenAccessibility);
+  if (!openAccessibility) return null;
+  return (
+    <button
+      type="button"
+      onClick={openAccessibility}
+      aria-label="Accessibility settings"
+      title="Accessibility: text size, contrast, motion"
+      className="hit flex shrink-0 items-center justify-center rounded-md border border-[#D3DAD5] bg-white text-ink-muted transition hover:bg-page hover:text-ink"
+    >
+      <AccessibilityGlyph />
+    </button>
+  );
+}
+
+/** Page header used by every console screen; the Accessibility button always comes last. */
 export function PageHead({ eyebrow, title, blurb, actions }: { eyebrow: string; title: string; blurb?: string; actions?: ReactNode }) {
   return (
     <header className="border-b border-line bg-white px-7 pb-5 pt-6">
@@ -539,7 +579,10 @@ export function PageHead({ eyebrow, title, blurb, actions }: { eyebrow: string; 
           <h1 className="mt-1.5 text-h2 font-semibold tracking-tight">{title}</h1>
           {blurb && <p className="mt-1.5 max-w-[620px] text-[13px] leading-relaxed text-ink-muted">{blurb}</p>}
         </div>
-        {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
+        <div className="flex shrink-0 items-center gap-2">
+          {actions}
+          <AccessibilityButton />
+        </div>
       </div>
     </header>
   );
