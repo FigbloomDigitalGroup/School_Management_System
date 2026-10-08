@@ -1,5 +1,7 @@
 import { useSearchParams } from "react-router-dom";
 import { fetchTeacherClasses, rubricFor } from "@figbloom/shared";
+import { PageHead } from "../../components/ConsoleShell";
+import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { CbeGradebook } from "./CbeGradebook";
@@ -17,11 +19,22 @@ type Mode = "cbe" | "exam";
 export function K12Gradebook() {
   const { profile, tenant } = useTenantSession();
   const [params, setParams] = useSearchParams();
-  const { data: classes } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
+  const { data: classes, loading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const hasCbe = (classes ?? []).some((c) => rubricFor(tenant.country, c.level));
   const hasMarksOnly = (classes ?? []).some((c) => !rubricFor(tenant.country, c.level));
   const requested = params.get("mode");
   const mode: Mode = requested === "cbe" || requested === "exam" ? requested : hasCbe && !hasMarksOnly ? "cbe" : "exam";
+
+  // Until the classes land there's no knowing which gradebook this teacher
+  // gets — rendering the marks one meanwhile flashed it at all-CBE teachers.
+  if (loading) {
+    return (
+      <>
+        <PageHead eyebrow="Gradebook" title="Loading…" />
+        <div className="px-7 py-6"><TableSkeleton rows={8} /></div>
+      </>
+    );
+  }
 
   if (!hasCbe) return <Gradebook />;
 

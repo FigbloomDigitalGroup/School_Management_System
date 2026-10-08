@@ -41,7 +41,7 @@ export function TeacherTimetable() {
   // day tab is active — cheap (bounded by who's on leave this week) and
   // means switching tabs never re-fetches.
   const weekDates = useMemo(() => currentWeekDates(), []);
-  const { data: weekCoverage } = useAsync(() => fetchCoverageThisWeek(tenant.id), [tenant.id]);
+  const { data: weekCoverage, loading: coverageLoading } = useAsync(() => fetchCoverageThisWeek(tenant.id), [tenant.id]);
   const coverageByDayClassTime = useMemo(
     () => new Map((weekCoverage ?? []).map((c) => [`${c.weekday}|${c.classId}|${c.time}`, c])),
     [weekCoverage],
@@ -76,7 +76,9 @@ export function TeacherTimetable() {
       : Promise.resolve(null)),
     [isAll, classesData, profile.id],
   );
-  const loading = isAll ? allLoading : timetableLoading;
+  // Coverage too: rows drawn before it lands read as fully staffed, then
+  // flip to "needs cover" a moment later.
+  const loading = (isAll ? allLoading : timetableLoading) || coverageLoading;
 
   function rowsForDay(d: Weekday): DisplayRow[] {
     return isAll
@@ -163,9 +165,13 @@ export function TeacherTimetable() {
         blurb={
           isAll
             ? "Every period you teach, across all your classes."
-            : timetable?.isClassTeacher
-              ? `You're the class teacher for ${cls?.name ?? "this class"} — every period is shown, not just yours, so you can see who teaches what. Yours are highlighted.`
-              : "Showing only the periods you teach in this class."
+            // Whether they're this class's teacher isn't known until its
+            // timetable lands — say nothing rather than the wrong thing.
+            : timetableLoading
+              ? undefined
+              : timetable?.isClassTeacher
+                ? `You're the class teacher for ${cls?.name ?? "this class"} — every period is shown, not just yours, so you can see who teaches what. Yours are highlighted.`
+                : "Showing only the periods you teach in this class."
         }
       />
       <div className="px-7 py-6">

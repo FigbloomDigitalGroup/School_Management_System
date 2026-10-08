@@ -41,7 +41,9 @@ export function ParentDataProvider({ children: kids }: { children: ReactNode }) 
     setParams(next, { replace: true });
   };
 
-  const value: ParentCtxValue = { data, loading, error, children: list, child, childId, setChildId };
+  // First load only: an announcement-triggered reload keeps the screen up
+  // (useAsync holds the previous data) instead of blanking it to a skeleton.
+  const value: ParentCtxValue = { data, loading: loading && !data, error, children: list, child, childId, setChildId };
   return <ParentCtx.Provider value={value}>{kids}</ParentCtx.Provider>;
 }
 

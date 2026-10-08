@@ -24,7 +24,8 @@ export function MyAccountFields({ nameLocked = false }: {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchMyProfile(profile.id), [profile.id, reloadKey]);
+  // No `loading`: the reload after a save must not swap the form for a skeleton.
+  const { data, error } = useAsync(() => fetchMyProfile(profile.id), [profile.id, reloadKey]);
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -61,7 +62,7 @@ export function MyAccountFields({ nameLocked = false }: {
       </p>
     );
   }
-  if (loading || !data) return <TableSkeleton rows={4} />;
+  if (!data) return <TableSkeleton rows={4} />;
 
   return (
     <div className="grid max-w-[480px] gap-3.5 rounded-lg border border-line bg-white p-4">

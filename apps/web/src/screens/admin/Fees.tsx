@@ -118,6 +118,11 @@ export function Fees() {
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchFees(tenant.id), [tenant.id, reloadKey]);
+  // A reloadKey refetch keeps what's already on screen; switching to a different school's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const [loadedFor, setLoadedFor] = useState(tenant.id);
+  if (!loading && loadedFor !== tenant.id) setLoadedFor(tenant.id);
+  const pending = loading && (!data || loadedFor !== tenant.id);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [editingItems, setEditingItems] = useState(false);
 
@@ -182,7 +187,7 @@ export function Fees() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load fees: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : pending || !data ? (
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="rounded-lg border border-line bg-white px-4 py-3.5">
@@ -210,7 +215,7 @@ export function Fees() {
               <Button onClick={() => setEditingItems(true)} disabled={!data?.term}>Edit</Button>
             </header>
             <div>
-              {error ? null : loading || !data ? (
+              {error ? null : pending || !data ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
                     <Skeleton className="h-3 w-40" />
@@ -255,7 +260,7 @@ export function Fees() {
             </div>
           </section>
 
-          {error ? null : loading || !data ? (
+          {error ? null : pending || !data ? (
             <TableSkeleton rows={6} />
           ) : (
             <DataTable
@@ -280,7 +285,7 @@ export function Fees() {
         </div>
 
         <div className="mt-4">
-          {error ? null : loading || !data ? (
+          {error ? null : pending || !data ? (
             <TableSkeleton rows={3} />
           ) : (
             <DataTable

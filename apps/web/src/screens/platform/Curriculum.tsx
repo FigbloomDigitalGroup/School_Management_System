@@ -28,7 +28,9 @@ async function fetchCurriculum() {
 export function Curriculum() {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchCurriculum(), [reloadKey]);
+  // No `loading` here on purpose: a reload after verifying or importing keeps
+  // the catalogue up instead of blanking it — only the first load skeletons.
+  const { data, error } = useAsync(() => fetchCurriculum(), [reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
   const [importing, setImporting] = useState(false);
   const [levelFilter, setLevelFilter] = useState<ClassLevel | "all">("all");
@@ -56,7 +58,7 @@ export function Curriculum() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the catalogue: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : !data ? (
           <div className="grid gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)}</div>
         ) : (
           <div className="grid gap-6">

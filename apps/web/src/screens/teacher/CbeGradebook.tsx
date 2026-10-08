@@ -53,28 +53,49 @@ export function CbeGradebook() {
   const cls = classes.find((c) => c.id === classId) ?? null;
   const rubric = cls ? rubricFor(tenant.country, cls.level) ?? [] : [];
 
-  const { data: subjectList } = useAsync(() => (classId ? fetchTeacherSubjectsForClass(profile.id, classId) : Promise.resolve([])), [classId, profile.id]);
+  // Tagged with its class (as below) so a class switch can't auto-select the
+  // previous class's first learning area before this class's list lands.
+  const { data: subjectData, loading: subjectsLoading } = useAsync(
+    async () => ({ classId, list: classId ? await fetchTeacherSubjectsForClass(profile.id, classId) : [] }),
+    [classId, profile.id],
+  );
+  const subjectList = subjectData?.classId === classId ? subjectData.list : null;
   const subjects = useMemo(() => subjectList ?? [], [subjectList]);
   useEffect(() => { if (!subjectId && subjects.length) setSubjectId(subjects[0]!.id); }, [subjectId, subjects]);
   const subject = subjects.find((s) => s.id === subjectId) ?? null;
   const areaId = subject?.learning_area_id ?? null;
 
-  const { data: assessmentList } = useAsync(
-    () => (classId && subjectId && term ? fetchCbeAssessments(classId, subjectId, term.id) : Promise.resolve([] as CbeAssessment[])),
+  // Each fetch below is tagged with the selection it was made for, and only
+  // counts as loaded while that selection is still current: a save (version)
+  // refetches behind the grid without blanking it, but switching class,
+  // learning area or assessment never shows — or auto-selects from — the
+  // previous one's assessments, strands or levels meanwhile.
+  const assessmentsKey = `${classId}|${subjectId}|${term?.id}`;
+  const { data: assessmentData, loading: assessmentsLoading } = useAsync(
+    () => (classId && subjectId && term ? fetchCbeAssessments(classId, subjectId, term.id) : Promise.resolve([] as CbeAssessment[]))
+      .then((list) => ({ key: assessmentsKey, list })),
     [classId, subjectId, term?.id, version],
   );
+  const assessmentList = assessmentData?.key === assessmentsKey ? assessmentData.list : null;
   const assessments = useMemo(() => assessmentList ?? [], [assessmentList]);
   useEffect(() => { if (!assessmentId && assessments.length) setAssessmentId(assessments[0]!.id); }, [assessmentId, assessments]);
   const assessment = assessments.find((a) => a.id === assessmentId) ?? null;
 
-  const { data: strandList, loading: strandsLoading } = useAsync(
-    () => (areaId && cls ? fetchStrandsForGrade(areaId, cls.form_level) : Promise.resolve([])),
+  const strandsKey = `${areaId}|${cls?.form_level}`;
+  const { data: strandData, loading: strandsLoading } = useAsync(
+    async () => ({ key: strandsKey, list: areaId && cls ? await fetchStrandsForGrade(areaId, cls.form_level) : [] }),
     [areaId, cls?.form_level, version],
   );
+  const strandList = strandData?.key === strandsKey ? strandData.list : null;
   const strands = strandList ?? [];
   const { data: rosterData, loading: rosterLoading } = useAsync(() => (classId ? fetchClassRoster(classId) : Promise.resolve([])), [classId]);
   const roster = rosterData ?? [];
-  const { data: saved } = useAsync(() => (assessmentId ? fetchCbeEntries(assessmentId) : Promise.resolve({} as Record<string, CbeEntry>)), [assessmentId, version]);
+  const { data: savedData, loading: savedLoading } = useAsync(
+    () => (assessmentId ? fetchCbeEntries(assessmentId) : Promise.resolve({} as Record<string, CbeEntry>))
+      .then((entries) => ({ assessmentId, entries })),
+    [assessmentId, version],
+  );
+  const saved = savedData?.assessmentId === assessmentId ? savedData.entries : null;
   const entries = useMemo(() => saved ?? {}, [saved]);
 
   const level = (studentId: string, strandId: string) =>
@@ -169,26 +190,28 @@ export function CbeGradebook() {
           <>
             <select value={assessmentId ?? ""} onChange={(e) => setAssessmentId(e.target.value)} aria-label="Assessment"
               className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small" disabled={!assessments.length}>
-              {!assessments.length && <option value="">No assessments yet</option>}
+              {!assessments.length && <option value="">{assessmentsLoading ? "Loading…" : "No assessments yet"}</option>}
               {assessments.map((a) => <option key={a.id} value={a.id}>{a.title}{a.published_at ? " · published" : ""}</option>)}
             </select>
             <Button onClick={() => setCreating(true)}>New assessment</Button>
           </>
         )}
-        {assessment && strands.length > 0 && (
+        {assessment && strands.length > 0 && saved && (
           <span className="ml-auto text-[12.5px] text-ink-muted">{filled} of {totalCells} judged</span>
         )}
       </div>
 
       <div className="px-7 py-6">
-        {!subject ? (
+        {subjectsLoading && !subjectList ? (
+          <TableSkeleton rows={8} />
+        ) : !subject ? (
           <p className="text-[12.5px] text-ink-muted">You aren't assigned any learning areas in this class yet.</p>
         ) : !areaId ? (
           <Notice>
             {subject.name} isn't linked to a KICD learning area, so there are no strands to assess against. Ask the school admin to
             add it from the KICD curriculum (Subjects → Add from KICD).
           </Notice>
-        ) : strandsLoading || rosterLoading ? (
+        ) : (strandsLoading && !strandList) || rosterLoading || (assessmentsLoading && !assessmentList) || (savedLoading && !saved) ? (
           <TableSkeleton rows={8} />
         ) : !strands.length ? (
           <Notice>

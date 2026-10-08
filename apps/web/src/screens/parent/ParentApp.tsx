@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import {
   GRADE_INK, formatMoney, PAYMENT_FAILURES, againstMean, gradeFor, gradingSchemeFor, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase,
+  loadPublishedCbeResults, rubricFor, type CbeLearningAreaResult,
 } from "@figbloom/shared";
 import { formatPhone, formatShortDate, loadParentData } from "@figbloom/shared";
+import { cbeOverall } from "../../components/CbeResults";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -65,15 +67,28 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
 
   // Computed ahead of the loading early-return below so these hooks still run
   // on every render, in the same order, regardless of load state.
-  const childId = data ? (data.children[Math.min(kid, Math.max(data.children.length - 1, 0))]?.id ?? null) : null;
-  const { data: invoiceId } = useAsync(
+  const childRow = data ? (data.children[Math.min(kid, Math.max(data.children.length - 1, 0))] ?? null) : null;
+  const childId = childRow?.id ?? null;
+  // A CBE learner with no exam marks gets their published strand assessments
+  // summarised on the home card instead of "Not published yet".
+  const cbeRubric = childRow ? rubricFor(tenant.country, childRow.classLevel) : null;
+  const cbeLearner = !!childRow && childRow.mean === null && cbeRubric !== null;
+  const { data: cbeByStudent, loading: cbeLoading, error: cbeError } = useAsync(
+    () => (childId && cbeLearner ? loadPublishedCbeResults([childId], tenant.country) : Promise.resolve(new Map<string, CbeLearningAreaResult[]>())),
+    [childId, tenant.country, cbeLearner],
+  );
+  const cbe = cbeLearner && cbeRubric && childId ? cbeOverall(cbeByStudent?.get(childId) ?? [], cbeRubric) : null;
+  const { data: invoiceId, loading: invoiceLoading } = useAsync(
     () => (childId ? fetchCurrentInvoiceId(childId) : Promise.resolve(null)),
     [childId],
   );
-  const { data: proofs, loading: proofsLoading } = useAsync(
-    () => (invoiceId ? listPaymentProofs(invoiceId) : Promise.resolve([] as PaymentProof[])),
+  // Tagged with the invoice they belong to: after a child switch the previous
+  // child's proofs must not show, but a reload after an upload keeps the list up.
+  const { data: proofsFor } = useAsync(
+    async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload],
   );
+  const proofs = !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
 
   if (loading || !data) {
     return (
@@ -133,12 +148,23 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
       label: "Attendance",
       value: child.attendancePct === null ? "—" : `${child.attendancePct}%`,
       note: child.attendancePct === null ? "No attendance recorded yet" : "this term",
+      loading: false,
     },
-    {
-      label: "Mean grade",
-      value: child.mean === null ? "—" : gradeFor(child.mean, scheme),
-      note: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
-    },
+    cbeLearner
+      ? {
+          label: "Learning areas",
+          value: cbe ? cbe.level.code : "—",
+          note: cbeError
+            ? "Could not load results"
+            : cbe ? `${cbe.level.label} · ${cbe.areas} learning area${cbe.areas === 1 ? "" : "s"}` : "Not published yet",
+          loading: cbeLoading,
+        }
+      : {
+          label: "Mean grade",
+          value: child.mean === null ? "—" : gradeFor(child.mean, scheme),
+          note: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
+          loading: false,
+        },
   ];
 
   function startPay() {
@@ -153,7 +179,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
 
   async function handleUploadProof(e: FormEvent) {
     e.preventDefault();
-    if (!invoiceId || !proofFile) return;
+    if (!invoiceId || invoiceLoading || !proofFile) return;
     setUploadingProof(true);
     try {
       await uploadPaymentProof({
@@ -235,8 +261,17 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
               {statCards.map((s) => (
                 <div key={s.label} className="rounded-2xl border border-app-line bg-white p-3.5">
                   <div className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">{s.label.toUpperCase()}</div>
-                  <div className="mt-1 text-[24px] font-semibold tracking-tight">{s.value}</div>
-                  <div className="text-[11.5px] text-app-faint">{s.note}</div>
+                  {s.loading ? (
+                    <div aria-busy="true">
+                      <Skeleton className="mt-2 h-6 w-16" />
+                      <Skeleton className="mt-1.5 h-2.5 w-24" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-1 text-[24px] font-semibold tracking-tight">{s.value}</div>
+                      <div className="text-[11.5px] text-app-faint">{s.note}</div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -350,7 +385,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 />
                 <button
                   type="submit"
-                  disabled={!proofFile || !invoiceId || uploadingProof}
+                  disabled={!proofFile || !invoiceId || invoiceLoading || uploadingProof}
                   className="hit w-full rounded-xl py-3 text-[13.5px] font-semibold text-white disabled:opacity-50"
                   style={{ background: tint }}
                 >
@@ -358,7 +393,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 </button>
               </form>
 
-              {!proofsLoading && proofs && proofs.length > 0 && (
+              {proofs && proofs.length > 0 && (
                 <div className="mt-3 grid gap-2">
                   {proofs.map((p) => (
                     <button

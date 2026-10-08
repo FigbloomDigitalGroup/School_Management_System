@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { WEEKDAYS, type TimetableRow } from "./timetable";
-import type { Course, CourseSection, Enrollment, EnrollmentStatus, Semester, Weekday } from "./types";
+import type { Course, CourseSection, EnrollmentStatus, Semester, Weekday } from "./types";
 
 /**
  * Data access for the higher-ed course/enrollment model (FIG-327) — the

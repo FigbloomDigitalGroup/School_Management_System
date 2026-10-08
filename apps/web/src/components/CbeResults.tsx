@@ -1,4 +1,15 @@
-import { GRADE_INK, formatShortDate, type CbeLearningAreaResult } from "@figbloom/shared";
+import { GRADE_INK, formatShortDate, summariseStrands, type CbeLearningAreaResult, type RubricLevel } from "@figbloom/shared";
+
+/**
+ * The at-a-glance line for a dashboard card: each learning area's overall
+ * level, averaged and read back onto the rubric — the same summariseStrands
+ * the per-area levels come from. Null when nothing is published (or nothing
+ * on this rubric), so the card says so rather than inventing a level.
+ */
+export function cbeOverall(results: CbeLearningAreaResult[], rubric: RubricLevel[]): { level: RubricLevel; areas: number } | null {
+  const s = summariseStrands(results.map((r) => r.overall?.code), rubric);
+  return s.overall ? { level: s.overall, areas: s.entered } : null;
+}
 
 /**
  * A learner's published CBE results: per learning area, the overall rubric

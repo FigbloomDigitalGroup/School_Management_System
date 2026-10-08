@@ -59,6 +59,12 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClassSubjects(tenantId, classId, classLevel, formLevel), [tenantId, classId, classLevel, formLevel, reloadKey]);
   const rows = data?.rows;
+  // A reloadKey refetch keeps what's already on screen; switching to a different class's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const classKey = `${tenantId}:${classId}:${classLevel}:${formLevel}`;
+  const [loadedFor, setLoadedFor] = useState(classKey);
+  if (!loading && loadedFor !== classKey) setLoadedFor(classKey);
+  const pending = loading && (!rows || loadedFor !== classKey);
   const reload = () => setReloadKey((k) => k + 1);
 
   async function setTeacher(subjectId: string, teacherId: string) {
@@ -91,7 +97,7 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
     >
       {error ? (
         <p className="text-[12.5px] text-warn-ink">Could not load subjects: {error.message}</p>
-      ) : loading || !rows ? (
+      ) : pending || !rows ? (
         <TableSkeleton rows={5} />
       ) : rows.length === 0 ? (
         <p className="text-[12.5px] text-ink-muted">No subjects apply to this class yet — add or widen one under Subjects in the sidebar.</p>

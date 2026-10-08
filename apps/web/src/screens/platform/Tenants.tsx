@@ -55,8 +55,11 @@ type Filter = "All" | "Attention" | "Trial";
  */
 export function Tenants() {
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data: tenants, loading } = useAsync(() => loadTenants(), [refreshKey]);
-  const { data: summary } = useAsync(() => loadTenantSummary(), [refreshKey]);
+  const { data: tenants, loading: tenantsFetching } = useAsync(() => loadTenants(), [refreshKey]);
+  const { data: summary, loading: summaryFetching } = useAsync(() => loadTenantSummary(), [refreshKey]);
+  // First load only — a refresh after onboarding keeps the list and figures up.
+  const loading = tenantsFetching && !tenants;
+  const summaryLoading = summaryFetching && !summary;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("All");
   const [query, setQuery] = useState("");
@@ -85,18 +88,20 @@ export function Tenants() {
   const totalLicensed = all.reduce((a, t) => a + t.licensed_seats, 0);
   const activeStudents = summary?.activeStudents ?? 0;
   const stats = [
-    { label: "Active tenants", value: String(all.length), sub: `${all.filter((t) => t.status === "active").length} live` },
+    { label: "Active tenants", value: String(all.length), sub: `${all.filter((t) => t.status === "active").length} live`, loading },
     // Figbloom's own subscription revenue — a deliberate business-currency
     // choice, independent of which country a billed school operates in.
-    { label: "MRR", value: formatMoney(mrr, "KE"), sub: `across ${billedTenants.length} billed schools` },
+    { label: "MRR", value: formatMoney(mrr, "KE"), sub: `across ${billedTenants.length} billed schools`, loading: loading || summaryLoading },
     {
       label: "Learner seats", value: activeStudents.toLocaleString(),
       sub: totalLicensed > 0 ? `${Math.round((activeStudents / totalLicensed) * 100)}% of licensed` : "no seats licensed yet",
+      loading: loading || summaryLoading,
     },
     {
       label: "Needs attention", value: String(attention.length),
       sub: `${attention.filter((t) => t.status === "overdue").length} overdue · ${attention.filter((t) => t.status === "setup_stalled").length} stalled setup`,
       alarming: attention.length > 0,
+      loading,
     },
   ];
 
@@ -118,7 +123,7 @@ export function Tenants() {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder={`Search ${all.length} schools`}
+                  placeholder={loading ? "Search schools" : `Search ${all.length} schools`}
                   aria-label="Search schools"
                   className="w-full bg-transparent text-small outline-none"
                 />
@@ -137,7 +142,7 @@ export function Tenants() {
                           : { background: "#EEF1EE", color: "#5F6B62" }
                     }
                   >
-                    {k} {counts[k]}
+                    {k}{loading ? "" : ` ${counts[k]}`}
                   </button>
                 ))}
               </div>

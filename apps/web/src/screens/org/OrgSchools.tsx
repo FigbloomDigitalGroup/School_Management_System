@@ -27,18 +27,19 @@ export function OrgSchools() {
   const nav = useNavigate();
   const [adding, setAdding] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
+  const { data, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
   const toast = useToast();
 
   useEffect(() => {
     void logOrganizationAccess(organization.id, profile.id, "viewed_schools_list");
   }, [organization.id, profile.id]);
 
-  if (loading || !data || error) {
+  // First load only — a reload after adding a school keeps the list on screen.
+  if (!data || error) {
     return (
       <RecordsPage
         spec={{ eyebrow: organization.name, title: "Schools", blurb: "", stats: [], columns: [], rows: [] }}
-        loading={loading || !data}
+        loading={!error}
         error={error?.message}
       />
     );

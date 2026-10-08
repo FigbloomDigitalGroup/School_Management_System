@@ -22,7 +22,7 @@ type Screen = "today" | "timetable" | "work" | "task" | "results" | "notices" | 
 export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: string }) {
   const { profile, tenant } = useTenantSession();
   const { data, loading } = useAsync(() => loadStudentData(profile.id), [profile.id]);
-  const { data: timetable } = useAsync(
+  const { data: timetable, loading: timetableLoading } = useAsync(
     () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
     [data?.classId],
   );
@@ -41,7 +41,8 @@ export function StudentApp({ deep = "#4E1520" }: { accent?: string; deep?: strin
 
   const tint = deep;
 
-  if (loading || !data) {
+  // the timetable loads after the learner record; wait for it so Today doesn't flash "No lesson recorded"
+  if (loading || !data || timetableLoading) {
     return (
       <PhoneFrame accent={tint}>
         <header className="shrink-0 px-4 pb-4 pt-3" style={{ background: tint, color: "#fff" }}>

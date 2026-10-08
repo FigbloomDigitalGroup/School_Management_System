@@ -1,11 +1,13 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { formatMoney, gradeFor, gradingSchemeFor } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor, loadPublishedCbeResults, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
+import { cbeOverall } from "../../components/CbeResults";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { Button } from "../../components/ui/Button";
 import { formatShortDate } from "@figbloom/shared";
+import { useAsync } from "../../lib/useAsync";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { ChildSwitcher } from "./ChildSwitcher";
@@ -22,6 +24,15 @@ export function ParentHome() {
   const { slug } = useParams();
   const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
+  // A CBE learner with no exam marks is summarised from their published strand
+  // assessments instead; exam marks still win for anyone who has them.
+  const rubric = child ? rubricFor(tenant.country, child.classLevel) : null;
+  const cbeLearner = !!child && child.mean === null && rubric !== null;
+  const { data: cbeByStudent, loading: cbeLoading, error: cbeError } = useAsync(
+    () => (child && cbeLearner ? loadPublishedCbeResults([child.id], tenant.country) : Promise.resolve(new Map<string, CbeLearningAreaResult[]>())),
+    [child?.id, tenant.country, cbeLearner],
+  );
+  const cbe = cbeLearner && rubric ? cbeOverall((child && cbeByStudent?.get(child.id)) || [], rubric) : null;
 
   const statCards = child
     ? [
@@ -30,11 +41,20 @@ export function ParentHome() {
           value: child.attendancePct === null ? "—" : `${child.attendancePct}%`,
           sub: child.attendancePct === null ? "No attendance recorded yet" : "this term",
         },
-        {
-          label: "Mean grade",
-          value: child.mean === null ? "—" : gradeFor(child.mean, gradingSchemeFor(tenant.country, child.classLevel)),
-          sub: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
-        },
+        cbeLearner
+          ? {
+              label: "Learning areas",
+              value: cbe ? cbe.level.code : "—",
+              sub: cbeError
+                ? "Could not load results"
+                : cbe ? `${cbe.level.label} · ${cbe.areas} learning area${cbe.areas === 1 ? "" : "s"}` : "Not published yet",
+              loading: cbeLoading,
+            }
+          : {
+              label: "Mean grade",
+              value: child.mean === null ? "—" : gradeFor(child.mean, gradingSchemeFor(tenant.country, child.classLevel)),
+              sub: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
+            },
       ]
     : [];
 

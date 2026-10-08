@@ -77,6 +77,11 @@ export function AdminSubjects() {
   const unit = tenant.level === "primary" ? "Grade" : "Form";
   const [reloadKey, setReloadKey] = useState(0);
   const { data: subjects, loading, error } = useAsync(() => fetchSubjects(tenant.id), [tenant.id, reloadKey]);
+  // A reloadKey refetch keeps what's already on screen; switching to a different school's
+  // data must not show the previous one's meanwhile — skeleton for those only.
+  const [loadedFor, setLoadedFor] = useState(tenant.id);
+  if (!loading && loadedFor !== tenant.id) setLoadedFor(tenant.id);
+  const pending = loading && (!subjects || loadedFor !== tenant.id);
   const reload = () => setReloadKey((k) => k + 1);
 
   const [name, setName] = useState("");
@@ -193,7 +198,7 @@ export function AdminSubjects() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load subjects: {error.message}
           </p>
-        ) : loading || !subjects ? (
+        ) : pending || !subjects ? (
           <TableSkeleton rows={6} />
         ) : (
           <div className="grid max-w-[720px] gap-4">

@@ -14,7 +14,7 @@ import { useAsync } from "../../lib/useAsync";
 export function StudentToday() {
   const { profile } = useTenantSession();
   const { data, loading, error } = useStudentData();
-  const { data: timetable } = useAsync(
+  const { data: timetable, loading: timetableLoading } = useAsync(
     () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
     [data?.classId],
   );
@@ -33,7 +33,8 @@ export function StudentToday() {
     );
   }
 
-  if (loading) {
+  // the timetable loads after the learner record; wait for it so "Now" doesn't flash "No lesson recorded"
+  if (loading || (data && timetableLoading)) {
     return (
       <>
         <PageHead eyebrow="Today" title="Loading…" />

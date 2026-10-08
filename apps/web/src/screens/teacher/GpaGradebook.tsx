@@ -6,8 +6,9 @@ import {
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { EmptyState } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
-import { TableSkeleton } from "../../components/ui/Skeleton";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -42,11 +43,19 @@ export function GpaGradebook() {
   // draft, or publishing all need this list to reflect the change (a newly
   // created assessment otherwise never appears, since sectionId alone never
   // changes when that happens).
-  const { data: assessmentsData, loading: assessmentsLoading } = useAsync(
-    () => (sectionId ? fetchAssessments(sectionId) : Promise.resolve([] as CourseAssessment[])),
+  // Tagged with the section it was fetched for: a reload keeps the current
+  // list up, but a section switch must not offer (or auto-select) the
+  // previous section's assessments, or say "No assessments yet", meanwhile.
+  const { data: assessmentsData, error: assessmentsError } = useAsync(
+    () => (sectionId ? fetchAssessments(sectionId) : Promise.resolve([] as CourseAssessment[]))
+      .then((list) => ({ sectionId, list })),
     [sectionId, reloadKey],
   );
-  const assessments = useMemo(() => assessmentsData ?? [], [assessmentsData]);
+  const assessmentsReady = (!!sectionId && assessmentsData?.sectionId === sectionId) || !!assessmentsError;
+  const assessments = useMemo(
+    () => (assessmentsData && assessmentsData.sectionId === sectionId ? assessmentsData.list : []),
+    [assessmentsData, sectionId],
+  );
 
   useEffect(() => { setAssessmentId(null); }, [sectionId]);
   useEffect(() => {
@@ -61,11 +70,18 @@ export function GpaGradebook() {
   );
   const roster = (rosterData ?? []).filter((r) => r.status === "enrolled");
 
-  const { data: existingMarksData } = useAsync(
-    () => (assessmentId ? fetchMarksForAssessment(assessmentId) : Promise.resolve({} as Record<string, number | null>)),
+  // Same tagging: a save refetches behind the grid without blanking it, but
+  // another assessment's marks (or blank inputs) never stand in for this one's.
+  const { data: existingMarksData, error: marksError } = useAsync(
+    () => (assessmentId ? fetchMarksForAssessment(assessmentId) : Promise.resolve({} as Record<string, number | null>))
+      .then((marks) => ({ assessmentId, marks })),
     [assessmentId, reloadKey],
   );
-  const existingMarks = useMemo(() => existingMarksData ?? {}, [existingMarksData]);
+  const marksReady = !rosterLoading && ((!!assessmentId && existingMarksData?.assessmentId === assessmentId) || !!marksError);
+  const existingMarks = useMemo(
+    () => (existingMarksData && existingMarksData.assessmentId === assessmentId ? existingMarksData.marks : {}),
+    [existingMarksData, assessmentId],
+  );
 
   const [scores, setScores] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -186,8 +202,8 @@ export function GpaGradebook() {
             {assessmentId && (
               <>
                 <Button onClick={() => void saveDraft()}>Save draft</Button>
-                <Button variant="accent" disabled={!!assessment?.published_at || entered < roster.length} onClick={() => void publish()}>
-                  {assessment?.published_at ? "Published" : entered < roster.length ? `${roster.length - entered} still to enter` : "Publish"}
+                <Button variant="accent" disabled={!marksReady || !!assessment?.published_at || entered < roster.length} onClick={() => void publish()}>
+                  {assessment?.published_at ? "Published" : marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish"}
                 </Button>
               </>
             )}
@@ -202,18 +218,30 @@ export function GpaGradebook() {
         <select value={sectionId ?? ""} onChange={(e) => setSectionId(e.target.value)} aria-label="Section" className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
           {sections.map((s: InstructorSectionRow) => <option key={s.id} value={s.id}>{s.course_code} {s.section_label}</option>)}
         </select>
-        {assessmentsLoading ? null : assessments.length === 0 ? (
+        {!assessmentsReady ? (
+          <Skeleton className="h-[30px] w-44" />
+        ) : assessments.length === 0 ? (
           <span className="text-[12.5px] text-ink-faint">No assessments yet — add one to start entering marks.</span>
         ) : (
           <select value={assessmentId ?? ""} onChange={(e) => setAssessmentId(e.target.value)} aria-label="Assessment" className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
             {assessments.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.weight_pct}%)</option>)}
           </select>
         )}
-        {assessmentId && <span className="ml-auto text-[12.5px] text-ink-muted">{entered} of {roster.length} entered</span>}
+        {assessmentId && (marksReady
+          ? <span className="ml-auto text-[12.5px] text-ink-muted">{entered} of {roster.length} entered</span>
+          : <Skeleton className="ml-auto h-3 w-24" />)}
       </div>
 
       <div className="px-7 py-6">
-        {rosterLoading || !assessmentId ? (
+        {assessmentsReady && !assessmentsError && assessments.length === 0 ? (
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState
+              title="No assessments yet"
+              body="Add the first assessment for this section to start entering marks."
+              action={<Button onClick={() => setAddingAssessment(true)}>Add assessment</Button>}
+            />
+          </div>
+        ) : !marksReady || !assessmentId ? (
           <TableSkeleton rows={6} />
         ) : (
           <div className="overflow-hidden rounded-lg border border-line bg-white">

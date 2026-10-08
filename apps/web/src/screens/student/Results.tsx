@@ -23,7 +23,7 @@ export function StudentResults() {
   const { tenant } = useTenantSession();
   const { data, loading, error } = useStudentData();
   // CBE strand results (published assessments), alongside any exam marks.
-  const { data: cbeByStudent } = useAsync(
+  const { data: cbeByStudent, loading: cbeLoading } = useAsync(
     () => (data?.studentId ? loadPublishedCbeResults([data.studentId], tenant.country) : Promise.resolve(new Map())),
     [data?.studentId, tenant.country],
   );
@@ -43,7 +43,8 @@ export function StudentResults() {
     );
   }
 
-  if (loading) {
+  // wait for the CBE results too, or a CBE-only learner briefly sees "Not published yet"
+  if (loading || (data && cbeLoading)) {
     return (
       <>
         <PageHead eyebrow="Results" title="Loading…" />

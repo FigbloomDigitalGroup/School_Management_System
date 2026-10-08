@@ -29,9 +29,13 @@ async function loadRides(children: ChildInfo[]): Promise<Ride[]> {
  */
 export function ParentBus() {
   const { tenant } = useTenantSession();
-  const { children } = useParentData();
+  const { children, loading: parentLoading, error: parentError } = useParentData();
   const key = children.map((c) => c.id).join(",");
-  const { data, loading, error } = useAsync(() => loadRides(children), [key]);
+  const { data, loading: ridesLoading, error: ridesError } = useAsync(() => loadRides(children), [key]);
+  // Until the parent's children are known, `children` is [] and the rides for
+  // it resolve to [] — which would read as "Not on a bus route".
+  const loading = parentLoading || ridesLoading;
+  const error = parentError ?? ridesError;
   const one = children.length === 1 ? children[0]! : null;
 
   return (
@@ -74,7 +78,7 @@ function FamilyBusMap({ tenantId, rides }: { tenantId: string; rides: Ride[] }) 
   const buses = useLiveBuses(tenantId, initial);
   const colors = useMemo(() => new Map(initial.map((b, i) => [b.vehicle.id, ROUTE_COLORS[i % ROUTE_COLORS.length]!])), [initial]);
   const now = useNow();
-  const updates = useTodaysBusUpdates(rides.map((r) => r.child.id));
+  const { updates, loading: updatesLoading } = useTodaysBusUpdates(rides.map((r) => r.child.id));
 
   return (
     <LiveRouteMap
@@ -91,7 +95,7 @@ function FamilyBusMap({ tenantId, rides }: { tenantId: string; rides: Ride[] }) 
           {rides.map((r) => {
             const bus = r.bus ? (buses.find((b) => b.vehicle.id === r.bus!.vehicle.id) ?? r.bus) : null;
             const mine = updates.filter((u) => u.student_ids.includes(r.child.id));
-            return <ChildCard key={r.child.id} ride={r} bus={bus} color={bus ? colors.get(bus.vehicle.id)! : "#A3ABA5"} now={now} updates={mine} />;
+            return <ChildCard key={r.child.id} ride={r} bus={bus} color={bus ? colors.get(bus.vehicle.id)! : "#A3ABA5"} now={now} updates={mine} updatesLoading={updatesLoading} />;
           })}
         </div>
       </MapSheet>
@@ -100,7 +104,7 @@ function FamilyBusMap({ tenantId, rides }: { tenantId: string; rides: Ride[] }) 
 }
 
 /** One child: their bus, and where it is relative to their stop. */
-function ChildCard({ ride, bus, color, now, updates }: { ride: Ride; bus: BusOnRoute | null; color: string; now: number; updates: BusUpdate[] }) {
+function ChildCard({ ride, bus, color, now, updates, updatesLoading }: { ride: Ride; bus: BusOnRoute | null; color: string; now: number; updates: BusUpdate[]; updatesLoading: boolean }) {
   const { child, stopId } = ride;
   if (!bus) {
     return (
@@ -134,10 +138,10 @@ function ChildCard({ ride, bus, color, now, updates }: { ride: Ride; bus: BusOnR
       <div className="mt-2">
         <Status progress={progress} mine={mine} myStop={myStop} next={next} pos={pos} live={live} color={color} childName={child.first} />
       </div>
-      {updates.length > 0 && (
+      {(updatesLoading || updates.length > 0) && (
         <div className="mt-2.5 border-t border-line-soft pt-2">
           <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">Today</div>
-          <UpdateFeed updates={updates} limit={3} />
+          <UpdateFeed updates={updates} limit={3} loading={updatesLoading} />
         </div>
       )}
       <div className="mt-2.5 border-t border-line-soft pt-2">

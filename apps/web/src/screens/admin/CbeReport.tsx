@@ -1,5 +1,6 @@
 import { GRADE_INK, rubricFor, summariseStrands, supabase, yearSortKey, type ClassLevel } from "@figbloom/shared";
 import { DataTable } from "../../components/ui/DataTable";
+import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 
 const BANDS = ["EE", "ME", "AE", "BE"] as const;
@@ -70,7 +71,9 @@ async function fetchCbeReport(tenantId: string, termId: string, country: string)
 }
 
 export function CbeReport({ tenantId, termId, country }: { tenantId: string; termId: string | null; country: string }) {
-  const { data } = useAsync(() => (termId ? fetchCbeReport(tenantId, termId, country) : Promise.resolve([] as Row[])), [tenantId, termId, country]);
+  const { data, loading } = useAsync(() => (termId ? fetchCbeReport(tenantId, termId, country) : Promise.resolve([] as Row[])), [tenantId, termId, country]);
+  // Hold the table's place while a term's report loads rather than popping in after.
+  if (loading && termId) return <div className="mt-4"><TableSkeleton rows={4} /></div>;
   if (!data?.length) return null;
   return (
     <div className="mt-4">

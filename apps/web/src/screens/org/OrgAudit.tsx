@@ -28,7 +28,7 @@ export function OrgAudit() {
     return (
       <RecordsPage
         spec={{ eyebrow: organization.name, title: "Audit log", blurb: "", stats: [], columns: [], rows: [] }}
-        loading={loading || !data}
+        loading={!error}
         error={error?.message}
       />
     );

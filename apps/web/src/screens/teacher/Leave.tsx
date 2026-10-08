@@ -27,7 +27,8 @@ export function TeacherLeave() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data: requests, loading, error } = useAsync(() => fetchMyLeaveRequests(profile.id), [profile.id, reloadKey]);
+  // No `loading`: a reload after requesting or withdrawing keeps the list up.
+  const { data: requests, error } = useAsync(() => fetchMyLeaveRequests(profile.id), [profile.id, reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
 
   const [startsOn, setStartsOn] = useState("");
@@ -90,7 +91,7 @@ export function TeacherLeave() {
           <div>
             {error ? (
               <p className="px-4 py-3.5 text-[12.5px] text-warn-ink">Could not load your leave requests: {error.message}</p>
-            ) : loading || !requests ? (
+            ) : !requests ? (
               <div className="p-4"><TableSkeleton rows={4} /></div>
             ) : requests.length === 0 ? (
               <EmptyState title="Nothing requested yet" body="Your leave requests will show up here once you submit one." />

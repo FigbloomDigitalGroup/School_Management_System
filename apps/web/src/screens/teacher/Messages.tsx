@@ -111,7 +111,8 @@ export function TeacherMessages() {
             <h2 className="text-body font-semibold">Sent by you</h2>
           </header>
           <div>
-            {sentLoading ? (
+            {/* First load only — a send's reload keeps the list up. */}
+            {sentLoading && !sent ? (
               <div className="p-4"><TableSkeleton rows={4} /></div>
             ) : !sent || sent.length === 0 ? (
               <div className="px-4 py-8 text-center text-[12.5px] text-ink-faint">Nothing sent yet.</div>

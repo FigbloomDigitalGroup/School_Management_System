@@ -47,7 +47,8 @@ export function OrgAdmins() {
 
   return (
     <>
-      <RecordsPage spec={spec} loading={loading} error={error?.message} />
+      {/* First load only — a reload after inviting keeps the list on screen. */}
+      <RecordsPage spec={spec} loading={loading && !data} error={error?.message} />
       {inviting && (
         <InviteAdminModal
           organizationId={organization.id}

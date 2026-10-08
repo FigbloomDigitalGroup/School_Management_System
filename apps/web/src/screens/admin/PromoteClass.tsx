@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { nextYear, supabase, yearSortKey, type ClassGroup } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
-import { TableSkeleton } from "../../components/ui/Skeleton";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 
 const GRADUATE = "GRADUATE";
@@ -111,7 +111,8 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<PromoteRow[] | null>(null);
-  const [examMeans, setExamMeans] = useState<Map<string, number>>(new Map());
+  // null until the means land — the roster shows first, and "no marks on record" mustn't be the answer meanwhile.
+  const [examMeans, setExamMeans] = useState<Map<string, number> | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [saving, setSaving] = useState(false);
   const [passMark, setPassMark] = useState("50");
@@ -143,6 +144,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
   function applyByPassMark() {
     const threshold = parseFloat(passMark);
     if (!Number.isFinite(threshold)) { toast("Enter a valid pass mark.", "error"); return; }
+    if (!examMeans) return;
     if (!rows || !rows.some((r) => examMeans.has(r.id))) {
       toast("No exam marks on record for this class yet — nothing to judge by.", "error");
       return;
@@ -283,7 +285,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
                 aria-label="Pass mark"
                 className="w-14 rounded-md border border-[#D3DAD5] px-2 py-1 text-center font-mono text-[12.5px] outline-none"
               />
-              <Button onClick={applyByPassMark}>Apply</Button>
+              <Button onClick={applyByPassMark} disabled={!examMeans}>Apply</Button>
             </div>
           </div>
 
@@ -292,8 +294,9 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
               <li key={r.id} className="flex items-center gap-3 rounded-lg border border-line-soft px-3 py-2">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium">{r.full_name}</span>
-                  <span className="font-mono text-[11px] text-ink-faint">
-                    ADM {r.admission_no}{examMeans.has(r.id) ? ` · mean ${examMeans.get(r.id)}` : ""}
+                  <span className="flex items-center gap-1.5 font-mono text-[11px] text-ink-faint">
+                    ADM {r.admission_no}{examMeans?.has(r.id) ? ` · mean ${examMeans.get(r.id)}` : ""}
+                    {!examMeans && <Skeleton className="h-2.5 w-14" />}
                   </span>
                 </span>
                 <select
