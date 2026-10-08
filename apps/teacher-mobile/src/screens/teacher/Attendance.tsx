@@ -25,6 +25,8 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
   const [termId, setTermId] = useState<string | null>(null);
+  /** The classes/term fetch itself failed — not the same as "no classes" or "no term". */
+  const [loadFailed, setLoadFailed] = useState(false);
   const [roster, setRoster] = useState<Student[] | null>(null);
   const [reg, setReg] = useState<Register | null>(null);
   const [submitted, setSubmitted] = useState<boolean | null>(null);
@@ -45,7 +47,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         setTermId(term?.id ?? null);
         if (cls.length) setClassId((id) => id ?? cls[0]!.id);
       })
-      .catch(() => { if (alive) setClasses([]); });
+      .catch(() => { if (alive) { setLoadFailed(true); setClasses([]); } });
     return () => { alive = false; };
   }, [session.profileId]);
 
@@ -101,23 +103,51 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
 
   const cls = classes?.find((c) => c.id === classId);
 
-  if (!classes || !cls || submitted === null) {
-    return (
-      <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
-      </View>
-    );
-  }
-
-  if (classes.length === 0) {
+  // Checked before the spinner: with no class or no open term the register
+  // never loads, so the spinner would otherwise turn forever.
+  if (classes && loadFailed) {
     return (
       <View style={s.screen}>
         <View style={[s.header, { backgroundColor: a.deep }]}>
           <Text style={s.headerTitle}>Attendance</Text>
         </View>
         <View style={{ padding: 16 }}>
-          <View style={s.card}><Text style={s.small}>No classes assigned yet. Contact the school office.</Text></View>
+          <View style={s.card}><Text style={s.small}>Could not load your classes — check your connection and open this tab again.</Text></View>
         </View>
+      </View>
+    );
+  }
+
+  if (classes && classes.length === 0) {
+    return (
+      <View style={s.screen}>
+        <View style={[s.header, { backgroundColor: a.deep }]}>
+          <Text style={s.headerTitle}>Attendance</Text>
+        </View>
+        <View style={{ padding: 16 }}>
+          <View style={s.card}><Text style={s.small}>You aren't assigned to any classes yet.</Text></View>
+        </View>
+      </View>
+    );
+  }
+
+  if (classes && !termId) {
+    return (
+      <View style={s.screen}>
+        <View style={[s.header, { backgroundColor: a.deep }]}>
+          <Text style={s.headerTitle}>Attendance</Text>
+        </View>
+        <View style={{ padding: 16 }}>
+          <View style={s.card}><Text style={s.small}>No term is open yet. Ask the school admin to set up this term.</Text></View>
+        </View>
+      </View>
+    );
+  }
+
+  if (!classes || !cls || submitted === null) {
+    return (
+      <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator size="large" color={a.deep} />
       </View>
     );
   }

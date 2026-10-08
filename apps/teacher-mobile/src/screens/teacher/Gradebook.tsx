@@ -7,8 +7,18 @@ import {
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
+import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
+
+/** Stand-in for a PillPicker row while its options load — same height, so nothing jumps. */
+function PillsSkeleton() {
+  return (
+    <View style={{ flexDirection: "row", gap: 8, paddingBottom: 8 }}>
+      {[72, 96, 64].map((w) => <Skeleton key={w} width={w} height={44} radius={999} />)}
+    </View>
+  );
+}
 
 /**
  * Same rules as web: default nothing, type a mark or "abs", publish sends
@@ -22,12 +32,17 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
   const [termId, setTermId] = useState<string | null>(null);
+  /** The classes/term fetch itself failed — not the same as "no classes" or "no term". */
+  const [loadFailed, setLoadFailed] = useState(false);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [subjectId, setSubjectId] = useState<string | null>(null);
   const [exams, setExams] = useState<Exam[] | null>(null);
   const [examId, setExamId] = useState<string | null>(null);
   const [roster, setRoster] = useState<Student[] | null>(null);
   const [existingMarks, setExistingMarks] = useState<Record<string, number | null>>({});
+  /** Which exam/subject/roster `existingMarks` belongs to — until it matches the
+   *  current pick, the rows hold the previous subject's marks (or none). */
+  const [marksFor, setMarksFor] = useState<{ examId: string; subjectId: string; roster: Student[] } | null>(null);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [marksVersion, setMarksVersion] = useState(0);
@@ -46,7 +61,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
         setTermId(term?.id ?? null);
         if (cls.length) setClassId((id) => id ?? cls[0]!.id);
       })
-      .catch(() => { if (alive) setClasses([]); });
+      .catch(() => { if (alive) { setLoadFailed(true); setClasses([]); } });
     return () => { alive = false; };
   }, [session.profileId]);
 
@@ -55,6 +70,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     let alive = true;
     setSubjectId(null);
     setSubjects(null);
+    setRoster(null);
     fetchTeacherSubjectsForClass(session.profileId, classId)
       .then((subs) => { if (alive) { setSubjects(subs); if (subs.length) setSubjectId(subs[0]!.id); } })
       .catch(() => { if (alive) setSubjects([]); });
@@ -76,9 +92,10 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
   useEffect(() => {
     if (!examId || !subjectId || !roster || !roster.length) { setExistingMarks({}); return; }
     let alive = true;
+    const loadedFor = { examId, subjectId, roster };
     fetchMarksForExamSubject(examId, subjectId, roster.map((s) => s.id))
-      .then((m) => { if (alive) setExistingMarks(m); })
-      .catch(() => { if (alive) setExistingMarks({}); });
+      .then((m) => { if (alive) { setExistingMarks(m); setMarksFor(loadedFor); } })
+      .catch(() => { if (alive) { setExistingMarks({}); setMarksFor(loadedFor); } });
     return () => { alive = false; };
   }, [examId, subjectId, roster, marksVersion]);
 
@@ -110,6 +127,10 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
 
   const roll = roster ?? [];
   const entered = roll.filter((s) => value(s.id).trim() !== "").length;
+  const marksReady = marksFor !== null && marksFor.examId === examId && marksFor.subjectId === subjectId && marksFor.roster === roster;
+  /** First load of this class/subject/exam only — a save's refetch (marksVersion) keeps the rows on screen. */
+  const rowsLoading = roster === null || subjects === null || (exams === null && termId !== null)
+    || (!!examId && !!subjectId && roll.length > 0 && !marksReady);
 
   function buildRows() {
     if (!examId || !subjectId) return [];
@@ -170,6 +191,19 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     );
   }
 
+  if (loadFailed) {
+    return (
+      <View style={s.screen}>
+        <View style={[s.header, { backgroundColor: a.deep }]}>
+          <Text style={s.headerTitle}>Gradebook</Text>
+        </View>
+        <View style={{ padding: 16 }}>
+          <View style={s.card}><Text style={s.small}>Could not load your classes — check your connection and open this tab again.</Text></View>
+        </View>
+      </View>
+    );
+  }
+
   if (classes.length === 0) {
     return (
       <View style={s.screen}>
@@ -177,7 +211,21 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
           <Text style={s.headerTitle}>Gradebook</Text>
         </View>
         <View style={{ padding: 16 }}>
-          <View style={s.card}><Text style={s.small}>No classes assigned yet. Contact the school office.</Text></View>
+          <View style={s.card}><Text style={s.small}>You aren't assigned to any classes yet.</Text></View>
+        </View>
+      </View>
+    );
+  }
+
+  // No open term means no exams to mark against — say so rather than show a roster that can't be saved.
+  if (!termId) {
+    return (
+      <View style={s.screen}>
+        <View style={[s.header, { backgroundColor: a.deep }]}>
+          <Text style={s.headerTitle}>Gradebook</Text>
+        </View>
+        <View style={{ padding: 16 }}>
+          <View style={s.card}><Text style={s.small}>No term is open yet. Ask the school admin to set up this term.</Text></View>
         </View>
       </View>
     );
@@ -187,17 +235,31 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: a.deep }]}>
         <Text style={s.headerTitle}>Gradebook</Text>
-        <Text style={s.headerSub}>{entered} of {roll.length} entered</Text>
+        {rowsLoading ? (
+          <Skeleton width={110} height={11} style={{ marginTop: 6, backgroundColor: "rgba(255,255,255,0.3)" }} />
+        ) : (
+          <Text style={s.headerSub}>{entered} of {roll.length} entered</Text>
+        )}
       </View>
 
       <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
         {classes.length > 1 && <PillPicker items={classes} selectedId={classId} onPick={setClassId} accent={session.accent} />}
-        {!!subjects?.length && <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />}
-        {!!exams?.length && <PillPicker items={exams} selectedId={examId} onPick={setExamId} accent={session.accent} />}
+        {subjects === null ? <PillsSkeleton /> : !!subjects.length && <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />}
+        {exams === null && termId !== null ? <PillsSkeleton /> : !!exams?.length && <PillPicker items={exams} selectedId={examId} onPick={setExamId} accent={session.accent} />}
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 8 }} keyboardShouldPersistTaps="handled">
-        {roll.map((student, i) => {
+        {rowsLoading && [0, 1, 2, 3, 4].map((i) => (
+          <View key={i} style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
+            <View style={{ flex: 1, gap: 6 }}>
+              <Skeleton width="60%" height={14} />
+              <Skeleton width="30%" height={10} />
+            </View>
+            <Skeleton width={64} height={44} radius={10} />
+            <View style={{ width: 34 }} />
+          </View>
+        ))}
+        {!rowsLoading && roll.map((student, i) => {
           const raw = value(student.id);
           const parsed = parseScoreInput(raw);
           const grade = parsed.ok && parsed.score !== null ? gradeFor(parsed.score, scheme) : null;
@@ -239,20 +301,20 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
         <View style={{ flexDirection: "row", gap: 10 }}>
           <TouchableOpacity
             accessibilityRole="button"
-            disabled={busy}
+            disabled={busy || rowsLoading}
             onPress={() => void saveDraft()}
-            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy ? 0.6 : 1 }]}
+            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy || rowsLoading ? 0.6 : 1 }]}
           >
             <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Save draft</Text>
           </TouchableOpacity>
           <TouchableOpacity
             accessibilityRole="button"
-            disabled={busy || entered < roll.length}
+            disabled={busy || rowsLoading || entered < roll.length}
             onPress={() => void publish()}
-            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || entered < roll.length ? 0.6 : 1 }]}
+            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || rowsLoading || entered < roll.length ? 0.6 : 1 }]}
           >
             {busy ? <ActivityIndicator color="#fff" /> : (
-              <Text style={s.primaryLabel}>{entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
+              <Text style={s.primaryLabel}>{!rowsLoading && entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
             )}
           </TouchableOpacity>
         </View>

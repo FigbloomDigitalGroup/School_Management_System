@@ -10,6 +10,7 @@ import { accentFor, t } from "./theme";
  * readable with no network.
  */
 
+/** Suffixed with the profile id: a second account on this phone must never see the first one's data while its own loads. */
 const CACHE_KEY = "figbloom.studentData.v1";
 
 interface Cached {
@@ -40,7 +41,7 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
     let alive = true;
 
     (async () => {
-      const raw = await AsyncStorage.getItem(CACHE_KEY).catch(() => null);
+      const raw = await AsyncStorage.getItem(`${CACHE_KEY}.${profileId}`).catch(() => null);
       if (raw && alive) {
         try { setState({ status: "ready", cached: JSON.parse(raw) as Cached }); } catch { /* corrupt cache, ignore */ }
       }
@@ -54,7 +55,7 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
         if (!alive) return;
         const fresh: Cached = { data, timetable };
         setState({ status: "ready", cached: fresh });
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(fresh)).catch(() => {});
+        await AsyncStorage.setItem(`${CACHE_KEY}.${profileId}`, JSON.stringify(fresh)).catch(() => {});
       } catch {
         // Offline or the query failed — whatever the cache gave us (if any) stays on screen.
       }

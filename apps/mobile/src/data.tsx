@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
+import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -11,6 +11,7 @@ import { accentFor, t } from "./theme";
  * (and the cache) the moment it lands.
  */
 
+/** Suffixed with the profile id: a second account on this phone must never see the first one's figures while its own loads. */
 const CACHE_KEY = "figbloom.parentData.v1";
 
 interface Child {
@@ -26,10 +27,14 @@ interface Child {
   formLevel: number;
   classLevel: ClassLevel;
   receipts: Receipt[];
-  /** No register taken yet reads as nothing to report, not as absent. */
-  attendance: number;
-  /** No mark published yet reads as no mean, not as zero achievement. */
-  mean: number;
+  /** null = no register taken yet — nothing to report, not 100% and not absent. */
+  attendance: number | null;
+  /** Dates (YYYY-MM-DD, oldest first) the register marked absent this term. */
+  absentDates: string[];
+  /** null = no mark published yet — no mean, not zero achievement. */
+  mean: number | null;
+  /** The published exam the mean and subjects come from. */
+  examName: string | null;
 }
 
 function toChild(c: ChildInfo): Child {
@@ -37,8 +42,10 @@ function toChild(c: ChildInfo): Child {
     id: c.id, name: c.name, first: c.first, cls: c.cls, adm: c.adm,
     balance: c.balance, billed: c.billed, dueOn: c.dueOn,
     boarding: c.boarding, formLevel: c.formLevel, classLevel: c.classLevel, receipts: c.receipts,
-    attendance: c.attendancePct ?? 100,
-    mean: c.mean ?? 0,
+    attendance: c.attendancePct,
+    absentDates: c.absentDates ?? [], // a cache written by an older build may not carry it
+    mean: c.mean,
+    examName: c.examName,
   };
 }
 
@@ -48,7 +55,7 @@ interface Ctx {
   markMessageRead: (id: string) => void;
   feeItems: ParentData["feeItems"];
   termLabel: string | null;
-  subjectsFor: (childId: string) => [string, number][];
+  subjectsFor: (childId: string) => ChildSubject[];
   index: number;
   setIndex: (i: number) => void;
   accent: string;
@@ -67,7 +74,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
     let alive = true;
 
     (async () => {
-      const cached = await AsyncStorage.getItem(CACHE_KEY).catch(() => null);
+      const cached = await AsyncStorage.getItem(`${CACHE_KEY}.${profileId}`).catch(() => null);
       if (cached && alive) {
         try { setData(JSON.parse(cached) as ParentData); } catch { /* corrupt cache, ignore */ }
       }
@@ -75,7 +82,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
         const fresh = await loadParentData(profileId);
         if (!alive) return;
         setData(fresh);
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(fresh)).catch(() => {});
+        await AsyncStorage.setItem(`${CACHE_KEY}.${profileId}`, JSON.stringify(fresh)).catch(() => {});
       } catch {
         // Offline or the query failed — whatever the cache gave us stays on screen.
       }
@@ -128,7 +135,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
     markMessageRead: markRead,
     feeItems: data.feeItems,
     termLabel: data.termLabel,
-    subjectsFor: (childId) => (data.children.find((c) => c.id === childId)?.subjects ?? []).map((s) => [s.name, s.score]),
+    subjectsFor: (childId) => data.children.find((c) => c.id === childId)?.subjects ?? [],
     index,
     setIndex,
     accent,
@@ -169,7 +176,8 @@ export function useMarkMessageRead(): (id: string) => void {
   return useParentData().markMessageRead;
 }
 
-export function useSubjects(): [string, number][] {
+/** The selected child's subjects in the latest published exam, each with its real class mean (null when unavailable). */
+export function useSubjects(): ChildSubject[] {
   const { children, index, subjectsFor } = useParentData();
   const child = children[index] ?? children[0]!;
   return subjectsFor(child.id);

@@ -3,6 +3,7 @@ import { AppState, Image, RefreshControl, ScrollView, Text, View } from "react-n
 import { isLive, listBusUpdates, myChildBus, subscribeBusUpdates, type BusOnRoute, type BusUpdate } from "@figbloom/shared";
 import { accentFor, s } from "../../theme";
 import { useChild, useChildren, useTenantId } from "../../data";
+import { Skeleton } from "../../components/Skeleton";
 
 /** A child and the bus they ride, if any. */
 interface Ride { childId: string; first: string; bus: BusOnRoute | null; routeName: string | null; stopName: string | null }
@@ -85,7 +86,13 @@ export function ParentBus() {
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}>
         {error && <Text style={[s.small, { color: "#B4472B" }]}>{error}</Text>}
-        {!rides && !error && <Text style={s.small}>Loading…</Text>}
+        {!rides && !error && children.map((c) => (
+          <View key={c.id} style={[s.card, { padding: 14, gap: 8 }]}>
+            <Skeleton width="35%" height={14} />
+            <Skeleton width="60%" />
+            <Skeleton width="40%" height={10} />
+          </View>
+        ))}
         {rides?.map((r) => (
           <RideCard key={r.childId} ride={r} now={now} tint={tint} updates={updates.filter((u) => u.student_ids.includes(r.childId))} />
         ))}

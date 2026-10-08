@@ -23,7 +23,8 @@ export function ParentPay() {
 
   const [state, setState] = useState<State>("form");
   const [amount, setAmount] = useState(child.balance);
-  const [phone, setPhone] = useState("0722 118 004");
+  // No stand-in number: a prefilled demo MSISDN would send a real prompt to a stranger's phone.
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [failure, setFailure] = useState<keyof typeof PAYMENT_FAILURES>("timeout");
 
@@ -60,11 +61,11 @@ export function ParentPay() {
         </View>
         <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16 }}>{formatMoney(amount, country)} received</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
-          Receipt SJ91MX441. {child.first}'s balance is now {formatMoney(Math.max(child.balance - amount, 0), country)}.
+          {child.first}'s balance is now {formatMoney(Math.max(child.balance - amount, 0), country)}.
         </Text>
 
         <View style={[s.card, { marginTop: 20, width: "100%" }]}>
-          {[["Paid", formatMoney(amount, country)], ["For", child.name], ["Method", "M-Pesa " + phone], ["Reference", "SJ91MX441"]].map(([k, v]) => (
+          {[["Paid", formatMoney(amount, country)], ["For", child.name], ["Method", "M-Pesa " + phone]].map(([k, v]) => (
             <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.appSurface.lineSoft }}>
               <Text style={s.small}>{k}</Text>
               <Text style={{ fontSize: 12.5, fontWeight: "500" }}>{v}</Text>
@@ -137,6 +138,7 @@ export function ParentPay() {
         keyboardType="phone-pad"
         value={phone}
         onChangeText={setPhone}
+        placeholder="e.g. 0712 345 678"
         style={{ borderWidth: 1, borderColor: error ? t.status.warnInk : t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, fontFamily: "monospace" }}
       />
       {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{error}</Text>}
@@ -145,7 +147,7 @@ export function ParentPay() {
         <Text style={s.primaryLabel}>Send M-Pesa prompt</Text>
       </TouchableOpacity>
       <Text style={[s.faint, { textAlign: "center", marginTop: 12, lineHeight: 18 }]}>
-        You will get a prompt on {phone}. Nothing leaves your account until you enter your PIN.
+        You will get a prompt on {phone || "that number"}. Nothing leaves your account until you enter your PIN.
       </Text>
     </ScrollView>
   );
