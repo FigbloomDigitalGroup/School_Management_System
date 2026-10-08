@@ -222,10 +222,10 @@ begin
   if new.status = 'success' and (old.status is distinct from 'success') then
     update fee_invoices
        set paid_cents = paid_cents + new.amount_cents,
-           status = case
+           status = (case
              when paid_cents + new.amount_cents >= total_cents then 'paid'
              when due_on < current_date then 'overdue'
-             else 'part_paid' end
+             else 'part_paid' end)::invoice_status
      where id = new.invoice_id;
   end if;
   return new;
