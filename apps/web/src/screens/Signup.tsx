@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { suggestSlug, supabase } from "@figbloom/shared";
+import { normalizeSlug, suggestSlug, supabase } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { SelectField, TextField } from "../components/ui/Field";
 import { signupOrganization } from "../lib/signup";
+import { useSlugAvailability } from "../lib/slugAvailability";
+import { SlugAvailabilityNote } from "../components/SlugAvailabilityNote";
 
 /**
  * Public self-service signup (FIG-371) — the one screen a stranger reaches
@@ -60,13 +62,15 @@ export function Signup() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const slugValue = slugTouched ? slug : (name ? suggestSlug(name) : "");
+  const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
   const slugCheck = slugValue ? validateOrgSlug(slugValue) : { ok: false, message: "" };
+  const availability = useSlugAvailability("organization", slugValue, county);
 
   async function submit() {
     setError("");
     if (!name.trim()) { setError("Give your organization a name."); return; }
     if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid address."); return; }
+    if (availability.status === "taken") { setError(`figbloom.co.ke/org/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
     if (!adminName.trim()) { setError("Your name is required."); return; }
     if (!email.trim()) { setError("Your email is required."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
@@ -111,12 +115,14 @@ export function Signup() {
           <div className="grid gap-3.5">
             <TextField id="orgName" label="Organization name" placeholder="e.g. Riverside Schools Trust" value={name} onChange={(e) => setName(e.target.value)} />
             <TextField
-              id="orgSlug" label="Address" mono placeholder={slugValue || "riverside-schools-trust"}
+              id="orgSlug" label="Web address" mono placeholder={slugValue || "riverside-schools-trust"}
               value={slugTouched ? slug : slugValue}
-              hint={slugCheck.ok ? `figbloom.co.ke/org/${slugValue} — this cannot be changed later.` : undefined}
+              hint={slugCheck.ok && availability.status === "idle" ? `figbloom.co.ke/org/${slugValue} — this cannot be changed later.` : undefined}
               error={slugTouched && slug && !slugCheck.ok ? slugCheck.message : undefined}
               onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
             />
+            <SlugAvailabilityNote slug={slugValue} noun="organization" base="figbloom.co.ke/org/" availability={availability}
+              onPick={(s) => { setSlugTouched(true); setSlug(s); }} />
             <SelectField id="orgKind" label="What best describes you?" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
             <TextField id="orgCounty" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
 

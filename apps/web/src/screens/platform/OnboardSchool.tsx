@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { SCHOOL_LEVEL_OPTIONS, countryProfile, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { SCHOOL_LEVEL_OPTIONS, countryProfile, normalizeSlug, similarSchoolNames, slugAlternatives, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { CountrySelect } from "../../components/ui/CountrySelect";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/Toast";
 import { createTenant, fetchOrganizations, inviteAdmin, type InviteAdminResult } from "../../lib/platformAdmin";
+import { adminInviteError, schoolInsertError } from "../../lib/slugAvailability";
 import { uploadTenantLogo } from "../../lib/uploads";
 import { useAsync } from "../../lib/useAsync";
 
@@ -39,12 +40,14 @@ const BLANK: Form = {
  * invite was delivered when nothing was actually sent.
  */
 export function OnboardSchool({
-  open, onClose, existingSlugs, onCreated,
+  open, onClose, existingSlugs, existingNames, onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   /** Real slugs already in use — checked live instead of a hardcoded example. */
   existingSlugs: string[];
+  /** Every school's name, to warn before a near-duplicate is onboarded. */
+  existingNames: string[];
   /** Called once the school and its administrator both exist for real. */
   onCreated: (tenant: Tenant) => void;
 }) {
@@ -62,9 +65,11 @@ export function OnboardSchool({
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const { data: organizations } = useAsync(() => fetchOrganizations(), []);
 
-  const slugValue = form.slug || (form.name ? suggestSlug(form.name) : "");
+  const slugValue = normalizeSlug(form.slug || (form.name ? suggestSlug(form.name) : ""));
   const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "Suggested from the school name." };
   const takenBy = existingSlugs.includes(slugValue);
+  const alternatives = takenBy ? slugAlternatives(slugValue, form.county).filter((a) => !existingSlugs.includes(a)).slice(0, 3) : [];
+  const lookalikes = form.name.trim() ? similarSchoolNames(form.name, existingNames) : [];
 
   function close() {
     onClose();
@@ -99,7 +104,7 @@ export function OnboardSchool({
         plan: form.plan as Tenant["plan"],
         accent: form.accent,
         licensed_seats: Number(form.seats) || 0,
-      });
+      }).catch((err) => { throw schoolInsertError(err, slugValue); });
       setTenant(t);
 
       if (crestFile && !t.logo_url) {
@@ -115,6 +120,8 @@ export function OnboardSchool({
         staff_title: form.adminRole,
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
+      }).catch((err) => {
+        throw new Error(`${t.name} is saved, but its administrator couldn't be added: ${adminInviteError(err, form.email.trim())} Fix it and try again; the school won't be created twice.`);
       });
       setCredentials(result);
       onCreated(t);
@@ -185,7 +192,15 @@ export function OnboardSchool({
       {step === 0 && (
         <div className="grid gap-3.5">
           <div className="grid gap-3.5 sm:grid-cols-2">
-            <TextField id="name" label="School name" placeholder="e.g. Kabarak High School" value={form.name} onChange={(e) => set("name", e.target.value)} />
+            <div>
+              <TextField id="name" label="School name" placeholder="e.g. Kabarak High School" value={form.name} onChange={(e) => set("name", e.target.value)} />
+              {lookalikes.length > 0 && (
+                <p className="mt-1.5 text-[11.5px] text-orange-ink">
+                  Already on Figbloom: {lookalikes.slice(0, 3).map((n) => `"${n}"`).join(", ")}{lookalikes.length > 3 ? ` and ${lookalikes.length - 3} more` : ""}.
+                  Check it isn't the same school before onboarding it again.
+                </p>
+              )}
+            </div>
             <TextField id="moe" label="MoE registration number" mono placeholder="e.g. 31/1/0071" value={form.moe} onChange={(e) => set("moe", e.target.value)} />
           </div>
           <div className="grid gap-3.5 sm:grid-cols-2">
@@ -232,8 +247,19 @@ export function OnboardSchool({
             </div>
             <p className="mt-2 flex items-center gap-1.5 text-small" style={{ color: takenBy || !slugCheck.ok ? "#B8460A" : "#2E7D4F" }}>
               <span aria-hidden>{takenBy || !slugCheck.ok ? "✕" : "✓"}</span>
-              {takenBy ? "That address is already taken by another school." : slugCheck.message}
+              {takenBy ? "That address is already taken by another school." : slugCheck.ok ? `figbloom.co.ke/s/${slugValue} is free. ${slugCheck.message}` : slugCheck.message}
             </p>
+            {alternatives.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11.5px]">
+                <span className="text-ink-muted">Try:</span>
+                {alternatives.map((a) => (
+                  <button key={a} type="button" onClick={() => set("slug", a)}
+                    className="rounded-full border border-[#D3DAD5] bg-white px-2.5 py-1 font-mono text-ink hover:bg-page">
+                    {a}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {organizations && organizations.length > 0 && (
             <SelectField
@@ -349,7 +375,7 @@ export function OnboardSchool({
           <dl className="mb-4 overflow-hidden rounded-lg border border-line">
             {[
               ["School", form.name || "—"],
-              ["Address", `figbloom.co.ke/s/${slugValue || "—"}`],
+              ["Web address", `figbloom.co.ke/s/${slugValue || "—"}`],
               ...(form.organizationId ? [["Organization", organizations?.find((o) => o.id === form.organizationId)?.name ?? "—"]] : []),
               ["Plan", `${form.plan} · ${form.cycle === "term" ? "per term" : "annual"}`],
               ["Trial", form.trial === "0" ? "No trial" : `${form.trial} days`],

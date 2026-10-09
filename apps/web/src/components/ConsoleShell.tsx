@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
-import { NAV, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { NAV, normalizeSlug, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
+import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
+import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { useTenant } from "./TenantTheme";
@@ -426,12 +428,14 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
   const [county, setCounty] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const slugValue = slugTouched ? slug : (name ? suggestSlug(name) : "");
+  const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
   const slugOk = ORG_SLUG_RE.test(slugValue);
+  const availability = useSlugAvailability("organization", slugValue, county);
 
   async function submit() {
     if (!name.trim()) { toast("Give the organization a name.", "error"); return; }
     if (!slugOk) { toast("Pick a valid address — 3-40 lowercase letters, numbers and hyphens.", "error"); return; }
+    if (availability.status === "taken") { toast(`figbloom.co.ke/org/${slugValue} is already taken. Pick one of the suggestions under the field.`, "error"); return; }
     setSaving(true);
     try {
       const result = await createMyOrganization({
@@ -471,12 +475,14 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
         </p>
         <TextField id="new-org-name" label="Organization name" placeholder="e.g. Riverside Schools Trust" value={name} onChange={(e) => setName(e.target.value)} />
         <TextField
-          id="new-org-slug" label="Address" mono placeholder={slugValue || "riverside-schools-trust"}
+          id="new-org-slug" label="Web address" mono placeholder={slugValue || "riverside-schools-trust"}
           value={slugTouched ? slug : slugValue}
-          hint={slugOk ? `figbloom.co.ke/org/${slugValue}` : undefined}
+          hint={slugOk && availability.status === "idle" ? `figbloom.co.ke/org/${slugValue}` : undefined}
           error={slugTouched && slug && !slugOk ? "3-40 characters, lowercase letters, numbers and hyphens only." : undefined}
           onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
         />
+        <SlugAvailabilityNote slug={slugValue} noun="organization" base="figbloom.co.ke/org/" availability={availability}
+          onPick={(s) => { setSlugTouched(true); setSlug(s); }} />
         <SelectField id="new-org-kind" label="What best describes it?" value={kind} onChange={(e) => setKind(e.target.value as Organization["kind"])} options={ORG_KIND_OPTIONS} />
         <TextField id="new-org-county" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
       </div>

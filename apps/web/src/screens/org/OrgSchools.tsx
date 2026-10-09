@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  SCHOOL_LEVEL_OPTIONS, fetchOrganizationTenantSummaries, logOrganizationAccess, suggestSlug, validateSlug, formatMoney,
+  SCHOOL_LEVEL_OPTIONS, fetchOrganizationTenantSummaries, logOrganizationAccess, normalizeSlug, similarSchoolNames, suggestSlug, validateSlug, formatMoney,
   type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
@@ -16,6 +16,8 @@ import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
 import { createTenantSelfService } from "../../lib/orgSelfService";
 import { inviteAdmin } from "../../lib/platformAdmin";
+import { adminInviteError, schoolInsertError, useSlugAvailability } from "../../lib/slugAvailability";
+import { SlugAvailabilityNote } from "../../components/SlugAvailabilityNote";
 
 const STATUS_TONE: Record<OrganizationTenantSummary["status"], "ok" | "warn" | "info" | "muted"> = {
   active: "ok", trial: "muted", onboarding: "info", overdue: "warn", suspended: "warn", setup_stalled: "warn",
@@ -100,7 +102,10 @@ export function OrgSchools() {
       {adding && (
         <AddSchoolModal
           organizationId={organization.id}
-          onClose={() => setAdding(false)}
+          existingNames={data.map((s) => s.name)}
+          ownEmail={profile.email}
+          // a school saved before its administrator failed is real: show it in the list
+          onClose={(saved) => { setAdding(false); if (saved) setReloadKey((k) => k + 1); }}
           onCreated={(name) => { setAdding(false); setReloadKey((k) => k + 1); toast(`${name} created.`); }}
           toast={toast}
         />
@@ -109,9 +114,11 @@ export function OrgSchools() {
   );
 }
 
-function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
+function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCreated, toast }: {
   organizationId: string;
-  onClose: () => void;
+  existingNames: string[];
+  ownEmail: string | null;
+  onClose: (saved: boolean) => void;
   onCreated: (name: string) => void;
   toast: ToastFn;
 }) {
@@ -128,19 +135,36 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   const [adminTitle, setAdminTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  // Saved, but its administrator wasn't: a retry only re-tries the administrator,
+  // instead of inserting the school again and colliding with its own address.
+  const [saved, setSaved] = useState<Tenant | null>(null);
 
-  const slugValue = slug || (name ? suggestSlug(name) : "");
+  const slugValue = normalizeSlug(slug || (name ? suggestSlug(name) : ""));
   const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
+  const availability = useSlugAvailability("school", saved ? "" : slugValue, county);
+  const lookalikes = name.trim() ? similarSchoolNames(name, existingNames) : [];
+  const close = () => onClose(saved !== null);
 
   async function create() {
     setError("");
+    setEmailError("");
     if (!name.trim()) { setError("Give the school a name."); return; }
-    if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid address."); return; }
+    if (!saved) {
+      if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid web address."); return; }
+      if (availability.status === "taken") { setError(`figbloom.co.ke/s/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
+      if (availability.status === "checking") { setError("Still checking the web address. Give it a second and try again."); return; }
+    }
     if (!adminName.trim() || !adminEmail.trim()) { setError("The school's own administrator name and email are required."); return; }
+    if (ownEmail && adminEmail.trim().toLowerCase() === ownEmail.toLowerCase()) {
+      setEmailError("That's your own login. The school needs its own administrator with their own email; you can already manage it from this organization.");
+      return;
+    }
 
     setSaving(true);
+    let tenant = saved;
     try {
-      const tenant = await createTenantSelfService({
+      tenant ??= await createTenantSelfService({
         name: name.trim(),
         slug: slugValue,
         county: county.trim(),
@@ -154,8 +178,15 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
         plan: "standard",
         accent: "#1B4D2E",
         licensed_seats: 0,
-      });
+      }).catch((err) => { throw schoolInsertError(err, slugValue); });
+      setSaved(tenant);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The school could not be saved.");
+      setSaving(false);
+      return;
+    }
 
+    try {
       await inviteAdmin({
         tenant_id: tenant.id,
         full_name: adminName.trim(),
@@ -165,7 +196,10 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
 
       onCreated(tenant.name);
     } catch (err) {
-      toast(err instanceof Error ? `Could not add the school: ${err.message}` : "Could not add the school.", "error");
+      const reason = adminInviteError(err, adminEmail.trim());
+      if (/already has a Figbloom login/.test(reason)) setEmailError(reason);
+      else setError(`${tenant.name} is saved, but its administrator couldn't be added: ${reason}`);
+      toast(`${tenant.name} is saved. Only its administrator still needs adding.`, "error");
     } finally {
       setSaving(false);
     }
@@ -176,25 +210,50 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={close}
       eyebrow="Schools"
       title="Add a school"
       actions={
         <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="accent" onClick={() => void create()} disabled={saving}>{saving ? "Creating…" : "Add school"}</Button>
+          <Button onClick={close}>{saved ? "Close" : "Cancel"}</Button>
+          <Button variant="accent" onClick={() => void create()} disabled={saving || (!saved && availability.status === "taken")}>
+            {saving ? "Saving…" : saved ? "Add administrator" : "Add school"}
+          </Button>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="grid gap-3.5">
+        {saved && (
+          <p className="rounded-lg border border-line bg-sunken px-3 py-2.5 text-[12.5px] text-ink-muted">
+            <span className="font-semibold text-ink">{saved.name}</span> is saved at figbloom.co.ke/s/{saved.slug}. Only its administrator is
+            left: fix their details below and press Add administrator. Closing keeps the school.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+            <span aria-hidden>✕</span>{error}
+          </p>
+        )}
         <div className="grid gap-3.5 sm:grid-cols-2">
-          <TextField id="school-name" label="School name" placeholder="e.g. Riverside Primary" value={name} onChange={(e) => setName(e.target.value)} />
-          <TextField
-            id="school-slug" label="Address" mono placeholder={slugValue || "riverside-primary"}
-            value={slug} hint={slugCheck.ok ? `figbloom.co.ke/s/${slugValue}` : undefined}
-            error={slug && !slugCheck.ok ? slugCheck.message : undefined}
-            onChange={(e) => setSlug(e.target.value)}
-          />
+          <div>
+            <TextField id="school-name" label="School name" placeholder="e.g. Riverside Primary" value={name} disabled={!!saved} onChange={(e) => setName(e.target.value)} />
+            {!saved && lookalikes.length > 0 && (
+              <p className="mt-1.5 text-[11.5px] text-orange-ink">
+                This organization already has {lookalikes.length === 1 ? "a school" : "schools"} called {lookalikes.map((n) => `"${n}"`).join(", ")}.
+                If it's the same school, it doesn't need adding again; if it's another branch, give it a name parents can tell apart.
+              </p>
+            )}
+          </div>
+          <div>
+            <TextField
+              id="school-slug" label="Web address" mono placeholder={slugValue || "riverside-primary"}
+              value={saved ? saved.slug : slug} disabled={!!saved}
+              hint={slugCheck.ok && availability.status === "idle" ? `figbloom.co.ke/s/${slugValue}` : undefined}
+              error={slug && !slugCheck.ok ? slugCheck.message : undefined}
+              onChange={(e) => setSlug(e.target.value)}
+            />
+            {!saved && <SlugAvailabilityNote slug={slugValue} noun="school" availability={availability} onPick={setSlug} />}
+          </div>
         </div>
         <div className="grid gap-3.5 sm:grid-cols-2">
           <CountrySelect id="school-country" label="Country" value={country} onChange={setCountry} />
@@ -225,7 +284,7 @@ function AddSchoolModal({ organizationId, onClose, onCreated, toast }: {
           <p className="mb-3 text-[12.5px] font-semibold text-ink">This school's own administrator</p>
           <div className="grid gap-3.5 sm:grid-cols-2">
             <TextField id="school-admin-name" label="Name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
-            <TextField id="school-admin-email" label="Email" type="email" error={error} value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+            <TextField id="school-admin-email" label="Email" type="email" error={emailError || undefined} value={adminEmail} onChange={(e) => { setAdminEmail(e.target.value); setEmailError(""); }} />
           </div>
           <div className="mt-3.5">
             <TextField
