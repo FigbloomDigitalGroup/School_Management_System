@@ -163,6 +163,11 @@ export async function endTrip(tripId: string): Promise<void> {
 
 export interface LocationPingInput {
   tenantId: string; vehicleId: string; tripId: string; lat: number; lng: number; speedKmh?: number; heading?: number;
+  /** When the GPS fix was actually taken. Pass this for a ping that might be queued and sent
+   *  later — otherwise a dead-zone backlog lands with its flush time, not its fix time, and
+   *  corrupts trip replay's timeline. Omit it for an always-live ping; the column then defaults
+   *  to insert time, which is the fix time anyway. */
+  recordedAt?: string;
 }
 
 /** The exact `vehicle_locations` row shape — shared with the offline queue (lib/queue.ts) so a
@@ -171,6 +176,7 @@ export function locationPingRow(input: LocationPingInput) {
   return {
     tenant_id: input.tenantId, vehicle_id: input.vehicleId, trip_id: input.tripId,
     lat: input.lat, lng: input.lng, speed_kmh: input.speedKmh ?? null, heading: input.heading ?? null,
+    ...(input.recordedAt ? { recorded_at: input.recordedAt } : {}),
   };
 }
 

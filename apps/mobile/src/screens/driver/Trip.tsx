@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import {
-  endTrip, myActiveTrip, myAssignment, pingLocation, startTrip, supabase,
+  endTrip, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, supabase,
   type AssignmentRow, type Trip, type TripDirection,
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
+import { queue } from "../../storage";
 import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
@@ -41,6 +42,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [ending, setEnding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastPing, setLastPing] = useState<{ at: Date; lat: number; lng: number } | null>(null);
+  const [held, setHeld] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const tripRef = useRef<Trip | null>(null);
 
@@ -69,6 +71,12 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   // Stop the foreground service if the screen unmounts mid-trip (e.g. sign-out).
   useEffect(() => () => { void stopLocationTracking(); }, []);
 
+  // Pings queued from a dead zone on a previous trip (one that outlasted the trip itself)
+  // get one more chance to go out as soon as this screen is back on screen.
+  useEffect(() => {
+    void queue.flush().then(() => queue.pendingFor("vehicle_locations")).then((p) => setHeld(p.length));
+  }, []);
+
   async function handleStart() {
     if (!assignment) return;
     setActionError(null);
@@ -87,14 +95,25 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       await startLocationTracking((tick: LocationTick) => {
         const active = tripRef.current;
         if (!active) return;
-        pingLocation({
+        const input = {
           tenantId, vehicleId: active.vehicle_id, tripId: active.id,
-          lat: tick.lat, lng: tick.lng, speedKmh: tick.speedKmh, heading: tick.heading,
-        })
-          .then(() => setLastPing({ at: new Date(), lat: tick.lat, lng: tick.lng }))
-          .catch((err: unknown) => {
-            setActionError(err instanceof Error ? `Could not send a location update: ${err.message}` : "Could not send a location update.");
-          });
+          lat: tick.lat, lng: tick.lng, speedKmh: tick.speedKmh, heading: tick.heading, recordedAt: tick.recordedAt,
+        };
+        (async () => {
+          try {
+            await pingLocation(input);
+            setLastPing({ at: new Date(tick.recordedAt), lat: tick.lat, lng: tick.lng });
+          } catch {
+            // No signal (or a transient failure): keep the fix on disk rather than lose it,
+            // same fallback the teacher app's attendance register uses. It goes out, in order
+            // with its original time, next time this trip (or the next one) gets a signal.
+            await queue.enqueue("vehicle_locations", [locationPingRow(input)]);
+          }
+          const pending = await queue.flush().then(() => queue.pendingFor("vehicle_locations"));
+          setHeld(pending.length);
+        })().catch((err: unknown) => {
+          setActionError(err instanceof Error ? `Could not send a location update: ${err.message}` : "Could not send a location update.");
+        });
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Could not start the trip.");
@@ -209,6 +228,11 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
                 ? `Last sent: ${lastPing.at.toLocaleTimeString()} · ${lastPing.lat.toFixed(4)}, ${lastPing.lng.toFixed(4)}`
                 : "Waiting for the first location fix…"}
             </Text>
+            {held > 0 && (
+              <Text style={[s.faint, { marginTop: 4 }]}>
+                {held} location update{held === 1 ? "" : "s"} saved on this phone, sending when you have signal
+              </Text>
+            )}
 
             <TouchableOpacity
               disabled={ending}

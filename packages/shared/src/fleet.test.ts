@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceM, fmtDistance, isLive, routeProgress } from "./fleet";
+import { distanceM, fmtDistance, isLive, locationPingRow, routeProgress } from "./fleet";
 
 // Three stops roughly 1.5-3km apart along a line, Nakuru-ish.
 const STOPS = [
@@ -63,5 +63,25 @@ describe("isLive", () => {
     expect(isLive("2026-10-07T07:59:00Z", now)).toBe(true);
     expect(isLive("2026-10-07T07:57:00Z", now)).toBe(false);
     expect(isLive(null, now)).toBe(false);
+  });
+});
+
+describe("locationPingRow", () => {
+  const base = { tenantId: "t1", vehicleId: "v1", tripId: "trip1", lat: -0.28, lng: 36.07 };
+
+  it("carries a passed recordedAt through as recorded_at, for a ping that might be queued", () => {
+    const row = locationPingRow({ ...base, recordedAt: "2026-10-07T07:40:00.000Z" });
+    expect(row.recorded_at).toBe("2026-10-07T07:40:00.000Z");
+  });
+
+  it("omits recorded_at for an always-live ping, so the column default (insert time) applies", () => {
+    const row = locationPingRow(base);
+    expect(row).not.toHaveProperty("recorded_at");
+  });
+
+  it("defaults speed and heading to null when not reported", () => {
+    const row = locationPingRow(base);
+    expect(row.speed_kmh).toBeNull();
+    expect(row.heading).toBeNull();
   });
 });

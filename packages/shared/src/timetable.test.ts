@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { currentPeriodIndex, todayWeekday, type TimetableRow } from "./timetable";
 
 const rows: TimetableRow[] = [
-  ["08:00:00", "Maths", "Rm 1"],
-  ["09:00:00", "English", "Rm 2"],
-  ["10:00:00", "Chemistry", "Lab 1"],
+  ["08:00:00", "Maths", "Rm 1", null],
+  ["09:00:00", "English", "Rm 2", null],
+  ["10:00:00", "Chemistry", "Lab 1", null],
 ];
 
 describe("currentPeriodIndex", () => {
