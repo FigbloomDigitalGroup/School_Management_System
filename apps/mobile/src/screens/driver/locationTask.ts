@@ -154,6 +154,11 @@ export async function startLocationTracking(onTick: (tick: LocationTick) => void
     taskDesc: "Figbloom is sharing this bus's location while the trip is active.",
     taskIcon: { name: "ic_launcher", type: "mipmap" },
     color: "#17402A",
+    // Required from Android 14 (API 34) on top of the manifest's own
+    // foregroundServiceType="location": the system rejects startForeground()
+    // with "type none" if the running call doesn't also declare one, no
+    // matter what the manifest says.
+    foregroundServiceType: ["location"],
     parameters: { onTick, delay: PING_MIN_INTERVAL_MS } satisfies TaskParams,
   });
 }
