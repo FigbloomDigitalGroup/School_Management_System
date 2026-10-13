@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
   againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishExam, saveExamMarks,
+  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishExam, rubricFor, saveExamMarks,
   summarise, type ClassGroup, type Exam, type Student, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
@@ -10,6 +10,7 @@ import { PillPicker } from "../../components/PillPicker";
 import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
+import { TeacherCbeGradebookBody } from "./CbeGradebook";
 
 /** Stand-in for a PillPicker row while its options load — same height, so nothing jumps. */
 function PillsSkeleton() {
@@ -35,17 +36,19 @@ function PillsSkeleton() {
  * into the status message so a permanently-failing save (not just an
  * offline one) doesn't go unnoticed forever.
  *
- * Known gaps, not fixed here (FIG-761 follow-up — each needs its own screen,
- * not a change to this one):
- *  - CBE strand-rubric assessment (apps/web/src/screens/teacher/
- *    CbeGradebook.tsx) has no mobile equivalent at all. Any class whose
- *    level resolves to a CBC rubric (pre_primary/primary/junior_secondary/
- *    senior_school) is graded here as a plain percentage instead of
- *    strand-by-strand, which is the wrong model for that curriculum.
- *  - Higher-ed/GPA grading (apps/web/src/screens/teacher/GpaGradebook.tsx)
- *    is a different tenant type (institution_type: "higher_ed") with no
- *    seeded demo data anywhere in this repo; this screen has no course-
- *    section concept and isn't a partial implementation of it.
+ * CBE strand assessment (FIG-775) lives in this same tab rather than as a
+ * separate screen: whichever class is selected, the mode (below) switches
+ * automatically to Strands when rubricFor() says that class's level is
+ * judged by the CBC rubric, not by percentage marks — a class is one or the
+ * other, never both, so this isn't a user preference, just routing. See
+ * CbeGradebook.tsx for the strand-judging UI itself; class/term/subject/
+ * roster are fetched once here and passed down, since they're identical
+ * regardless of which model applies.
+ *
+ * Known gap, not fixed here: Higher-ed/GPA grading (apps/web/src/screens/
+ * teacher/GpaGradebook.tsx) is a different tenant type (institution_type:
+ * "higher_ed") with no seeded demo data anywhere in this repo; this screen
+ * has no course-section concept and isn't a partial implementation of it.
  */
 export function TeacherGradebook({ session }: { session: TeacherSession }) {
   const a = accentFor(session.accent);
@@ -70,6 +73,9 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const inputs = useRef<Record<number, TextInput | null>>({});
+  /** Per-class override, so switching classes always re-defaults instead of
+   *  carrying a stale choice onto a class the toggle shouldn't apply to. */
+  const [modeOverride, setModeOverride] = useState<Record<string, "marks" | "strands">>({});
 
   useEffect(() => { void queue.flush(); }, []);
 
@@ -101,14 +107,20 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     return () => { alive = false; };
   }, [classId, session.profileId]);
 
+  const selectedClass = classes?.find((c) => c.id === classId);
+  const hasRubric = !!selectedClass && !!rubricFor(session.country, selectedClass.level);
+  const mode = (classId && modeOverride[classId]) ?? (hasRubric ? "strands" : "marks");
+
+  // Exam marks don't apply to a CBE class, so there's nothing for this fetch
+  // to do while Strands mode is showing — skip it until marks mode is live.
   useEffect(() => {
-    if (!termId) return;
+    if (!termId || mode !== "marks") return;
     let alive = true;
     fetchExamsForTerm(termId)
       .then((ex) => { if (alive) { setExams(ex); if (ex.length) setExamId((id) => id ?? ex[0]!.id); } })
       .catch(() => { if (alive) setExams([]); });
     return () => { alive = false; };
-  }, [termId]);
+  }, [termId, mode]);
 
   useEffect(() => {
     if (!examId || !subjectId || !roster || !roster.length) { setExistingMarks({}); return; }
@@ -120,7 +132,6 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     return () => { alive = false; };
   }, [examId, subjectId, roster, marksVersion]);
 
-  const selectedClass = classes?.find((c) => c.id === classId);
   const scheme = gradingSchemeFor(session.country, selectedClass?.level ?? "secondary");
   const subject = subjects?.find((s) => s.id === subjectId);
   const exam = exams?.find((e) => e.id === examId);
@@ -295,14 +306,18 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: a.deep }]}>
         <Text style={s.headerTitle}>Gradebook</Text>
-        {rowsLoading ? (
-          <Skeleton width={110} height={11} style={{ marginTop: 6, backgroundColor: "rgba(255,255,255,0.3)" }} />
+        {mode === "marks" ? (
+          rowsLoading ? (
+            <Skeleton width={110} height={11} style={{ marginTop: 6, backgroundColor: "rgba(255,255,255,0.3)" }} />
+          ) : (
+            <Text style={s.headerSub}>
+              {entered} of {roll.length} entered
+              {summary.meanScore !== null ? ` · your mean ${summary.meanScore}` : ""}
+              {mean !== null ? ` · class mean ${mean}` : ""}
+            </Text>
+          )
         ) : (
-          <Text style={s.headerSub}>
-            {entered} of {roll.length} entered
-            {summary.meanScore !== null ? ` · your mean ${summary.meanScore}` : ""}
-            {mean !== null ? ` · class mean ${mean}` : ""}
-          </Text>
+          <Text style={s.headerSub}>Strand assessment</Text>
         )}
       </View>
 
@@ -312,10 +327,34 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
         ) : (
           !!selectedClass && <Text style={[s.small, { fontWeight: "600" }]}>{selectedClass.name}</Text>
         )}
+        {hasRubric && (
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {(["strands", "marks"] as const).map((m) => {
+              const on = mode === m;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => classId && setModeOverride((o) => ({ ...o, [classId]: m }))}
+                  style={{ ...HIT, flex: 1, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: on ? a.deep : t.appSurface.lineSoft }}
+                >
+                  <Text style={{ fontSize: 12.5, fontWeight: "700", color: on ? "#fff" : t.appSurface.inkMuted }}>
+                    {m === "strands" ? "Strands" : "Exam marks"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
         {subjects === null ? <PillsSkeleton /> : !!subjects.length && <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />}
-        {exams === null && termId !== null ? <PillsSkeleton /> : !!exams?.length && <PillPicker items={exams} selectedId={examId} onPick={setExamId} accent={session.accent} />}
+        {mode === "marks" && (exams === null && termId !== null ? <PillsSkeleton /> : !!exams?.length && <PillPicker items={exams} selectedId={examId} onPick={setExamId} accent={session.accent} />)}
       </View>
 
+      {mode === "strands" ? (
+        <TeacherCbeGradebookBody session={session} cls={selectedClass!} termId={termId} subject={subject} roster={roster} />
+      ) : (
+      <>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 8 }} keyboardShouldPersistTaps="handled">
         {rowsLoading && [0, 1, 2, 3, 4].map((i) => (
           <View key={i} style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
@@ -394,6 +433,8 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
           </TouchableOpacity>
         </View>
       </View>
+      </>
+      )}
     </View>
   );
 }
