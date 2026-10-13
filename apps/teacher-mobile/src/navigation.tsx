@@ -12,6 +12,7 @@ import { TeacherMore } from "./screens/teacher/More";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherLeave } from "./screens/teacher/Leave";
+import { TeacherBuses } from "./screens/teacher/Buses";
 import { TeacherAccount } from "./screens/teacher/Account";
 
 const Tab = createBottomTabNavigator();
@@ -39,6 +40,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="Timetable">{() => <TeacherTimetable session={session} />}</Stack.Screen>
       <Stack.Screen name="Classes">{() => <TeacherClasses session={session} />}</Stack.Screen>
       <Stack.Screen name="Leave">{() => <TeacherLeave session={session} />}</Stack.Screen>
+      <Stack.Screen name="Buses">{() => <TeacherBuses session={session} />}</Stack.Screen>
       <Stack.Screen name="Account">{() => <TeacherAccount session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
