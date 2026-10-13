@@ -456,20 +456,24 @@ export interface TripRow extends Trip {
   vehicle: Pick<Vehicle, "plate_number"> | null;
   driver: Pick<DriverOption, "full_name"> | null;
   route: Pick<Route, "name"> | null;
+  /** Speeding/off-route alerts the vehicle_locations trigger raised during this trip. */
+  alertCount: number;
 }
 
 /** Most recent trips first, across the whole fleet or just one vehicle. */
 export async function listTrips(tenantId: string, vehicleId?: string, limitTo = 50): Promise<TripRow[]> {
   let query = supabase()
     .from("trips")
-    .select("*, vehicle:vehicles(plate_number), driver:profiles(full_name), route:routes(name)")
+    .select("*, vehicle:vehicles(plate_number), driver:profiles(full_name), route:routes(name), vehicle_alerts(count)")
     .eq("tenant_id", tenantId)
     .order("started_at", { ascending: false })
     .limit(limitTo);
   if (vehicleId) query = query.eq("vehicle_id", vehicleId);
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as unknown as TripRow[];
+  return ((data ?? []) as unknown as (TripRow & { vehicle_alerts: { count: number }[] })[]).map((t) => ({
+    ...t, alertCount: t.vehicle_alerts[0]?.count ?? 0,
+  }));
 }
 
 export interface TripPoint { lat: number; lng: number; speed_kmh: number | null; recorded_at: string }
