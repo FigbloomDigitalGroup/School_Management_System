@@ -12,9 +12,9 @@ create table plan_pricing (
   price_cents int not null check (price_cents >= 0)
 );
 insert into plan_pricing (plan, price_cents) values
-  ('standard',    50000_00),
-  ('institution', 120000_00),
-  ('county',      300000_00);
+  ('standard',    5000000),
+  ('institution', 12000000),
+  ('county',      30000000);
 
 alter table tenants
   add column price_cents_override int check (price_cents_override >= 0),
