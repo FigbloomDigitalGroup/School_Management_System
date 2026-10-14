@@ -1,0 +1,4 @@
+storeFile=figbloom-mobile-release.keystore
+storePassword=CHANGEME
+keyAlias=figbloom-mobile-upload
+keyPassword=CHANGEME
