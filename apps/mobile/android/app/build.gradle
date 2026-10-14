@@ -1,7 +1,19 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 apply plugin: "com.google.gms.google-services" // Push notifications (FIG-293)
+
+// Release signing (FIG-777). key.properties is gitignored and only exists on
+// machines that have the real upload keystore — see key.properties.example.
+// Deliberately NOT falling back to the debug signingConfig when it's absent:
+// release builds without it simply aren't signable, which is correct.
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -17,6 +29,15 @@ react {
     reactNativeDir = file("../../../../node_modules/react-native")
     codegenDir = file("../../../../node_modules/@react-native/codegen")
     cliFile = file("../../../../node_modules/react-native/cli.js")
+    //   Same hoisting problem breaks the Gradle plugin's own hermesc
+    //   auto-detection (it fails to substitute %OS-BIN% and errors with
+    //   "Couldn't determine Hermesc location") — point it at the real
+    //   per-OS binary under the hoisted react-native package directly.
+    hermesCommand = Os.isFamily(Os.FAMILY_WINDOWS)
+        ? file("../../../../node_modules/react-native/sdks/hermesc/win64-bin/hermesc.exe").absolutePath
+        : Os.isFamily(Os.FAMILY_MAC)
+            ? file("../../../../node_modules/react-native/sdks/hermesc/osx-bin/hermesc").absolutePath
+            : file("../../../../node_modules/react-native/sdks/hermesc/linux64-bin/hermesc").absolutePath
 
     /* Variants */
     //   The list of variants to that are debuggable. For those we're going to
@@ -93,15 +114,21 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

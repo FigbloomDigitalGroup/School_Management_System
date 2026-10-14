@@ -8,8 +8,9 @@ setup to maintain across both mobile apps (FIG-317).
 
 ## Status
 
-Scaffold + real sign-in only. `Attendance`, `Gradebook` and `Messages` are
-placeholder screens — real ones land in FIG-319/320/321.
+Sign-in, Attendance, Gradebook, Messages, Notices, Timetable, Classes, Leave,
+Buses and Account are all real screens now (FIG-319/320/321 and later work
+landed these; this file had fallen behind).
 
 ## Why no `ios/` project yet
 
@@ -32,9 +33,13 @@ npm run android --workspace @figbloom/teacher-mobile   # device or emulator, API
 ```
 src/
   theme.ts            same tokens as apps/mobile, from @figbloom/shared
-  navigation.tsx       bottom tabs — Attendance · Gradebook · Messages · Account
+  navigation.tsx       bottom tabs (Attendance · Gradebook · Messages · Notices · More)
+                        plus a "More" stack (Timetable · Classes · Leave · Buses · Account) —
+                        8 screens don't fit a phone-width tab bar, so the 4 daily-use ones
+                        get their own tab and the rest live under More
   screens/SignIn.tsx   same unified school+ID+password flow as apps/mobile — reused as-is
-  screens/teacher/     Attendance · Gradebook · Messages · Account
+  screens/teacher/     Attendance · Gradebook · Messages · Notices · Timetable · Classes ·
+                        Leave · Buses · More · Account
 ```
 
 ## What's shared vs. teacher-specific
@@ -42,10 +47,9 @@ src/
 Auth (`SignIn.tsx`, `resolveLoginId`/`searchSchools` from `@figbloom/shared`)
 is identical to `apps/mobile` and copied as-is — sign-in doesn't vary by role.
 `App.tsx`'s session logic is teacher-specific (single role, no branching)
-since this binary only ever serves one role. The real screens (FIG-319/320/321)
-will read from the same `teaching_assignments`/`classes`/`announcements`
-tables the web teacher console already uses (`apps/web/src/lib/teacherData.ts`)
-— that data-fetching logic isn't in `@figbloom/shared` yet, so building those
-screens should start by deciding whether to move it there (consistent with how
-student/parent data-fetching already lives in `packages/shared`) rather than
-duplicating it into this app.
+since this binary only ever serves one role. The real screens read from
+`@figbloom/shared` (fleet data for Buses, the same `listBusesOnRoutes` the web
+admin and teacher consoles use; class/attendance/gradebook data similarly
+lives there rather than duplicated per app) — any new teacher screen should
+start by checking whether its data-fetching already exists there before
+writing a new query against `apps/web/src/lib/teacherData.ts`'s tables.

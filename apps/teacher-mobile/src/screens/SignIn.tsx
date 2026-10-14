@@ -90,7 +90,7 @@ export function SignIn() {
     <View style={[s.screen, { justifyContent: "center", padding: 24 }]}>
       <Text style={{ fontSize: 22, fontWeight: "700", textAlign: "center" }}>Figbloom</Text>
       <Text style={[s.small, { textAlign: "center", marginTop: 4, marginBottom: 24 }]}>
-        Sign in to see fees, results and messages.
+        Sign in to mark attendance, enter grades and message parents.
       </Text>
 
       {school ? (
