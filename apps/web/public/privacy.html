@@ -58,9 +58,12 @@
     <tr><th>Category</th><th>What, and from whom</th></tr>
     <tr>
       <td>Account &amp; identity</td>
-      <td>Name, role (parent, student, teacher, driver), phone number and/or
-        email, and school/class assignment — provided by the school when it
-        enrolls a user, or by the user at sign-in.</td>
+      <td>Name, role (parent, student, teacher, driver), a school-assigned
+        login ID (most users sign in with this rather than an email address),
+        and school/class assignment — provided by the school when it enrolls
+        a user. A phone number or email is collected only where the school
+        records one or a feature needs it (e.g. M-Pesa payments use a phone
+        number).</td>
     </tr>
     <tr>
       <td>Location (driver app only)</td>
@@ -93,8 +96,11 @@
     </tr>
     <tr>
       <td>Device &amp; push notification data</td>
-      <td>A device push-notification token, used to deliver announcements
-        and messages to the right device.</td>
+      <td>A device push-notification token, collected today only from
+        Android users of the parent/student/driver app (not yet from the
+        teacher app, and not yet from iOS — see below), used to deliver
+        school-wide announcements the school has marked for push and
+        school-bus trip updates.</td>
     </tr>
   </table>
 
@@ -103,8 +109,10 @@
     <li>To run the core features of the Service: attendance, gradebook,
       messaging, fee payment, timetables, and — for the driver app — live
       bus-location sharing during a trip.</li>
-    <li>To deliver push notifications for announcements, messages and
-      bus-trip updates.</li>
+    <li>To deliver push notifications where they're currently supported
+      (Android, parent/student/driver app only) — for announcements the
+      school has marked for push, and for bus-trip updates. Teacher-parent
+      messages are delivered in-app and are not pushed.</li>
     <li>To authenticate users and keep each school's data separate from
       every other school's.</li>
     <li>To maintain and secure the Service, including diagnosing technical

@@ -6,7 +6,7 @@ Figbloom Schools
 ## Short description (Play Store, 80 chars max)
 Attendance, grades, fees and live bus tracking for parents, students & drivers
 
-(79 chars)
+(78 chars)
 
 ## Full description (Play Store, 4000 chars max)
 

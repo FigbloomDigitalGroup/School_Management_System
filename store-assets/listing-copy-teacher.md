@@ -6,7 +6,7 @@ Figbloom Teacher
 ## Short description (Play Store, 80 chars max)
 Gradebook, attendance, messaging and timetable for Figbloom school teachers
 
-(76 chars)
+(75 chars)
 
 ## Full description (Play Store, 4000 chars max)
 
