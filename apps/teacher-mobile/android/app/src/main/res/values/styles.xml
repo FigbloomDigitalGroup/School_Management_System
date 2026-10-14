@@ -1,7 +1,12 @@
 <resources>
 
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!-- Base application theme. Theme.AppCompat.Light, not ...DayNight: the
+         app's own screens are always light (static colour tokens, no dark
+         mode support), but DayNight flips native defaults — including
+         EditText's default text colour — to the dark/white variant whenever
+         the phone's system dark mode is on, which made every TextInput
+         render white text on the app's light card background. -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
