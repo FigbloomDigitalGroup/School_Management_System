@@ -58,15 +58,27 @@ jobs:
       # in GitHub's Settings > Secrets and variables > Actions before running
       # this workflow. Never commit the real values anywhere.
       - name: Write Android signing config
+        # Secrets are passed in via `env:` and read as "$VAR" below, never
+        # interpolated directly into the script with ${{ secrets.* }} — a
+        # secret value containing a quote/backtick/$() would otherwise break
+        # out of the generated script and run as arbitrary shell (GitHub's
+        # own Actions hardening guidance calls this out explicitly).
+        env:
+          MOBILE_KEYSTORE_BASE64: ${{ secrets.MOBILE_KEYSTORE_BASE64 }}
+          MOBILE_KEY_PROPERTIES: ${{ secrets.MOBILE_KEY_PROPERTIES }}
+          MOBILE_ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
+          TEACHER_KEYSTORE_BASE64: ${{ secrets.TEACHER_KEYSTORE_BASE64 }}
+          TEACHER_KEY_PROPERTIES: ${{ secrets.TEACHER_KEY_PROPERTIES }}
+          TEACHER_ENV_FILE: ${{ secrets.TEACHER_ENV_FILE }}
         run: |
           if [ "${{ inputs.app }}" = "mobile" ]; then
-            echo "${{ secrets.MOBILE_KEYSTORE_BASE64 }}" | base64 -d > "$APP_DIR/android/app/figbloom-mobile-release.keystore"
-            echo "${{ secrets.MOBILE_KEY_PROPERTIES }}" > "$APP_DIR/android/key.properties"
-            echo "${{ secrets.MOBILE_ENV_FILE }}" > "$APP_DIR/.env"
+            echo "$MOBILE_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-mobile-release.keystore"
+            echo "$MOBILE_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
+            echo "$MOBILE_ENV_FILE" > "$APP_DIR/.env"
           else
-            echo "${{ secrets.TEACHER_KEYSTORE_BASE64 }}" | base64 -d > "$APP_DIR/android/app/figbloom-teacher-release.keystore"
-            echo "${{ secrets.TEACHER_KEY_PROPERTIES }}" > "$APP_DIR/android/key.properties"
-            echo "${{ secrets.TEACHER_ENV_FILE }}" > "$APP_DIR/.env"
+            echo "$TEACHER_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-teacher-release.keystore"
+            echo "$TEACHER_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
+            echo "$TEACHER_ENV_FILE" > "$APP_DIR/.env"
           fi
 
       - name: Build release AAB + APK
