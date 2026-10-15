@@ -243,3 +243,16 @@ export async function markStudentNoticeRead(profileId: string, announcementId: s
     .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
   if (error) throw new Error(error.message);
 }
+
+/**
+ * FIG-873: the plain "Mark as handed in" button (no file) — previously local
+ * state only, on both mobile and web. Shares the same row/conflict target as
+ * uploadAssignmentSubmission()'s file-attach path (apps/web/src/lib/uploads.ts),
+ * just without file_path/file_name.
+ */
+export async function markAssignmentHandedIn(assignmentId: string, studentId: string): Promise<void> {
+  const { error } = await supabase()
+    .from("assignment_submissions")
+    .upsert({ assignment_id: assignmentId, student_id: studentId, marked_done_at: new Date().toISOString() }, { onConflict: "assignment_id,student_id" });
+  if (error) throw new Error(error.message);
+}
