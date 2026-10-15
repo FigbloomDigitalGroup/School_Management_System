@@ -24,6 +24,7 @@ export * from "./courses";
 export * from "./gpa";
 export * from "./courseGrades";
 export * from "./fleet";
+export * from "./notificationPreferences";
 export * from "./supabase";
 export * from "./demo";
 export * from "./organizations";
