@@ -105,11 +105,13 @@ describe("invite-admin handle", () => {
     const out = await res.json();
     assertEquals(out.ok, true);
     assertEquals(out.email, validBody.email);
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
     const profiles = admin.rowsIn("profiles");
     const created = profiles.find((p) => p.id === "new-admin-1");
     assertEquals(created?.role, "school_admin");
     assertEquals(created?.tenant_id, TENANT_ID);
+    assertEquals(created?.must_change_password, true);
     assertEquals(created?.phone, "+254712345678");
 
     const audit = admin.rowsIn("audit_events")[0];
@@ -149,12 +151,13 @@ describe("invite-admin handle", () => {
       const out = await res.json();
       assertEquals(out.ok, true);
       assertEquals(out.login_id, "TC-0001");
-      assertEquals(out.password, "figbloom-dev");
+      assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
       const created = admin.rowsIn("profiles").find((p) => p.id === "new-admin-1");
       assertEquals(created?.role, "teacher");
       assertEquals(created?.login_id, "TC-0001");
       assertEquals(created?.tenant_id, TENANT_ID);
+      assertEquals(created?.must_change_password, true);
     });
 
     it("creates a driver with a BD-prefixed login_id", async () => {

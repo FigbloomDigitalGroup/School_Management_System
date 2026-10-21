@@ -305,6 +305,8 @@ export function SignIn() {
           New organization? <Link to="/signup" className="font-medium text-forest hover:underline">Get started</Link>
         </p>
 
+        {/* Seeded accounts only exist in local dev — never list them in a production build. */}
+        {import.meta.env.DEV && (
         <details className="mt-4 rounded-xl border border-line bg-white p-4">
           <summary className="cursor-pointer text-small font-semibold">Development logins</summary>
           <table className="mt-3 w-full text-[12px]">
@@ -322,6 +324,7 @@ export function SignIn() {
             </tbody>
           </table>
         </details>
+        )}
     </AuthLayout>
   );
 }

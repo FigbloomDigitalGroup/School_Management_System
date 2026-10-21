@@ -69,7 +69,8 @@ import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
 
 import { DriverTrip } from "./screens/driver/Trip";
-import { DriverPasswordGate, DriverProfile } from "./screens/driver/Profile";
+import { DriverProfile } from "./screens/driver/Profile";
+import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 
 /**
@@ -141,6 +142,7 @@ function PlatformShell() {
   const bare = page === "tenants" || page === "organizations";
 
   return (
+    <PasswordGate profile={session.profile}>
     <TenantTheme tenant={null}>
       <ConsoleShell
         role="super_admin"
@@ -150,6 +152,7 @@ function PlatformShell() {
         {bare ? <div className="h-screen">{body}</div> : body}
       </ConsoleShell>
     </TenantTheme>
+    </PasswordGate>
   );
 }
 
@@ -165,6 +168,7 @@ function TenantRoutes() {
 
   return (
     <SessionCtx.Provider value={session}>
+      <PasswordGate profile={session.profile}>
       <TenantTheme tenant={session.tenant}>
         <Routes>
           <Route path="admin" element={<AdminShell allow={["school_admin"]}><AdminDashboard /></AdminShell>} />
@@ -207,12 +211,13 @@ function TenantRoutes() {
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
-          <Route path="driver" element={<RoleGate allow={["driver"]}><DriverPasswordGate><DriverTrip /></DriverPasswordGate></RoleGate>} />
-          <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverPasswordGate><DriverProfile /></DriverPasswordGate></RoleGate>} />
+          <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
+          <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverProfile /></RoleGate>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
       </TenantTheme>
+      </PasswordGate>
     </SessionCtx.Provider>
   );
 }
@@ -240,6 +245,7 @@ function OrgRoutes() {
 
   return (
     <OrgSessionCtx.Provider value={session}>
+      <PasswordGate profile={session.profile}>
       <TenantTheme tenant={null}>
         <Routes>
           <Route path="dashboard" element={<OrgShell><OrgDashboard /></OrgShell>} />
@@ -250,6 +256,7 @@ function OrgRoutes() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </TenantTheme>
+      </PasswordGate>
     </OrgSessionCtx.Provider>
   );
 }

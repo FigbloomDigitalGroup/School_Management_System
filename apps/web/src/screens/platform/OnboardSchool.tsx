@@ -33,8 +33,8 @@ const BLANK: Form = {
  *
  * The drop-off point is step 4: the administrator's contact details. A wrong
  * email means a school that never logs in and shows up a fortnight later as
- * "setup stalled". There is no real email/SMS provider wired up locally, so
- * the account is created outright with a known dev password (see
+ * "setup stalled". There is no real email/SMS provider wired up, so the
+ * account is created outright with a random one-time password (see
  * supabase/functions/invite-admin) — the success screen shows those
  * credentials to hand to the school directly, rather than claiming an
  * invite was delivered when nothing was actually sent.
@@ -147,7 +147,7 @@ export function OnboardSchool({
     "Nothing is created until the last step.",
     "The address is permanent.",
     "Billing starts when the trial ends.",
-    "There is no live password reset locally — write these down.",
+    "The password is shown once — they choose their own at first sign-in.",
     "You can remove the school again from its detail page.",
     tenant ? `${tenant.name} is in your tenant list now.` : "",
   ][step];
@@ -363,9 +363,9 @@ export function OnboardSchool({
             <TextField id="phone" label="Mobile (optional)" mono placeholder={countryProfile(form.country).phonePlaceholder} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
           </div>
           <p className="rounded-lg bg-sunken px-3.5 py-3 text-[12px] leading-relaxed text-ink-muted">
-            No email or SMS provider is configured in this environment, so nothing gets sent. Their login is created
-            outright with a starting password shown on the next screen — hand it to them directly, the same way every
-            other development login in this system works.
+            No email or SMS provider is configured, so nothing gets sent. Their login is created outright with a
+            one-time starting password shown on the next screen — hand it to them directly; they choose their own the
+            first time they sign in.
           </p>
         </div>
       )}

@@ -112,12 +112,13 @@ describe("provision-guardian handle", () => {
     const out = await res.json();
     assertEquals(out.ok, true);
     assertEquals(out.login_id, "PT-0001");
-    assertEquals(out.password, "figbloom-dev");
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
     const created = admin.rowsIn("profiles").find((p) => p.id === "new-parent-1");
     assertEquals(created?.role, "parent");
     assertEquals(created?.login_id, "PT-0001");
     assertEquals(created?.tenant_id, TENANT_ID);
+    assertEquals(created?.must_change_password, true);
 
     const links = admin.rowsIn("guardians");
     assertEquals(links.length, 1);

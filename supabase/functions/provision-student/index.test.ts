@@ -108,12 +108,13 @@ describe("provision-student handle", () => {
     const out = await res.json();
     assertEquals(out.ok, true);
     assertEquals(out.login_id, "ST-0001");
-    assertEquals(out.password, "figbloom-dev");
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
     const created = admin.rowsIn("profiles").find((p) => p.id === "new-student-1");
     assertEquals(created?.role, "student");
     assertEquals(created?.login_id, "ST-0001");
     assertEquals(created?.tenant_id, TENANT_ID);
+    assertEquals(created?.must_change_password, true);
     assertEquals(created?.full_name, "Faith Achieng");
 
     const student = admin.rowsIn("students").find((s) => s.id === STUDENT_ID);
