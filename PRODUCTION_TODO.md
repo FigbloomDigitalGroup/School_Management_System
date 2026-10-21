@@ -7,14 +7,14 @@ Work top to bottom; tick an item in the same commit that fixes it.
 
 - [x] **Dev logins panel shown in production.** Gate the "Development logins" panel on the sign-in screen to dev builds only (`apps/web/src/screens/SignIn.tsx`).
 - [x] **One shared password for every account.** Provisioning functions give every account `figbloom-dev`. Generate a random temporary password per account and force everyone (not just drivers) to choose their own at first sign-in, on web and both mobile apps (`supabase/functions/{invite-admin,invite-org-admin,provision-student,provision-guardian}`). `seed.ts` now uses a random password against remote projects, like `seed-cbe.ts`.
-- [ ] **Existing accounts on any hosted project still have `figbloom-dev`.** The fix above only covers new accounts. Before go-live, rotate every provisioned account on the hosted project to a random password (service-role script), set `must_change_password`, and have admins re-issue credentials. Also redeploy the four provisioning functions.
+- [ ] **Production must be a fresh Supabase project, separate from the demo one.** Demo accounts keep `figbloom-dev` by design; no real school may be onboarded on the demo project. Deploy the four provisioning functions to production after the fix above.
 - [ ] **Login-ID lookup leaks names.** `resolve-login-id` is public, unthrottled, and returns the full name for any sequential ID — stop returning the name, add rate limiting.
 - [ ] **M-Pesa callback can be forged.** Verify every callback against Daraja (STK Query) before marking success, never trust the posted `Amount`, add a secret callback path; stop clients inserting their own pending `payments` rows (`supabase/functions/mpesa-callback`, `payment_insert` policy).
-- [ ] **Private documents readable by the whole school.** Scope `private-documents` storage reads and `student_documents_read` to staff + the student's own guardians/student.
-- [ ] **Student photos in a public, listable bucket.** Move student avatars out of `public-assets` (or block listing and use unguessable paths).
-- [ ] **Cross-school access via guardian links.** Check that `student_id`'s tenant matches the row's `tenant_id` in `guardian_write`, and add tenant checks to the guardian branches of `invoice_read`, `payment_read`, `payment_proofs_read`, `bus_updates_read`.
-- [ ] **Higher-ed students can write their own grades.** Fix the `course_assessments` / `course_marks` / `course_grades` write policies (`… or tenant_id = my_tenant()`).
-- [ ] **Audit log is forgeable.** Anyone (even anon) can insert `audit_events`; restrict to service role.
+- [x] **Private documents readable by the whole school.** Scope `private-documents` storage reads and `student_documents_read` to staff + the student's own guardians/student.
+- [x] **Student photos in a public, listable bucket.** Listing now needs someone from that school. Photos are still served by public URL to anyone who has the exact path (needs the student's UUID); moving them to signed URLs is a later step.
+- [x] **Cross-school access via guardian links.** Triggers now refuse any row whose `student_id` (or guardian account, or invoice) belongs to another school, on every table that carries both, so the guardian read branches can only reach the guardian's own school.
+- [x] **Higher-ed students can write their own grades.** Fix the `course_assessments` / `course_marks` / `course_grades` write policies (`… or tenant_id = my_tenant()`).
+- [x] **Audit log is forgeable.** Anyone (even anon) can insert `audit_events`; restrict to service role.
 - [ ] **Malware still in branch history.** Commit `ef569ed` on `origin/fleet-live-maps-and-portals` carries a payload (cleaned at the tip by `9ab54b4`). Delete or rewrite that branch; confirm the compromised machine was cleaned and its GitHub/npm/Supabase tokens rotated.
 - [x] **`.gitignore` doesn't cover `.env.*`.** Add `.env.*` with `!.env.example`.
 
@@ -67,7 +67,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] Backups / point-in-time recovery, uptime check, runbook.
 - [ ] Security headers (CSP, HSTS, frame/referrer) in `apps/web/vercel.json`.
 - [ ] Release workflow: pin actions by SHA, add `permissions:`, run the security grep before the keystore is written.
-- [ ] RLS tests (pgTAP) for the tenant/role boundaries above.
+- [ ] RLS tests for the tenant/role boundaries above. Started: `supabase/rls-checks/tenant_isolation.sql` (plain psql, rolled back); extend it and run it in CI.
 - [ ] Delete stale `rls.sql` / `schema.sql` (they claim to be the source of truth but aren't).
 - [ ] Retire `dev` and `dev-staging` branches.
 
