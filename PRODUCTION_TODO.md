@@ -9,7 +9,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [x] **One shared password for every account.** Provisioning functions give every account `figbloom-dev`. Generate a random temporary password per account and force everyone (not just drivers) to choose their own at first sign-in, on web and both mobile apps (`supabase/functions/{invite-admin,invite-org-admin,provision-student,provision-guardian}`). `seed.ts` now uses a random password against remote projects, like `seed-cbe.ts`.
 - [ ] **Production must be a fresh Supabase project, separate from the demo one.** Demo accounts keep `figbloom-dev` by design; no real school may be onboarded on the demo project. Deploy the four provisioning functions to production after the fix above.
 - [ ] **Login-ID lookup leaks names.** `resolve-login-id` is public, unthrottled, and returns the full name for any sequential ID — stop returning the name, add rate limiting.
-- [ ] **M-Pesa callback can be forged.** Verify every callback against Daraja (STK Query) before marking success, never trust the posted `Amount`, add a secret callback path; stop clients inserting their own pending `payments` rows (`supabase/functions/mpesa-callback`, `payment_insert` policy).
+- [x] **M-Pesa callback can be forged.** Verify every callback against Daraja (STK Query) before marking success, never trust the posted `Amount`, add a secret callback path; stop clients inserting their own pending `payments` rows (`supabase/functions/mpesa-callback`, `payment_insert` policy). Set `DARAJA_CALLBACK_SECRET` on the project before deploying.
 - [x] **Private documents readable by the whole school.** Scope `private-documents` storage reads and `student_documents_read` to staff + the student's own guardians/student.
 - [x] **Student photos in a public, listable bucket.** Listing now needs someone from that school. Photos are still served by public URL to anyone who has the exact path (needs the student's UUID); moving them to signed URLs is a later step.
 - [x] **Cross-school access via guardian links.** Triggers now refuse any row whose `student_id` (or guardian account, or invoice) belongs to another school, on every table that carries both, so the guardian read branches can only reach the guardian's own school.
@@ -27,7 +27,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] Teachers can overwrite/delete private documents and confirm payment proofs.
 - [ ] Admins can set `fee_invoices.paid_cents` directly with no audit trail.
 - [ ] Public endpoints (`signup-organization`, `resolve-login-id`, `search-schools`) have no rate limit/captcha; raw DB errors returned to clients.
-- [ ] STK push: any guardian/staff can prompt any phone; throttle isn't atomic; pending payments never reconciled.
+- [ ] STK push: any guardian/staff can prompt any phone; throttle isn't atomic; pending payments never reconciled (a scheduled job could run the same Daraja STK query `mpesa-callback` now uses). Fixed: amounts must be whole shillings, CORS preflight, bad JSON → 400.
 
 ## P1 — Core flows that can't work end to end
 
@@ -62,7 +62,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 ## P3 — Ops
 
 - [ ] CI on every PR: security grep from `.agents/SECURITY.md`, typecheck, lint, vitest, deno edge tests.
-- [ ] Error reporting (web, both apps, edge functions); `mpesa-callback` must not return 200 on DB errors.
+- [ ] Error reporting (web, both apps, edge functions). Done for one piece: `mpesa-callback` logs and answers 500 (so Safaricom retries) on DB or Daraja errors.
 - [ ] Separate staging and production Supabase projects; scripted deploy of migrations + functions.
 - [ ] Backups / point-in-time recovery, uptime check, runbook.
 - [ ] Security headers (CSP, HSTS, frame/referrer) in `apps/web/vercel.json`.

@@ -1,4 +1,5 @@
--- Tenant/role isolation checks for 20261021000000 and 20261021000001.
+-- Tenant/role isolation checks for 20261021000000, 20261021000001 and
+-- 20261021000002.
 --
 -- Runs against a local database that has the migrations applied and
 -- `npm run db:seed` data, entirely inside one transaction that is rolled
@@ -113,6 +114,9 @@ select pg_temp.expect_eq('parent sees only their children''s document rows',
   (select count(*) from student_documents), 1);
 select pg_temp.expect_eq('parent cannot list another school''s public assets',
   (select count(*) from storage.objects where bucket_id = 'public-assets' and name not like current_setting('t.a') || '/%'), 0);
+select pg_temp.expect_denied('parent creates their own pending payment', format(
+  'insert into payments (tenant_id, invoice_id, amount_cents, checkout_request_id, status) values (%L, %L, 100, ''ws_CO_forged'', ''pending'')',
+  current_setting('t.a'), current_setting('t.inv_child')));
 reset role;
 
 -- ---------------------------------------------------------------- student
