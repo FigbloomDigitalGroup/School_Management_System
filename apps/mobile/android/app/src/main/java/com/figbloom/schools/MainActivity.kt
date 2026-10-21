@@ -14,7 +14,12 @@ class MainActivity : ReactActivity() {
   // splash only covers the cold-start gap.
   override fun onCreate(savedInstanceState: Bundle?) {
     setTheme(R.style.AppTheme)
-    super.onCreate(savedInstanceState)
+    // react-native-screens requires this: Screen/ScreenStack fragments must
+    // never be restored from a saved Activity state (their no-arg
+    // constructors throw IllegalStateException by design), so Activity
+    // re-creation (process death in the background, or a font/display-size
+    // or language config change) must always start from a clean slate.
+    super.onCreate(null)
   }
 
   /**
