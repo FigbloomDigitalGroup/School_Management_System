@@ -1,10 +1,11 @@
 import { useStudentData } from "../../lib/studentContext";
+import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
-import { fetchClassTimetable } from "@figbloom/shared";
+import { currentPeriodIndex, fetchClassTimetable, fetchStudentSchedule, todayWeekday } from "@figbloom/shared";
 
 /**
  * The weekly timetable is real per-class data (timetable_slots), fetched
@@ -15,19 +16,22 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
 const DAY_LABEL: Record<(typeof DAYS)[number], string> = {
   Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday",
 };
-const NOW_DAY = "Tue";
-const NOW = 2;
-
 interface PeriodRow {
   i: number;
   time: string;
 }
 
 export function StudentTimetable() {
+  const { tenant } = useTenantSession();
+  const higherEd = tenant.institution_type === "higher_ed";
   const { data, loading, error } = useStudentData();
   const { data: timetable, loading: timetableLoading } = useAsync(
-    () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
-    [data?.classId],
+    () => {
+      if (!data) return Promise.resolve(null);
+      if (higherEd) return fetchStudentSchedule(data.studentId);
+      return data.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null);
+    },
+    [data?.studentId, data?.classId, higherEd],
   );
 
   if (error) {
@@ -67,8 +71,11 @@ export function StudentTimetable() {
   const periodCount = Math.max(...DAYS.map((d) => week[d].length), 0);
   const rows: PeriodRow[] = Array.from({ length: periodCount }, (_, i) => ({
     i,
-    time: week.Mon[i]?.[0] ?? week[NOW_DAY][i]?.[0] ?? "",
+    time: DAYS.map((d) => week[d][i]?.[0]).find(Boolean) ?? "",
   }));
+
+  const nowDay = todayWeekday();
+  const nowIdx = nowDay ? currentPeriodIndex(week[nowDay]) : -1;
 
   return (
     <>
@@ -86,11 +93,11 @@ export function StudentTimetable() {
               width: "1fr",
               render: (r: PeriodRow) => {
                 const period = week[d][r.i];
-                const isNow = d === NOW_DAY && r.i === NOW;
+                const isNow = d === nowDay && r.i === nowIdx;
                 if (!period) return <span className="text-[12px] text-ink-faint">—</span>;
                 return (
                   <div className={`rounded-md px-2 py-1 ${isNow ? "bg-orange-soft" : ""}`}>
-                    <Cell sub={period[2]}>{period[1]}</Cell>
+                    <Cell sub={[period[2], period[3]].filter(Boolean).join(" · ")}>{period[1]}</Cell>
                     {isNow && <span className="mt-1 inline-block rounded-full bg-orange px-2 py-0.5 text-[10px] font-bold text-white">NOW</span>}
                   </div>
                 );

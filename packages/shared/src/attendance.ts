@@ -67,7 +67,6 @@ export function toRecords(r: Register, tenantId: string, takenBy: string): Omit<
     taken_on: r.date,
     mark,
     note: r.notes[student_id] ?? null,
-    synced_at: null,
   }));
 }
 

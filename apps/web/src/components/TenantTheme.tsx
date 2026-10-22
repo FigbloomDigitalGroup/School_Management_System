@@ -9,11 +9,15 @@ export const useTenant = () => useContext(TenantCtx);
  * Layout, type and spacing never change per tenant — support staff must be able
  * to navigate any of 248 schools without relearning the interface.
  */
+export function applyAccent(hex: string) {
+  const a = accentFor(hex);
+  document.documentElement.style.setProperty("--accent", a.hex);
+  document.documentElement.style.setProperty("--accent-deep", a.deep);
+}
+
 export function TenantTheme({ tenant, children }: { tenant: Tenant | null; children: ReactNode }) {
   useEffect(() => {
-    const a = accentFor(tenant?.accent ?? "#1B4D2E");
-    document.documentElement.style.setProperty("--accent", a.hex);
-    document.documentElement.style.setProperty("--accent-deep", a.deep);
+    applyAccent(tenant?.accent ?? "#1B4D2E");
   }, [tenant?.accent]);
 
   return <TenantCtx.Provider value={tenant}>{children}</TenantCtx.Provider>;

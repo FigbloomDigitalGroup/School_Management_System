@@ -16,7 +16,22 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Push notifications (FIG-293) — reads android/app/google-services.json.
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// react-native-background-actions (FIG-162) calls ServiceCompat.startForeground()'s
+// 4-arg overload, added in androidx.core 1.12.0. Whatever transitive default
+// resolves across these subprojects (firebase-bom pins its own androidx
+// versions) is older and missing that symbol — force it repo-wide, since a
+// per-module dependency addition doesn't affect other subprojects' classpaths.
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force "androidx.core:core:1.13.1"
+        }
+    }
+}

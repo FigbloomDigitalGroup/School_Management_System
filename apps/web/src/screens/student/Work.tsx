@@ -82,7 +82,7 @@ export function StudentWork() {
       setDone((d) => ({ ...d, [item.id]: true }));
       toast(`Uploaded ${file.name}. ${item.teacher} has been told.`);
     } catch (err) {
-      toast(err instanceof Error ? `Could not upload the file: ${err.message}` : "Could not upload the file.");
+      toast(err instanceof Error ? `Could not upload the file: ${err.message}` : "Could not upload the file.", "error");
     } finally {
       setUploading((u) => ({ ...u, [item.id]: false }));
     }

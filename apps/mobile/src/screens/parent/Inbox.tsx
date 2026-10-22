@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { accentFor, s } from "../../theme";
-import { useChild, useMessages } from "../../data";
+import { useChild, useMarkMessageRead, useMessages } from "../../data";
 
 export function ParentInbox() {
   const { index, accent } = useChild();
   const messages = useMessages();
+  const markRead = useMarkMessageRead();
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
   const [openId, setOpenId] = useState<string | null>(null);
-  const [read, setRead] = useState<Record<string, boolean>>({});
   const open = messages.find((m) => m.id === openId);
 
   if (open) {
@@ -38,11 +38,11 @@ export function ParentInbox() {
       </View>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {messages.map((m) => {
-          const unread = m.unread && !read[m.id];
+          const unread = m.unread;
           return (
             <TouchableOpacity
               key={m.id}
-              onPress={() => { setRead((r) => ({ ...r, [m.id]: true })); setOpenId(m.id); }}
+              onPress={() => { markRead(m.id); setOpenId(m.id); }}
               style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}
             >
               <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: unread ? tint : "#F1EDEC" }}>

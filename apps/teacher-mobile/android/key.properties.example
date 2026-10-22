@@ -1,0 +1,4 @@
+storeFile=figbloom-teacher-release.keystore
+storePassword=CHANGEME
+keyAlias=figbloom-teacher-upload
+keyPassword=CHANGEME

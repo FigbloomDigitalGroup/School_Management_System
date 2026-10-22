@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, type Audience, type ClassGroup } from "@figbloom/shared";
+import { formatMoney, supabase, yearGroupKey, yearGroupsOf, yearLabel, type Audience, type ClassGroup, type YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
@@ -13,7 +13,7 @@ type AudienceKind = Audience["kind"];
 const AUDIENCE_META: { id: AudienceKind; label: string }[] = [
   { id: "whole_school", label: "Whole school" },
   { id: "role", label: "All parents" },
-  { id: "form_level", label: "One form level" },
+  { id: "form_level", label: "One year group" },
   { id: "class", label: "One class" },
 ];
 
@@ -24,23 +24,26 @@ interface RecentAnnouncement {
 }
 
 interface AnnouncementsData {
-  classes: Pick<ClassGroup, "id" | "name" | "form_level">[];
+  classes: Pick<ClassGroup, "id" | "name" | "level" | "form_level">[];
   wholeSchoolCount: number;
   parentsCount: number;
-  countByForm: Map<number, number>;
+  /** Keyed by yearGroupKey(level, form_level) — Grade 1 and Form 1 are both form_level 1. */
+  countByForm: Map<string, number>;
+  /** Year groups that actually have classes, youngest first. */
+  years: YearGroup[];
   countByClass: Map<string, number>;
   recent: RecentAnnouncement[];
 }
 
-async function fetchAnnouncementsData(): Promise<AnnouncementsData> {
+async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsData> {
   const sb = supabase();
 
   const [{ data: classRows }, { data: studentRows }, { count: staffCount }, { data: guardianRows }, { data: recent }] = await Promise.all([
-    sb.from("classes").select("id,name,form_level").order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "form_level">[]>(),
-    sb.from("students").select("id,class_id").eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id", { count: "exact", head: true }).in("role", ["school_admin", "teacher"]),
-    sb.from("guardians").select("profile_id").returns<{ profile_id: string }[]>(),
-    sb.from("announcements").select("id,subject,published_at").not("published_at", "is", null)
+    sb.from("classes").select("id,name,level,form_level").eq("tenant_id", tenantId).order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "level" | "form_level">[]>(),
+    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
+    sb.from("guardians").select("profile_id").eq("tenant_id", tenantId).returns<{ profile_id: string }[]>(),
+    sb.from("announcements").select("id,subject,published_at").eq("tenant_id", tenantId).not("published_at", "is", null)
       .order("published_at", { ascending: false }).limit(5).returns<RecentAnnouncement[]>(),
   ]);
 
@@ -49,11 +52,11 @@ async function fetchAnnouncementsData(): Promise<AnnouncementsData> {
   const students = studentRows ?? [];
 
   const countByClass = new Map<string, number>();
-  const countByForm = new Map<number, number>();
+  const countByForm = new Map<string, number>();
   for (const s of students) {
     countByClass.set(s.class_id, (countByClass.get(s.class_id) ?? 0) + 1);
-    const form = classById.get(s.class_id)?.form_level;
-    if (form != null) countByForm.set(form, (countByForm.get(form) ?? 0) + 1);
+    const cls = classById.get(s.class_id);
+    if (cls) { const k = yearGroupKey(cls.level, cls.form_level); countByForm.set(k, (countByForm.get(k) ?? 0) + 1); }
   }
 
   return {
@@ -61,6 +64,7 @@ async function fetchAnnouncementsData(): Promise<AnnouncementsData> {
     wholeSchoolCount: students.length + (staffCount ?? 0),
     parentsCount: new Set((guardianRows ?? []).map((g) => g.profile_id)).size,
     countByForm,
+    years: yearGroupsOf(classRows ?? []),
     countByClass,
     recent: recent ?? [],
   };
@@ -74,11 +78,13 @@ export function Announcements() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading } = useAsync(() => fetchAnnouncementsData(), [reloadKey]);
+  const { data, loading } = useAsync(() => fetchAnnouncementsData(tenant.id), [tenant.id, reloadKey]);
   const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
-  const [formLevel, setFormLevel] = useState(1);
+  const [pickedYear, setPickedYear] = useState<string | null>(null);
+  const yearGroup = data ? (data.years.find((y) => y.key === pickedYear) ?? data.years[0] ?? null) : null;
+  const formLevel = yearGroup?.key ?? "";
   const [classId, setClassId] = useState("");
-  const [channels, setChannels] = useState({ in_app: true, sms: false, email: false });
+  const [channels, setChannels] = useState({ in_app: true, push: true, sms: false, email: false });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -90,24 +96,27 @@ export function Announcements() {
     : audienceId === "form_level" ? data.countByForm.get(formLevel) ?? 0
     : data.countByClass.get(effectiveClassId) ?? 0;
 
-  const smsCost = channels.sms ? (reach * 0.8).toFixed(0) : "0";
+  const smsCostCents = channels.sms ? Math.round(reach * 0.8 * 100) : 0;
 
   function audienceValue(): Audience {
     switch (audienceId) {
       case "whole_school": return { kind: "whole_school" };
       case "role": return { kind: "role", role: "parent" };
-      case "form_level": return { kind: "form_level", form_level: formLevel };
+      case "form_level": return yearGroup
+        ? { kind: "form_level", form_level: yearGroup.year, level: yearGroup.level }
+        : { kind: "form_level", form_level: 1 };
       case "class": return { kind: "class", class_id: effectiveClassId };
+      case "user": throw new Error("The composer never selects a per-person audience.");
     }
   }
 
   async function submit(publish: boolean) {
     if (!subject.trim() || !body.trim()) return;
-    if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first."); return; }
+    if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first.", "error"); return; }
     setSending(true);
     try {
       const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
-      const { error } = await supabase().from("announcements").insert({
+      const { data: created, error } = await supabase().from("announcements").insert({
         tenant_id: tenant.id,
         author_id: profile.id,
         subject: subject.trim(),
@@ -115,14 +124,20 @@ export function Announcements() {
         audience: audienceValue(),
         channels: activeChannels,
         published_at: publish ? new Date().toISOString() : null,
-      });
+      }).select("id").single();
       if (error) throw error;
       toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
+
+      if (publish && channels.push) {
+        const { error: pushErr } = await supabase().functions.invoke("send-push", { body: { announcement_id: created.id } });
+        if (pushErr) toast(`Sent, but push notifications failed: ${pushErr.message}`, "error");
+      }
+
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.");
+      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
     } finally {
       setSending(false);
     }
@@ -156,9 +171,9 @@ export function Announcements() {
                       {loading || count === null ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{count.toLocaleString()} people</span>}
                     </button>
                     {audienceId === a.id && a.id === "form_level" && (
-                      <select value={formLevel} onChange={(e) => setFormLevel(Number(e.target.value))}
-                        aria-label="Form level" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
-                        {[1, 2, 3, 4].map((f) => <option key={f} value={f}>Form {f}</option>)}
+                      <select value={formLevel} onChange={(e) => setPickedYear(e.target.value)}
+                        aria-label="Year group" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
+                        {(data?.years ?? []).map((y) => <option key={y.key} value={y.key}>{yearLabel(y.level, y.year)}</option>)}
                       </select>
                     )}
                     {audienceId === a.id && a.id === "class" && (
@@ -188,6 +203,7 @@ export function Announcements() {
             {(
               [
                 ["in_app", "In the app", "Free. Everyone with an account sees it."],
+                ["push", "Push notification", "Free. Android only for now — reaches the phone even if the app is closed."],
                 ["sms", "SMS", "Charged per recipient. Reaches parents with no smartphone."],
                 ["email", "Email", "Free, but many parents have no working address."],
               ] as [keyof typeof channels, string, string][]
@@ -207,8 +223,9 @@ export function Announcements() {
           <div className="rounded-xl bg-sunken p-4">
             <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BEFORE YOU SEND</div>
             <dl className="mt-2.5 grid gap-2 text-[12.5px]">
-              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{reach.toLocaleString()} people</dd></div>
-              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">KSh {smsCost}</dd></div>
+              {/* reach is 0 until the counts land — never show that as the answer. */}
+              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{loading && !data ? <Skeleton className="h-3 w-16" /> : `${reach.toLocaleString()} people`}</dd></div>
+              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{channels.sms && loading && !data ? <Skeleton className="h-3 w-16" /> : formatMoney(smsCostCents, tenant.country)}</dd></div>
               <div className="flex justify-between"><dt className="text-ink-muted">Cannot be unsent</dt><dd className="font-mono">correct</dd></div>
             </dl>
             <div className="mt-3.5 grid gap-2">
@@ -220,7 +237,19 @@ export function Announcements() {
             </div>
           </div>
 
-          {!loading && data && data.recent.length > 0 && (
+          {loading && !data ? (
+            <div className="rounded-xl border border-line p-4">
+              <Skeleton className="h-2.5 w-28" />
+              <div className="mt-2.5 grid gap-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i}>
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="mt-1 h-2.5 w-20" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : data && data.recent.length > 0 && (
             <div className="rounded-xl border border-line p-4">
               <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">RECENTLY SENT</div>
               <ul className="mt-2.5 grid gap-2">

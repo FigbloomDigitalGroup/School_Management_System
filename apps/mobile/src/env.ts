@@ -1,9 +1,10 @@
 /**
- * Placeholder until the native project is bootstrapped and wired to a real
- * env-injection mechanism (react-native-config or similar) — there is no
- * bundler config for that yet, see apps/mobile/README.md. Fill these in
- * from the same Supabase project as the web app's VITE_SUPABASE_URL /
- * VITE_SUPABASE_ANON_KEY (see the root .env.example).
+ * FIG-782: injected at bundle time from apps/mobile/.env via
+ * react-native-dotenv (babel.config.js), not hardcoded. .env is gitignored —
+ * copy .env.example and fill it in from the same Supabase project as the
+ * web app's VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.
  */
-export const SUPABASE_URL = "";
-export const SUPABASE_ANON_KEY = "";
+import { SUPABASE_URL as _SUPABASE_URL, SUPABASE_ANON_KEY as _SUPABASE_ANON_KEY } from "@env";
+
+export const SUPABASE_URL = _SUPABASE_URL;
+export const SUPABASE_ANON_KEY = _SUPABASE_ANON_KEY;

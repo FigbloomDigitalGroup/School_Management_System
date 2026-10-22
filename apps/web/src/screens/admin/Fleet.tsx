@@ -11,6 +11,8 @@ import {
   listRouteStops,
   listRoutes,
   listVehicles,
+  listBusesOnRoutes,
+  type BusOnRoute,
   replaceRouteStops,
   subscribeVehicleAlerts,
   type AlertRow,
@@ -18,7 +20,7 @@ import {
   type DriverOption,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
-import { VehicleMap } from "../../components/VehicleMap";
+import { FleetLiveMap } from "../../components/fleet/FleetLiveMap";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
@@ -26,7 +28,7 @@ import { TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
-import { useToast } from "../../components/ui/Toast";
+import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { TripHistory } from "./TripHistory";
@@ -37,17 +39,19 @@ interface FleetData {
   drivers: DriverOption[];
   assignments: AssignmentRow[];
   alerts: AlertRow[];
+  buses: BusOnRoute[];
 }
 
-async function fetchFleet(): Promise<FleetData> {
-  const [vehicles, routes, drivers, assignments, alerts] = await Promise.all([
-    listVehicles(),
-    listRoutes(),
-    listDrivers(),
-    listAssignments(),
-    listAlerts(),
+async function fetchFleet(tenantId: string): Promise<FleetData> {
+  const [vehicles, routes, drivers, assignments, alerts, buses] = await Promise.all([
+    listVehicles(tenantId),
+    listRoutes(tenantId),
+    listDrivers(tenantId),
+    listAssignments(tenantId),
+    listAlerts(tenantId),
+    listBusesOnRoutes(tenantId),
   ]);
-  return { vehicles, routes, drivers, assignments, alerts };
+  return { vehicles, routes, drivers, assignments, alerts, buses };
 }
 
 function fmtLastSeen(iso: string | null): string {
@@ -71,7 +75,8 @@ export function Fleet() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchFleet(), [refreshKey]);
+  // first load only: a refresh (alerts, saved stops) must not blank the page and remount the live map
+  const { data, error } = useAsync(() => fetchFleet(tenant.id), [tenant.id, refreshKey]);
   const refresh = () => setRefreshKey((k) => k + 1);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
@@ -93,7 +98,7 @@ export function Fleet() {
       await acknowledgeAlert(alertId, profile.id);
       refresh();
     } catch (err) {
-      toast("Could not acknowledge the alert: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not acknowledge the alert: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setAcking(null);
     }
@@ -125,7 +130,7 @@ export function Fleet() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the fleet: {error.message}
           </p>
-        ) : loading || !data ? (
+        ) : !data ? (
           <div className="grid gap-6">
             <TableSkeleton rows={3} />
             <TableSkeleton rows={3} />
@@ -170,7 +175,7 @@ export function Fleet() {
 
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Live map</h2>
-              <VehicleMap tenantId={tenant.id} vehicles={data.vehicles} />
+              <FleetLiveMap tenantId={tenant.id} buses={data.buses} className="h-[560px] rounded-xl border border-line" />
             </section>
 
             <section>
@@ -232,7 +237,7 @@ export function Fleet() {
               )}
             </section>
 
-            <TripHistory />
+            <TripHistory tenantId={tenant.id} />
 
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Assign a driver</h2>
@@ -280,7 +285,7 @@ export function Fleet() {
 }
 
 function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
-  route: Route; tenantId: string; open: boolean; onToggle: () => void; onSaved: () => void; toast: (m: string) => void;
+  route: Route; tenantId: string; open: boolean; onToggle: () => void; onSaved: () => void; toast: ToastFn;
 }) {
   return (
     <li className="overflow-hidden rounded-xl border" style={{ borderColor: open ? "var(--accent)" : "#E2E6E2" }}>
@@ -304,7 +309,7 @@ function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
 interface StopRow { name: string; lat: string; lng: string }
 
 function StopsEditor({ routeId, tenantId, toast, onSaved }: {
-  routeId: string; tenantId: string; toast: (m: string) => void; onSaved: () => void;
+  routeId: string; tenantId: string; toast: ToastFn; onSaved: () => void;
 }) {
   const { data: stops, loading, error } = useAsync(() => listRouteStops(routeId), [routeId]);
   const [rows, setRows] = useState<StopRow[] | null>(null);
@@ -334,7 +339,7 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
       await replaceRouteStops(tenantId, routeId, parsed);
       onSaved();
     } catch (err) {
-      toast("Could not save stops: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not save stops: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }
@@ -378,7 +383,7 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
 
 function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssigned }: {
   vehicle: Vehicle; drivers: DriverOption[]; routes: Route[]; current: AssignmentRow | null;
-  tenantId: string; toast: (m: string) => void; onAssigned: () => void;
+  tenantId: string; toast: ToastFn; onAssigned: () => void;
 }) {
   const [driverId, setDriverId] = useState(current?.driver_id ?? "");
   const [routeId, setRouteId] = useState(current?.route_id ?? "");
@@ -391,7 +396,7 @@ function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssig
       await assignDriver({ tenantId, vehicleId: vehicle.id, driverId, routeId: routeId || null });
       onAssigned();
     } catch (err) {
-      toast("Could not assign driver: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not assign driver: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }
@@ -427,7 +432,7 @@ function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssig
 }
 
 function AddVehicleModal({ open, onClose, tenantId, toast, onCreated }: {
-  open: boolean; onClose: () => void; tenantId: string; toast: (m: string) => void; onCreated: () => void;
+  open: boolean; onClose: () => void; tenantId: string; toast: ToastFn; onCreated: () => void;
 }) {
   const [plate, setPlate] = useState("");
   const [makeModel, setMakeModel] = useState("");
@@ -451,7 +456,7 @@ function AddVehicleModal({ open, onClose, tenantId, toast, onCreated }: {
       onCreated();
       onClose();
     } catch (err) {
-      toast("Could not add vehicle: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not add vehicle: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }
@@ -480,7 +485,7 @@ function AddVehicleModal({ open, onClose, tenantId, toast, onCreated }: {
 }
 
 function AddRouteModal({ open, onClose, tenantId, toast, onCreated }: {
-  open: boolean; onClose: () => void; tenantId: string; toast: (m: string) => void; onCreated: () => void;
+  open: boolean; onClose: () => void; tenantId: string; toast: ToastFn; onCreated: () => void;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -498,7 +503,7 @@ function AddRouteModal({ open, onClose, tenantId, toast, onCreated }: {
       onCreated();
       onClose();
     } catch (err) {
-      toast("Could not add route: " + (err instanceof Error ? err.message : String(err)));
+      toast("Could not add route: " + (err instanceof Error ? err.message : String(err)), "error");
     } finally {
       setSaving(false);
     }

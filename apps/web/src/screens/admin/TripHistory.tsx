@@ -5,7 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { TripReplayMap } from "../../components/TripReplayMap";
 import { useAsync } from "../../lib/useAsync";
-import { fetchTripPath, listTrips, type TripRow } from "@figbloom/shared";
+import { fetchTripPath, listRouteStops, listTrips, type RouteStop, type TripRow } from "@figbloom/shared";
 
 const STATUS_TONE: Record<TripRow["status"], Tone> = { active: "ok", completed: "muted", cancelled: "warn" };
 const DIRECTION_LABEL: Record<TripRow["direction"], string> = { to_school: "To school", from_school: "From school" };
@@ -25,8 +25,8 @@ function fmtDuration(startedAt: string, endedAt: string | null): string {
  * the exact vehicle_locations history already being recorded, not a new
  * computation. Answers "where did this bus actually go on Tuesday."
  */
-export function TripHistory() {
-  const { data: trips, loading, error } = useAsync(() => listTrips(), []);
+export function TripHistory({ tenantId }: { tenantId: string }) {
+  const { data: trips, loading, error } = useAsync(() => listTrips(tenantId), [tenantId]);
   const [openTrip, setOpenTrip] = useState<TripRow | null>(null);
 
   return (
@@ -45,6 +45,12 @@ export function TripHistory() {
             { key: "direction", header: "Direction", render: (t: TripRow) => <span className="text-[13px]">{DIRECTION_LABEL[t.direction]}</span> },
             { key: "started", header: "Started", render: (t: TripRow) => <span className="font-mono text-[12px] text-ink-muted">{fmtWhen(t.started_at)}</span> },
             { key: "duration", header: "Duration", render: (t: TripRow) => <span className="font-mono text-[12px] text-ink-muted">{fmtDuration(t.started_at, t.ended_at)}</span> },
+            {
+              key: "alerts", header: "Alerts",
+              render: (t: TripRow) => t.alertCount > 0
+                ? <Badge tone="warn">{t.alertCount} raised</Badge>
+                : <span className="text-[12px] text-ink-faint">None</span>,
+            },
             { key: "status", header: "", align: "right", render: (t: TripRow) => <Badge tone={STATUS_TONE[t.status]}>{t.status}</Badge> },
           ]}
           rows={trips}
@@ -60,8 +66,13 @@ export function TripHistory() {
   );
 }
 
+async function fetchReplayData(trip: TripRow): Promise<{ path: Awaited<ReturnType<typeof fetchTripPath>>; stops: RouteStop[] }> {
+  const [path, stops] = await Promise.all([fetchTripPath(trip.id), trip.route_id ? listRouteStops(trip.route_id) : Promise.resolve([])]);
+  return { path, stops };
+}
+
 function TripReplayModal({ trip, onClose }: { trip: TripRow; onClose: () => void }) {
-  const { data: path, loading, error } = useAsync(() => fetchTripPath(trip.id), [trip.id]);
+  const { data, loading, error } = useAsync(() => fetchReplayData(trip), [trip.id]);
 
   return (
     <Modal
@@ -74,10 +85,10 @@ function TripReplayModal({ trip, onClose }: { trip: TripRow; onClose: () => void
     >
       {error ? (
         <p className="text-[12.5px] text-warn-ink">Could not load the path: {error.message}</p>
-      ) : loading || !path ? (
+      ) : loading || !data ? (
         <Skeleton className="h-80 w-full rounded-lg" />
       ) : (
-        <TripReplayMap path={path} />
+        <TripReplayMap trip={trip} path={data.path} stops={data.stops} />
       )}
     </Modal>
   );

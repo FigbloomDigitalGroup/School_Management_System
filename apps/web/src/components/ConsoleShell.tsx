@@ -1,16 +1,42 @@
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
-import { NAV, supabase, type Role } from "@figbloom/shared";
+import { NAV, normalizeSlug, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { uiZoom } from "../lib/a11y";
+import { createMyOrganization } from "../lib/platformAdmin";
+import { useSlugAvailability } from "../lib/slugAvailability";
+import { AccessibilityModal } from "./AccessibilityModal";
+import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
+import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { useTenant } from "./TenantTheme";
+import { Button } from "./ui/Button";
+import { SelectField, TextField } from "./ui/Field";
+import { Modal } from "./ui/Modal";
+import { useToast } from "./ui/Toast";
+
+/** Opens the shell's Accessibility dialog from a page header. Null outside a
+ *  ConsoleShell, where PageHead then shows no accessibility button. */
+const OpenAccessibility = createContext<(() => void) | null>(null);
 
 interface Props {
   role: Role;
-  user: { name: string; roleLabel: string };
+  user: { id: string; name: string; roleLabel: string; avatarUrl?: string | null };
   /** Second column: the master list in a master-detail screen. */
   aside?: ReactNode;
   children: ReactNode;
   badges?: Record<string, string>;
+  /** org_admin only — there's no `tenant` to read a name/logo from, so OrgShell passes the organization's own name. */
+  workspaceName?: string;
+  /** org_admin only — every organization this profile administers, including
+   *  the current one. Rendered as a switcher when there's more than one;
+   *  falls back to the plain static name (previous behavior) otherwise. */
+  workspaceOptions?: { slug: string; name: string }[];
+  /** Set when an org_admin is acting inside a member school (FIG-391/392) —
+   *  a persistent reminder that they are not this school's own admin, with
+   *  a way back out. Never set for a school's own school_admin. onExit is a
+   *  callback rather than a plain URL so the caller can log the exit before
+   *  navigating away. */
+  actingBanner?: { orgName: string; schoolName: string; onExit: () => void };
 }
 
 /**
@@ -18,13 +44,54 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {} }: Props) {
-  const [open, setOpen] = useState(true);
-  const { slug } = useParams();
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner }: Props) {
+  // Start collapsed when the labelled sidebar would eat too much of a narrow
+  // (or heavily zoomed) window; the person can still expand it.
+  const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
+  const [changingPw, setChangingPw] = useState(false);
+  const [a11yOpen, setA11yOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountBtn = useRef<HTMLButtonElement>(null);
+  const { slug, orgSlug } = useParams();
   const tenant = useTenant();
   const nav = useNavigate();
-  const items = NAV[role];
-  const tenantScoped = role !== "super_admin";
+  // "Classes"/"My classes" are the K-12 homeroom concept (classes.form_level,
+  // class_teacher_id); "Courses"/"My sections" are the higher-ed equivalent
+  // (semesters, course catalogue, section rosters) — each institution type
+  // only ever sees its own, rather than an empty screen shaped for the other.
+  // Attendance/Timetable/Messages are still keyed off teaching_assignments/
+  // class_id, which no higher-ed tenant populates, so they'd only ever show
+  // "no classes" for a lecturer — hidden for the same reason, not because the
+  // underlying capability doesn't matter (it's simply not built for course
+  // sections yet). Gradebook is the exception: FIG-330 gave it a real
+  // higher-ed branch (GpaGradebook), so it stays visible for both.
+  const higherEd = tenant?.institution_type === "higher_ed";
+  // Transport is meaningless for a fully-online tenant (FIG-358) — hidden
+  // here, and the underlying routes are gated the same way in App.tsx, since
+  // hiding a nav item alone never blocks the route itself.
+  const online = tenant?.delivery_mode === "online";
+  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices"]);
+  const items = NAV[role].filter((item) => {
+    if (item.to === "admin/classes" || item.to === "admin/subjects" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
+    if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
+    if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
+    return true;
+  });
+  // Three link-prefix regimes, not two: /platform/* (super_admin, absolute
+  // paths as-is), /org/:orgSlug/* (org_admin), /s/:slug/* (everyone else).
+  // org_admin was previously falling into the tenant-scoped bucket by
+  // elimination (role !== "super_admin"), building hrefs like /s/undefined/schools
+  // since useParams() on an /org/* route has no `slug` — nav was completely broken.
+  const tenantScoped = role !== "super_admin" && role !== "org_admin";
+  const orgScoped = role === "org_admin";
+  // Only the three roles with a real self-service "My account" screen (FIG-
+  // 403) get a clickable avatar — org_admin/super_admin/student have none to
+  // send them to yet.
+  const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings" };
+  const accountTo = ACCOUNT_ROUTE[role];
+  const accountHref = accountTo
+    ? (tenantScoped ? `/s/${slug}/${accountTo}` : orgScoped ? `/org/${orgSlug}/${accountTo}` : accountTo)
+    : null;
 
   async function signOut() {
     await supabase().auth.signOut();
@@ -32,34 +99,69 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <OpenAccessibility.Provider value={() => setA11yOpen(true)}>
+    <div className="relative flex h-screen overflow-hidden bg-white">
+      {/* Header and account footer stay put; only the page list between them
+          scrolls. Previously the whole column was overflow-hidden, so on a
+          short or zoomed-in window the footer (Sign out included) was simply
+          clipped off the bottom with no way to reach it. The nav itself also
+          scrolls as a last resort for windows too short even for that. */}
       <nav
         aria-label="Main"
-        className="flex shrink-0 flex-col gap-0.5 overflow-hidden px-3 py-4 transition-[width] duration-150"
+        className="flex shrink-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-4 transition-[width] duration-150"
         style={{ width: open ? 224 : 68, background: tenantScoped ? "var(--accent-deep)" : "#17402A" }}
       >
-        <div className="flex min-h-[34px] items-center gap-3 px-0.5 pb-4">
+        <div className="flex min-h-[34px] shrink-0 items-center gap-3 px-0.5 pb-2">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-white p-1">
             <img
-              src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/logo-mark.png"}
-              alt={tenantScoped ? tenant?.name ?? "School" : "Figbloom"}
+              src={tenantScoped && tenant?.logo_url ? tenant.logo_url : "/figbloom-mark.png"}
+              alt={tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
               className="h-full w-full object-contain"
             />
           </div>
+          {open && orgScoped && workspaceOptions ? (
+            <WorkspaceSwitcher current={workspaceName ?? "Figbloom"} options={workspaceOptions} />
+          ) : (
+            open && (
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[14.5px] font-semibold tracking-tight text-white">
+                  {tenantScoped ? tenant?.name ?? "School" : workspaceName ?? "Figbloom"}
+                </div>
+                <div className="truncate font-mono text-[8.5px] tracking-[0.1em] text-white/50">
+                  {tenantScoped ? "SCHOOL WORKSPACE" : orgScoped ? "ORGANIZATION CONSOLE" : "PLATFORM CONSOLE"}
+                </div>
+              </div>
+            )
+          )}
           {open && (
-            <div className="overflow-hidden whitespace-nowrap">
-              <div className="text-[14.5px] font-semibold tracking-tight text-white">
-                {tenantScoped ? tenant?.name ?? "School" : "Figbloom"}
-              </div>
-              <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">
-                {tenantScoped ? "SCHOOL WORKSPACE" : "PLATFORM CONSOLE"}
-              </div>
-            </div>
+            <button
+              onClick={() => setOpen(false)}
+              aria-expanded={open}
+              title="Collapse menu"
+              className="hit ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/60 hover:bg-white/10"
+            >
+              <Icon name="back" size={13} />
+            </button>
           )}
         </div>
+        {!open && (
+          <button
+            onClick={() => setOpen(true)}
+            aria-expanded={open}
+            title="Expand menu"
+            className="hit mx-auto mb-2 grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/60 hover:bg-white/10"
+          >
+            <Icon name="forward" size={13} />
+          </button>
+        )}
 
+        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
         {items.map((it) => {
-          const to = tenantScoped ? `/s/${slug}/${it.to.replace(/^\//, "")}` : it.to;
+          const to = tenantScoped
+            ? `/s/${slug}/${it.to.replace(/^\//, "")}`
+            : orgScoped
+              ? `/org/${orgSlug}/${it.to.replace(/^\//, "")}`
+              : it.to;
           return (
             <NavLink
               key={it.to}
@@ -69,6 +171,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
               className={({ isActive }) =>
                 [
                   "hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5",
+                  open ? "" : "justify-center",
                   isActive ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10",
                 ].join(" ")
               }
@@ -82,47 +185,397 @@ export function ConsoleShell({ role, user, aside, children, badges = {} }: Props
             </NavLink>
           );
         })}
+        </div>
 
-        <div className="mt-auto flex flex-col gap-1.5">
+        <div className="shrink-0 border-t border-white/10 pt-2">
           <button
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60"
-            style={{ height: 34 }}
+            ref={accountBtn}
+            type="button"
+            onClick={() => setAccountOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            title={`${user.name} — account menu`}
+            className={`hit flex w-full items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-0.5 py-1.5 text-left hover:bg-white/10 ${accountOpen ? "bg-white/10" : ""} ${open ? "" : "justify-center"}`}
           >
-            <Icon name={open ? "back" : "forward"} size={13} />
-            {open && <span className="text-small">Collapse menu</span>}
-          </button>
-          <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap border-t border-white/10 px-0.5 pt-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-white/15 text-[11px] font-semibold text-white">
-              {user.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
-            </div>
+            <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
             {open && (
-              <div className="min-w-0 flex-1 leading-tight">
-                <div className="truncate text-small text-white">{user.name}</div>
-                <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
-              </div>
+              <>
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div className="truncate text-small text-white">{user.name}</div>
+                  <div className="font-mono text-[8.5px] text-white/50">{user.roleLabel.toUpperCase()}</div>
+                </div>
+                <span aria-hidden className="shrink-0 pr-1.5 text-[10px] text-white/50">▴</span>
+              </>
             )}
-          </div>
-          <button
-            onClick={() => { void signOut(); }}
-            title="Sign out"
-            className="hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-white/60 hover:bg-white/10"
-            style={{ height: 34 }}
-          >
-            <Icon name="signout" size={13} />
-            {open && <span className="text-small">Sign out</span>}
           </button>
         </div>
       </nav>
 
       {aside && <div className="flex w-[320px] shrink-0 flex-col overflow-hidden border-r border-line bg-[#FAFBFA]">{aside}</div>}
-      <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {actingBanner && (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-orange-line bg-orange-soft px-5 py-2 text-[12.5px] text-orange-ink">
+            <span>
+              Acting for <span className="font-semibold">{actingBanner.orgName}</span> inside{" "}
+              <span className="font-semibold">{actingBanner.schoolName}</span> — you are not this school's own admin.
+            </span>
+            <button
+              type="button"
+              onClick={actingBanner.onExit}
+              className="hit shrink-0 font-semibold underline decoration-orange-ink/40 underline-offset-2"
+            >
+              Exit to organization
+            </button>
+          </div>
+        )}
+        <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+      </div>
+
+      {accountOpen && (
+        // Outside the <nav> on purpose: the nav scrolls, and an absolutely
+        // positioned menu inside it would be clipped. Anchored to the
+        // sidebar's bottom edge, opening to its right, so it works the same
+        // expanded or collapsed.
+        <AccountMenu
+          left={(open ? 224 : 68) + 8}
+          user={user}
+          accountHref={accountHref}
+          anchor={accountBtn}
+          onClose={() => setAccountOpen(false)}
+          onAccessibility={() => setA11yOpen(true)}
+          onChangePassword={() => setChangingPw(true)}
+          onSignOut={() => void signOut()}
+        />
+      )}
+      {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
+      {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
+    </div>
+    </OpenAccessibility.Provider>
+  );
+}
+
+/** The avatar/name in the sidebar footer opens this — everything about "me"
+ *  in one place, instead of three always-visible rows eating sidebar height. */
+function AccountMenu({ left, user, accountHref, anchor, onClose, onAccessibility, onChangePassword, onSignOut }: {
+  left: number;
+  user: Props["user"];
+  accountHref: string | null;
+  anchor: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onAccessibility: () => void;
+  onChangePassword: () => void;
+  onSignOut: () => void;
+}) {
+  const menu = useRef<HTMLDivElement>(null);
+  const nav = useNavigate();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const items = () => Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    items()[0]?.focus();
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node;
+      if (!menu.current?.contains(t) && !anchor.current?.contains(t)) onCloseRef.current();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); onCloseRef.current(); anchor.current?.focus(); return; }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const list = items();
+      const i = list.indexOf(document.activeElement as HTMLElement);
+      list[(i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length]?.focus();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey, { capture: true }); };
+  }, [anchor]);
+
+  const pick = (fn: () => void) => () => { onClose(); fn(); };
+  const itemCls = "hit flex w-full items-center gap-3 px-3.5 text-left text-[13px] text-ink hover:bg-page focus:bg-page focus:outline-none";
+
+  return (
+    <div
+      ref={menu}
+      role="menu"
+      aria-label="Account"
+      className="animate-rise absolute bottom-3 z-40 w-60 overflow-hidden rounded-xl border border-line bg-white py-1 shadow-lg"
+      style={{ left }}
+    >
+      <div className="flex items-center gap-2.5 border-b border-line-soft px-3.5 pb-2.5 pt-2">
+        <Avatar id={user.id} name={user.name} url={user.avatarUrl} size={32} />
+        <div className="min-w-0 leading-tight">
+          <div className="truncate text-[13px] font-semibold">{user.name}</div>
+          <div className="font-mono text-[9.5px] tracking-[0.08em] text-ink-faint">{user.roleLabel.toUpperCase()}</div>
+        </div>
+      </div>
+      {accountHref && (
+        <button type="button" role="menuitem" className={itemCls} onClick={pick(() => nav(accountHref))}>
+          <Icon name="people" size={13} /> My account
+        </button>
+      )}
+      <button type="button" role="menuitem" className={itemCls} onClick={pick(onAccessibility)}>
+        <Icon name="text" size={13} /> Accessibility
+      </button>
+      <button type="button" role="menuitem" className={itemCls} onClick={pick(onChangePassword)}>
+        <Icon name="gear" size={13} /> Change password
+      </button>
+      <div className="my-1 border-t border-line-soft" />
+      <button type="button" role="menuitem" className={`${itemCls} font-semibold`} onClick={pick(onSignOut)}>
+        <Icon name="signout" size={13} /> Sign out
+      </button>
     </div>
   );
 }
 
-/** Page header used by every console screen. */
+/** Every org_admin gets this instead of the plain static workspace name —
+ *  jump between orgs without signing out, and spin up an additional one. */
+function WorkspaceSwitcher({ current, options }: { current: string; options: { slug: string; name: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const nav = useNavigate();
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey, { capture: true }); };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="flex w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-md text-left hover:bg-white/10"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14.5px] font-semibold tracking-tight text-white">{current}</div>
+          <div className="font-mono text-[8.5px] tracking-[0.1em] text-white/50">ORGANIZATION CONSOLE</div>
+        </div>
+        <span aria-hidden className="shrink-0 pr-1 text-[10px] text-white/50">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1.5 w-64 overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg">
+          {options.map((o) => (
+            <button
+              key={o.slug}
+              type="button"
+              onClick={() => { setOpen(false); nav(`/org/${o.slug}/dashboard`); }}
+              className={`block w-full truncate px-3 py-2 text-left text-[13px] hover:bg-page ${o.name === current ? "font-semibold text-forest" : "text-ink"}`}
+            >
+              {o.name}
+            </button>
+          ))}
+          <div className="mt-1 border-t border-line-soft pt-1">
+            {options.length > 1 && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); nav("/org-picker"); }}
+                className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-ink-muted hover:bg-page"
+              >
+                All organizations
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setCreating(true); }}
+              className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-forest hover:bg-page"
+            >
+              + Create new organization
+            </button>
+          </div>
+        </div>
+      )}
+
+      {creating && <CreateOrganizationModal onClose={() => setCreating(false)} />}
+    </div>
+  );
+}
+
+const ORG_KIND_OPTIONS: { value: Organization["kind"]; label: string }[] = [
+  { value: "group_owner", label: "I own/manage a group of schools" },
+  { value: "government", label: "National government body" },
+  { value: "county", label: "County government" },
+  { value: "constituency", label: "Constituency" },
+];
+
+const ORG_SLUG_RE = /^[a-z0-9-]{3,40}$/;
+
+/** The in-app "+ Create new organization" flow (FIG-394) — same shape as the
+ *  public Signup.tsx form, minus the account fields: this org_admin already
+ *  has a login, so create-organization just links it to a new org rather
+ *  than making a second account. Lands 'pending', same one-click staff
+ *  approval every self-registered org goes through — navigating there shows
+ *  App.tsx's existing PendingOrgHold screen, no new "success" state needed. */
+function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
+  const nav = useNavigate();
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [kind, setKind] = useState<Organization["kind"]>("group_owner");
+  const [county, setCounty] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
+  const slugOk = ORG_SLUG_RE.test(slugValue);
+  const availability = useSlugAvailability("organization", slugValue, county);
+
+  async function submit() {
+    if (!name.trim()) { toast("Give the organization a name.", "error"); return; }
+    if (!slugOk) { toast("Pick a valid address — 3-40 lowercase letters, numbers and hyphens.", "error"); return; }
+    if (availability.status === "taken") { toast(`figbloom.co.ke/org/${slugValue} is already taken. Pick one of the suggestions under the field.`, "error"); return; }
+    setSaving(true);
+    try {
+      const result = await createMyOrganization({
+        name: name.trim(),
+        slug: slugValue,
+        kind,
+        county: county.trim() || undefined,
+      });
+      onClose();
+      nav(`/org/${result.slug}/dashboard`);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not create the organization: ${err.message}` : "Could not create the organization.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="New workspace"
+      title="Create an organization"
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void submit()} disabled={saving}>
+            {saving ? "Creating…" : "Create organization"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-3.5">
+        <p className="text-[12.5px] leading-relaxed text-ink-muted">
+          A separate workspace with its own schools — useful for a distinct group, region, or program you run
+          alongside this one. It starts pending review, same as any new organization.
+        </p>
+        <TextField id="new-org-name" label="Organization name" placeholder="e.g. Riverside Schools Trust" value={name} onChange={(e) => setName(e.target.value)} />
+        <TextField
+          id="new-org-slug" label="Web address" mono placeholder={slugValue || "riverside-schools-trust"}
+          value={slugTouched ? slug : slugValue}
+          hint={slugOk && availability.status === "idle" ? `figbloom.co.ke/org/${slugValue}` : undefined}
+          error={slugTouched && slug && !slugOk ? "3-40 characters, lowercase letters, numbers and hyphens only." : undefined}
+          onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
+        />
+        <SlugAvailabilityNote slug={slugValue} noun="organization" base="figbloom.co.ke/org/" availability={availability}
+          onPick={(s) => { setSlugTouched(true); setSlug(s); }} />
+        <SelectField id="new-org-kind" label="What best describes it?" value={kind} onChange={(e) => setKind(e.target.value as Organization["kind"])} options={ORG_KIND_OPTIONS} />
+        <TextField id="new-org-county" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
+      </div>
+    </Modal>
+  );
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setError("");
+    if (password.length < 8) { setError("At least 8 characters."); return; }
+    if (password !== confirm) { setError("The passwords don't match."); return; }
+    setBusy(true);
+    try {
+      const { error: err } = await supabase().auth.updateUser({ password });
+      if (err) throw err;
+      toast("Password changed.");
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change the password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void submit();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Change password"
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" onClick={() => void submit()} disabled={busy}>
+            {busy ? "Saving…" : "Change password"}
+          </Button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="grid gap-3.5">
+        <TextField id="new-pw" label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} hint="At least 8 characters." />
+        <TextField id="new-pw2" label="Confirm password" type="password" value={confirm} error={error} onChange={(e) => setConfirm(e.target.value)} />
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * The universal-access figure, drawn rather than one of Icon's glyphs: the
+ * typographic set has nothing people recognise as "accessibility", and this
+ * is the one control whose users most need to spot it without hunting.
+ */
+function AccessibilityGlyph() {
+  return (
+    <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="7.2" r="1.3" fill="currentColor" stroke="none" />
+      <path d="M7.5 10h9M12 10v4M12 14l-2.5 4.5M12 14l2.5 4.5" />
+    </svg>
+  );
+}
+
+/** Opens the Accessibility dialog. Sits at the right end of every page header
+ *  (the same place Bloom HR keeps it) so it's never more than one click away.
+ *  Renders nothing outside a ConsoleShell. */
+export function AccessibilityButton() {
+  const openAccessibility = useContext(OpenAccessibility);
+  if (!openAccessibility) return null;
+  return (
+    <button
+      type="button"
+      onClick={openAccessibility}
+      aria-label="Accessibility settings"
+      title="Accessibility: text size, contrast, motion"
+      className="hit flex shrink-0 items-center justify-center rounded-md border border-[#D3DAD5] bg-white text-ink-muted transition hover:bg-page hover:text-ink"
+    >
+      <AccessibilityGlyph />
+    </button>
+  );
+}
+
+/** Page header used by every console screen; the Accessibility button always comes last. */
 export function PageHead({ eyebrow, title, blurb, actions }: { eyebrow: string; title: string; blurb?: string; actions?: ReactNode }) {
   return (
     <header className="border-b border-line bg-white px-7 pb-5 pt-6">
@@ -132,7 +585,10 @@ export function PageHead({ eyebrow, title, blurb, actions }: { eyebrow: string; 
           <h1 className="mt-1.5 text-h2 font-semibold tracking-tight">{title}</h1>
           {blurb && <p className="mt-1.5 max-w-[620px] text-[13px] leading-relaxed text-ink-muted">{blurb}</p>}
         </div>
-        {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
+        <div className="flex shrink-0 items-center gap-2">
+          {actions}
+          <AccessibilityButton />
+        </div>
       </div>
     </header>
   );

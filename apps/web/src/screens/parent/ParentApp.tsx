@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import {
-  KES, PAYMENT_FAILURES, againstMean, gradeFor, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase,
+  GRADE_INK, formatMoney, PAYMENT_FAILURES, againstMean, gradeFor, gradingSchemeFor, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase,
+  loadPublishedCbeResults, rubricFor, type CbeLearningAreaResult,
 } from "@figbloom/shared";
 import { formatPhone, formatShortDate, loadParentData } from "@figbloom/shared";
+import { cbeOverall } from "../../components/CbeResults";
 import { PhoneFrame, TabBar } from "../../components/PhoneFrame";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -65,15 +67,28 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
 
   // Computed ahead of the loading early-return below so these hooks still run
   // on every render, in the same order, regardless of load state.
-  const childId = data ? (data.children[Math.min(kid, Math.max(data.children.length - 1, 0))]?.id ?? null) : null;
-  const { data: invoiceId } = useAsync(
+  const childRow = data ? (data.children[Math.min(kid, Math.max(data.children.length - 1, 0))] ?? null) : null;
+  const childId = childRow?.id ?? null;
+  // A CBE learner with no exam marks gets their published strand assessments
+  // summarised on the home card instead of "Not published yet".
+  const cbeRubric = childRow ? rubricFor(tenant.country, childRow.classLevel) : null;
+  const cbeLearner = !!childRow && childRow.mean === null && cbeRubric !== null;
+  const { data: cbeByStudent, loading: cbeLoading, error: cbeError } = useAsync(
+    () => (childId && cbeLearner ? loadPublishedCbeResults([childId], tenant.country) : Promise.resolve(new Map<string, CbeLearningAreaResult[]>())),
+    [childId, tenant.country, cbeLearner],
+  );
+  const cbe = cbeLearner && cbeRubric && childId ? cbeOverall(cbeByStudent?.get(childId) ?? [], cbeRubric) : null;
+  const { data: invoiceId, loading: invoiceLoading } = useAsync(
     () => (childId ? fetchCurrentInvoiceId(childId) : Promise.resolve(null)),
     [childId],
   );
-  const { data: proofs, loading: proofsLoading } = useAsync(
-    () => (invoiceId ? listPaymentProofs(invoiceId) : Promise.resolve([] as PaymentProof[])),
+  // Tagged with the invoice they belong to: after a child switch the previous
+  // child's proofs must not show, but a reload after an upload keeps the list up.
+  const { data: proofsFor } = useAsync(
+    async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload],
   );
+  const proofs = !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
 
   if (loading || !data) {
     return (
@@ -126,18 +141,30 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
     );
   }
 
-  const feeItems = itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel);
+  const feeItems = itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel);
+  const scheme = gradingSchemeFor(tenant.country, child.classLevel);
   const statCards = [
     {
       label: "Attendance",
       value: child.attendancePct === null ? "—" : `${child.attendancePct}%`,
       note: child.attendancePct === null ? "No attendance recorded yet" : "this term",
+      loading: false,
     },
-    {
-      label: "Mean grade",
-      value: child.mean === null ? "—" : gradeFor(child.mean),
-      note: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
-    },
+    cbeLearner
+      ? {
+          label: "Learning areas",
+          value: cbe ? cbe.level.code : "—",
+          note: cbeError
+            ? "Could not load results"
+            : cbe ? `${cbe.level.label} · ${cbe.areas} learning area${cbe.areas === 1 ? "" : "s"}` : "Not published yet",
+          loading: cbeLoading,
+        }
+      : {
+          label: "Mean grade",
+          value: child.mean === null ? "—" : gradeFor(child.mean, scheme),
+          note: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
+          loading: false,
+        },
   ];
 
   function startPay() {
@@ -152,7 +179,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
 
   async function handleUploadProof(e: FormEvent) {
     e.preventDefault();
-    if (!invoiceId || !proofFile) return;
+    if (!invoiceId || invoiceLoading || !proofFile) return;
     setUploadingProof(true);
     try {
       await uploadPaymentProof({
@@ -167,7 +194,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
       setProofNote("");
       setProofReload((n) => n + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.");
+      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.", "error");
     } finally {
       setUploadingProof(false);
     }
@@ -178,7 +205,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
       const url = await privateDocUrl(path);
       window.open(url, "_blank", "noopener");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not open that file.");
+      toast(err instanceof Error ? err.message : "Could not open that file.", "error");
     }
   }
 
@@ -214,12 +241,12 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
             <div className="-mt-2.5 rounded-2xl border border-app-line bg-white p-4 shadow-sm">
               <div className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">FEE BALANCE{data.termLabel ? ` · ${data.termLabel.toUpperCase()}` : ""}</div>
               <div className="mt-1.5 text-[30px] font-bold tracking-tight" style={{ color: child.balance > 0 ? tint : "#1B4D2E" }}>
-                {child.balance > 0 ? KES(child.balance) : "Cleared"}
+                {child.balance > 0 ? formatMoney(child.balance, tenant.country) : "Cleared"}
               </div>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-app-muted">
                 {child.balance > 0
-                  ? `Of ${KES(child.billed)} billed. Part payment is fine — many families pay across the term.`
-                  : `All ${KES(child.billed)} paid. Nothing due until the next term.`}
+                  ? `Of ${formatMoney(child.billed, tenant.country)} billed. Part payment is fine — many families pay across the term.`
+                  : `All ${formatMoney(child.billed, tenant.country)} paid. Nothing due until the next term.`}
               </p>
               {child.balance > 0 && (
                 <button onClick={() => { setScreen("pay"); setAmount(child.balance); }}
@@ -234,8 +261,17 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
               {statCards.map((s) => (
                 <div key={s.label} className="rounded-2xl border border-app-line bg-white p-3.5">
                   <div className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">{s.label.toUpperCase()}</div>
-                  <div className="mt-1 text-[24px] font-semibold tracking-tight">{s.value}</div>
-                  <div className="text-[11.5px] text-app-faint">{s.note}</div>
+                  {s.loading ? (
+                    <div aria-busy="true">
+                      <Skeleton className="mt-2 h-6 w-16" />
+                      <Skeleton className="mt-1.5 h-2.5 w-24" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-1 text-[24px] font-semibold tracking-tight">{s.value}</div>
+                      <div className="text-[11.5px] text-app-faint">{s.note}</div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -289,14 +325,14 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
             <div className="rounded-2xl border border-app-line bg-white p-4">
               <div className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">{child.first.toUpperCase()}{data.termLabel ? ` · ${data.termLabel.toUpperCase()}` : ""}</div>
               <div className="mt-1.5 flex items-baseline justify-between">
-                <span className="text-[26px] font-bold tracking-tight">{KES(child.balance)}</span>
+                <span className="text-[26px] font-bold tracking-tight">{formatMoney(child.balance, tenant.country)}</span>
                 <span className="text-[12.5px] text-app-muted">{child.dueOn ? `due ${formatShortDate(child.dueOn)}` : ""}</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded bg-app-line-soft">
                 <div className="h-2 rounded" style={{ width: `${child.billed > 0 ? (1 - child.balance / child.billed) * 100 : 100}%`, background: tint }} />
               </div>
               <div className="mt-2 text-[12px] text-app-faint">
-                {KES(child.billed - child.balance)} paid of {KES(child.billed)}
+                {formatMoney(child.billed - child.balance, tenant.country)} paid of {formatMoney(child.billed, tenant.country)}
               </div>
             </div>
 
@@ -308,7 +344,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
               {feeItems.map((i) => (
                 <div key={i.id} className="flex justify-between border-b border-app-line-soft px-4 py-2.5 last:border-0">
                   <span className="text-[13px]">{i.name}</span>
-                  <span className="font-mono text-[13px]">{KES(i.amount_cents)}</span>
+                  <span className="font-mono text-[13px]">{formatMoney(i.amount_cents, tenant.country)}</span>
                 </div>
               ))}
             </div>
@@ -320,7 +356,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
               ) : child.receipts.map((r) => (
                 <div key={r.id} className="flex items-center justify-between gap-3 border-b border-app-line-soft px-4 py-3 last:border-0">
                   <div className="min-w-0">
-                    <div className="text-[13px] font-medium">{KES(r.amount)}</div>
+                    <div className="text-[13px] font-medium">{formatMoney(r.amount, tenant.country)}</div>
                     <div className="font-mono text-[10.5px] text-app-faint">{r.when} · {r.ref}</div>
                   </div>
                   <span className="rounded-full bg-ok-bg px-2.5 py-0.5 text-[11.5px] font-semibold text-ok-ink">Received</span>
@@ -349,7 +385,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 />
                 <button
                   type="submit"
-                  disabled={!proofFile || !invoiceId || uploadingProof}
+                  disabled={!proofFile || !invoiceId || invoiceLoading || uploadingProof}
                   className="hit w-full rounded-xl py-3 text-[13.5px] font-semibold text-white disabled:opacity-50"
                   style={{ background: tint }}
                 >
@@ -357,7 +393,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 </button>
               </form>
 
-              {!proofsLoading && proofs && proofs.length > 0 && (
+              {proofs && proofs.length > 0 && (
                 <div className="mt-3 grid gap-2">
                   {proofs.map((p) => (
                     <button
@@ -379,7 +415,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
             {child.balance > 0 && (
               <button onClick={() => { setScreen("pay"); setAmount(child.balance); }}
                 className="hit mt-5 w-full rounded-xl py-3.5 text-[15px] font-semibold text-white" style={{ background: tint }}>
-                Pay {KES(child.balance)}
+                Pay {formatMoney(child.balance, tenant.country)}
               </button>
             )}
           </div>
@@ -390,13 +426,13 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
             {payState === "done" ? (
               <div className="pt-6 text-center">
                 <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-ok-bg text-2xl text-ok-ink">✓</div>
-                <h2 className="text-[19px] font-semibold">{KES(amount)} received</h2>
+                <h2 className="text-[19px] font-semibold">{formatMoney(amount, tenant.country)} received</h2>
                 <p className="mx-auto mt-2 max-w-[280px] text-[13px] leading-relaxed text-app-muted">
-                  {child.first}'s balance is now {KES(Math.max(child.balance - amount, 0))}. The receipt will appear
+                  {child.first}'s balance is now {formatMoney(Math.max(child.balance - amount, 0), tenant.country)}. The receipt will appear
                   below once the school's system confirms it.
                 </p>
                 <div className="mx-auto mt-5 max-w-[300px] rounded-2xl border border-app-line bg-white p-4 text-left">
-                  {[["Paid", KES(amount)], ["For", child.name], ["Method", "M-Pesa " + phone]].map(([k, v]) => (
+                  {[["Paid", formatMoney(amount, tenant.country)], ["For", child.name], ["Method", "M-Pesa " + phone]].map(([k, v]) => (
                     <div key={k} className="flex justify-between border-b border-app-line-soft py-2 text-[12.5px] last:border-0">
                       <span className="text-app-muted">{k}</span><span className="font-medium">{v}</span>
                     </div>
@@ -433,7 +469,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 <div className="rounded-2xl border border-app-line bg-white p-4">
                   <div className="font-mono text-[9.5px] tracking-[0.12em] text-app-faint">PAYING FOR</div>
                   <div className="mt-1 text-[16px] font-semibold">{child.name}</div>
-                  <div className="text-[12.5px] text-app-muted">{child.cls} · balance {KES(child.balance)}</div>
+                  <div className="text-[12.5px] text-app-muted">{child.cls} · balance {formatMoney(child.balance, tenant.country)}</div>
                 </div>
 
                 <h2 className="mb-2 mt-4 text-[15px] font-semibold">How much?</h2>
@@ -445,7 +481,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                         className="flex items-center justify-between rounded-2xl border-[1.5px] bg-white px-4 py-3 text-left"
                         style={{ borderColor: on ? tint : "#EAE6E5" }}>
                         <span className="text-[13.5px] font-medium">{s.label}</span>
-                        {s.cents > 0 && <span className="font-mono text-[13px]">{KES(s.cents)}</span>}
+                        {s.cents > 0 && <span className="font-mono text-[13px]">{formatMoney(s.cents, tenant.country)}</span>}
                       </button>
                     );
                   })}
@@ -492,7 +528,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                 <div className="rounded-2xl p-4 text-white" style={{ background: tint }}>
                   <div className="font-mono text-[9.5px] tracking-[0.12em] text-white/70">MEAN GRADE{child.examName ? ` · ${child.examName.toUpperCase()}` : ""}</div>
                   <div className="mt-1.5 flex items-baseline gap-3">
-                    <span className="text-[38px] font-bold tracking-tight">{gradeFor(child.mean)}</span>
+                    <span className="text-[38px] font-bold tracking-tight">{gradeFor(child.mean, scheme)}</span>
                     <span className="font-mono text-[14px] text-white/80">{child.mean} marks</span>
                   </div>
                   <p className="mt-2 text-[12.5px] leading-relaxed text-white/85">
@@ -519,7 +555,7 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="font-mono text-[18px]">{s.score}</div>
-                        <div className="text-[12px] font-bold" style={{ color: s.score >= 75 ? "#1B4D2E" : s.score >= 65 ? "#2E7D4F" : "#8A3D08" }}>{gradeFor(s.score)}</div>
+                        <div className="text-[12px] font-bold" style={{ color: GRADE_INK[gradeFor(s.score, scheme)] }}>{gradeFor(s.score, scheme)}</div>
                       </div>
                     </div>
                   ))}

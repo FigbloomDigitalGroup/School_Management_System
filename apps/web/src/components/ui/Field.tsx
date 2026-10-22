@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 
 interface Wrap {
   label: string;
@@ -28,16 +28,31 @@ function Wrapper({ label, hint, error, children, id }: Wrap) {
 const BASE =
   "w-full rounded-md border border-[#D3DAD5] px-3 py-2.5 font-sans text-body outline-none focus:border-forest";
 
-export function TextField({ label, hint, error, id, mono, ...rest }: Wrap extends never ? never : Omit<Wrap, "children"> & InputHTMLAttributes<HTMLInputElement> & { mono?: boolean }) {
+export function TextField({ label, hint, error, id, mono, showToggle, type, ...rest }: Wrap extends never ? never : Omit<Wrap, "children"> & InputHTMLAttributes<HTMLInputElement> & { mono?: boolean; /** Only meaningful with type="password" — adds a Show/Hide button instead of leaving the value permanently masked. */ showToggle?: boolean }) {
+  const [revealed, setRevealed] = useState(false);
+  const isMaskable = showToggle && type === "password";
   return (
     <Wrapper label={label} hint={hint} error={error} id={id}>
-      <input
-        id={id}
-        aria-invalid={!!error}
-        aria-describedby={error ? `${id}-error` : undefined}
-        className={`${BASE} ${mono ? "font-mono text-[13px]" : ""} ${error ? "border-warn-ink" : ""}`}
-        {...rest}
-      />
+      <div className={isMaskable ? "relative" : undefined}>
+        <input
+          id={id}
+          type={isMaskable ? (revealed ? "text" : "password") : type}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${id}-error` : undefined}
+          className={`${BASE} ${mono ? "font-mono text-[13px]" : ""} ${error ? "border-warn-ink" : ""} ${isMaskable ? "pr-14" : ""}`}
+          {...rest}
+        />
+        {isMaskable && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setRevealed((v) => !v)}
+            className="hit absolute right-2 top-1/2 -translate-y-1/2 px-1.5 text-[11.5px] font-semibold text-ink-faint hover:text-ink"
+          >
+            {revealed ? "Hide" : "Show"}
+          </button>
+        )}
+      </div>
     </Wrapper>
   );
 }

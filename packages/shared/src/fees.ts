@@ -1,8 +1,19 @@
-import type { FeeInvoice, FeeItem, InvoiceStatus, Student } from "./types";
+import type { ClassLevel, FeeInvoice, FeeItem, InvoiceStatus, Student } from "./types";
+import { yearMatches } from "./levels";
+import { countryProfile } from "./countries";
+import { normalisePhoneForCountry } from "./phone";
 
-/** Money is cents everywhere. Never a float. */
-export const KES = (cents: number): string =>
-  "KSh " + (cents / 100).toLocaleString("en-KE", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+/** Money is cents everywhere. Never a float. Formatted per the tenant's own
+ *  country — pass "KE" explicitly for Figbloom's own platform billing,
+ *  which is a deliberate business currency choice, not a per-tenant one. */
+export function formatMoney(cents: number, country: string): string {
+  const { currencySymbol, currencyDecimals } = countryProfile(country);
+  return (
+    currencySymbol +
+    " " +
+    (cents / 100).toLocaleString("en-KE", { minimumFractionDigits: currencyDecimals, maximumFractionDigits: currencyDecimals })
+  );
+}
 
 export const balanceCents = (i: FeeInvoice): number => Math.max(i.total_cents - i.paid_cents, 0);
 
@@ -13,13 +24,14 @@ export function invoiceStatus(i: Pick<FeeInvoice, "total_cents" | "paid_cents" |
   return i.paid_cents > 0 ? "part_paid" : "unpaid";
 }
 
-export function itemsForStudent(items: FeeItem[], student: Pick<Student, "boarding">, formLevel: number): FeeItem[] {
+/** classLevel keeps a Grade 1 item off a Form 1 learner's bill in a school that runs both. */
+export function itemsForStudent(items: FeeItem[], student: Pick<Student, "boarding">, formLevel: number, classLevel?: ClassLevel | null): FeeItem[] {
   return items.filter((it) => {
     switch (it.applies_to) {
       case "all": return true;
       case "boarders": return student.boarding;
       case "day": return !student.boarding;
-      case "form_level": return it.form_level === formLevel;
+      case "form_level": return it.form_level != null && yearMatches({ level: it.level, year: it.form_level }, { level: classLevel, year: formLevel });
     }
   });
 }
@@ -39,14 +51,16 @@ export function payableSuggestions(balance: number): { label: string; cents: num
   return out;
 }
 
-/** Daraja rejects anything that is not a plain 2547XXXXXXXX. */
+/**
+ * Daraja rejects anything that is not a plain 2547XXXXXXXX or 2541XXXXXXXX —
+ * Kenyan mobile numbers only, since M-Pesa itself is Kenya-only (there is no
+ * other country's mobile-money validator to generalize to yet). Reuses the
+ * shared local-prefix → dial-code reformatting rather than its own
+ * hand-rolled digit shifting; the accept/reject shape stays Kenya-specific.
+ */
 export function normaliseMsisdn(raw: string): { ok: true; msisdn: string } | { ok: false; message: string } {
-  const d = raw.replace(/[^0-9]/g, "");
-  if (/^2547\d{8}$/.test(d)) return { ok: true, msisdn: d };
-  if (/^07\d{8}$/.test(d)) return { ok: true, msisdn: "254" + d.slice(1) };
-  if (/^7\d{8}$/.test(d)) return { ok: true, msisdn: "254" + d };
-  if (/^2541\d{8}$/.test(d)) return { ok: true, msisdn: d };
-  if (/^01\d{8}$/.test(d)) return { ok: true, msisdn: "254" + d.slice(1) };
+  const normalized = normalisePhoneForCountry(raw, "KE").slice(1); // drop the leading "+"
+  if (/^254[17]\d{8}$/.test(normalized)) return { ok: true, msisdn: normalized };
   return { ok: false, message: "Enter the M-Pesa number as 07xx xxx xxx." };
 }
 

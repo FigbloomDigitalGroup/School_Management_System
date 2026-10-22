@@ -1,0 +1,13 @@
+-- timetable_slots.label is free text on purpose (Games/Library/Class meeting
+-- aren't academic subjects), but that means nothing ever tied a period back
+-- to who teaches it -- a teacher's own Timetable screen just showed the
+-- WHOLE class's week, including subjects taught by someone else entirely
+-- (e.g. a Math teacher's "my classes" timetable showing another teacher's
+-- CRE period, with nothing marking it as not theirs).
+--
+-- subject_id is optional: set it for an academic period and "who teaches
+-- this" is derivable from teaching_assignments (subject_id, class_id) ->
+-- teacher_id, with no separate teacher field to fall out of sync. Left null
+-- for non-subject periods, which stay visible to everyone the way they
+-- always have.
+alter table timetable_slots add column subject_id uuid references subjects(id) on delete set null;

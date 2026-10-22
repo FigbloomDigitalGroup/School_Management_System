@@ -1,12 +1,25 @@
+import { Skeleton } from "./Skeleton";
+
 export interface Stat {
   label: string;
   value: string;
   sub?: string;
   /** Only for genuinely bad numbers — not for decoration. */
   alarming?: boolean;
+  /** The figure is still loading: show a placeholder, never a 0 or "—" that reads as a real answer. */
+  loading?: boolean;
 }
 
-export function StatCard({ label, value, sub, alarming }: Stat) {
+export function StatCard({ label, value, sub, alarming, loading }: Stat) {
+  if (loading) {
+    return (
+      <div className="min-w-0 rounded-lg border border-line bg-white px-4 py-3.5" aria-busy="true">
+        <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">{label.toUpperCase()}</div>
+        <Skeleton className="mt-2.5 h-6 w-20" />
+        {sub !== undefined && <Skeleton className="mt-2 h-2.5 w-28" />}
+      </div>
+    );
+  }
   return (
     <div className="min-w-0 rounded-lg border border-line bg-white px-4 py-3.5">
       <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">{label.toUpperCase()}</div>

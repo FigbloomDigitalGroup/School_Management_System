@@ -1,6 +1,6 @@
 import { PageHead } from "../../components/ConsoleShell";
+import { MyAccountFields } from "../../components/MyAccountFields";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { formatPhone } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 
@@ -17,18 +17,17 @@ const CHANNELS: { label: string; note: string; on: boolean }[] = [
  * as in the phone preview.
  */
 export function ParentSettings() {
-  const { profile, tenant } = useTenantSession();
+  const { tenant } = useTenantSession();
   const { loading, error, children } = useParentData();
 
   return (
     <>
-      <PageHead eyebrow="Account" title={profile.full_name} blurb={`Signed in as a parent at ${tenant.name}.`} />
+      <PageHead eyebrow="Account" title="My account" blurb={`Signed in as a parent at ${tenant.name}.`} />
 
       <div className="px-7 py-6">
         <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
-          <section className="rounded-lg border border-line bg-white p-4">
-            <h2 className="text-body font-semibold">{profile.full_name}</h2>
-            <div className="mt-0.5 font-mono text-[12.5px] text-ink-muted">{formatPhone(profile.phone)}</div>
+          <div>
+            <MyAccountFields />
             {error ? (
               <p className="mt-3 flex items-center gap-1.5 text-[12.5px] text-warn-ink">
                 <span aria-hidden>✕</span>Could not load your children: {error.message}
@@ -36,12 +35,12 @@ export function ParentSettings() {
             ) : loading ? (
               <Skeleton className="mt-3 h-3 w-2/3" />
             ) : (
-              <p className="mt-3 text-[13px] leading-relaxed text-ink-muted">
+              <p className="mt-3 max-w-[480px] text-[12.5px] leading-relaxed text-ink-muted">
                 {children.length} {children.length === 1 ? "child" : "children"} at {tenant.name}. To add or remove a
                 child, the school office has to do it — that is deliberate.
               </p>
             )}
-          </section>
+          </div>
 
           <section className="overflow-hidden rounded-lg border border-line bg-white">
             <header className="border-b border-line px-4 py-3">

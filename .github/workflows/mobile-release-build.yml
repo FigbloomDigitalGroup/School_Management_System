@@ -1,0 +1,96 @@
+name: Mobile release build (Android)
+
+# FIG-781: there was no build/release pipeline of any kind for apps/mobile or
+# apps/teacher-mobile before this — every release build was a manual
+# ./gradlew/Xcode run on someone's laptop. This gives Android a repeatable,
+# auditable CI build that produces a signed, upload-ready AAB.
+#
+# iOS is intentionally not here yet: it's blocked on FIG-463 (Apple Developer
+# Program enrollment) and has no signing identity to build with (see
+# FIG-777/FIG-779). Add an iOS job once that exists instead of shipping a job
+# that would just fail on every run.
+#
+# Manual trigger only — this does not build/sign anything until the secrets
+# below are added in the repo's Settings > Secrets and variables > Actions.
+# Nothing here uploads to Play Console; it hands you a signed AAB/APK as a
+# workflow artifact to upload yourself (or to wire into a future fastlane
+# supply / upload-google-play step once a Play Console service account
+# exists).
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Which app to build"
+        required: true
+        type: choice
+        options:
+          - mobile
+          - teacher-mobile
+
+jobs:
+  android-release:
+    runs-on: ubuntu-latest
+    env:
+      APP_DIR: apps/${{ inputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies (npm workspaces)
+        run: npm ci
+
+      # Each app needs its own release keystore (binary, base64-encoded),
+      # its android/key.properties (the passwords/alias build.gradle reads —
+      # see FIG-777 and apps/*/android/key.properties.example), and its
+      # .env (the Supabase URL/anon key — see FIG-782 and apps/*/.env.example).
+      # Secret names are namespaced per app since mobile and teacher-mobile
+      # have separate keystores. None of these exist in this repo; add them
+      # in GitHub's Settings > Secrets and variables > Actions before running
+      # this workflow. Never commit the real values anywhere.
+      - name: Write Android signing config
+        # Secrets are passed in via `env:` and read as "$VAR" below, never
+        # interpolated directly into the script with ${{ secrets.* }} — a
+        # secret value containing a quote/backtick/$() would otherwise break
+        # out of the generated script and run as arbitrary shell (GitHub's
+        # own Actions hardening guidance calls this out explicitly).
+        env:
+          MOBILE_KEYSTORE_BASE64: ${{ secrets.MOBILE_KEYSTORE_BASE64 }}
+          MOBILE_KEY_PROPERTIES: ${{ secrets.MOBILE_KEY_PROPERTIES }}
+          MOBILE_ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
+          TEACHER_KEYSTORE_BASE64: ${{ secrets.TEACHER_KEYSTORE_BASE64 }}
+          TEACHER_KEY_PROPERTIES: ${{ secrets.TEACHER_KEY_PROPERTIES }}
+          TEACHER_ENV_FILE: ${{ secrets.TEACHER_ENV_FILE }}
+        run: |
+          if [ "${{ inputs.app }}" = "mobile" ]; then
+            echo "$MOBILE_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-mobile-release.keystore"
+            echo "$MOBILE_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
+            echo "$MOBILE_ENV_FILE" > "$APP_DIR/.env"
+          else
+            echo "$TEACHER_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-teacher-release.keystore"
+            echo "$TEACHER_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
+            echo "$TEACHER_ENV_FILE" > "$APP_DIR/.env"
+          fi
+
+      - name: Build release AAB + APK
+        working-directory: ${{ env.APP_DIR }}/android
+        run: |
+          chmod +x gradlew
+          ./gradlew bundleRelease assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-release-${{ github.run_number }}
+          path: |
+            ${{ env.APP_DIR }}/android/app/build/outputs/bundle/release/*.aab
+            ${{ env.APP_DIR }}/android/app/build/outputs/apk/release/*.apk
+          retention-days: 30

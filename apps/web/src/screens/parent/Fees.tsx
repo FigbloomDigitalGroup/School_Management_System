@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { KES, PAYMENT_FAILURES, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase } from "@figbloom/shared";
+import { formatMoney, PAYMENT_FAILURES, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -58,18 +58,22 @@ export function ParentFees() {
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofReload, setProofReload] = useState(0);
 
-  const { data: invoiceId } = useAsync(
+  const { data: invoiceId, loading: invoiceLoading } = useAsync(
     () => (child ? fetchCurrentInvoiceId(child.id) : Promise.resolve(null)),
     [child?.id],
   );
-  const { data: proofs, loading: proofsLoading } = useAsync(
-    () => (invoiceId ? listPaymentProofs(invoiceId) : Promise.resolve([] as PaymentProof[])),
+  // Tagged with the invoice they belong to: after a child switch the previous
+  // child's proofs must not show, but a reload after an upload keeps the list up.
+  const { data: proofsFor, loading: proofsLoading } = useAsync(
+    async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload],
   );
+  const proofs = !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
+  const proofsPending = !proofs && (invoiceLoading || proofsLoading);
 
   async function handleUploadProof(e: FormEvent) {
     e.preventDefault();
-    if (!invoiceId || !proofFile) return;
+    if (!invoiceId || invoiceLoading || !proofFile) return;
     setUploadingProof(true);
     try {
       await uploadPaymentProof({
@@ -84,7 +88,7 @@ export function ParentFees() {
       setProofNote("");
       setProofReload((n) => n + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.");
+      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.", "error");
     } finally {
       setUploadingProof(false);
     }
@@ -95,7 +99,7 @@ export function ParentFees() {
       const url = await privateDocUrl(path);
       window.open(url, "_blank", "noopener");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not open that file.");
+      toast(err instanceof Error ? err.message : "Could not open that file.", "error");
     }
   }
 
@@ -139,7 +143,7 @@ export function ParentFees() {
     window.setTimeout(() => setPayState(amount > child.balance ? "failed" : "done"), 1800);
   }
 
-  const feeItems = child && data ? itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel) : [];
+  const feeItems = child && data ? itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel) : [];
 
   return (
     <>
@@ -181,9 +185,9 @@ export function ParentFees() {
           <>
             <StatRow
               stats={[
-                { label: "Balance", value: KES(child.balance), sub: child.dueOn ? `due ${formatShortDate(child.dueOn)}` : "nothing due", alarming: child.balance > 0 },
-                { label: "Billed this term", value: KES(child.billed), sub: data.termLabel ?? "" },
-                { label: "Paid so far", value: KES(child.billed - child.balance), sub: child.billed > 0 ? `${Math.round(((child.billed - child.balance) / child.billed) * 100)}% of billed` : "" },
+                { label: "Balance", value: formatMoney(child.balance, tenant.country), sub: child.dueOn ? `due ${formatShortDate(child.dueOn)}` : "nothing due", alarming: child.balance > 0 },
+                { label: "Billed this term", value: formatMoney(child.billed, tenant.country), sub: data.termLabel ?? "" },
+                { label: "Paid so far", value: formatMoney(child.billed - child.balance, tenant.country), sub: child.billed > 0 ? `${Math.round(((child.billed - child.balance) / child.billed) * 100)}% of billed` : "" },
               ]}
             />
 
@@ -199,7 +203,7 @@ export function ParentFees() {
                     feeItems.map((i) => (
                       <div key={i.id} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
                         <span className="text-[13px]">{i.name}</span>
-                        <Mono>{KES(i.amount_cents)}</Mono>
+                        <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
                       </div>
                     ))
                   )}
@@ -211,7 +215,7 @@ export function ParentFees() {
                 columns={[
                   { key: "when", header: "Date", width: "0.8fr", render: (r: Receipt) => <Mono>{r.when}</Mono> },
                   { key: "ref", header: "Reference", render: (r: Receipt) => <Cell>{r.ref}</Cell> },
-                  { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{KES(r.amount)}</Mono> },
+                  { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{formatMoney(r.amount, tenant.country)}</Mono> },
                   { key: "st", header: "", align: "right", width: "0.8fr", render: () => <Badge tone="ok">Received</Badge> },
                 ]}
                 rows={child.receipts}
@@ -281,14 +285,19 @@ export function ParentFees() {
                     className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[12.5px] outline-none"
                   />
                 </label>
-                <Button type="submit" variant="accent" disabled={!proofFile || !invoiceId || uploadingProof}>
+                <Button type="submit" variant="accent" disabled={!proofFile || !invoiceId || invoiceLoading || uploadingProof}>
                   {uploadingProof ? "Uploading…" : "Upload proof"}
                 </Button>
               </form>
 
               <div>
-                {proofsLoading ? (
-                  <div className="px-4 py-4 text-[12.5px] text-ink-faint">Loading…</div>
+                {proofsPending ? (
+                  Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-3 last:border-0">
+                      <Skeleton className="h-3 w-40" />
+                      <Skeleton className="h-4 w-24 rounded-full" />
+                    </div>
+                  ))
                 ) : !proofs || proofs.length === 0 ? (
                   <div className="px-4 py-6 text-center text-[12.5px] text-ink-faint">No payment proof uploaded yet.</div>
                 ) : (
@@ -320,12 +329,12 @@ export function ParentFees() {
           onClose={closePay}
           eyebrow="M-PESA"
           title={
-            payState === "done" ? `${KES(amount)} received`
+            payState === "done" ? `${formatMoney(amount, tenant.country)} received`
               : payState === "failed" ? "The payment did not go through"
               : payState === "prompting" ? "Check your phone"
               : `Pay for ${child.name}`
           }
-          blurb={payState === "idle" ? `${child.cls} · balance ${KES(child.balance)}` : undefined}
+          blurb={payState === "idle" ? `${child.cls} · balance ${formatMoney(child.balance, tenant.country)}` : undefined}
           footNote={payState === "idle" ? `A prompt will be sent to ${phone}. Nothing leaves the account until the PIN is entered.` : undefined}
           actions={
             payState === "idle" ? (
@@ -359,7 +368,7 @@ export function ParentFees() {
                         style={{ borderColor: on ? "var(--accent)" : "#EAE6E5" }}
                       >
                         <span className="text-[13px] font-medium">{s.label}</span>
-                        {s.cents > 0 && <span className="font-mono text-[12.5px]">{KES(s.cents)}</span>}
+                        {s.cents > 0 && <span className="font-mono text-[12.5px]">{formatMoney(s.cents, tenant.country)}</span>}
                       </button>
                     );
                   })}
@@ -406,11 +415,11 @@ export function ParentFees() {
           {payState === "done" && (
             <div>
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                {child.first}'s balance is now {KES(Math.max(child.balance - amount, 0))}. The receipt will appear
+                {child.first}'s balance is now {formatMoney(Math.max(child.balance - amount, 0), tenant.country)}. The receipt will appear
                 above once the school's system confirms it.
               </p>
               <div className="mt-4 rounded-lg border border-line bg-page p-3.5">
-                {[["Paid", KES(amount)], ["For", child.name], ["Method", `M-Pesa ${phone}`]].map(([k, v]) => (
+                {[["Paid", formatMoney(amount, tenant.country)], ["For", child.name], ["Method", `M-Pesa ${phone}`]].map(([k, v]) => (
                   <div key={k} className="flex justify-between border-b border-line-soft py-2 text-[12.5px] last:border-0">
                     <span className="text-ink-muted">{k}</span><span className="font-medium">{v}</span>
                   </div>

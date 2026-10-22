@@ -33,7 +33,9 @@ export async function privateDocUrl(path: string, expiresInSeconds = 3600): Prom
   return data.signedUrl;
 }
 
-/** A staff/student photo. Staff-only write, so call this from an admin/staff screen. */
+/** A staff/student photo. Staff write any; anyone may write their own staff-{id}
+ *  photo (public_assets_own_avatar). Versioned so a replaced photo at the same
+ *  path doesn't keep showing the old one from the browser's cache. */
 export async function uploadAvatar(
   tenantId: string,
   ownerKind: "students" | "staff",
@@ -42,7 +44,7 @@ export async function uploadAvatar(
 ): Promise<string> {
   const path = `${tenantId}/avatars/${ownerKind}-${ownerId}.${extOf(file.name)}`;
   await uploadToBucket("public-assets", path, file);
-  return publicAssetUrl(path);
+  return `${publicAssetUrl(path)}?v=${Date.now()}`;
 }
 
 /** The school's crest/logo — feeds tenants.logo_url. */

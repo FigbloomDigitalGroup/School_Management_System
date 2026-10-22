@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FIG-782: branded cold-start splash. Swapped back to @style/AppTheme in
+     MainActivity.onCreate before setContentView, so this only shows during
+     the gap between process start and the JS bundle taking over. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item android:gravity="center" android:width="160dp" android:height="160dp">
+        <bitmap android:src="@mipmap/ic_launcher_foreground" android:gravity="center" />
+    </item>
+</layer-list>

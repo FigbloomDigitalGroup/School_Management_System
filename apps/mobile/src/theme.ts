@@ -15,7 +15,11 @@ export const HIT = { minHeight: 44, minWidth: 44 };
 
 export const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: appSurface.page },
-  header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16 },
+  header: {
+    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6,
+    elevation: 3,
+  },
   headerTitle: { fontSize: 21, fontWeight: "600", color: "#fff", letterSpacing: -0.3 },
   headerSub: { fontSize: 12.5, color: "rgba(255,255,255,0.75)", marginTop: 3 },
 
@@ -25,6 +29,13 @@ export const s = StyleSheet.create({
     borderColor: appSurface.line,
     borderRadius: 18,
     padding: 16,
+    // A flat card and a photo of a card look the same at a glance but not
+    // in the hand — this is the difference between "placed" and "pasted".
+    shadowColor: "#1A1614",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
 
@@ -44,6 +55,8 @@ export const s = StyleSheet.create({
     paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#1A1614", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.16, shadowRadius: 8,
+    elevation: 3,
   },
   primaryLabel: { fontSize: 15, fontWeight: "600", color: "#fff" },
 

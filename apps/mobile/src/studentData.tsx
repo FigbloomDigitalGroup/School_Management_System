@@ -1,27 +1,29 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchClassTimetable, loadStudentData, type StudentData, type Weekday } from "@figbloom/shared";
+import { fetchClassTimetable, loadStudentData, markStudentNoticeRead, subscribeAnnouncements, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
  * Real student data — the same query web's student screens use, plus the
- * class timetable, cached to AsyncStorage so Timetable/Results/Notices stay
- * readable with no network. Today.tsx and Work.tsx are unaffected; they keep
- * their own placeholder data until a separate pass wires them up too.
+ * class timetable, cached to AsyncStorage so every student screen stays
+ * readable with no network.
  */
 
+/** Suffixed with the profile id: a second account on this phone must never see the first one's data while its own loads. */
 const CACHE_KEY = "figbloom.studentData.v1";
 
 interface Cached {
   data: StudentData;
-  timetable: Record<Weekday, [string, string, string][]>;
+  timetable: Record<Weekday, TimetableRow[]>;
 }
 
 interface Ctx {
   data: StudentData;
-  timetable: Record<Weekday, [string, string, string][]>;
+  timetable: Record<Weekday, TimetableRow[]>;
+  markNoticeRead: (id: string) => void;
   accent: string;
+  country: string;
 }
 
 type State =
@@ -31,14 +33,15 @@ type State =
 
 const StudentDataCtx = createContext<Ctx | null>(null);
 
-export function StudentDataProvider({ profileId, accent, children }: { profileId: string; accent: string; children: ReactNode }) {
+export function StudentDataProvider({ profileId, accent, country, tenantId, children }: { profileId: string; accent: string; country: string; tenantId: string; children: ReactNode }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
 
     (async () => {
-      const raw = await AsyncStorage.getItem(CACHE_KEY).catch(() => null);
+      const raw = await AsyncStorage.getItem(`${CACHE_KEY}.${profileId}`).catch(() => null);
       if (raw && alive) {
         try { setState({ status: "ready", cached: JSON.parse(raw) as Cached }); } catch { /* corrupt cache, ignore */ }
       }
@@ -46,18 +49,37 @@ export function StudentDataProvider({ profileId, accent, children }: { profileId
         const data = await loadStudentData(profileId);
         if (!alive) return;
         if (!data) { setState({ status: "empty" }); return; }
-        const timetable = await fetchClassTimetable(data.classId);
+        const timetable = data.classId
+          ? await fetchClassTimetable(data.classId)
+          : { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [] };
         if (!alive) return;
         const fresh: Cached = { data, timetable };
         setState({ status: "ready", cached: fresh });
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(fresh)).catch(() => {});
+        await AsyncStorage.setItem(`${CACHE_KEY}.${profileId}`, JSON.stringify(fresh)).catch(() => {});
       } catch {
         // Offline or the query failed — whatever the cache gave us (if any) stays on screen.
       }
     })();
 
     return () => { alive = false; };
-  }, [profileId]);
+  }, [profileId, reloadKey]);
+
+  // Re-loads the moment a new announcement lands — same pattern as web's
+  // parentContext.tsx — so a new notice shows up without a manual reload.
+  useEffect(() => subscribeAnnouncements(tenantId, () => setReloadKey((k) => k + 1)), [tenantId]);
+
+  /** Optimistic local update (so the Notices screen and the tab badge — both
+   *  reading from this same state — agree immediately) plus the real write. */
+  function markRead(id: string) {
+    setState((s) => {
+      if (s.status !== "ready") return s;
+      const target = s.cached.data.notices.find((n) => n.id === id);
+      if (!target?.unread) return s;
+      const notices = s.cached.data.notices.map((n) => (n.id === id ? { ...n, unread: false } : n));
+      return { status: "ready", cached: { ...s.cached, data: { ...s.cached.data, notices } } };
+    });
+    void markStudentNoticeRead(profileId, id).catch(() => {});
+  }
 
   if (state.status === "loading") {
     return (
@@ -79,7 +101,7 @@ export function StudentDataProvider({ profileId, accent, children }: { profileId
   }
 
   return (
-    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, accent }}>
+    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, markNoticeRead: markRead, accent, country }}>
       {children}
     </StudentDataCtx.Provider>
   );

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "692509660791",
+    "project_id": "figbloom-school-systems",
+    "storage_bucket": "figbloom-school-systems.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:692509660791:android:be164ceb195ec841339872",
+        "android_client_info": {
+          "package_name": "com.figbloom.schools"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyChXVy-gLnWXXOuyd4rJ1pAbnVDSFyOk5M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

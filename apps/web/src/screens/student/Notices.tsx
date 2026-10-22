@@ -59,7 +59,7 @@ export function StudentNotices() {
           <EmptyState title="Nothing here yet" body="Announcements from your teachers and the school office will appear here." />
         </div>
       ) : (
-        <div className="flex" style={{ height: "calc(100vh - 130px)" }}>
+        <div className="flex" style={{ height: "calc(var(--screen-h) - 130px)" }}>
           <div className="w-[340px] shrink-0 overflow-y-auto border-r border-line bg-[#FAFBFA]">
             {notices.map((n: NoticeInfo) => {
               const active = n.id === selected?.id;
