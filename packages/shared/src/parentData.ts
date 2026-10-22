@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
-import { classAudienceIncludes, type Audience, type ClassLevel } from "./types";
+import { classAudienceIncludes, type Audience, type ClassLevel, type Payment } from "./types";
 import { yearMatches } from "./levels";
+import { receiptRef } from "./fees";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -207,8 +208,8 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level, level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as ParentData["feeItems"] }),
     studentIds.length
-      ? supabase().from("payments").select("id, amount_cents, mpesa_receipt, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
-      : Promise.resolve({ data: [] as { id: string; amount_cents: number; mpesa_receipt: string | null; msisdn: string | null; completed_at: string | null; created_at: string }[] }),
+      ? supabase().from("payments").select("id, amount_cents, method, mpesa_receipt, reference, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
+      : Promise.resolve({ data: [] as { id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; msisdn: string | null; completed_at: string | null; created_at: string }[] }),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
     supabase().from("announcement_reads").select("announcement_id").eq("profile_id", profileId),
   ]);
@@ -230,14 +231,14 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
     marksByStudent.set(m.student_id, arr);
   }
   const paymentsByStudent = new Map<string, Receipt[]>();
-  for (const p of (paymentRows ?? []) as { id: string; amount_cents: number; mpesa_receipt: string | null; msisdn: string | null; completed_at: string | null; created_at: string; fee_invoices: { student_id: string } | null }[]) {
+  for (const p of (paymentRows ?? []) as { id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; msisdn: string | null; completed_at: string | null; created_at: string; fee_invoices: { student_id: string } | null }[]) {
     if (!p.fee_invoices) continue;
     const arr = paymentsByStudent.get(p.fee_invoices.student_id) ?? [];
     arr.push({
       id: p.id,
       amount: p.amount_cents,
       when: formatShortDate((p.completed_at ?? p.created_at).slice(0, 10)),
-      ref: p.mpesa_receipt ?? "M-Pesa",
+      ref: receiptRef(p),
     });
     paymentsByStudent.set(p.fee_invoices.student_id, arr);
   }

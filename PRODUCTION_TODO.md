@@ -25,19 +25,19 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] Drivers can change their own vehicle's `speed_limit_kmh`.
 - [ ] Suspended organizations keep full access.
 - [ ] Teachers can overwrite/delete private documents and confirm payment proofs.
-- [ ] Admins can set `fee_invoices.paid_cents` directly with no audit trail.
+- [x] Admins can set `fee_invoices.paid_cents` directly with no audit trail. A trigger now refuses any change to paid_cents/status that isn't a recorded payment.
 - [ ] Public endpoints (`signup-organization`, `resolve-login-id`, `search-schools`) have no rate limit/captcha; raw DB errors returned to clients.
 - [ ] STK push: any guardian/staff can prompt any phone; throttle isn't atomic; pending payments never reconciled (a scheduled job could run the same Daraja STK query `mpesa-callback` now uses). Fixed: amounts must be whole shillings, CORS preflight, bad JSON → 400.
 
 ## P1 — Core flows that can't work end to end
 
-- [ ] **Fee invoices**: nothing but the seed creates `fee_invoices`. Build a per-term billing run from fee items.
-- [ ] **Record payments**: confirming a payment proof doesn't credit the invoice; no way to record cash/bank/cheque.
+- [x] **Fee invoices**: nothing but the seed creates `fee_invoices`. Build a per-term billing run from fee items. Admin Fees → "Bill learners" (re-runnable; only bills learners without an invoice).
+- [x] **Record payments**: confirming a payment proof doesn't credit the invoice; no way to record cash/bank/cheque. `record_payment()` + admin Fees → "Record a payment" (cash, M-Pesa to the paybill, bank, cheque); confirming a proof records its payment.
 - [ ] **Exams**: no screen creates `exams` (teachers are told to ask the admin, who has no screen).
 - [ ] **Exam publishing**: `publishExam` publishes the whole exam school-wide, exposing other teachers' draft marks.
 - [ ] **Assignments**: no web or mobile screen creates `assignments`.
 - [ ] **Real M-Pesa**: replace the `setTimeout` simulation with `mpesa-stk-push` on web (parent + student Fees) and mobile (Pay). Needs Daraja credentials.
-- [ ] **1000-row cap**: no query is paginated; reports, dashboards and people lists are silently truncated in large schools.
+- [ ] **1000-row cap**: no query is paginated; reports, dashboards and people lists are silently truncated in large schools. Started: `fetchAllPages()` in shared; admin Fees and the billing run use it.
 - [ ] **Attendance loss**: online submit shows success before the write finishes, and a failed write isn't queued.
 - [ ] **Offline queue bugs**: flush loses items enqueued mid-flush; one bad item blocks the rest; not per-user; no flush on load.
 - [ ] Deleting a learner hard-deletes and cascades to invoices, payments, marks — make it archive instead.
@@ -78,7 +78,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] Fees: arrears carry-forward, bursaries / waivers / discounts.
 - [ ] Password reset for login-ID users (admin-initiated reset).
 - [ ] Parents can reply in the inbox.
-- [ ] Wire or remove buttons that only show a success toast (admin Dashboard "New announcement", Fees "Export register"/"Send reminders", People "Change class"/"Export", platform "Remind"/"Impersonate"/"Export").
+- [ ] Wire or remove buttons that only show a success toast (admin Dashboard "New announcement", People "Change class"/"Export", platform "Remind"/"Impersonate"/"Export").
 - [ ] Remove hard-coded/illustrative content (TenantDetail charts, plan prices, `0722 118 004` phone default).
 - [ ] Data protection: retention/purge for GPS history, data export, learner anonymisation.
 - [ ] Exeats/leave-outs, discipline records, library, boarding, NEMIS.

@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { fetchClassMeans, formatShortDate, formatWhen, type Receipt } from "./parentData";
-import { classAudienceIncludes, type ClassLevel } from "./types";
+import { classAudienceIncludes, type ClassLevel, type Payment } from "./types";
+import { receiptRef } from "./fees";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -110,18 +111,18 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
       : Promise.resolve({ data: [] as StudentFeeData["feeItems"] }),
     supabase()
       .from("payments")
-      .select("id, amount_cents, mpesa_receipt, completed_at, created_at, fee_invoices!inner(student_id)")
+      .select("id, amount_cents, method, mpesa_receipt, reference, completed_at, created_at, fee_invoices!inner(student_id)")
       .eq("fee_invoices.student_id", studentRow.id)
       .eq("status", "success")
       .order("completed_at", { ascending: false })
-      .returns<{ id: string; amount_cents: number; mpesa_receipt: string | null; completed_at: string | null; created_at: string }[]>(),
+      .returns<{ id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; completed_at: string | null; created_at: string }[]>(),
   ]);
 
   const receipts: Receipt[] = (paymentRows ?? []).map((p) => ({
     id: p.id,
     amount: p.amount_cents,
     when: formatShortDate((p.completed_at ?? p.created_at).slice(0, 10)),
-    ref: p.mpesa_receipt ?? "M-Pesa",
+    ref: receiptRef(p),
   }));
 
   return {
