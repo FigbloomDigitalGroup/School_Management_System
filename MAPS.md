@@ -46,7 +46,12 @@ Set in `.env` (see `.env.example`), **web only**. Optional — the feature degra
 ```
 MAPS_API_KEY=your-android-key
 ```
-`android/app/build.gradle` reads it into a manifest placeholder consumed by `AndroidManifest.xml`'s `com.google.android.geo.API_KEY` meta-data — mirrors the existing `key.properties`/release-signing pattern in the same file. Missing key: the build still succeeds, the map just renders without tiles. **Mobile iOS** needs no key — `react-native-maps` defaults to Apple Maps there.
+`android/app/build.gradle` reads it into a manifest placeholder consumed by `AndroidManifest.xml`'s `com.google.android.geo.API_KEY` meta-data — mirrors the existing `key.properties`/release-signing pattern in the same file. Missing key: the build still succeeds, the map just renders without tiles. The release workflow
+(`.github/workflows/mobile-release-build.yml`) writes it from a `MAPS_API_KEY` GitHub secret for the parent
+app and fails the build if the secret is missing. If the key is restricted to the app, add the package name
+(`com.figbloom.schools`) and the SHA-1 of every key that signs a build: the debug keystore for development,
+the upload key for CI builds, and Play App Signing's key for builds installed from Google Play.
+**Mobile iOS** needs no key — `react-native-maps` defaults to Apple Maps there.
 
 ## Data flow
 
@@ -79,6 +84,12 @@ The web driver screen calls this from `navigator.geolocation.watchPosition`, thr
 This logic lives entirely in SQL — the map UI only displays and lets admins acknowledge alerts the trigger already raised.
 
 ## Gotchas / things to know before touching this
+
+- `react-native-maps` (needs play-services-location 21.3.0) and `react-native-geolocation-service`
+  (defaults to 18.0.0) share one copy of Google's location library at runtime, the newer one. The driver's
+  GPS library must be compiled against the same version, which `playServicesLocationVersion` in
+  `apps/mobile/android/build.gradle` does. Without it the first location request crashes the app with
+  `IncompatibleClassChangeError: Found interface ...FusedLocationProviderClient, but class was expected`.
 
 - No background tracking beyond the foreground: web only tracks while the driver's tab is open; mobile uses an Android foreground service (required by Android for background location), not a paid background-tracking SDK.
 - Routes are discrete stop points, not polylines — the admin stop editor (`Fleet.tsx` → `StopsEditor`) replaces the whole stop list on save (delete-all-then-insert) rather than diffing.

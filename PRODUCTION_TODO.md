@@ -63,14 +63,14 @@ The repo isn't linked to a project (no `supabase/.temp/project-ref`); deploys ar
 
 - [ ] `targetSdkVersion` 34 → 35+ (edge-to-edge, check 16 KB page size support).
 - [ ] `versionCode 1` hard-coded in both apps — derive from CI.
-- [ ] Driver GPS likely crashes: `react-native-geolocation-service` built against play-services-location 18 while maps pulls in 21. Set `playServicesLocationVersion` / replace the library; test on device.
-- [ ] Drop `ACCESS_BACKGROUND_LOCATION` (foreground service is enough) or add the prominent disclosure + Play declaration.
+- [x] **Driver GPS crashed on "Start trip"** (confirmed on the emulator: `IncompatibleClassChangeError` in `FusedLocationProviderClient`): `react-native-geolocation-service` was built against play-services-location 18 while `react-native-maps` brings 21.3. Fixed with `playServicesLocationVersion` in `apps/mobile/android/build.gradle`; verified: trip starts, pings reach the database, and the bus shows on the parent's map.
+- [ ] Drop `ACCESS_BACKGROUND_LOCATION` (confirmed on the emulator: "Start trip" sends the driver to system settings to choose "Allow all the time") (foreground service is enough) or add the prominent disclosure + Play declaration.
 - [ ] Teacher app: drop `READ_MEDIA_IMAGES`, use the system photo picker.
 - [ ] Upgrade `@react-navigation/native-stack` 5.0.5 → ^7 and revisit the blanket Fabric keep rule.
 - [x] Mobile typecheck fails inside `react-native-maps` 1.26.0's source. Fixed with a type shim (`apps/mobile/src/types/react-native-maps.d.ts`); delete it when the pin is lifted.
-- [ ] CI doesn't write `MAPS_API_KEY`, so CI-built maps are blank.
+- [x] CI doesn't write `MAPS_API_KEY`, so CI-built maps are blank. The release workflow now writes it from a `MAPS_API_KEY` secret and fails if it's missing. **You still need to add that secret in GitHub**, and add the upload key's SHA-1 to the key's restrictions.
 - [ ] Offline launch lands on Sign-in (`auth.getUser()` needs network) — use the cached session.
-- [ ] Driver: enforce `must_change_password`; restart tracking after process death; fix ping queue blocking after a trip ends.
+- [ ] Driver: enforce `must_change_password`; restart tracking after process death (confirmed on the emulator: after the app restarts the trip shows "Waiting for the first location fix…" but nothing is tracking); fix ping queue blocking after a trip ends.
 - [ ] Sign-out should delete the device token, cached data and queue.
 - [ ] Store collateral: real privacy-policy URL + contact email, Data safety form, teacher 512px icon, final feature graphics, student/driver screenshots.
 - [ ] Account deletion request path (web URL at minimum).

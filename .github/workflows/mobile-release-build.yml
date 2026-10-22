@@ -81,6 +81,21 @@ jobs:
             echo "$TEACHER_ENV_FILE" > "$APP_DIR/.env"
           fi
 
+      # The parent app's Bus map needs its own "Maps SDK for Android" key
+      # (MAPS.md). Without one the build still succeeds and ships a map with
+      # no tiles, so fail here rather than release that. Add MAPS_API_KEY in
+      # Settings > Secrets and variables > Actions; the teacher app has no map.
+      - name: Write Google Maps key (parent app)
+        if: ${{ inputs.app == 'mobile' }}
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          if [ -z "$MAPS_API_KEY" ]; then
+            echo "::error::The MAPS_API_KEY secret is not set, so the parent app's Bus map would have no tiles."
+            exit 1
+          fi
+          printf 'MAPS_API_KEY=%s\n' "$MAPS_API_KEY" >> "$APP_DIR/android/local.properties"
+
       - name: Build release AAB + APK
         working-directory: ${{ env.APP_DIR }}/android
         run: |
