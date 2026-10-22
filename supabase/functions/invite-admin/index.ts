@@ -27,7 +27,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { dialCodeFor } from "../_shared/countryDialCodes.ts";
-import { formatLoginId, loginIdEmail, ROLE_ID_PREFIX } from "../_shared/loginId.ts";
+import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
 const STAFF_ROLES = new Set(["school_admin", "teacher", "driver"]);
@@ -109,16 +109,17 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: "You do not administer this school." }, 403);
   }
 
-  // Count-based sequence -- correct as long as staff rows are never hard-
-  // deleted (true today; there is no remove-staff flow anywhere in the app).
-  // A future removal flow would need max-existing-suffix instead, to avoid
-  // ever reissuing a login_id that's already been handed out.
+  // One past the highest number already issued, not a count: delete-account
+  // removes staff, and a count would then reissue an ID that still exists.
   const isIdBased = role !== "school_admin";
   let loginId: string | undefined;
   if (isIdBased) {
-    const { data: existing } = await admin.from("profiles")
-      .select("id").eq("tenant_id", tenant_id).eq("role", role);
-    loginId = formatLoginId(ROLE_ID_PREFIX[role], (existing?.length ?? 0) + 1);
+    try {
+      loginId = await nextLoginId(admin, tenant_id, role);
+    } catch (err) {
+      console.error("invite-admin: could not number the account:", err instanceof Error ? err.message : err);
+      return json({ error: "Could not create the account. Try again." }, 500);
+    }
   }
   const loginEmail = isIdBased ? loginIdEmail(loginId!, tenant.slug) : email!;
   const password = tempPassword();

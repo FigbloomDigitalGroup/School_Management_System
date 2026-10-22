@@ -18,7 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { formatLoginId, loginIdEmail, ROLE_ID_PREFIX } from "../_shared/loginId.ts";
+import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
 const RELATIONSHIPS = new Set(["mother", "father", "guardian"]);
@@ -100,9 +100,13 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: "One or more learners do not belong to this school." }, 400);
   }
 
-  const { data: existing } = await admin.from("profiles")
-    .select("id").eq("tenant_id", tenant_id).eq("role", "parent");
-  const loginId = formatLoginId(ROLE_ID_PREFIX.parent, (existing?.length ?? 0) + 1);
+  let loginId: string;
+  try {
+    loginId = await nextLoginId(admin, tenant_id, "parent");
+  } catch (err) {
+    console.error("provision-guardian: could not number the account:", err instanceof Error ? err.message : err);
+    return json({ error: "Could not create the account. Try again." }, 500);
+  }
   const loginEmail = loginIdEmail(loginId, tenant.slug);
 
   // phone/email here are optional contact metadata only, stored on the

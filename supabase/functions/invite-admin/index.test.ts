@@ -257,3 +257,34 @@ describe("invite-admin handle", () => {
     });
   });
 });
+
+describe("login_id numbering", () => {
+  it("numbers one past the highest ID, so deleting a teacher never reissues one that still exists", async () => {
+    const { admin, asUser } = makeClients();
+    // TC-0002 was deleted. Three teachers remain: counting would offer TC-0004, which exists.
+    admin.seed("profiles", [
+      { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+      { id: "t1", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0001" },
+      { id: "t3", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0003" },
+      { id: "t4", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0004" },
+    ]);
+    const res = await handle(request({ tenant_id: TENANT_ID, full_name: "New Teacher", role: "teacher" }), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).login_id, "TC-0005");
+  });
+
+  it("starts at 0001 when the school has none yet", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request({ tenant_id: TENANT_ID, full_name: "First Driver", role: "driver" }), { admin, asUser });
+    assertEquals((await res.json()).login_id, "BD-0001");
+  });
+
+  it("answers 500 and creates nothing when the numbering lookup fails", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextRpc("database unavailable");
+    const res = await handle(request({ tenant_id: TENANT_ID, full_name: "New Teacher", role: "teacher" }), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(admin.rowsIn("profiles").length, 1);
+    assertEquals(admin.deletedUserIds, []);
+  });
+});

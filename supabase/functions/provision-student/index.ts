@@ -17,7 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { formatLoginId, loginIdEmail, ROLE_ID_PREFIX } from "../_shared/loginId.ts";
+import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
 interface Body {
@@ -76,9 +76,13 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: "This learner already has a login." }, 409);
   }
 
-  const { data: existing } = await admin.from("profiles")
-    .select("id").eq("tenant_id", tenant_id).eq("role", "student");
-  const loginId = formatLoginId(ROLE_ID_PREFIX.student, (existing?.length ?? 0) + 1);
+  let loginId: string;
+  try {
+    loginId = await nextLoginId(admin, tenant_id, "student");
+  } catch (err) {
+    console.error("provision-student: could not number the account:", err instanceof Error ? err.message : err);
+    return json({ error: "Could not create the account. Try again." }, 500);
+  }
   const loginEmail = loginIdEmail(loginId, tenant.slug);
   const password = tempPassword();
 

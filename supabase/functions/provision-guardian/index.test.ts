@@ -188,3 +188,25 @@ describe("provision-guardian handle", () => {
     });
   });
 });
+
+describe("provision-guardian login_id numbering", () => {
+  it("numbers one past the highest ID, not the count", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("profiles", [
+      { id: SCHOOL_ADMIN_ID, role: "school_admin", full_name: "Green Valley Admin", tenant_id: TENANT_ID },
+      { id: "p1", role: "parent", tenant_id: TENANT_ID, login_id: "PT-0001" },
+      { id: "p7", role: "parent", tenant_id: TENANT_ID, login_id: "PT-0007" },
+    ]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals((await res.json()).login_id, "PT-0008");
+  });
+
+  it("answers 500 and creates nothing when the numbering lookup fails", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextRpc("database unavailable");
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(admin.rowsIn("guardians").length, 0);
+    assertEquals(admin.deletedUserIds, []);
+  });
+});
