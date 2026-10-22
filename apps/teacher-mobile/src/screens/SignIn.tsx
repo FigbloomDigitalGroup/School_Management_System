@@ -164,7 +164,7 @@ export function SignIn() {
           {resolving ? (
             <Text style={[s.faint, { marginTop: 6 }]}>Checking…</Text>
           ) : resolved ? (
-            <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.display_name}.</Text>
+            <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.display_name}</Text>
           ) : idHint ? (
             <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{idHint}</Text>
           ) : null}

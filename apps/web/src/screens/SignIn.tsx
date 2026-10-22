@@ -252,7 +252,7 @@ export function SignIn() {
                   value={loginId}
                   onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); }}
                   onBlur={() => void resolveId()}
-                  hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.display_name}.` : undefined}
+                  hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.display_name}` : undefined}
                   error={!resolving && idHint ? idHint : undefined}
                 />
               )}
