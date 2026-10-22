@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   DEMO_LOGINS, homeRouteFor, resolveLoginId, searchSchools, supabase,
-  type Role, type SchoolSearchResult, type Tenant,
+  type ResolvedLogin, type Role, type SchoolSearchResult, type Tenant,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
@@ -67,7 +67,7 @@ export function SignIn() {
 
   const [school, setSchool] = useState<SchoolSearchResult | null>(null);
   const [loginId, setLoginId] = useState("");
-  const [resolved, setResolved] = useState<{ full_name: string; email: string } | null>(null);
+  const [resolved, setResolved] = useState<ResolvedLogin | null>(null);
   const [resolving, setResolving] = useState(false);
   const [idHint, setIdHint] = useState("");
 
@@ -252,7 +252,7 @@ export function SignIn() {
                   value={loginId}
                   onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); }}
                   onBlur={() => void resolveId()}
-                  hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.full_name}.` : undefined}
+                  hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.display_name}.` : undefined}
                   error={!resolving && idHint ? idHint : undefined}
                 />
               )}

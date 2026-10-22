@@ -66,7 +66,8 @@ export async function searchSchools(query: string): Promise<SchoolSearchResult[]
 }
 
 export interface ResolvedLogin {
-  full_name: string;
+  /** Masked ("Esther H."): the lookup is public, so it never returns a full name. */
+  display_name: string;
   email: string;
 }
 

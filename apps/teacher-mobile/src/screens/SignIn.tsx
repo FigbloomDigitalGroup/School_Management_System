@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { resolveLoginId, searchSchools, supabase, type SchoolSearchResult } from "@figbloom/shared";
+import { resolveLoginId, searchSchools, supabase, type ResolvedLogin, type SchoolSearchResult } from "@figbloom/shared";
 import { HIT, s, t } from "../theme";
 
 /**
@@ -19,7 +19,7 @@ export function SignIn() {
   const [searching, setSearching] = useState(false);
 
   const [loginId, setLoginId] = useState("");
-  const [resolved, setResolved] = useState<{ full_name: string; email: string } | null>(null);
+  const [resolved, setResolved] = useState<ResolvedLogin | null>(null);
   const [resolving, setResolving] = useState(false);
   const [idHint, setIdHint] = useState("");
 
@@ -146,7 +146,7 @@ export function SignIn() {
           {resolving ? (
             <Text style={[s.faint, { marginTop: 6 }]}>Checking…</Text>
           ) : resolved ? (
-            <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.full_name}.</Text>
+            <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.display_name}.</Text>
           ) : idHint ? (
             <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{idHint}</Text>
           ) : null}

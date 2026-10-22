@@ -8,7 +8,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [x] **Dev logins panel shown in production.** Gate the "Development logins" panel on the sign-in screen to dev builds only (`apps/web/src/screens/SignIn.tsx`).
 - [x] **One shared password for every account.** Provisioning functions give every account `figbloom-dev`. Generate a random temporary password per account and force everyone (not just drivers) to choose their own at first sign-in, on web and both mobile apps (`supabase/functions/{invite-admin,invite-org-admin,provision-student,provision-guardian}`). `seed.ts` now uses a random password against remote projects, like `seed-cbe.ts`.
 - [ ] **Production must be a fresh Supabase project, separate from the demo one.** Demo accounts keep `figbloom-dev` by design; no real school may be onboarded on the demo project. Deploy the four provisioning functions to production after the fix above.
-- [ ] **Login-ID lookup leaks names.** `resolve-login-id` is public, unthrottled, and returns the full name for any sequential ID — stop returning the name, add rate limiting.
+- [x] **Login-ID lookup leaks names.** `resolve-login-id` now returns a masked name ("Esther H.") and is limited to 30 lookups per caller per 10 minutes (`login_lookups` + `note_login_lookup()`, keyed on a hash of the caller's address). Still open: `search-schools` and `signup-organization` are public and unthrottled too.
 - [x] **M-Pesa callback can be forged.** Verify every callback against Daraja (STK Query) before marking success, never trust the posted `Amount`, add a secret callback path; stop clients inserting their own pending `payments` rows (`supabase/functions/mpesa-callback`, `payment_insert` policy). Set `DARAJA_CALLBACK_SECRET` on the project before deploying.
 - [x] **Private documents readable by the whole school.** Scope `private-documents` storage reads and `student_documents_read` to staff + the student's own guardians/student.
 - [x] **Student photos in a public, listable bucket.** Listing now needs someone from that school. Photos are still served by public URL to anyone who has the exact path (needs the student's UUID); moving them to signed URLs is a later step.
@@ -28,6 +28,19 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [x] Admins can set `fee_invoices.paid_cents` directly with no audit trail. A trigger now refuses any change to paid_cents/status that isn't a recorded payment.
 - [ ] Public endpoints (`signup-organization`, `resolve-login-id`, `search-schools`) have no rate limit/captcha; raw DB errors returned to clients.
 - [ ] STK push: any guardian/staff can prompt any phone; throttle isn't atomic; pending payments never reconciled (a scheduled job could run the same Daraja STK query `mpesa-callback` now uses). Fixed: amounts must be whole shillings, CORS preflight, bad JSON → 400.
+
+## Deploying to the hosted Supabase project
+
+The repo isn't linked to a project (no `supabase/.temp/project-ref`); deploys are by hand. Everything below is committed on `dev-joe` but **not yet applied to any hosted project**. Don't run it against the demo project's real data without a backup, and not against a production project until it's a separate, fresh one.
+
+1. **Back up first** (dashboard → Database → Backups, or `pg_dump`).
+2. **Set the secret** `DARAJA_CALLBACK_SECRET` (long random string; `openssl rand -hex 32`) in the project's edge function secrets, and make sure `DARAJA_CALLBACK_URL` points at the deployed `mpesa-callback`.
+3. **Apply migrations in order** (`supabase db push`, or paste into the SQL editor):
+   `20261021000000_student_tenant_consistency` · `20261021000001_documents_photos_grades_audit` · `20261021000002_payments_server_only` · `20261022000000_payment_method_cheque` · `20261022000001_record_payment` · `20261022000002_login_lookup_rate_limit`.
+   The first migration prints a WARNING for any existing rows that already break the cross-school rule; read them.
+4. **Redeploy the edge functions that changed**, `--no-verify-jwt` where config.toml says so: `invite-admin`, `invite-org-admin`, `provision-guardian`, `provision-student`, `mpesa-callback`, `mpesa-stk-push`, `resolve-login-id`. The functions and the web/mobile builds go together: the new sign-in screens read `display_name`, so deploy `resolve-login-id` first, then the web app and new mobile builds.
+5. **Run the checks** against a copy of the database: `supabase/rls-checks/tenant_isolation.sql` and `fees.sql`.
+6. **Existing accounts keep their passwords.** Accounts created before this on a hosted project still have `figbloom-dev` (fine for demo accounts; rotate any real ones).
 
 ## P1 — Core flows that can't work end to end
 
