@@ -342,6 +342,8 @@ function SchoolPicker({ selected, onSelect, onClear }: {
   const [results, setResults] = useState<SchoolSearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -355,16 +357,21 @@ function SchoolPicker({ selected, onSelect, onClear }: {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); return; }
+    setFailed(false);
+    if (q.length < 2) { setResults([]); setSearching(false); setOpen(false); return; }
+    // Open straight away so "Searching…" shows while the request runs, not only once it has answered.
     setSearching(true);
+    setOpen(true);
+    // A slow answer to an earlier keystroke must not overwrite the answer to the current one.
+    let current = true;
     const t = setTimeout(() => {
       searchSchools(q)
-        .then((schools) => { setResults(schools); setOpen(true); })
-        .catch(() => setResults([]))
-        .finally(() => setSearching(false));
+        .then((schools) => { if (current) setResults(schools); })
+        .catch((err) => { if (current) { console.error("School search failed:", err); setResults([]); setFailed(true); } })
+        .finally(() => { if (current) setSearching(false); });
     }, 250);
-    return () => clearTimeout(t);
-  }, [query]);
+    return () => { current = false; clearTimeout(t); };
+  }, [query, retry]);
 
   if (selected) {
     return (
@@ -392,8 +399,13 @@ function SchoolPicker({ selected, onSelect, onClear }: {
         <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg">
           {searching ? (
             <div className="px-3 py-2 text-[12.5px] text-ink-faint">Searching…</div>
+          ) : failed ? (
+            <div className="px-3 py-2 text-[12.5px] text-warn-ink">
+              We couldn't search just now. Check your connection, then{" "}
+              <button type="button" onClick={() => setRetry((n) => n + 1)} className="font-semibold underline">try again</button>.
+            </div>
           ) : results.length === 0 ? (
-            <div className="px-3 py-2 text-[12.5px] text-ink-faint">No schools found.</div>
+            <div className="px-3 py-2 text-[12.5px] text-ink-faint">No school matches that name. Check the spelling, or ask the school office.</div>
           ) : (
             results.map((s) => (
               <button

@@ -17,6 +17,10 @@ export function SignIn() {
   const [schoolQuery, setSchoolQuery] = useState("");
   const [schoolResults, setSchoolResults] = useState<SchoolSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  // The query the current results answer, so "No school matches" only shows for a search that actually ran.
+  const [searchedFor, setSearchedFor] = useState("");
+  const [retry, setRetry] = useState(0);
 
   const [loginId, setLoginId] = useState("");
   const [resolved, setResolved] = useState<ResolvedLogin | null>(null);
@@ -30,16 +34,19 @@ export function SignIn() {
 
   useEffect(() => {
     const q = schoolQuery.trim();
-    if (q.length < 2) { setSchoolResults([]); return; }
+    setSearchFailed(false);
+    if (q.length < 2) { setSchoolResults([]); setSearching(false); setSearchedFor(""); return; }
     setSearching(true);
+    // A slow answer to an earlier keystroke must not overwrite the answer to the current one.
+    let current = true;
     const timer = setTimeout(() => {
       searchSchools(q)
-        .then(setSchoolResults)
-        .catch(() => setSchoolResults([]))
-        .finally(() => setSearching(false));
+        .then((schools) => { if (current) { setSchoolResults(schools); setSearchedFor(q); } })
+        .catch((err) => { if (current) { console.warn("School search failed:", err); setSchoolResults([]); setSearchFailed(true); } })
+        .finally(() => { if (current) setSearching(false); });
     }, 250);
-    return () => clearTimeout(timer);
-  }, [schoolQuery]);
+    return () => { current = false; clearTimeout(timer); };
+  }, [schoolQuery, retry]);
 
   function selectSchool(picked: SchoolSearchResult) {
     setSchool(picked);
@@ -114,6 +121,17 @@ export function SignIn() {
             style={fieldStyle(false)}
           />
           {searching && <Text style={[s.faint, { marginTop: 6 }]}>Searching…</Text>}
+          {!searching && searchFailed && (
+            <View style={{ marginTop: 6 }}>
+              <Text style={{ fontSize: 11.5, color: t.status.warnInk }}>We couldn't search just now. Check your connection.</Text>
+              <TouchableOpacity accessibilityRole="button" onPress={() => setRetry((n) => n + 1)} style={{ ...HIT, justifyContent: "center" }}>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!searching && !searchFailed && !!searchedFor && schoolResults.length === 0 && (
+            <Text style={[s.faint, { marginTop: 6 }]}>No school matches that name. Check the spelling, or ask the school office.</Text>
+          )}
           {!searching && schoolResults.length > 0 && (
             <View style={{ marginTop: 6, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, overflow: "hidden" }}>
               {schoolResults.map((r) => (
