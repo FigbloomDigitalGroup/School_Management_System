@@ -1,5 +1,5 @@
 import type { InstitutionType, Role } from "./types";
-import { supabase } from "./supabase";
+import { invokeEdge } from "./edge";
 
 /**
  * Two ways in (FIG-396, replacing an earlier four-tab/SMS-OTP scheme):
@@ -37,25 +37,6 @@ export function loginIdEmail(loginId: string, tenantSlug: string): string {
 /** How long the sign-in screens wait for a lookup before saying so, rather than sitting on "Searching…". */
 const LOOKUP_TIMEOUT_MS = 8000;
 
-/**
- * Calls one of the anonymous sign-in edge functions, giving up after
- * LOOKUP_TIMEOUT_MS. (AbortController + setTimeout, not AbortSignal.timeout:
- * the mobile apps' JS engine doesn't have the latter.)
- */
-async function invokeLookup<T>(fn: string, body: Record<string, unknown>): Promise<{ data: T | null; error: unknown }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
-  try {
-    const result = await supabase().functions.invoke<T>(fn, { body, signal: controller.signal });
-    if (result.error && controller.signal.aborted) {
-      throw new Error("That took too long. Check your connection and try again.");
-    }
-    return result;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export interface SchoolSearchResult {
   id: string;
   name: string;
@@ -67,21 +48,8 @@ export interface SchoolSearchResult {
  *  anonymous search-schools edge function, since RLS has no pre-auth SELECT
  *  on tenants. Shared between web and mobile, which both need it. */
 export async function searchSchools(query: string): Promise<SchoolSearchResult[]> {
-  const { data, error } = await invokeLookup<{ schools: SchoolSearchResult[] } | { error: string }>("search-schools", { query });
-  if (error) {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = (await ctx.json()) as { error?: string };
-        if (body?.error) throw new Error(body.error);
-      } catch (e) {
-        if (e instanceof Error && e.message) throw e;
-      }
-    }
-    throw new Error((error as { message?: string }).message ?? "The lookup failed.");
-  }
-  if (data && "error" in data) throw new Error(data.error);
-  return (data as { schools: SchoolSearchResult[] }).schools;
+  const data = await invokeEdge<{ schools: SchoolSearchResult[] }>("search-schools", { query }, { timeoutMs: LOOKUP_TIMEOUT_MS });
+  return data.schools;
 }
 
 export interface ResolvedLogin {
@@ -95,24 +63,7 @@ export interface ResolvedLogin {
  *  handles a password; the caller still authenticates via the returned
  *  email through Supabase's own signInWithPassword. */
 export async function resolveLoginId(tenantId: string, loginId: string): Promise<ResolvedLogin> {
-  const { data, error } = await invokeLookup<(ResolvedLogin & { ok: true }) | { error: string }>(
-    "resolve-login-id",
-    { tenant_id: tenantId, login_id: loginId },
-  );
-  if (error) {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = (await ctx.json()) as { error?: string };
-        if (body?.error) throw new Error(body.error);
-      } catch (e) {
-        if (e instanceof Error && e.message) throw e;
-      }
-    }
-    throw new Error((error as { message?: string }).message ?? "The lookup failed.");
-  }
-  if (data && "error" in data) throw new Error(data.error);
-  return data as ResolvedLogin;
+  return invokeEdge<ResolvedLogin>("resolve-login-id", { tenant_id: tenantId, login_id: loginId }, { timeoutMs: LOOKUP_TIMEOUT_MS });
 }
 
 /**

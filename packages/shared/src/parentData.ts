@@ -32,6 +32,8 @@ export interface ChildInfo {
   classLevel: ClassLevel; // picks the grading scheme (FIG-356) via gradingSchemeFor()
   formLevel: number;
   boarding: boolean;
+  /** This term's invoice, which a payment is made against; null until the school has billed. */
+  invoiceId: string | null;
   balance: number;
   billed: number;
   dueOn: string | null;
@@ -186,8 +188,8 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   const [{ data: term }, { data: invoiceRows }, { data: attendanceRows }, { data: examRows }] = await Promise.all([
     supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle(),
     studentIds.length
-      ? supabase().from("fee_invoices").select("student_id, total_cents, paid_cents, due_on").in("student_id", studentIds)
-      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
+      ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on").in("student_id", studentIds)
+      : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
     studentIds.length
       ? supabase().from("attendance").select("student_id, mark, taken_on").in("student_id", studentIds)
       : Promise.resolve({ data: [] as { student_id: string; mark: string; taken_on: string }[] }),
@@ -265,6 +267,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       classLevel: k.classes?.level ?? "secondary",
       formLevel: k.classes?.form_level ?? 1,
       boarding: k.boarding,
+      invoiceId: inv?.id ?? null,
       balance: inv ? Math.max(inv.total_cents - inv.paid_cents, 0) : 0,
       billed: inv ? inv.total_cents : 0,
       dueOn: inv?.due_on ?? null,
