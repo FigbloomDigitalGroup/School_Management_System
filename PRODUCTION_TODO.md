@@ -16,6 +16,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [x] **Higher-ed students can write their own grades.** Fix the `course_assessments` / `course_marks` / `course_grades` write policies (`… or tenant_id = my_tenant()`).
 - [x] **Audit log is forgeable.** Anyone (even anon) can insert `audit_events`; restrict to service role.
 - [ ] **Malware still in branch history.** Commit `ef569ed` on `origin/fleet-live-maps-and-portals` carries a payload (cleaned at the tip by `9ab54b4`). Delete or rewrite that branch; confirm the compromised machine was cleaned and its GitHub/npm/Supabase tokens rotated.
+- [ ] **Branch protection isn't what CONTRIBUTING.md says it is.** The doc says no one can push directly to any branch and shared branches need 1 approval. GitHub shows only an active "No force pushes (all branches)" ruleset; `main` and `dev-joe` have no pull-request requirement (direct pushes to `dev-joe` succeeded on 2026-10-22). The September attack came in through direct pushes, so this is the control that matters most. Needs a repo admin (the current token is `maintain`, not `admin`): a ruleset that requires a PR (and 1 approval on `main`/`dev-staging`/`dev-stable`/`production`) and blocks deletion.
 - [x] **`.gitignore` doesn't cover `.env.*`.** Add `.env.*` with `!.env.example`.
 
 ### P0 follow-ups (RLS should-fix)
