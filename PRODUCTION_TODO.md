@@ -50,7 +50,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] Drop `ACCESS_BACKGROUND_LOCATION` (foreground service is enough) or add the prominent disclosure + Play declaration.
 - [ ] Teacher app: drop `READ_MEDIA_IMAGES`, use the system photo picker.
 - [ ] Upgrade `@react-navigation/native-stack` 5.0.5 → ^7 and revisit the blanket Fabric keep rule.
-- [ ] Mobile typecheck fails inside `react-native-maps` 1.26.0's source.
+- [x] Mobile typecheck fails inside `react-native-maps` 1.26.0's source. Fixed with a type shim (`apps/mobile/src/types/react-native-maps.d.ts`); delete it when the pin is lifted.
 - [ ] CI doesn't write `MAPS_API_KEY`, so CI-built maps are blank.
 - [ ] Offline launch lands on Sign-in (`auth.getUser()` needs network) — use the cached session.
 - [ ] Driver: enforce `must_change_password`; restart tracking after process death; fix ping queue blocking after a trip ends.
