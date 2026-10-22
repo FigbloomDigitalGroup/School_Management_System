@@ -81,12 +81,12 @@ The repo isn't linked to a project (no `supabase/.temp/project-ref`); deploys ar
 
 ## P3 — Ops
 
-- [ ] CI on every PR: security grep from `.agents/SECURITY.md`, typecheck, lint, vitest, deno edge tests.
+- [x] CI on every PR: `.github/workflows/ci.yml` runs the security scan first (`scripts/security-scan.sh`: attack signatures, bloated configs, code hidden behind whitespace, fake fonts, auto-run editor tasks, weakened .gitignore, install scripts, non-registry lockfile entries; tested against 14 seeded attack patterns), then typecheck, lint and unit tests, and the Deno edge-function tests. Actions pinned to commits, read-only token. **Make the checks required** (GitHub → Settings → Branches/Rulesets → require status checks) or they only advise; the first CI run will also be the first time the Deno tests have actually run.
 - [ ] Error reporting (web, both apps, edge functions). Done for one piece: `mpesa-callback` logs and answers 500 (so Safaricom retries) on DB or Daraja errors.
 - [ ] Separate staging and production Supabase projects; scripted deploy of migrations + functions.
 - [ ] Backups / point-in-time recovery, uptime check, runbook.
 - [ ] Security headers (CSP, HSTS, frame/referrer) in `apps/web/vercel.json`.
-- [ ] Release workflow: pin actions by SHA, add `permissions:`, run the security grep before the keystore is written.
+- [x] Release workflow: actions pinned by SHA, read-only `permissions:`, security scan runs before anything is installed or any secret is written. (Still open: `npm ci` there runs dependency install scripts, now with signing secrets one step away; switch to `--ignore-scripts` once a release build has been checked without them.)
 - [ ] RLS tests for the tenant/role boundaries above. Started: `supabase/rls-checks/tenant_isolation.sql` (plain psql, rolled back); extend it and run it in CI.
 - [ ] Delete stale `rls.sql` / `schema.sql` (they claim to be the source of truth but aren't).
 - [ ] Retire `dev` and `dev-staging` branches.
