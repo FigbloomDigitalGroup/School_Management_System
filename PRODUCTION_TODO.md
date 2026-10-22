@@ -81,7 +81,7 @@ The repo isn't linked to a project (no `supabase/.temp/project-ref`); deploys ar
 
 ## P3 — Ops
 
-- [x] CI on every PR: `.github/workflows/ci.yml` runs the security scan first (`scripts/security-scan.sh`: attack signatures, bloated configs, code hidden behind whitespace, fake fonts, auto-run editor tasks, weakened .gitignore, install scripts, non-registry lockfile entries; tested against 14 seeded attack patterns), then typecheck, lint and unit tests, and the Deno edge-function tests. Actions pinned to commits, read-only token. **Make the checks required** (GitHub → Settings → Branches/Rulesets → require status checks) or they only advise; the first CI run will also be the first time the Deno tests have actually run.
+- [x] CI on every PR: `.github/workflows/ci.yml` runs the security scan first (`scripts/security-scan.sh`: attack signatures, bloated configs, code hidden behind whitespace, fake fonts, auto-run editor tasks, weakened .gitignore, install scripts, non-registry lockfile entries; tested against 14 seeded attack patterns), then typecheck, lint and unit tests, and the Deno edge-function tests. Actions pinned to commits, read-only token. **Make the checks required** (GitHub → Settings → Branches/Rulesets → require status checks) or they only advise. First run (PR #101): all green, including 28 Deno test groups / 226 steps that had only ever been syntax-checked.
 - [ ] Error reporting (web, both apps, edge functions). Done for one piece: `mpesa-callback` logs and answers 500 (so Safaricom retries) on DB or Daraja errors.
 - [ ] Separate staging and production Supabase projects; scripted deploy of migrations + functions.
 - [ ] Backups / point-in-time recovery, uptime check, runbook.
