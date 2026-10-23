@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
   createHomework, deleteHomework, fetchClassSizes, fetchMyHomework, fetchTeacherClasses, fetchTeacherSubjectsForClass,
-  formatShortDate, HAND_IN_OPTIONS, updateHomework, validateHomework,
+  formatShortDate, HAND_IN_OPTIONS, handedInLabel, updateHomework, validateHomework,
   type ClassGroup, type HandIn, type HomeworkRow, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
@@ -220,7 +220,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
               <Text style={[s.faint, { marginTop: 2 }]}>
                 {w.className} · {w.subjectName} · due {formatShortDate(w.dueOn)}{w.dueOn < today ? " (past due)" : w.dueOn === today ? " (today)" : ""}
               </Text>
-              <Text style={[s.small, { marginTop: 4 }]}>{w.handedIn} of {work.sizes[w.classId] ?? "?"} handed in</Text>
+              <Text style={[s.small, { marginTop: 4 }]}>{handedInLabel(w.handedIn, work.sizes[w.classId])} handed in</Text>
               <View style={{ flexDirection: "row", gap: 16, marginTop: 6 }}>
                 <TouchableOpacity accessibilityRole="button" onPress={() => startEdit(w)} style={{ ...HIT, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Edit</Text>

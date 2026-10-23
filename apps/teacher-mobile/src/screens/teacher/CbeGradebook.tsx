@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
-  createCbeAssessment, fetchCbeAssessments, fetchCbeEntries, fetchStrandsForGrade, GRADE_INK, publishCbeAssessment,
+  createCbeAssessment, fetchCbeAssessments, fetchCbeEntries, fetchStrandsForGrade, GRADE_INK, isRetryable, publishCbeAssessment,
   rubricFor, saveCbeEntries, summariseStrands, yearLabel,
   type CbeAssessment, type CbeEntry, type ClassGroup, type StrandNode, type Student, type Subject,
 } from "@figbloom/shared";
@@ -150,6 +150,12 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
       setVersion((v) => v + 1);
       setStatus(assessment.published_at ? "Saved — parents see the update straight away." : "Draft saved.");
     } catch (err) {
+      // The server looked at it and said no: holding it would only park it in the queue
+      // for good, so say why and leave what was entered on screen.
+      if (!isRetryable(err)) {
+        setStatus(`Not saved: ${err instanceof Error ? err.message : "something went wrong"}.`);
+        return;
+      }
       // A cleared cell can't be represented as an upsert, so an offline clear
       // is simply dropped rather than queued — the same limitation every
       // table in packages/shared/src/queue.ts has (it only knows how to
@@ -166,8 +172,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
       }
       setLevels({});
       setComments({});
-      const reason = err instanceof Error ? err.message : null;
-      setStatus(reason ? `Saved on this phone (${reason}). Will send when you have signal.` : "Saved on this phone. Will send when you have signal.");
+      setStatus("Saved on this phone. Will send when you have signal.");
     } finally {
       setBusy(false);
     }
