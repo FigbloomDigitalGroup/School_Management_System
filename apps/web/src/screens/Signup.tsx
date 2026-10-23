@@ -70,7 +70,7 @@ export function Signup() {
     setError("");
     if (!name.trim()) { setError("Give your organization a name."); return; }
     if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid address."); return; }
-    if (availability.status === "taken") { setError(`figbloom.co.ke/org/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
+    if (availability.status === "taken") { setError(`schoolmanagement.figbloom.org/org/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
     if (!adminName.trim()) { setError("Your name is required."); return; }
     if (!email.trim()) { setError("Your email is required."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
@@ -117,11 +117,11 @@ export function Signup() {
             <TextField
               id="orgSlug" label="Web address" mono placeholder={slugValue || "riverside-schools-trust"}
               value={slugTouched ? slug : slugValue}
-              hint={slugCheck.ok && availability.status === "idle" ? `figbloom.co.ke/org/${slugValue} — this cannot be changed later.` : undefined}
+              hint={slugCheck.ok && availability.status === "idle" ? `schoolmanagement.figbloom.org/org/${slugValue} — this cannot be changed later.` : undefined}
               error={slugTouched && slug && !slugCheck.ok ? slugCheck.message : undefined}
               onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
             />
-            <SlugAvailabilityNote slug={slugValue} noun="organization" base="figbloom.co.ke/org/" availability={availability}
+            <SlugAvailabilityNote slug={slugValue} noun="organization" base="schoolmanagement.figbloom.org/org/" availability={availability}
               onPick={(s) => { setSlugTouched(true); setSlug(s); }} />
             <SelectField id="orgKind" label="What best describes you?" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
             <TextField id="orgCounty" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />

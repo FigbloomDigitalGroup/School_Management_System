@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Inter is requested from index.html (one preconnected font request, not a late CSS @import). */
 
 /* The landing page ships inside the console app, so its resets are scoped here
    rather than applied to html/body/a/* — otherwise they would leak into every screen. */
@@ -504,7 +504,7 @@ html:has(.landing-root) {
   text-transform: uppercase;
 }
 
-.feature-panel-copy h2 {
+.feature-panel-copy h3 {
   margin: 0;
   font-size: clamp(32px, 3.2vw, 44px);
   letter-spacing: -1px;
@@ -668,6 +668,11 @@ html:has(.landing-root) {
   .dashboard-preview,
   .feature-panel-media {
     display: none;
+  }
+
+  /* Without the preview there is nothing to fill a full screen, so don't force one: it only left a blank band under the hero */
+  .home-page {
+    min-height: 0;
   }
 
   .site-header,
