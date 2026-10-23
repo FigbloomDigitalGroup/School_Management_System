@@ -329,6 +329,81 @@ test.describe("school admin", () => {
     // Mock 1 has marks entered, so its Delete is switched off.
     await expect(page.locator("button:disabled", { hasText: "Delete" }).first()).toBeVisible();
   });
+
+  test("a learner with records is archived, not deleted: the roll and class totals follow, and restoring puts them back", async ({ page, browser, isMobile }) => {
+    test.skip(isMobile, "the admin console's Manage dialog is wider than a phone screen");
+    // A learner with a full history (the seed gives every learner attendance, marks and an invoice) and no login of their own.
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: cls } = await admin.from("classes").select("id").eq("tenant_id", tenant!.id).eq("name", "Form 2 West").single();
+    const { data: kid } = await admin.from("students").select("id, full_name, admission_no").eq("class_id", cls!.id).eq("active", true).is("profile_id", null).order("admission_no").limit(1).single();
+    const activeInClass = async () => (await admin.from("students").select("id", { count: "exact", head: true }).eq("class_id", cls!.id).eq("active", true)).count ?? 0;
+    const totalBefore = await activeInClass();
+    const marksBefore = (await admin.from("marks").select("id", { count: "exact", head: true }).eq("student_id", kid!.id)).count ?? 0;
+    expect(marksBefore).toBeGreaterThan(0);
+
+    try {
+      await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+      await page.goto("/s/alliance/admin/people");
+      // Names repeat across classes; the admission number doesn't.
+      await page.getByPlaceholder("Name or admission number").fill(kid!.admission_no);
+      await page.getByText(`ADM ${kid!.admission_no}`).first().click();
+      const manage = page.getByRole("dialog");
+
+      // Deleting is refused, in words, because they have records.
+      page.once("dialog", (d) => void d.accept());
+      await manage.getByRole("button", { name: "Delete…" }).click();
+      await expect(page.getByText(/on file, so they can't be deleted/)).toBeVisible();
+      await expect(manage).toBeVisible();
+
+      // Archiving takes them off the roll and keeps everything.
+      page.once("dialog", (d) => void d.accept());
+      await manage.getByRole("button", { name: "Archive learner" }).click();
+      await expect(page.getByText(/archived\. Find them under "Archived"/)).toBeVisible();
+      await expect(page.getByText("No learner matches that")).toBeVisible();
+      const { data: archived } = await admin.from("students").select("active, archived_at, archived_by").eq("id", kid!.id).single();
+      expect(archived).toMatchObject({ active: false });
+      expect(archived!.archived_at).not.toBeNull();
+      expect((await admin.from("marks").select("id", { count: "exact", head: true }).eq("student_id", kid!.id)).count).toBe(marksBefore);
+
+      // The class totals a teacher sees stop counting them: "n of 43 handed in" becomes "n of 42".
+      const teacher = await (await browser.newContext()).newPage();
+      await signInWithId(teacher, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
+      await teacher.goto("/s/alliance/teacher/homework");
+      await expect(teacher.getByText(new RegExp(`\\bof ${totalBefore - 1}\\b`)).first()).toBeVisible();
+      await teacher.context().close();
+
+      // They are under Archived, and restoring puts them back.
+      await page.getByRole("group", { name: "Which learners" }).getByRole("button", { name: "archived" }).click();
+      await page.getByText(`ADM ${kid!.admission_no}`).first().click();
+      await page.getByRole("dialog").getByRole("button", { name: "Restore learner" }).click();
+      await expect(page.getByText(/restored\./)).toBeVisible();
+      await expect.poll(activeInClass).toBe(totalBefore);
+      await page.getByRole("group", { name: "Which learners" }).getByRole("button", { name: "current" }).click();
+      await expect(page.getByText(`ADM ${kid!.admission_no}`).first()).toBeVisible();
+    } finally {
+      await admin.from("students").update({ active: true, archived_at: null, archived_by: null }).eq("id", kid!.id);
+    }
+  });
+
+  test("a learner added by mistake, with no records, can still be deleted", async ({ page, isMobile }) => {
+    test.skip(isMobile, "the admin console's Manage dialog is wider than a phone screen");
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: cls } = await admin.from("classes").select("id").eq("tenant_id", tenant!.id).eq("name", "Form 2 West").single();
+    const name = `E2E Mistake ${Date.now()}`;
+    const { data: mistake } = await admin.from("students").insert({ tenant_id: tenant!.id, admission_no: `E2E-${Date.now() % 100000}`, full_name: name, class_id: cls!.id, boarding: false }).select("id").single();
+    try {
+      await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+      await page.goto("/s/alliance/admin/people");
+      await page.getByPlaceholder("Name or admission number").fill(name);
+      await page.getByText(name).first().click();
+      page.once("dialog", (d) => void d.accept());
+      await page.getByRole("dialog").getByRole("button", { name: "Delete…" }).click();
+      await expect(page.getByText(`${name} deleted.`)).toBeVisible();
+      expect((await admin.from("students").select("id", { count: "exact", head: true }).eq("id", mistake!.id)).count).toBe(0);
+    } finally {
+      await admin.from("students").delete().eq("id", mistake!.id);
+    }
+  });
 });
 
 test.describe("parent", () => {

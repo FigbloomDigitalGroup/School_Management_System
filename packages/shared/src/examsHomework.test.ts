@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateExamName } from "./exams";
-import { validateHomework, type HomeworkInput } from "./homework";
+import { handedInLabel, validateHomework, type HomeworkInput } from "./homework";
 
 describe("validateExamName", () => {
   it("accepts a name", () => {
@@ -59,5 +59,18 @@ describe("validateHomework", () => {
   it("limits the title and instructions", () => {
     expect(validateHomework(hw({ title: "x".repeat(121) }), TODAY).ok).toBe(false);
     expect(validateHomework(hw({ body: "x".repeat(2001) }), TODAY).ok).toBe(false);
+  });
+});
+
+describe("handedInLabel", () => {
+  it("says how many of the class have handed in", () => {
+    expect(handedInLabel(12, 43)).toBe("12 of 43");
+    expect(handedInLabel(0, 43)).toBe("0 of 43");
+  });
+  it("never runs past the class when someone who handed in has since been archived", () => {
+    expect(handedInLabel(44, 43)).toBe("43 of 43");
+  });
+  it("shows a question mark when the class size is unknown", () => {
+    expect(handedInLabel(3, undefined)).toBe("3 of ?");
   });
 });

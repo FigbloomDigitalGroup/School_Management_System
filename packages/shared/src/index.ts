@@ -35,3 +35,4 @@ export * from "./mpesaPay";
 export * from "./exams";
 export * from "./examResults";
 export * from "./homework";
+export * from "./learners";
