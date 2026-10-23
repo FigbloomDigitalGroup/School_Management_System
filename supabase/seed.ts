@@ -7,6 +7,7 @@
  * Uses the service role key, so it bypasses RLS. Never run against production.
  */
 
+import { randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
   DEMO_TENANTS, DEMO_SUBJECTS, DEMO_CLASSES, DEMO_FEE_ITEMS, DEMO_TIMETABLE,
@@ -23,6 +24,13 @@ if (url.includes("supabase.co") && !process.env.ALLOW_REMOTE_SEED) {
 }
 
 const db = createClient(url, key, { auth: { persistSession: false } });
+
+// Local runs keep the well-known dev password (DEMO_LOGINS, shown on the
+// sign-in screen in dev builds only). Against a remote project every login
+// gets a random one instead, printed once at the end -- unless SEED_PASSWORD
+// sets one. Same rule as seed-cbe.ts.
+const REMOTE = url.includes("supabase.co");
+const PASSWORD = process.env.SEED_PASSWORD ?? (REMOTE ? randomBytes(9).toString("base64url") : "figbloom-dev");
 
 const pick = <T,>(xs: readonly T[], i: number): T => xs[i % xs.length]!;
 const rand = (seed: number) => { let s = seed; return () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648; };
@@ -48,8 +56,8 @@ async function main() {
     const isEmailBased = "email" in login;
     const { data: user, error } = await db.auth.admin.createUser(
       isEmailBased
-        ? { email: login.email, password: "figbloom-dev", email_confirm: true }
-        : { email: loginIdEmail(login.login_id, alliance.slug), password: "figbloom-dev", email_confirm: true },
+        ? { email: login.email, password: PASSWORD, email_confirm: true }
+        : { email: loginIdEmail(login.login_id, alliance.slug), password: PASSWORD, email_confirm: true },
     );
     if (error) { console.warn(`  ! ${login.role}: ${error.message}`); continue; }
     await db.from("profiles").insert({
@@ -126,7 +134,7 @@ async function main() {
   const studentLogin = DEMO_LOGINS.find((l) => l.role === "student")!;
   const { data: studentUser, error: stuErr } = await db.auth.admin.createUser({
     email: loginIdEmail(studentLogin.login_id, alliance.slug),
-    password: "figbloom-dev",
+    password: PASSWORD,
     email_confirm: true,
   });
   if (stuErr) { console.warn(`  ! student 4102: ${stuErr.message}`); }
@@ -145,7 +153,7 @@ async function main() {
   // below school_admin.
   const parentLogin = DEMO_LOGINS.find((l) => l.role === "parent")!;
   const { data: parentUser } = await db.auth.admin.createUser({
-    email: loginIdEmail(parentLogin.login_id, alliance.slug), password: "figbloom-dev", email_confirm: true,
+    email: loginIdEmail(parentLogin.login_id, alliance.slug), password: PASSWORD, email_confirm: true,
   });
   if (parentUser?.user) {
     await db.from("profiles").insert({
@@ -181,8 +189,9 @@ async function main() {
 
   // ---------------------------------------------------------------- exams and marks
   const { data: exams } = await db.from("exams").insert([
-    { tenant_id: alliance.id, term_id: term!.id, name: "Mock 1", out_of: 100, published_at: new Date().toISOString() },
-    { tenant_id: alliance.id, term_id: term!.id, name: "End of Term 3", out_of: 100, published_at: null },
+    // Not published here: results go out per class and subject (mark_publications), below.
+    { tenant_id: alliance.id, term_id: term!.id, name: "Mock 1", out_of: 100 },
+    { tenant_id: alliance.id, term_id: term!.id, name: "End of Term 3", out_of: 100 },
   ]).select("id, name");
 
   const mock1 = exams!.find((e) => e.name === "Mock 1")!;
@@ -196,6 +205,11 @@ async function main() {
   );
   await db.from("marks").insert(marks);
   console.log(`  ${marks.length} marks for Form 2 West`);
+
+  // Mock 1 is out for Form 2 West in every subject. A trigger keeps exams.published_at in step.
+  await db.from("mark_publications").insert(subjects!.map((sub) => ({
+    tenant_id: alliance.id, exam_id: mock1.id, class_id: form2west.id, subject_id: sub.id,
+  })));
 
   // ---------------------------------------------------------------- attendance, last 10 school days
   const days: string[] = [];
@@ -291,7 +305,7 @@ async function main() {
   ]);
 
   console.log("\nDone. Sign in with:");
-  for (const l of DEMO_LOGINS) console.log(`  ${l.role.padEnd(13)} ${"email" in l ? l.email : l.login_id}  ${l.password}`);
+  for (const l of DEMO_LOGINS) console.log(`  ${l.role.padEnd(13)} ${"email" in l ? l.email : l.login_id}  ${PASSWORD}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

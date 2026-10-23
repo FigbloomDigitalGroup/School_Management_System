@@ -40,6 +40,7 @@ import { AdminSubjects } from "./screens/admin/Subjects";
 import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
 import { AdminLeave } from "./screens/admin/Leave";
+import { Exams as AdminExams } from "./screens/admin/Exams";
 import { AdminAccount } from "./screens/admin/Account";
 
 import { Attendance } from "./screens/teacher/Attendance";
@@ -51,6 +52,7 @@ import { TeacherMySections } from "./screens/teacher/MySections";
 import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
 import { TeacherLeave } from "./screens/teacher/Leave";
+import { Homework as TeacherHomework } from "./screens/teacher/Homework";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { TeacherBuses } from "./screens/teacher/Buses";
 
@@ -69,7 +71,8 @@ import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
 
 import { DriverTrip } from "./screens/driver/Trip";
-import { DriverPasswordGate, DriverProfile } from "./screens/driver/Profile";
+import { DriverProfile } from "./screens/driver/Profile";
+import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 
 /**
@@ -141,6 +144,7 @@ function PlatformShell() {
   const bare = page === "tenants" || page === "organizations";
 
   return (
+    <PasswordGate profile={session.profile}>
     <TenantTheme tenant={null}>
       <ConsoleShell
         role="super_admin"
@@ -150,6 +154,7 @@ function PlatformShell() {
         {bare ? <div className="h-screen">{body}</div> : body}
       </ConsoleShell>
     </TenantTheme>
+    </PasswordGate>
   );
 }
 
@@ -165,6 +170,7 @@ function TenantRoutes() {
 
   return (
     <SessionCtx.Provider value={session}>
+      <PasswordGate profile={session.profile}>
       <TenantTheme tenant={session.tenant}>
         <Routes>
           <Route path="admin" element={<AdminShell allow={["school_admin"]}><AdminDashboard /></AdminShell>} />
@@ -178,6 +184,7 @@ function TenantRoutes() {
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
+          <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
@@ -189,6 +196,7 @@ function TenantRoutes() {
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
+          <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
 
@@ -207,12 +215,13 @@ function TenantRoutes() {
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
-          <Route path="driver" element={<RoleGate allow={["driver"]}><DriverPasswordGate><DriverTrip /></DriverPasswordGate></RoleGate>} />
-          <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverPasswordGate><DriverProfile /></DriverPasswordGate></RoleGate>} />
+          <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
+          <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverProfile /></RoleGate>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
       </TenantTheme>
+      </PasswordGate>
     </SessionCtx.Provider>
   );
 }
@@ -240,6 +249,7 @@ function OrgRoutes() {
 
   return (
     <OrgSessionCtx.Provider value={session}>
+      <PasswordGate profile={session.profile}>
       <TenantTheme tenant={null}>
         <Routes>
           <Route path="dashboard" element={<OrgShell><OrgDashboard /></OrgShell>} />
@@ -250,6 +260,7 @@ function OrgRoutes() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </TenantTheme>
+      </PasswordGate>
     </OrgSessionCtx.Provider>
   );
 }

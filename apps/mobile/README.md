@@ -23,6 +23,23 @@ npm run android --workspace @figbloom/mobile   # device or emulator, API 26+
 npm run ios --workspace @figbloom/mobile       # Mac + Xcode only — run `pod install` in ios/ first
 ```
 
+### Against your local Supabase, on an emulator
+
+1. `apps/mobile/.env` (gitignored): `SUPABASE_URL=http://10.0.2.2:58321` (the emulator's name for
+   your machine) and `SUPABASE_ANON_KEY` from the root `.env`. A phone on your Wi-Fi needs your
+   machine's LAN address instead.
+2. `apps/mobile/android/local.properties` (gitignored): `MAPS_API_KEY=...`, a "Maps SDK for Android"
+   key. Without it the Bus map has no tiles (see `MAPS.md`).
+3. `docker start supabase_edge_runtime_figbloom` if it isn't running: school search and the ID lookup
+   are edge functions.
+4. Debug builds need `adb reverse tcp:8081 tcp:8081` so the app can reach Metro.
+
+**Windows:** the native build fails with "Filename longer than 260 characters" when the repo sits
+under a long path. Map it to a short drive first: `subst X: "C:\path\to\School Management System"`,
+then run Gradle from `X:\apps\mobile\android` (`gradlew installDebug -PreactNativeArchitectures=x86_64`
+builds for the emulator only, much faster). `subst X: /d` removes it. If install says
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, the emulator has a build signed with another key: uninstall it.
+
 Android 8.0 (API 26) is the floor — it covers the low-cost handsets most
 parents actually use. iOS has no equivalent floor decision yet; whoever
 builds it should pick a minimum iOS version at that point.

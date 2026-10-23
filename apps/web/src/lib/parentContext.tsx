@@ -12,6 +12,8 @@ interface ParentCtxValue {
   child: ChildInfo | null;
   childId: string | null;
   setChildId: (id: string) => void;
+  /** Fetches everything again, e.g. so a payment that has just been confirmed shows in the balance and receipts. */
+  reload: () => void;
 }
 
 const ParentCtx = createContext<ParentCtxValue | null>(null);
@@ -43,7 +45,7 @@ export function ParentDataProvider({ children: kids }: { children: ReactNode }) 
 
   // First load only: an announcement-triggered reload keeps the screen up
   // (useAsync holds the previous data) instead of blanking it to a skeleton.
-  const value: ParentCtxValue = { data, loading: loading && !data, error, children: list, child, childId, setChildId };
+  const value: ParentCtxValue = { data, loading: loading && !data, error, children: list, child, childId, setChildId, reload: () => setReloadKey((k) => k + 1) };
   return <ParentCtx.Provider value={value}>{kids}</ParentCtx.Provider>;
 }
 

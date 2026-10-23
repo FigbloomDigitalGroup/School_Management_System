@@ -21,6 +21,12 @@
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:supportsRtl="true">
+      <!-- Bus tracking map (FIG-874) — react-native-maps on Android needs this
+           read from local.properties' MAPS_API_KEY via the build.gradle
+           manifestPlaceholder; see that file for why it's not hardcoded here. -->
+      <meta-data
+        android:name="com.google.android.geo.API_KEY"
+        android:value="${MAPS_API_KEY}" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

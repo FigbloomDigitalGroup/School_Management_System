@@ -800,7 +800,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -868,7 +868,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -956,8 +956,8 @@ function CreateStudentLoginsModal({ tenantId, students, onClose, onCreated, toas
         </div>
       ) : (
         <p className="text-[13px] leading-relaxed text-ink-muted">
-          Each learner gets their own login_id (e.g. "ST-0007") and the same shared dev password — same scheme as
-          teacher and guardian logins.
+          Each learner gets their own login_id (e.g. "ST-0007") and a one-time password they replace at first
+          sign-in — same scheme as teacher and guardian logins.
         </p>
       )}
     </Modal>

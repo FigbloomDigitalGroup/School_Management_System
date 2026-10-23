@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
 import { Navigation, type TeacherSession } from "./src/navigation";
+import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { SignIn } from "./src/screens/SignIn";
 import { accentFor } from "./src/theme";
 
@@ -16,16 +17,21 @@ import { accentFor } from "./src/theme";
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<TeacherSession | null>(null);
+  // Login ID while the school-issued password still has to be replaced; null once it has.
+  const [choosePassword, setChoosePassword] = useState<{ loginId: string | null } | null>(null);
+  // Choosing a password fires USER_UPDATED, whose reload can read the profile
+  // before must_change_password is cleared — don't let that bring the prompt back.
+  const passwordChosen = useRef(false);
 
   useEffect(() => {
     let alive = true;
 
     async function load() {
       const { data: { user } } = await supabase().auth.getUser();
-      if (!user) { if (alive) { setSession(null); setLoading(false); } return; }
+      if (!user) { passwordChosen.current = false; if (alive) { setSession(null); setLoading(false); } return; }
 
       const { data: profile } = await supabase()
-        .from("profiles").select("role, tenant_id, full_name").eq("id", user.id).maybeSingle();
+        .from("profiles").select("role, tenant_id, full_name, login_id, must_change_password").eq("id", user.id).maybeSingle();
       if (!profile || profile.role !== "teacher" || !profile.tenant_id) {
         if (alive) { setSession(null); setLoading(false); }
         return;
@@ -39,7 +45,8 @@ export default function App() {
       if (tenant?.country) country = tenant.country;
 
       const next: TeacherSession = { profileId: user.id, tenantId: profile.tenant_id, fullName: profile.full_name, accent, country };
-      if (alive) { setSession(next); setLoading(false); }
+      const mustChoose = profile.must_change_password && !passwordChosen.current;
+      if (alive) { setSession(next); setChoosePassword(mustChoose ? { loginId: profile.login_id } : null); setLoading(false); }
     }
 
     load().catch(() => { if (alive) { setSession(null); setLoading(false); } });
@@ -62,7 +69,16 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
-      {session ? <Navigation session={session} /> : <SignIn />}
+      {session ? (
+        choosePassword ? (
+          <ChoosePassword
+            profileId={session.profileId}
+            fullName={session.fullName}
+            loginId={choosePassword.loginId}
+            onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
+          />
+        ) : <Navigation session={session} />
+      ) : <SignIn />}
     </SafeAreaProvider>
   );
 }

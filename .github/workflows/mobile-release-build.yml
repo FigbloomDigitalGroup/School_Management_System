@@ -28,20 +28,32 @@ on:
           - mobile
           - teacher-mobile
 
+# The job reads the repo and uploads an artifact; it needs no other access to GitHub.
+permissions:
+  contents: read
+
 jobs:
   android-release:
     runs-on: ubuntu-latest
     env:
       APP_DIR: apps/${{ inputs.app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      # Before anything is installed, and long before the signing secrets are
+      # written below. Actions are pinned to a commit, not a tag, because a tag
+      # can be moved to different code after it has been reviewed.
+      - name: Security scan
+        run: sh scripts/security-scan.sh
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
@@ -81,13 +93,28 @@ jobs:
             echo "$TEACHER_ENV_FILE" > "$APP_DIR/.env"
           fi
 
+      # The parent app's Bus map needs its own "Maps SDK for Android" key
+      # (MAPS.md). Without one the build still succeeds and ships a map with
+      # no tiles, so fail here rather than release that. Add MAPS_API_KEY in
+      # Settings > Secrets and variables > Actions; the teacher app has no map.
+      - name: Write Google Maps key (parent app)
+        if: ${{ inputs.app == 'mobile' }}
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          if [ -z "$MAPS_API_KEY" ]; then
+            echo "::error::The MAPS_API_KEY secret is not set, so the parent app's Bus map would have no tiles."
+            exit 1
+          fi
+          printf 'MAPS_API_KEY=%s\n' "$MAPS_API_KEY" >> "$APP_DIR/android/local.properties"
+
       - name: Build release AAB + APK
         working-directory: ${{ env.APP_DIR }}/android
         run: |
           chmod +x gradlew
           ./gradlew bundleRelease assembleRelease --no-daemon
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ inputs.app }}-release-${{ github.run_number }}
           path: |

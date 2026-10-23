@@ -1,4 +1,4 @@
-import type { ClassLevel, FeeInvoice, FeeItem, InvoiceStatus, Student } from "./types";
+import type { ClassLevel, FeeInvoice, FeeItem, InvoiceStatus, Payment, Student } from "./types";
 import { yearMatches } from "./levels";
 import { countryProfile } from "./countries";
 import { normalisePhoneForCountry } from "./phone";
@@ -38,6 +38,41 @@ export function itemsForStudent(items: FeeItem[], student: Pick<Student, "boardi
 
 export const totalCents = (items: FeeItem[]): number => items.reduce((a, i) => a + i.amount_cents, 0);
 
+/** One learner as a billing run sees them. No class (higher-ed) means only school-wide items apply. */
+export interface BillableStudent {
+  id: string;
+  boarding: boolean;
+  formLevel: number | null;
+  classLevel: ClassLevel | null;
+}
+
+export interface TermBillingPlan {
+  invoices: { student_id: string; total_cents: number }[];
+  totalCents: number;
+  /** Already have an invoice for the term; a billing run leaves those as they are. */
+  alreadyBilled: number;
+  /** No fee item applies to them, so no invoice. */
+  nothingApplies: number;
+}
+
+/**
+ * Who a billing run would invoice for a term, and for how much — the same
+ * itemsForStudent() the parent's bill breakdown uses, so the invoice total
+ * and the items a parent sees always add up. Re-running is safe: learners
+ * with an invoice already are skipped, so it only ever picks up new ones.
+ */
+export function planTermBilling(students: BillableStudent[], items: FeeItem[], alreadyInvoiced: ReadonlySet<string>): TermBillingPlan {
+  const plan: TermBillingPlan = { invoices: [], totalCents: 0, alreadyBilled: 0, nothingApplies: 0 };
+  for (const s of students) {
+    if (alreadyInvoiced.has(s.id)) { plan.alreadyBilled++; continue; }
+    const total = totalCents(itemsForStudent(items, s, s.formLevel ?? 0, s.classLevel));
+    if (total === 0) { plan.nothingApplies++; continue; }
+    plan.invoices.push({ student_id: s.id, total_cents: total });
+    plan.totalCents += total;
+  }
+  return plan;
+}
+
 /**
  * Parents commonly pay in instalments as harvests or salaries come in, so
  * part payment is normal, not an error state.
@@ -62,6 +97,15 @@ export function normaliseMsisdn(raw: string): { ok: true; msisdn: string } | { o
   const normalized = normalisePhoneForCountry(raw, "KE").slice(1); // drop the leading "+"
   if (/^254[17]\d{8}$/.test(normalized)) return { ok: true, msisdn: normalized };
   return { ok: false, message: "Enter the M-Pesa number as 07xx xxx xxx." };
+}
+
+const METHOD_LABEL: Record<Payment["method"], string> = { mpesa: "M-Pesa", bank: "Bank", cash: "Cash", cheque: "Cheque" };
+
+/** What a family's receipt list shows for a payment: the M-Pesa code, or how it was paid and its reference. */
+export function receiptRef(p: Pick<Payment, "method" | "mpesa_receipt" | "reference">): string {
+  if (p.mpesa_receipt) return p.mpesa_receipt;
+  const label = METHOD_LABEL[p.method] ?? "Payment";
+  return p.reference ? `${label} ${p.reference}` : label;
 }
 
 /** Plain-language failures. A parent must know whether money left their account. */

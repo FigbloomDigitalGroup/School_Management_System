@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { formatMoney, itemsForStudent, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel } from "@figbloom/shared";
+import { fetchAllPages, formatMoney, itemsForStudent, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel } from "@figbloom/shared";
 import type { ClassLevel, FeeItem, Term, YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -12,6 +12,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { FeeItemsEditor } from "./FeeItemsEditor";
+import { BillTermModal, RecordPaymentModal, type PayableInvoice } from "./FeeCollection";
 
 interface OutstandingRow {
   id: string;
@@ -36,6 +37,7 @@ interface PendingProofRow {
   uploaded_at: string;
   studentName: string;
   cls: string;
+  invoice: PayableInvoice | null;
 }
 
 interface RawProofRow {
@@ -44,7 +46,7 @@ interface RawProofRow {
   file_name: string;
   note: string | null;
   uploaded_at: string;
-  fee_invoices: { students: { full_name: string; classes: { name: string } | null } | null } | null;
+  fee_invoices: { id: string; total_cents: number; paid_cents: number; students: { full_name: string; classes: { name: string } | null } | null } | null;
 }
 
 interface FeesData {
@@ -61,18 +63,21 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
-  const [{ data: feeItemRows }, invoicesRes, proofsRes, { data: classRows }] = await Promise.all([
+  const [{ data: feeItemRows }, rawInvoices, proofsRes, { data: classRows }] = await Promise.all([
     termId
       ? sb.from("fee_items").select("*").eq("tenant_id", tenantId).eq("term_id", termId).returns<FeeItem[]>()
       : Promise.resolve({ data: [] as FeeItem[] }),
+    // Every invoice, not the first 1000: the totals below are the school's whole term.
     termId
-      ? sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))").eq("tenant_id", tenantId).eq("term_id", termId).returns<RawInvoiceRow[]>()
-      : Promise.resolve({ data: [] as RawInvoiceRow[] }),
+      ? fetchAllPages<RawInvoiceRow>((from, to) =>
+          sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))")
+            .eq("tenant_id", tenantId).eq("term_id", termId).order("id").range(from, to).returns<RawInvoiceRow[]>())
+      : Promise.resolve([] as RawInvoiceRow[]),
     // Payment proofs are keyed by invoice, not term — reach the current term
     // through fee_invoices the same way the outstanding-balances query does.
     termId
       ? sb.from("payment_proofs")
-          .select("id,file_path,file_name,note,uploaded_at,fee_invoices!inner(term_id,students(full_name,classes(name)))")
+          .select("id,file_path,file_name,note,uploaded_at,fee_invoices!inner(id,total_cents,paid_cents,term_id,students(full_name,classes(name)))")
           .eq("tenant_id", tenantId)
           .eq("status", "pending")
           .eq("fee_invoices.term_id", termId)
@@ -85,7 +90,6 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
   // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
   const formLevels = yearGroupsOf(classRows ?? []);
 
-  const rawInvoices = invoicesRes.data ?? [];
   const invoices = rawInvoices.map((r) => ({ total_cents: r.total_cents, paid_cents: r.paid_cents }));
 
   const outstanding = rawInvoices
@@ -100,15 +104,22 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
     .sort((a, b) => (b.billed - b.paid) - (a.billed - a.paid))
     .slice(0, 10);
 
-  const pendingProofs: PendingProofRow[] = (proofsRes.data ?? []).map((r) => ({
-    id: r.id,
-    file_path: r.file_path,
-    file_name: r.file_name,
-    note: r.note,
-    uploaded_at: r.uploaded_at,
-    studentName: r.fee_invoices?.students?.full_name ?? "Unknown learner",
-    cls: r.fee_invoices?.students?.classes?.name ?? "—",
-  }));
+  const pendingProofs: PendingProofRow[] = (proofsRes.data ?? []).map((r) => {
+    const studentName = r.fee_invoices?.students?.full_name ?? "Unknown learner";
+    const cls = r.fee_invoices?.students?.classes?.name ?? "—";
+    return {
+      id: r.id,
+      file_path: r.file_path,
+      file_name: r.file_name,
+      note: r.note,
+      uploaded_at: r.uploaded_at,
+      studentName,
+      cls,
+      invoice: r.fee_invoices
+        ? { id: r.fee_invoices.id, studentName, cls, balanceCents: Math.max(r.fee_invoices.total_cents - r.fee_invoices.paid_cents, 0) }
+        : null,
+    };
+  });
 
   return { term: term ?? null, feeItems: feeItemRows ?? [], formLevels, invoices, outstanding, pendingProofs };
 }
@@ -125,18 +136,30 @@ export function Fees() {
   const pending = loading && (!data || loadedFor !== tenant.id);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [editingItems, setEditingItems] = useState(false);
+  const [billing, setBilling] = useState(false);
+  // null: closed. {}: open with a learner search. Otherwise that invoice (and proof, when confirming one).
+  const [recording, setRecording] = useState<{ invoice?: PayableInvoice; proof?: PendingProofRow } | null>(null);
 
-  async function reviewProof(id: string, status: "confirmed" | "rejected") {
+  function done(message: string) {
+    setBilling(false);
+    setRecording(null);
+    setReloadKey((k) => k + 1);
+    toast(message);
+  }
+
+  // Confirming goes through RecordPaymentModal instead: a proof is only
+  // confirmed together with the payment it shows, so the balance moves too.
+  async function rejectProof(id: string) {
     const { error: updateError } = await supabase()
       .from("payment_proofs")
-      .update({ status, reviewed_by: profile.id, reviewed_at: new Date().toISOString() })
+      .update({ status: "rejected", reviewed_by: profile.id, reviewed_at: new Date().toISOString() })
       .eq("id", id);
     if (updateError) {
       toast(`Could not update: ${updateError.message}`, "error");
       return;
     }
     setReviewedIds((s) => new Set(s).add(id));
-    toast(status === "confirmed" ? "Payment proof confirmed" : "Payment proof rejected");
+    toast("Payment proof rejected");
   }
 
   async function openProof(path: string) {
@@ -176,8 +199,8 @@ export function Fees() {
         blurb="Published once at the start of term. Changing an amount after publication notifies every affected parent, so the composer says how many before you confirm."
         actions={
           <>
-            <Button onClick={() => toast("Exported the fee register for accounts")}>Export register</Button>
-            <Button variant="accent" onClick={() => toast(`Reminder drafted for ${owingCount} parents`)}>Send reminders</Button>
+            <Button onClick={() => setBilling(true)} disabled={!data?.term}>Bill learners</Button>
+            <Button variant="accent" onClick={() => setRecording({})} disabled={!data?.term}>Record a payment</Button>
           </>
         }
       />
@@ -198,6 +221,17 @@ export function Fees() {
             ))}
           </div>
         ) : (
+          <>
+          {data.term && data.invoices.length === 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-sunken px-4 py-3">
+              <p className="text-[13px] leading-relaxed">
+                No invoices yet for {data.term.name}. {data.feeItems.length > 0
+                  ? "Parents see nothing owing until learners are billed."
+                  : "Add this term's fee items, then bill learners."}
+              </p>
+              {data.feeItems.length > 0 && <Button variant="accent" onClick={() => setBilling(true)}>Bill learners</Button>}
+            </div>
+          )}
           <StatRow
             stats={[
               { label: "Billed this term", value: formatMoney(billed, tenant.country), sub: `${data.invoices.length.toLocaleString()} learners` },
@@ -206,6 +240,7 @@ export function Fees() {
               { label: "Fully paid", value: `${fullyPaidPct}%`, sub: `${fullyPaidCount.toLocaleString()} invoices cleared` },
             ]}
           />
+          </>
         )}
 
         <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)" }}>
@@ -275,10 +310,15 @@ export function Fees() {
                 { key: "st", header: "", align: "right", render: (r: OutstandingRow) => (
                   <Badge tone={r.paid === 0 ? "warn" : "muted"}>{r.paid === 0 ? "Nothing paid" : "Part paid"}</Badge>
                 ) },
+                { key: "pay", header: "", align: "right", render: (r: OutstandingRow) => (
+                  <Button onClick={() => setRecording({ invoice: { id: r.id, studentName: r.name, cls: r.cls, balanceCents: r.billed - r.paid } })}>
+                    Record payment
+                  </Button>
+                ) },
               ]}
               rows={data.outstanding}
               rowKey={(r) => r.id}
-              minWidth="640px"
+              minWidth="780px"
               empty={{ title: "Every balance is cleared", body: "Nothing outstanding this term. That is rare — worth telling the board." }}
             />
           )}
@@ -307,8 +347,8 @@ export function Fees() {
                 ) },
                 { key: "actions", header: "", align: "right", width: "1.2fr", render: (r: PendingProofRow) => (
                   <div className="flex justify-end gap-2">
-                    <Button onClick={() => reviewProof(r.id, "rejected")}>Reject</Button>
-                    <Button variant="accent" onClick={() => reviewProof(r.id, "confirmed")}>Confirm</Button>
+                    <Button onClick={() => void rejectProof(r.id)}>Reject</Button>
+                    <Button variant="accent" disabled={!r.invoice} onClick={() => r.invoice && setRecording({ invoice: r.invoice, proof: r })}>Confirm</Button>
                   </div>
                 ) },
               ]}
@@ -328,6 +368,28 @@ export function Fees() {
           tenantId={tenant.id}
           country={tenant.country}
           onClose={() => { setEditingItems(false); setReloadKey((k) => k + 1); }}
+        />
+      )}
+
+      {billing && data?.term && (
+        <BillTermModal
+          term={data.term}
+          feeItems={data.feeItems}
+          tenantId={tenant.id}
+          country={tenant.country}
+          onClose={() => setBilling(false)}
+          onBilled={done}
+        />
+      )}
+
+      {recording && data?.term && (
+        <RecordPaymentModal
+          termId={data.term.id}
+          country={tenant.country}
+          invoice={recording.invoice}
+          proof={recording.proof && { id: recording.proof.id, fileName: recording.proof.file_name, note: recording.proof.note }}
+          onClose={() => setRecording(null)}
+          onRecorded={done}
         />
       )}
     </>

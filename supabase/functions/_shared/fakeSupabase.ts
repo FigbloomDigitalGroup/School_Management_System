@@ -231,6 +231,31 @@ export class FakeSupabaseClient {
     this.table(table).failNextWrite(message);
   }
 
+  private pendingRpcError: string | null = null;
+
+  /** Makes the next rpc() resolve with this error. */
+  failNextRpc(message: string) {
+    this.pendingRpcError = message;
+  }
+
+  /** Only the database functions the edge functions call; mirrors their SQL. */
+  rpc(name: string, args: Row): Promise<{ data: unknown; error: { message: string } | null }> {
+    if (this.pendingRpcError) {
+      const message = this.pendingRpcError;
+      this.pendingRpcError = null;
+      return Promise.resolve({ data: null, error: { message } });
+    }
+    if (name === "next_login_number") {
+      const numbers = this.rowsIn("profiles")
+        .filter((r) => r.tenant_id === args.p_tenant_id && r.role === args.p_role)
+        .map((r) => /(\d+)$/.exec(String(r.login_id ?? ""))?.[1])
+        .filter((n): n is string => n !== undefined)
+        .map(Number);
+      return Promise.resolve({ data: Math.max(0, ...numbers) + 1, error: null });
+    }
+    return Promise.resolve({ data: null, error: { message: `rpc ${name} is not configured in the fake` } });
+  }
+
   from(table: string) {
     return new FakeBuilder(this.table(table));
   }

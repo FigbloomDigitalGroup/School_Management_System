@@ -102,11 +102,12 @@ than "Invalid". The parent user base includes people who do not use apps daily.
 
 ## Next steps
 
-1. Fill in Daraja credentials in `.env` and deploy the two edge functions — the
-   parent app's M-Pesa prompt is still a client-side simulation, since there is
-   no sandbox account wired up in local dev and a payment can only be marked
-   `success` server-side, by the Safaricom callback (see `supabase/rls.sql`'s
-   `payment_insert` policy).
+1. Fill in Daraja credentials (including `DARAJA_CALLBACK_SECRET`) in `.env`
+   and deploy the two edge functions — the parent app's M-Pesa prompt is still
+   a client-side simulation, since there is no sandbox account wired up in
+   local dev. Only `mpesa-stk-push` creates payments rows, and only
+   `mpesa-callback` marks one `success`, after checking the callback's secret
+   token and confirming the result with Daraja's STK query.
 2. ~~Wire FCM for the parent and student apps~~ — done on Android (device
    tokens + `send-push` edge function, FIG-293). iOS push is still open,
    blocked on Apple Developer push credentials (FIG-154).

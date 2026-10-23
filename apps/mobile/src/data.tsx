@@ -20,6 +20,8 @@ interface Child {
   first: string;
   cls: string;
   adm: string;
+  /** This term's invoice, which a payment is made against; null until the school has billed. */
+  invoiceId: string | null;
   balance: number;
   billed: number;
   dueOn: string | null;
@@ -40,6 +42,7 @@ interface Child {
 function toChild(c: ChildInfo): Child {
   return {
     id: c.id, name: c.name, first: c.first, cls: c.cls, adm: c.adm,
+    invoiceId: c.invoiceId ?? null, // a cache written by an older build may not carry it
     balance: c.balance, billed: c.billed, dueOn: c.dueOn,
     boarding: c.boarding, formLevel: c.formLevel, classLevel: c.classLevel, receipts: c.receipts,
     attendance: c.attendancePct,
@@ -61,6 +64,8 @@ interface Ctx {
   accent: string;
   country: string;
   tenantId: string;
+  /** Fetches everything again, e.g. so a payment that has just been confirmed shows in the balance. */
+  reload: () => void;
 }
 
 const ParentDataCtx = createContext<Ctx | null>(null);
@@ -141,6 +146,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
     accent,
     country,
     tenantId,
+    reload: () => setReloadKey((k) => k + 1),
   };
 
   return <ParentDataCtx.Provider value={value}>{children}</ParentDataCtx.Provider>;
@@ -160,6 +166,11 @@ export function useChild() {
 /** The school's id, for Realtime subscriptions scoped to it (the Bus tab's live updates). */
 export function useTenantId(): string {
   return useParentData().tenantId;
+}
+
+/** Re-fetches the parent's data (balances, receipts, ...). */
+export function useReloadParentData(): () => void {
+  return useParentData().reload;
 }
 
 export function useChildren(): Child[] {

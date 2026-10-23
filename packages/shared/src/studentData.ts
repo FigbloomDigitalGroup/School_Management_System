@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { fetchClassMeans, formatShortDate, formatWhen, type Receipt } from "./parentData";
-import { classAudienceIncludes, type ClassLevel } from "./types";
+import { classAudienceIncludes, type ClassLevel, type Payment } from "./types";
+import { receiptRef } from "./fees";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -110,18 +111,18 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
       : Promise.resolve({ data: [] as StudentFeeData["feeItems"] }),
     supabase()
       .from("payments")
-      .select("id, amount_cents, mpesa_receipt, completed_at, created_at, fee_invoices!inner(student_id)")
+      .select("id, amount_cents, method, mpesa_receipt, reference, completed_at, created_at, fee_invoices!inner(student_id)")
       .eq("fee_invoices.student_id", studentRow.id)
       .eq("status", "success")
       .order("completed_at", { ascending: false })
-      .returns<{ id: string; amount_cents: number; mpesa_receipt: string | null; completed_at: string | null; created_at: string }[]>(),
+      .returns<{ id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; completed_at: string | null; created_at: string }[]>(),
   ]);
 
   const receipts: Receipt[] = (paymentRows ?? []).map((p) => ({
     id: p.id,
     amount: p.amount_cents,
     when: formatShortDate((p.completed_at ?? p.created_at).slice(0, 10)),
-    ref: p.mpesa_receipt ?? "M-Pesa",
+    ref: receiptRef(p),
   }));
 
   return {
@@ -241,5 +242,18 @@ export async function markStudentNoticeRead(profileId: string, announcementId: s
   const { error } = await supabase()
     .from("announcement_reads")
     .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * FIG-873: the plain "Mark as handed in" button (no file) — previously local
+ * state only, on both mobile and web. Shares the same row/conflict target as
+ * uploadAssignmentSubmission()'s file-attach path (apps/web/src/lib/uploads.ts),
+ * just without file_path/file_name.
+ */
+export async function markAssignmentHandedIn(assignmentId: string, studentId: string): Promise<void> {
+  const { error } = await supabase()
+    .from("assignment_submissions")
+    .upsert({ assignment_id: assignmentId, student_id: studentId, marked_done_at: new Date().toISOString() }, { onConflict: "assignment_id,student_id" });
   if (error) throw new Error(error.message);
 }

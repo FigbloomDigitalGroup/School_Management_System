@@ -57,3 +57,11 @@ grep -rc '_0x\|app-vscode-eval\|verify-human' -- \
 Any non-zero count is a stop condition. Also diff `.gitignore` against the
 last known-good commit if one exists — a weakened `.env` exclusion with no
 other explanation is itself a stop condition, independent of the grep.
+
+## The full script
+
+`sh scripts/security-scan.sh` runs the signature grep above and more: config-file size, code hidden behind
+long runs of whitespace, font files that are really JavaScript, editor tasks that run on folder open, a
+dropped `config.bat`, the `.gitignore` check, install scripts in our own `package.json` files, and lockfile
+entries that don't come from the npm registry. CI (`.github/workflows/ci.yml`) runs it first and runs
+nothing else if it fails.

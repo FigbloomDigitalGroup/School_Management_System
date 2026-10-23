@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { formatDueLabel, type WorkItem } from "@figbloom/shared";
+import { formatDueLabel, markAssignmentHandedIn, type WorkItem } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
@@ -16,11 +16,12 @@ const STATE_TONE: Record<WorkItem["state"], Tone> = { open: "muted", late: "warn
 const STATE_LABEL: Record<WorkItem["state"], string> = { open: "Open", late: "Overdue", done: "Done" };
 
 /**
- * "Mark as handed in" mirrors StudentApp.tsx (the phone preview): it flips
- * local component state, same as before. Attaching a file goes further —
- * it uploads to the private-documents bucket via uploadAssignmentSubmission
- * and upserts assignment_submissions.file_path/file_name for real, then
- * flips the same local "done" state (a submitted file counts as handed in).
+ * "Mark as handed in" (FIG-873) upserts assignment_submissions for real —
+ * shown optimistically, rolled back on failure. Attaching a file goes
+ * further: it uploads to the private-documents bucket via
+ * uploadAssignmentSubmission and upserts file_path/file_name on the same
+ * row, then flips the same local "done" state (a submitted file counts as
+ * handed in).
  */
 export function StudentWork() {
   const { data, loading, error } = useStudentData();
@@ -30,6 +31,7 @@ export function StudentWork() {
   const [tab, setTab] = useState<Tab>("To do");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, boolean>>({});
+  const [marking, setMarking] = useState<Record<string, boolean>>({});
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const [attached, setAttached] = useState<Record<string, string>>({});
 
@@ -72,6 +74,21 @@ export function StudentWork() {
   const rows = tab === "Done" ? finished : open;
 
   const selected = rows.find((w) => w.id === selectedId) ?? rows[0] ?? null;
+
+  async function handIn(item: WorkItem) {
+    if (!data) return;
+    setDone((d) => ({ ...d, [item.id]: true }));
+    setMarking((m) => ({ ...m, [item.id]: true }));
+    try {
+      await markAssignmentHandedIn(item.id, data.studentId);
+      toast(`${item.teacher} has been told.`);
+    } catch (err) {
+      setDone((d) => ({ ...d, [item.id]: false }));
+      toast(err instanceof Error ? `Could not save that: ${err.message}` : "Could not save that.", "error");
+    } finally {
+      setMarking((m) => ({ ...m, [item.id]: false }));
+    }
+  }
 
   async function handleFileSelected(item: WorkItem, file: File | undefined) {
     if (!file || !data) return;
@@ -160,8 +177,8 @@ export function StudentWork() {
                   </div>
                 ) : (
                   <>
-                    <Button block variant="accent" className="mt-5" onClick={() => setDone((d) => ({ ...d, [selected.id]: true }))}>
-                      Mark as handed in
+                    <Button block variant="accent" className="mt-5" disabled={marking[selected.id]} onClick={() => void handIn(selected)}>
+                      {marking[selected.id] ? "Marking…" : "Mark as handed in"}
                     </Button>
                     <input
                       ref={fileInputRef}

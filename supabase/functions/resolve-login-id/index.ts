@@ -1,11 +1,17 @@
 /**
  * Public, unauthenticated login_id lookup (FIG-401, part of the FIG-396
  * unified sign-in epic) -- given the school picked in search-schools and
- * the ID the person typed, resolves the account's name (shown back as a
- * confirmation, "Signing in as X") and the synthetic email the actual
- * signInWithPassword call should use. Never touches or returns a password
- * -- real authentication still happens client-side against Supabase Auth
- * directly; this only answers "which account, and what email is it under".
+ * the ID the person typed, resolves a masked version of the account's name
+ * (shown back as a confirmation, "Signing in as Esther H.") and the
+ * synthetic email the actual signInWithPassword call should use. Never
+ * touches or returns a password -- real authentication still happens
+ * client-side against Supabase Auth directly; this only answers "which
+ * account, and what email is it under".
+ *
+ * Login IDs are sequential and this answers anyone, so it returns only a
+ * masked name (first name and the last name's initial) and limits how often
+ * one caller can ask -- otherwise a script could list a school's whole roll,
+ * learners included.
  *
  * Same pre-auth privileged-surface pattern as search-schools: RLS has no
  * anonymous SELECT on profiles, so this goes through the service-role key.
@@ -16,6 +22,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { loginIdEmail } from "../_shared/loginId.ts";
+import { maskName } from "../_shared/maskName.ts";
+
+/** Lookups one caller may make in the window. A person fixing a typo makes a handful. */
+const LOOKUP_LIMIT = 30;
+const LOOKUP_WINDOW = "10 minutes";
+const TOO_MANY_MESSAGE = "Too many attempts. Wait a few minutes and try again.";
 
 const NOT_FOUND_MESSAGE = "We couldn't find that ID at this school. Check with the school office.";
 
@@ -24,12 +36,27 @@ interface Body {
   login_id: string;
 }
 
-// deno-lint-ignore no-explicit-any
-export interface Deps { admin: any }
+export interface Deps {
+  // deno-lint-ignore no-explicit-any
+  admin: any;
+  /** Records a lookup by this caller and says whether it is still within its allowance. */
+  withinLimit: (callerKey: string) => Promise<boolean>;
+}
 
-export async function handle(req: Request, { admin }: Deps): Promise<Response> {
+/** Who is asking: a hash of the caller's address, so the limit works without keeping the address itself. */
+export async function callerKey(req: Request): Promise<string> {
+  const ip = req.headers.get("cf-connecting-ip")
+    ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? "unknown";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`resolve-login-id:${ip}`));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function handle(req: Request, { admin, withinLimit }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  if (!(await withinLimit(await callerKey(req)))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -50,7 +77,7 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
     .select("full_name").eq("tenant_id", tenantId).eq("login_id", loginId).maybeSingle();
   if (!profile) return json({ error: NOT_FOUND_MESSAGE }, 404);
 
-  return json({ ok: true, full_name: profile.full_name, email: loginIdEmail(loginId, tenant.slug) });
+  return json({ ok: true, display_name: maskName(profile.full_name), email: loginIdEmail(loginId, tenant.slug) });
 }
 
 if (import.meta.main) {
@@ -59,7 +86,15 @@ if (import.meta.main) {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    return handle(req, { admin });
+    return handle(req, {
+      admin,
+      // If the limiter itself fails, let the lookup through: sign-in matters more than the limit.
+      withinLimit: async (key) => {
+        const { data, error } = await admin.rpc("note_login_lookup", { p_key: key, p_limit: LOOKUP_LIMIT, p_window: LOOKUP_WINDOW });
+        if (error) { console.error("resolve-login-id: rate limiter failed:", error.message); return true; }
+        return data !== false;
+      },
+    });
   });
 }
 
