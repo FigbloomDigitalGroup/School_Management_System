@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
-import { fetchClassMeans, formatShortDate, formatWhen, type Receipt } from "./parentData";
+import { formatShortDate, formatWhen, type Receipt } from "./parentData";
+import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
 import { classAudienceIncludes, type ClassLevel, type Payment } from "./types";
 import { receiptRef } from "./fees";
 
@@ -48,8 +49,12 @@ export interface StudentData {
   className: string;
   work: WorkItem[];
   notices: NoticeInfo[];
+  /** The newest exam this learner has results out for; `subjects` are its marks. */
   subjects: ResultSubject[];
+  examId: string | null;
   examName: string | null;
+  /** Every exam this learner has results out for, newest first, so the screen can switch between them. */
+  exams: PublishedExam[];
 }
 
 export function daysUntil(dueOn: string): number {
@@ -154,7 +159,7 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
   // A higher-ed student (FIG-327) has class_id = null — class-scoped queries
   // are skipped rather than run with .eq("class_id", null), which PostgREST
   // rejects outright (400) rather than treating as an IS NULL filter.
-  const [{ data: assignmentRows }, { data: subRows }, { data: examRows }, { data: announcementRows }] = await Promise.all([
+  const [{ data: assignmentRows }, { data: subRows }, examsByStudent, { data: announcementRows }] = await Promise.all([
     studentRow.class_id
       ? supabase()
           .from("assignments")
@@ -163,26 +168,14 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
           .order("due_on", { ascending: true })
       : Promise.resolve({ data: [] as unknown[] }),
     supabase().from("assignment_submissions").select("assignment_id, marked_done_at").eq("student_id", studentRow.id),
-    supabase().from("exams").select("id, name, published_at").not("published_at", "is", null).order("published_at", { ascending: false }).limit(1),
+    fetchPublishedExams([studentRow.id]),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
   ]);
 
-  const exam = (examRows ?? [])[0] as { id: string; name: string } | undefined;
-
-  const [{ data: markRows }, classMeans] = await Promise.all([
-    exam
-      ? supabase().from("marks").select("score, subject_id, subjects(name)").eq("exam_id", exam.id).eq("student_id", studentRow.id)
-      : Promise.resolve({ data: [] as { score: number | null; subject_id: string; subjects: { name: string } | null }[] }),
-    exam && studentRow.class_id
-      ? fetchClassMeans(exam.id, studentRow.class_id)
-      : Promise.resolve(new Map<string, number>()),
-  ]);
-
-  const meanFor = (subjectId: string): number | null => classMeans.get(subjectId) ?? null;
-
-  const subjects: ResultSubject[] = ((markRows ?? []) as { score: number | null; subject_id: string; subjects: { name: string } | null }[])
-    .filter((m) => m.score !== null)
-    .map((m) => ({ name: m.subjects?.name ?? "Subject", score: m.score as number, classMean: meanFor(m.subject_id) }));
+  // The exams come from the marks this learner can read, so an exam only another class has published is not offered.
+  const exams = examsByStudent.get(studentRow.id) ?? [];
+  const exam = exams[0];
+  const subjects: ResultSubject[] = exam ? await fetchExamSubjects(studentRow.id, studentRow.class_id, exam.id) : [];
 
   const submittedAt = new Map(((subRows ?? []) as { assignment_id: string; marked_done_at: string }[]).map((s) => [s.assignment_id, s.marked_done_at]));
 
@@ -233,7 +226,9 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
     work,
     notices,
     subjects,
+    examId: exam?.id ?? null,
     examName: exam?.name ?? null,
+    exams,
   };
 }
 

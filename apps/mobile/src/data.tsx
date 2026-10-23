@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type Receipt } from "@figbloom/shared";
+import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -20,6 +20,7 @@ interface Child {
   first: string;
   cls: string;
   adm: string;
+  classId: string | null;
   /** This term's invoice, which a payment is made against; null until the school has billed. */
   invoiceId: string | null;
   balance: number;
@@ -35,20 +36,26 @@ interface Child {
   absentDates: string[];
   /** null = no mark published yet — no mean, not zero achievement. */
   mean: number | null;
-  /** The published exam the mean and subjects come from. */
+  /** The published exam the mean and subjects come from: the newest this child has results out for. */
+  examId: string | null;
   examName: string | null;
+  /** Every exam this child has results out for, newest first. */
+  exams: PublishedExam[];
 }
 
 function toChild(c: ChildInfo): Child {
   return {
     id: c.id, name: c.name, first: c.first, cls: c.cls, adm: c.adm,
+    classId: c.classId ?? null, // a cache written by an older build may not carry it
     invoiceId: c.invoiceId ?? null, // a cache written by an older build may not carry it
     balance: c.balance, billed: c.billed, dueOn: c.dueOn,
     boarding: c.boarding, formLevel: c.formLevel, classLevel: c.classLevel, receipts: c.receipts,
     attendance: c.attendancePct,
     absentDates: c.absentDates ?? [], // a cache written by an older build may not carry it
     mean: c.mean,
+    examId: c.examId ?? null, // a cache written by an older build may not carry the exam list
     examName: c.examName,
+    exams: c.exams ?? [],
   };
 }
 

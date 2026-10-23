@@ -1,0 +1,10 @@
+.feature-showcase {
+    margin-top: 24px;
+}
+
+/* No dashboard preview above this section on phones, so drop the gap */
+@media (max-width: 520px) {
+    .feature-showcase {
+        margin-top: 0;
+    }
+}
