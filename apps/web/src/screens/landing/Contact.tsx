@@ -102,8 +102,8 @@ function Contact() {
     <section className="contact" id="contact">
       <div className="contact-inner">
         <div className="contact-header">
-          <h1 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>Contact us</h1>
-          <h2>Use BloomEd in your school.</h2>
+          <h2 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>Contact us</h2>
+          <h3>Use BloomEd in your school.</h3>
           <p>Book a free demo or ask us anything. We usually reply immediately.</p>
         </div>
 

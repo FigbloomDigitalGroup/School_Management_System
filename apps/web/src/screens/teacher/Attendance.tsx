@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
-  MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
+  isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
   supabase,
   type AttendanceMark, type ClassGroup, type Register,
 } from "@figbloom/shared";
@@ -90,7 +90,17 @@ export function Attendance() {
   // guessing "not submitted" and flashing the roster before the real
   // (possibly already-submitted) state loads in.
   const [submitted, setSubmitted] = useState<boolean | null>(null);
+  // Registers saved on this device that haven't gone out yet. Re-read on a timer so
+  // it drops to zero by itself once they have, rather than staying at what it was at submit.
   const [held, setHeld] = useState(0);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => { void queue.pending().then((p) => { if (alive) setHeld(p.length); }).catch(() => {}); };
+    load();
+    const timer = window.setInterval(load, 5000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
 
   // "My classes" links here with ?class=<id> so the shortcut lands on the right roster.
   useEffect(() => {
@@ -158,25 +168,45 @@ export function Attendance() {
     setReg((r) => (r ? { ...r, marks: { ...r.marks, [studentId]: mark } } : r));
   }
 
-  function submit() {
-    if (!reg) return;
+  /** Keeps the register on this device and says so. It sends itself once there is signal. */
+  async function holdOnDevice(r: Register) {
+    await queue.enqueue("attendance", toRecords(r, tenant.id, profile.id));
+    setHeld((await queue.pending()).length);
+    setSubmitted(true);
+    toast("Saved on this phone. It will send itself when you have signal.");
+  }
+
+  async function submit() {
+    if (!reg || saving) return;
     const warning = submitWarning(reg);
     if (warning && !confirming) { setConfirming(warning); return; }
     setConfirming(null);
-    if (online) {
-      void writeAttendance(reg, tenant.id, profile.id).catch((err: Error) => {
-        console.error(err);
-        toast("Could not save the register — check your connection and try again.", "error");
-      });
+    setSaving(true);
+    try {
+      if (!online) {
+        await holdOnDevice(reg);
+        return;
+      }
+      // "Online" only means the browser has a network, not that the school's server
+      // answered, so say the register is in only once it really is.
+      try {
+        await writeAttendance(reg, tenant.id, profile.id);
+      } catch (err) {
+        if (!isRetryable(err)) throw err;
+        // No answer or a server in trouble: don't lose the register, hold it.
+        await holdOnDevice(reg);
+        return;
+      }
       setSubmitted(true);
       setProgressReloadKey((k) => k + 1);
       toast(`Register submitted · ${counts.present} present, ${counts.absent} absent, ${counts.late} late`);
-    } else {
-      void queue.enqueue("attendance", toRecords(reg, tenant.id, profile.id))
-        .then(() => queue.pending())
-        .then((p) => setHeld(p.length));
-      setSubmitted(true);
-      toast("Saved on this phone. It will send itself when you have signal.");
+    } catch (err) {
+      console.error(err);
+      // The server looked at it and said no: waiting won't help, so keep the roster
+      // open and say why, not "saved".
+      toast(`The register was not saved: ${err instanceof Error ? err.message : "something went wrong"}.`, "error");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -218,9 +248,9 @@ export function Attendance() {
               {/* The register (term + roster) can still be loading behind an
                   already-submitted day — don't report it as 0/0/0. */}
               {reg ? `${counts.present} present · ${counts.absent} absent · ${counts.late} late` : <Skeleton className="inline-block h-3 w-40 align-middle" />} —{" "}
-              {online
-                ? "parents of absent learners get an SMS at 09:00, not immediately"
-                : `held on this phone${held > 1 ? ` with ${held - 1} other register(s)` : ""}, sends itself once you have signal`}
+              {held > 0
+                ? `held on this phone${held > 1 ? ` with ${held - 1} other register(s)` : ""}, sends itself once you have signal`
+                : "parents of absent learners get an SMS at 09:00, not immediately"}
             </div>
           </div>
           <Button variant="primary" onClick={() => setSubmitted(false)}>Correct a mark</Button>
@@ -383,7 +413,7 @@ export function Attendance() {
             <p className="text-[13px] text-ink-muted">{confirming}</p>
             <div className="flex gap-2">
               <Button onClick={() => setConfirming(null)}>Go back</Button>
-              <Button variant="primary" onClick={submit}>Yes, submit</Button>
+              <Button variant="primary" disabled={saving} onClick={() => { void submit(); }}>{saving ? "Saving…" : "Yes, submit"}</Button>
             </div>
           </div>
         ) : (
@@ -391,8 +421,8 @@ export function Attendance() {
             <p className="text-[12.5px] text-ink-muted">
               Parents of absent learners are texted at 09:00, so a late arrival can still be corrected.
             </p>
-            <Button variant="accent" onClick={submit} className="px-6 py-3 text-[15px]">
-              Submit register
+            <Button variant="accent" disabled={saving} onClick={() => { void submit(); }} className="px-6 py-3 text-[15px]">
+              {saving ? "Saving…" : "Submit register"}
             </Button>
           </div>
         )}

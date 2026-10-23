@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
-  fetchSentByMe, fetchTeacherClasses, sendClassMessage,
+  fetchSentByMe, fetchTeacherClasses, isRetryable, sendClassMessage,
   type Announcement, type ClassGroup, type ClassMessageRecipients,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
@@ -65,9 +65,15 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
       setSubject("");
       setBody("");
       setReloadKey((k) => k + 1);
-    } catch {
-      // Offline or the request failed — hold it on this phone rather than
-      // losing what was typed; it sends once queue.flush() next runs. Won't
+    } catch (err) {
+      // The server looked at it and said no: holding it would only park it in the queue
+      // for good, so say why and leave what was typed in the box.
+      if (!isRetryable(err)) {
+        setStatus(`Not sent: ${err instanceof Error ? err.message : "something went wrong"}.`);
+        return;
+      }
+      // No signal, or the server isn't answering — hold it on this phone rather than
+      // losing what was typed; it sends by itself once there is signal. Won't
       // show up in "Sent by you" until then, since that reads the server.
       await queue.enqueue("announcements", [{
         tenant_id: session.tenantId,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { supabase } from "@figbloom/shared";
-import type { ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
+import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, supabase } from "@figbloom/shared";
+import type { ArchivedLearner, ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Avatar, AvatarEditor } from "../../components/Avatar";
 import { Badge, RoleBadge } from "../../components/ui/Badge";
@@ -17,7 +17,7 @@ import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type Studen
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 
-type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null };
+type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
@@ -101,10 +101,18 @@ export function People() {
   const [createLoginsOpen, setCreateLoginsOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [deletingStaff, setDeletingStaff] = useState(false);
+  // Learners who have left are archived, not deleted: one switch between the current roll and them.
+  const [view, setView] = useState<"current" | "archived">("current");
+  const [working, setWorking] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
   const { data, loading, error } = useAsync(() => fetchPeople(tenant.id), [tenant.id, reloadKey]);
+  const { data: archivedData, loading: archivedLoading } = useAsync(
+    () => (view === "archived" ? fetchArchivedLearners(tenant.id) : Promise.resolve([] as ArchivedLearner[])),
+    [tenant.id, view, reloadKey],
+  );
+  const archivedRows = useMemo<StudentRow[]>(() => (archivedData ?? []).map((a) => ({ ...a, class_id: a.class_id as string, gender: a.gender as StudentRow["gender"], login_id: null })), [archivedData]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
   // data must not show the previous one's meanwhile — skeleton for those only.
   const [loadedFor, setLoadedFor] = useState(tenant.id);
@@ -113,10 +121,10 @@ export function People() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data?.students ?? [])
+    return (view === "archived" ? archivedRows : data?.students ?? [])
       .filter((s) => classId === "all" || s.class_id === classId)
       .filter((s) => !q || s.full_name.toLowerCase().includes(q) || s.admission_no.includes(q));
-  }, [data, query, classId]);
+  }, [data, archivedRows, view, query, classId]);
 
   const staffRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -132,7 +140,7 @@ export function People() {
   // clamp instead of resetting to 1, so paging through and then narrowing
   // the search stays roughly where you were.
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [pageCount, page]);
-  useEffect(() => { setPage(1); }, [tab, query, classId, pageSize]);
+  useEffect(() => { setPage(1); }, [tab, query, classId, pageSize, view]);
 
   const pagedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [rows, page, pageSize]);
   const pagedStaffRows = useMemo(() => staffRows.slice((page - 1) * pageSize, page * pageSize), [staffRows, page, pageSize]);
@@ -148,24 +156,36 @@ export function People() {
     });
 
   const switchTab = (t: "students" | "staff") => { setTab(t); setPicked(new Set()); };
+  const switchView = (v: "current" | "archived") => { setView(v); setPicked(new Set()); setManage(null); };
 
-  async function deleteStudent(student: Pick<StudentRow, "id" | "full_name">) {
-    if (!window.confirm(`Delete ${student.full_name}? This removes their attendance, marks, fees and guardian links too — it cannot be undone.`)) return;
-    const { error: err } = await supabase().from("students").delete().eq("id", student.id);
-    if (err) { toast(`Could not delete ${student.full_name}: ${err.message}`, "error"); return; }
-    toast(`${student.full_name} deleted.`);
-    setManage(null);
-    setReloadKey((k) => k + 1);
+  /** Runs one change to some learners, then reloads. `done` is the toast on success. */
+  async function changeLearners(ids: string[], run: () => Promise<unknown>, done: string, failed: string) {
+    setWorking(true);
+    try {
+      await run();
+      toast(done);
+      setManage(null);
+      setPicked((p) => { const n = new Set(p); for (const id of ids) n.delete(id); return n; });
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(`${failed}: ${err instanceof Error ? err.message : "something went wrong"}`, "error");
+    } finally {
+      setWorking(false);
+    }
   }
 
-  async function bulkDeleteStudents() {
-    const ids = [...picked];
-    if (!window.confirm(`Delete ${ids.length} learner${ids.length === 1 ? "" : "s"}? This removes their attendance, marks, fees and guardian links too — it cannot be undone.`)) return;
-    const { error: err } = await supabase().from("students").delete().in("id", ids);
-    if (err) { toast(`Could not delete: ${err.message}`, "error"); return; }
-    toast(`${ids.length} learner${ids.length === 1 ? "" : "s"} deleted.`);
-    setPicked(new Set());
-    setReloadKey((k) => k + 1);
+  async function archiveStudents(ids: string[], who: string) {
+    if (!window.confirm(`Archive ${who}? They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".`)) return;
+    await changeLearners(ids, () => archiveLearners(ids), `${who} archived. Find them under "Archived".`, "Could not archive");
+  }
+
+  async function restoreStudents(ids: string[], who: string) {
+    await changeLearners(ids, () => restoreLearners(ids), `${who} restored.`, "Could not restore");
+  }
+
+  async function deleteStudents(ids: string[], who: string) {
+    if (!window.confirm(`Delete ${who} for good? This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.`)) return;
+    await changeLearners(ids, () => deleteLearners(ids), `${who} deleted.`, "Not deleted");
   }
 
   async function deleteStaff(staff: Pick<StaffRow, "id" | "full_name">) {
@@ -185,8 +205,9 @@ export function People() {
 
   const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, id: row.id });
   const manageRow: StudentRow | StaffRow | null = manage
-    ? (manage.kind === "students" ? data?.students.find((s) => s.id === manage.id) : data?.staff.find((s) => s.id === manage.id)) ?? null
+    ? (manage.kind === "students" ? [...(data?.students ?? []), ...archivedRows].find((s) => s.id === manage.id) : data?.staff.find((s) => s.id === manage.id)) ?? null
     : null;
+  const manageArchived = manage?.kind === "students" && archivedRows.some((s) => s.id === manage.id);
 
   return (
     <>
@@ -219,6 +240,16 @@ export function People() {
             </button>
           ))}
         </div>
+        {tab === "students" && (
+          <div role="group" aria-label="Which learners" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
+            {(["current", "archived"] as const).map((v) => (
+              <button key={v} type="button" aria-pressed={view === v} onClick={() => switchView(v)} className="rounded px-3 py-1.5 text-small capitalize"
+                style={view === v ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
+                {v}
+              </button>
+            ))}
+          </div>
+        )}
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name or admission number"
           aria-label="Search people"
           className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
@@ -252,13 +283,20 @@ export function People() {
       {tab === "students" && picked.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 border-b border-line bg-sunken px-7 py-2.5">
           <span className="text-small font-semibold">{picked.size} selected</span>
-          <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>
-          <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>
-          {(data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
-            <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
+          {view === "current" ? (
+            <>
+              <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>
+              <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>
+              {(data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
+                <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
+              )}
+              <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
+              <Button disabled={working} onClick={() => void archiveStudents([...picked], learnerCount(picked.size))}>Archive</Button>
+            </>
+          ) : (
+            <Button disabled={working} onClick={() => void restoreStudents([...picked], learnerCount(picked.size))}>Restore</Button>
           )}
-          <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
-          <Button variant="danger" onClick={() => void bulkDeleteStudents()}>Delete</Button>
+          <Button variant="danger" disabled={working} onClick={() => void deleteStudents([...picked], learnerCount(picked.size))}>Delete…</Button>
           <button onClick={() => setPicked(new Set())} className="text-small font-semibold text-leaf">Clear</button>
         </div>
       )}
@@ -268,7 +306,7 @@ export function People() {
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load people: {error.message}
           </p>
-        ) : pending || !data ? (
+        ) : pending || !data || (tab === "students" && view === "archived" && archivedLoading && !archivedData) ? (
           <TableSkeleton rows={8} />
         ) : tab === "students" ? (
           <DataTable
@@ -292,7 +330,8 @@ export function People() {
               { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
               { key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> },
               { key: "login", header: "Login", render: (s) => s.login_id ? <Mono>{s.login_id}</Mono> : <Badge tone="muted">No login</Badge> },
-              { key: "fees", header: "Fees", align: "right", render: (s) => {
+              { key: "fees", header: view === "archived" ? "Archived" : "Fees", align: "right", render: (s) => {
+                if (view === "archived") return <span className="text-[12.5px] text-ink-muted">{s.archived_at ? new Date(s.archived_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>;
                 const inv = data.feeByStudent.get(s.id);
                 if (!inv) return <Badge tone="muted">No invoice</Badge>;
                 const owes = inv.paid < inv.total;
@@ -303,7 +342,10 @@ export function People() {
             rowKey={(s) => s.id}
             onRowClick={(s) => openManage("students", s)}
             minWidth="880px"
-            empty={{
+            empty={view === "archived" ? {
+              title: "No archived learners",
+              body: "Learners you archive when they leave the school appear here. Nothing is deleted: you can restore them at any time.",
+            } : {
               title: "No learner matches that",
               body: "Try the admission number instead. If they were admitted this week, an import may still be running.",
               action: <Button variant="primary" onClick={() => setAddOpen(true)}>Add a learner</Button>,
@@ -363,7 +405,14 @@ export function People() {
           actions={
             <>
               {manage.kind === "students" && (
-                <Button variant="danger" onClick={() => void deleteStudent(manageRow)}>Delete learner</Button>
+                <>
+                  <Button variant="danger" disabled={working} onClick={() => void deleteStudents([manageRow.id], manageRow.full_name)}>Delete…</Button>
+                  {manageArchived ? (
+                    <Button disabled={working} onClick={() => void restoreStudents([manageRow.id], manageRow.full_name)}>Restore learner</Button>
+                  ) : (
+                    <Button disabled={working} onClick={() => void archiveStudents([manageRow.id], manageRow.full_name)}>Archive learner</Button>
+                  )}
+                </>
               )}
               {manage.kind === "staff" && manageRow.id !== profile.id && (
                 <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manageRow)}>
@@ -800,7 +849,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -868,7 +917,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -956,8 +1005,8 @@ function CreateStudentLoginsModal({ tenantId, students, onClose, onCreated, toas
         </div>
       ) : (
         <p className="text-[13px] leading-relaxed text-ink-muted">
-          Each learner gets their own login_id (e.g. "ST-0007") and the same shared dev password — same scheme as
-          teacher and guardian logins.
+          Each learner gets their own login_id (e.g. "ST-0007") and a one-time password they replace at first
+          sign-in — same scheme as teacher and guardian logins.
         </p>
       )}
     </Modal>

@@ -1,0 +1,38 @@
+import { ScrollView, Text, TouchableOpacity } from "react-native";
+import type { PublishedExam } from "@figbloom/shared";
+import { HIT, t } from "../theme";
+
+/**
+ * Moves between the exams a learner has results for. Teachers publish a class
+ * and subject at a time, so the newest exam can be only partly out: each pill
+ * says how many subjects, and the earlier complete exam is one tap away.
+ * Nothing to switch between with fewer than two.
+ */
+export function ExamSwitcher({ exams, value, onPick, tint }: {
+  exams: PublishedExam[];
+  value: string | null;
+  onPick: (examId: string) => void;
+  tint: string;
+}) {
+  if (exams.length < 2) return null;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+      {exams.map((e) => {
+        const on = e.id === value;
+        return (
+          <TouchableOpacity
+            key={e.id}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            onPress={() => onPick(e.id)}
+            style={{ ...HIT, borderRadius: 999, paddingHorizontal: 14, justifyContent: "center", backgroundColor: on ? tint : t.appSurface.lineSoft }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>
+              {e.name} · {e.subjectCount} subject{e.subjectCount === 1 ? "" : "s"}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+}

@@ -1,13 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { formatMoney, PAYMENT_FAILURES, itemsForStudent, normaliseMsisdn, payableSuggestions, supabase } from "@figbloom/shared";
+import { formatMoney, itemsForStudent, supabase } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
-import { Modal } from "../../components/ui/Modal";
+import { PayWithMpesaModal } from "../../components/PayWithMpesaModal";
 import { useToast } from "../../components/ui/Toast";
 import { formatPhone, formatShortDate, type Receipt } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
@@ -15,8 +15,6 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listPaymentProofs, privateDocUrl, uploadPaymentProof, type PaymentProof } from "../../lib/uploads";
 import { ChildSwitcher } from "./ChildSwitcher";
-
-type PayState = "idle" | "prompting" | "failed" | "done";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
 const PROOF_LABEL: Record<PaymentProof["status"], string> = { pending: "Pending review", confirmed: "Confirmed", rejected: "Rejected" };
@@ -36,22 +34,18 @@ async function fetchCurrentInvoiceId(studentId: string): Promise<string | null> 
 }
 
 /**
- * Real fee items for the term, real receipts, and the M-Pesa pay flow — the
- * same simulation the phone preview uses (there is no sandbox Daraja wired
- * up locally, and only a real Safaricom callback can ever mark a payment
- * "success"), laid out as a modal instead of a separate screen.
+ * Real fee items for the term, real receipts, and the M-Pesa pay dialog
+ * (PayWithMpesaModal): it asks the server for a prompt and shows only what the
+ * payment row says, since only Safaricom's confirmed callback can ever mark a
+ * payment "success".
  */
 export function ParentFees() {
   const { profile, tenant } = useTenantSession();
-  const { data, loading, error, child } = useParentData();
+  const { data, loading, error, child, reload } = useParentData();
   const [params, setParams] = useSearchParams();
   const toast = useToast();
 
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(0);
-  const [phone, setPhone] = useState(formatPhone(profile.phone).replace("+254 ", "0") || "0722 118 004");
-  const [payState, setPayState] = useState<PayState>("idle");
-  const [phoneError, setPhoneError] = useState("");
 
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofNote, setProofNote] = useState("");
@@ -107,10 +101,7 @@ export function ParentFees() {
   useEffect(() => {
     if (!data || !child) return;
     if (params.get("pay") === "1") {
-      if (child.balance > 0) {
-        setAmount(child.balance);
-        setOpen(true);
-      }
+      if (child.balance > 0) setOpen(true);
       const next = new URLSearchParams(params);
       next.delete("pay");
       setParams(next, { replace: true });
@@ -119,28 +110,7 @@ export function ParentFees() {
   }, [data, child?.id]);
 
   function openPay() {
-    if (!child) return;
-    setAmount(child.balance);
-    setPayState("idle");
-    setPhoneError("");
     setOpen(true);
-  }
-
-  function closePay() {
-    setOpen(false);
-    setPayState("idle");
-    setPhoneError("");
-  }
-
-  function startPay() {
-    if (!child) return;
-    const p = normaliseMsisdn(phone);
-    if (!p.ok) { setPhoneError(p.message); return; }
-    if (amount <= 0) { setPhoneError("Enter how much you are paying."); return; }
-    setPhoneError("");
-    setPayState("prompting");
-    // Daraja STK push: the prompt appears on the handset, we wait for the callback.
-    window.setTimeout(() => setPayState(amount > child.balance ? "failed" : "done"), 1800);
   }
 
   const feeItems = child && data ? itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel) : [];
@@ -221,7 +191,7 @@ export function ParentFees() {
                 rows={child.receipts}
                 rowKey={(r) => r.id}
                 minWidth="480px"
-                empty={{ title: "No receipts yet.", body: "Payments made through M-Pesa appear here once confirmed." }}
+                empty={{ title: "No receipts yet.", body: "Payments appear here once the school has confirmed them." }}
               />
             </div>
 
@@ -323,111 +293,18 @@ export function ParentFees() {
         )}
       </div>
 
-      {child && (
-        <Modal
-          open={open}
-          onClose={closePay}
-          eyebrow="M-PESA"
-          title={
-            payState === "done" ? `${formatMoney(amount, tenant.country)} received`
-              : payState === "failed" ? "The payment did not go through"
-              : payState === "prompting" ? "Check your phone"
-              : `Pay for ${child.name}`
-          }
-          blurb={payState === "idle" ? `${child.cls} · balance ${formatMoney(child.balance, tenant.country)}` : undefined}
-          footNote={payState === "idle" ? `A prompt will be sent to ${phone}. Nothing leaves the account until the PIN is entered.` : undefined}
-          actions={
-            payState === "idle" ? (
-              <>
-                <Button onClick={closePay}>Cancel</Button>
-                <Button variant="accent" onClick={startPay}>Send M-Pesa prompt</Button>
-              </>
-            ) : payState === "failed" ? (
-              <>
-                <Button onClick={closePay}>Pay at the school office instead</Button>
-                <Button variant="accent" onClick={() => setPayState("idle")}>Try again</Button>
-              </>
-            ) : payState === "done" ? (
-              <Button variant="accent" onClick={closePay}>Done</Button>
-            ) : undefined
-          }
-        >
-          {payState === "idle" && (
-            <div className="grid gap-4">
-              <div>
-                <h3 className="mb-2 text-[12.5px] font-semibold">How much?</h3>
-                <div className="grid gap-2">
-                  {payableSuggestions(child.balance).map((s) => {
-                    const on = s.cents > 0 && amount === s.cents;
-                    return (
-                      <button
-                        key={s.label}
-                        type="button"
-                        onClick={() => setAmount(s.cents)}
-                        className="flex items-center justify-between rounded-lg border-[1.5px] bg-white px-3.5 py-2.5 text-left"
-                        style={{ borderColor: on ? "var(--accent)" : "#EAE6E5" }}
-                      >
-                        <span className="text-[13px] font-medium">{s.label}</span>
-                        {s.cents > 0 && <span className="font-mono text-[12.5px]">{formatMoney(s.cents, tenant.country)}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <label className="block">
-                <span className="mb-1.5 block text-[12.5px] font-semibold">Amount</span>
-                <input
-                  value={amount ? String(amount / 100) : ""}
-                  inputMode="numeric"
-                  onChange={(e) => setAmount(Number(e.target.value.replace(/[^0-9]/g, "")) * 100)}
-                  className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[14px] outline-none"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1.5 block text-[12.5px] font-semibold">M-Pesa number</span>
-                <input
-                  value={phone}
-                  inputMode="tel"
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-md border px-3 py-2 font-mono text-[14px] outline-none"
-                  style={{ borderColor: phoneError ? "#B8460A" : "#D3DAD5" }}
-                />
-                {phoneError && <span className="mt-1.5 block text-[11.5px] text-warn-ink">{phoneError}</span>}
-              </label>
-            </div>
-          )}
-
-          {payState === "prompting" && (
-            <div className="py-6 text-center">
-              <div className="mx-auto mb-5 h-10 w-10 animate-spin rounded-full border-[3px] border-line" style={{ borderTopColor: "var(--accent)" }} />
-              <p className="mx-auto max-w-[320px] text-[13px] leading-relaxed text-ink-muted">
-                An M-Pesa prompt has been sent to {phone}. Enter the PIN when it appears. Do not close this window.
-              </p>
-            </div>
-          )}
-
-          {payState === "failed" && (
-            <p className="text-[13px] leading-relaxed text-ink-muted">{PAYMENT_FAILURES.timeout}</p>
-          )}
-
-          {payState === "done" && (
-            <div>
-              <p className="text-[13px] leading-relaxed text-ink-muted">
-                {child.first}'s balance is now {formatMoney(Math.max(child.balance - amount, 0), tenant.country)}. The receipt will appear
-                above once the school's system confirms it.
-              </p>
-              <div className="mt-4 rounded-lg border border-line bg-page p-3.5">
-                {[["Paid", formatMoney(amount, tenant.country)], ["For", child.name], ["Method", `M-Pesa ${phone}`]].map(([k, v]) => (
-                  <div key={k} className="flex justify-between border-b border-line-soft py-2 text-[12.5px] last:border-0">
-                    <span className="text-ink-muted">{k}</span><span className="font-medium">{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Modal>
+      {open && child && (
+        <PayWithMpesaModal
+          payeeName={child.name}
+          payeeFirst={child.first}
+          context={child.cls}
+          balanceCents={child.balance}
+          invoiceId={invoiceId}
+          country={tenant.country}
+          initialPhone={formatPhone(profile.phone).replace("+254 ", "0")}
+          onClose={() => setOpen(false)}
+          onSettled={reload}
+        />
       )}
     </>
   );

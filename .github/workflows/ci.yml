@@ -1,0 +1,68 @@
+name: CI
+
+# Runs on every pull request, and on main. Nothing is installed or executed
+# until the security scan has passed: the September 2026 attacks ran code from
+# a build config file the moment anyone built the project (see
+# .agents/SECURITY.md), so the scan reads files and never runs any of them.
+#
+# Third-party actions are pinned to a commit, not a tag: a tag can be moved to
+# point at different code after we've reviewed it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-scan:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: sh scripts/security-scan.sh
+
+  checks:
+    name: Typecheck, lint, unit tests
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      # --ignore-scripts: no dependency gets to run code at install time.
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:unit
+
+  edge-functions:
+    name: Edge function tests (Deno)
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      # Same command as `npm run test:edge`. The tests run against a fake
+      # Supabase client (supabase/functions/_shared/fakeSupabase.ts), so no
+      # database or secrets are needed.
+      - run: deno test --allow-env --config supabase/functions/deno.json supabase/functions

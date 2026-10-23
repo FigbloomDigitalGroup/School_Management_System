@@ -291,10 +291,14 @@ export interface Payment {
   tenant_id: string;
   invoice_id: string;
   amount_cents: number;
-  method: "mpesa" | "bank" | "cash";
+  method: "mpesa" | "bank" | "cash" | "cheque";
   msisdn: string | null;
   checkout_request_id: string | null;
   mpesa_receipt: string | null;
+  /** Receipt/slip/cheque number for a payment the office recorded (record_payment). */
+  reference: string | null;
+  /** Who in the office recorded it; null for an M-Pesa prompt paid in the app. */
+  recorded_by: string | null;
   status: PaymentStatus;
   failure_reason: string | null;
   created_at: string;

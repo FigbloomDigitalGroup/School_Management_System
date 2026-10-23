@@ -15,6 +15,18 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Google Maps SDK for Android key (FIG-874) — a separate, Android-restricted
+// key from VITE_GOOGLE_MAPS_API_KEY (that one's a browser key for the web
+// Maps JS API; this one needs "Maps SDK for Android" enabled instead).
+// local.properties is already gitignored (it's where the Android SDK path
+// normally lives) and never exists in CI, so this defaults to empty rather
+// than failing the build — the map just won't render tiles until it's set.
+def localPropertiesFile = rootProject.file("local.properties")
+def localProperties = new Properties()
+if (localPropertiesFile.exists()) {
+    localProperties.load(new FileInputStream(localPropertiesFile))
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -106,6 +118,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        manifestPlaceholders = [MAPS_API_KEY: localProperties.getProperty("MAPS_API_KEY", "")]
     }
     signingConfigs {
         debug {

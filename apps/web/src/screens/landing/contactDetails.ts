@@ -2,7 +2,7 @@ const contactDetails = {
   email: 'sales@figbloom.org',
   phone: '+254 796 286 676',
   whatsapp: '+254 798 941 392',
-  location: 'Enterprise Road, SMK Business Centre',
+  location: 'Enterprise Road, SMK Business Centre, Nairobi,Kenya',
 };
 
 export const phoneLink = `tel:${contactDetails.phone.replace(/\s/g, '')}`;

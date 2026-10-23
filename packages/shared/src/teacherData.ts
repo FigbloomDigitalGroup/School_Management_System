@@ -2,7 +2,8 @@ import { fetchClassTimetableSlots } from "./timetable";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
-import { today, type Register } from "./attendance";
+import { today, toRecords, type Register } from "./attendance";
+import { writeErrorFrom } from "./queue";
 import type { Announcement, Audience, AttendanceMark, ClassGroup, Exam, Student, Subject, Term, Weekday } from "./types";
 
 /**
@@ -230,20 +231,40 @@ export interface MarkRow {
   entered_by: string;
 }
 
-/** A draft save — visible only to the entering teacher until publishExam() runs.
- *  Named saveExamMarks, not saveMarks, to avoid colliding with courseGrades.ts's
- *  higher-ed equivalent (assessment-based, different signature). */
+/** A draft save — visible to school staff only, never to families, until publishMarks() releases
+ *  that class and subject. Named saveExamMarks, not saveMarks, to avoid colliding with
+ *  courseGrades.ts's higher-ed equivalent (assessment-based, different signature). */
 export async function saveExamMarks(rows: MarkRow[]): Promise<void> {
   if (!rows.length) return;
-  const { error } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
+  const { error, status } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
+  if (error) throw writeErrorFrom(error, status);
+}
+
+/**
+ * Releases one class's marks for one subject of an exam to its learners and their
+ * parents. Callers should saveExamMarks() whatever's on screen first — publishing on
+ * top of an unsaved draft must not lose it. It releases only that class and subject,
+ * never the rest of the exam: other teachers' marks stay private until they publish
+ * their own. The database checks the caller teaches that subject in that class (or
+ * administers the school) and records who published.
+ */
+export async function publishMarks(examId: string, classId: string, subjectId: string): Promise<void> {
+  const { error } = await supabase().rpc("publish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
   if (error) throw new Error(error.message);
 }
 
-/** Flips an exam visible to parents/students. Callers should saveExamMarks() whatever's
- *  on screen first — publishing on top of an unsaved draft must not lose it. */
-export async function publishExam(examId: string): Promise<void> {
-  const { error } = await supabase().from("exams").update({ published_at: new Date().toISOString() }).eq("id", examId);
+/** Takes a published class and subject back to draft, e.g. after a mistyped column was noticed. */
+export async function unpublishMarks(examId: string, classId: string, subjectId: string): Promise<void> {
+  const { error } = await supabase().rpc("unpublish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
   if (error) throw new Error(error.message);
+}
+
+/** Which subjects of this exam are already out for this class (ids). */
+export async function fetchPublishedSubjects(examId: string, classId: string): Promise<Set<string>> {
+  const { data, error } = await supabase()
+    .from("mark_publications").select("subject_id").eq("exam_id", examId).eq("class_id", classId);
+  if (error) throw new Error(error.message);
+  return new Set(((data ?? []) as { subject_id: string }[]).map((r) => r.subject_id));
 }
 
 /** A teacher's own sent messages — always in-app only, always one class at a time,
@@ -263,7 +284,7 @@ export async function sendClassMessage(
   tenantId: string, teacherId: string, classId: string,
   recipients: ClassMessageRecipients, subject: string, body: string,
 ): Promise<void> {
-  const { error } = await supabase().from("announcements").insert({
+  const { error, status } = await supabase().from("announcements").insert({
     tenant_id: tenantId,
     author_id: teacherId,
     subject: subject.trim(),
@@ -272,24 +293,14 @@ export async function sendClassMessage(
     channels: ["in_app"],
     published_at: new Date().toISOString(),
   });
-  if (error) throw new Error(error.message);
+  if (error) throw writeErrorFrom(error, status);
 }
 
 /** Upserts one class's register for today — onConflict(student_id, taken_on) means
  *  correcting a mark after submit is just another call, not a separate edit path.
- *  Deliberately doesn't use attendance.ts's toRecords(), which stamps a
- *  synced_at field the "attendance" table has no column for. */
+ *  Throws a WriteError: `retryable` says whether holding the register and sending
+ *  it later can help (no signal, server trouble) or the server refused it. */
 export async function writeAttendance(reg: Register, tenantId: string, takenBy: string): Promise<void> {
-  const rows = Object.entries(reg.marks).map(([student_id, mark]) => ({
-    tenant_id: tenantId,
-    student_id,
-    class_id: reg.classId,
-    term_id: reg.termId,
-    taken_by: takenBy,
-    taken_on: reg.date,
-    mark,
-    note: reg.notes[student_id] ?? null,
-  }));
-  const { error } = await supabase().from("attendance").upsert(rows, { onConflict: "student_id,taken_on" });
-  if (error) throw new Error(error.message);
+  const { error, status } = await supabase().from("attendance").upsert(toRecords(reg, tenantId, takenBy), { onConflict: "student_id,taken_on" });
+  if (error) throw writeErrorFrom(error, status);
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   DEMO_LOGINS, homeRouteFor, resolveLoginId, searchSchools, supabase,
-  type Role, type SchoolSearchResult, type Tenant,
+  type ResolvedLogin, type Role, type SchoolSearchResult, type Tenant,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
@@ -67,7 +67,7 @@ export function SignIn() {
 
   const [school, setSchool] = useState<SchoolSearchResult | null>(null);
   const [loginId, setLoginId] = useState("");
-  const [resolved, setResolved] = useState<{ full_name: string; email: string } | null>(null);
+  const [resolved, setResolved] = useState<ResolvedLogin | null>(null);
   const [resolving, setResolving] = useState(false);
   const [idHint, setIdHint] = useState("");
 
@@ -252,7 +252,7 @@ export function SignIn() {
                   value={loginId}
                   onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); }}
                   onBlur={() => void resolveId()}
-                  hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.full_name}.` : undefined}
+                  hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.display_name}` : undefined}
                   error={!resolving && idHint ? idHint : undefined}
                 />
               )}
@@ -305,6 +305,8 @@ export function SignIn() {
           New organization? <Link to="/signup" className="font-medium text-forest hover:underline">Get started</Link>
         </p>
 
+        {/* Seeded accounts only exist in local dev — never list them in a production build. */}
+        {import.meta.env.DEV && (
         <details className="mt-4 rounded-xl border border-line bg-white p-4">
           <summary className="cursor-pointer text-small font-semibold">Development logins</summary>
           <table className="mt-3 w-full text-[12px]">
@@ -322,6 +324,7 @@ export function SignIn() {
             </tbody>
           </table>
         </details>
+        )}
     </AuthLayout>
   );
 }
@@ -339,6 +342,8 @@ function SchoolPicker({ selected, onSelect, onClear }: {
   const [results, setResults] = useState<SchoolSearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -352,16 +357,21 @@ function SchoolPicker({ selected, onSelect, onClear }: {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); return; }
+    setFailed(false);
+    if (q.length < 2) { setResults([]); setSearching(false); setOpen(false); return; }
+    // Open straight away so "Searching…" shows while the request runs, not only once it has answered.
     setSearching(true);
+    setOpen(true);
+    // A slow answer to an earlier keystroke must not overwrite the answer to the current one.
+    let current = true;
     const t = setTimeout(() => {
       searchSchools(q)
-        .then((schools) => { setResults(schools); setOpen(true); })
-        .catch(() => setResults([]))
-        .finally(() => setSearching(false));
+        .then((schools) => { if (current) setResults(schools); })
+        .catch((err) => { if (current) { console.error("School search failed:", err); setResults([]); setFailed(true); } })
+        .finally(() => { if (current) setSearching(false); });
     }, 250);
-    return () => clearTimeout(t);
-  }, [query]);
+    return () => { current = false; clearTimeout(t); };
+  }, [query, retry]);
 
   if (selected) {
     return (
@@ -389,8 +399,13 @@ function SchoolPicker({ selected, onSelect, onClear }: {
         <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg">
           {searching ? (
             <div className="px-3 py-2 text-[12.5px] text-ink-faint">Searching…</div>
+          ) : failed ? (
+            <div className="px-3 py-2 text-[12.5px] text-warn-ink">
+              We couldn't search just now. Check your connection, then{" "}
+              <button type="button" onClick={() => setRetry((n) => n + 1)} className="font-semibold underline">try again</button>.
+            </div>
           ) : results.length === 0 ? (
-            <div className="px-3 py-2 text-[12.5px] text-ink-faint">No schools found.</div>
+            <div className="px-3 py-2 text-[12.5px] text-ink-faint">No school matches that name. Check the spelling, or ask the school office.</div>
           ) : (
             results.map((s) => (
               <button

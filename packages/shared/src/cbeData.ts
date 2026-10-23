@@ -1,6 +1,7 @@
 import type { Strand } from "./curriculum";
 import { rubricFor, summariseStrands, type RubricLevel } from "./gradingSchemes";
 import { supabase } from "./supabase";
+import { writeErrorFrom } from "./queue";
 import type { ClassLevel } from "./types";
 
 /**
@@ -99,33 +100,33 @@ export async function saveCbeEntries(input: {
 }): Promise<void> {
   const sb = supabase();
   if (input.results.length) {
-    const { error } = await sb.from("cbe_results").upsert(
+    const { error, status } = await sb.from("cbe_results").upsert(
       input.results.map((r) => ({
         tenant_id: input.tenantId, assessment_id: input.assessmentId, student_id: r.studentId,
         strand_id: r.strandId, level_code: r.code, entered_by: input.enteredBy,
       })),
       { onConflict: "assessment_id,student_id,strand_id" },
     );
-    if (error) throw new Error(error.message);
+    if (error) throw writeErrorFrom(error, status);
   }
   for (const c of input.cleared) {
-    const { error } = await sb.from("cbe_results").delete()
+    const { error, status } = await sb.from("cbe_results").delete()
       .eq("assessment_id", input.assessmentId).eq("student_id", c.studentId).eq("strand_id", c.strandId);
-    if (error) throw new Error(error.message);
+    if (error) throw writeErrorFrom(error, status);
   }
   const keep = input.comments.filter((c) => c.comment.trim());
   const drop = input.comments.filter((c) => !c.comment.trim());
   if (keep.length) {
-    const { error } = await sb.from("cbe_assessment_comments").upsert(
+    const { error, status } = await sb.from("cbe_assessment_comments").upsert(
       keep.map((c) => ({ tenant_id: input.tenantId, assessment_id: input.assessmentId, student_id: c.studentId, comment: c.comment.trim() })),
       { onConflict: "assessment_id,student_id" },
     );
-    if (error) throw new Error(error.message);
+    if (error) throw writeErrorFrom(error, status);
   }
   if (drop.length) {
-    const { error } = await sb.from("cbe_assessment_comments").delete()
+    const { error, status } = await sb.from("cbe_assessment_comments").delete()
       .eq("assessment_id", input.assessmentId).in("student_id", drop.map((c) => c.studentId));
-    if (error) throw new Error(error.message);
+    if (error) throw writeErrorFrom(error, status);
   }
 }
 

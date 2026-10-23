@@ -101,7 +101,7 @@ function InviteAdminModal({ organizationId, onClose, onInvited, toast }: {
       ) : (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            No email/SMS provider is configured locally, so nothing was sent — hand these credentials to them directly.
+            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Email", result.email], ["Password", result.password]].map(([k, v]) => (

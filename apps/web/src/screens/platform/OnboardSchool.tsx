@@ -33,8 +33,8 @@ const BLANK: Form = {
  *
  * The drop-off point is step 4: the administrator's contact details. A wrong
  * email means a school that never logs in and shows up a fortnight later as
- * "setup stalled". There is no real email/SMS provider wired up locally, so
- * the account is created outright with a known dev password (see
+ * "setup stalled". There is no real email/SMS provider wired up, so the
+ * account is created outright with a random one-time password (see
  * supabase/functions/invite-admin) — the success screen shows those
  * credentials to hand to the school directly, rather than claiming an
  * invite was delivered when nothing was actually sent.
@@ -147,7 +147,7 @@ export function OnboardSchool({
     "Nothing is created until the last step.",
     "The address is permanent.",
     "Billing starts when the trial ends.",
-    "There is no live password reset locally — write these down.",
+    "The password is shown once — they choose their own at first sign-in.",
     "You can remove the school again from its detail page.",
     tenant ? `${tenant.name} is in your tenant list now.` : "",
   ][step];
@@ -242,12 +242,12 @@ export function OnboardSchool({
           <div>
             <label htmlFor="slug" className="mb-1.5 block text-small font-semibold">Workspace address</label>
             <div className="flex items-center overflow-hidden rounded-md border border-[#D3DAD5]">
-              <span className="border-r border-line bg-page px-3 py-2.5 font-mono text-[13px] text-ink-faint">figbloom.co.ke/s/</span>
+              <span className="border-r border-line bg-page px-3 py-2.5 font-mono text-[13px] text-ink-faint">schoolmanagement.figbloom.org/s/</span>
               <input id="slug" value={slugValue} onChange={(e) => set("slug", e.target.value)} className="flex-1 px-3 py-2.5 font-mono text-body outline-none" />
             </div>
             <p className="mt-2 flex items-center gap-1.5 text-small" style={{ color: takenBy || !slugCheck.ok ? "#B8460A" : "#2E7D4F" }}>
               <span aria-hidden>{takenBy || !slugCheck.ok ? "✕" : "✓"}</span>
-              {takenBy ? "That address is already taken by another school." : slugCheck.ok ? `figbloom.co.ke/s/${slugValue} is free. ${slugCheck.message}` : slugCheck.message}
+              {takenBy ? "That address is already taken by another school." : slugCheck.ok ? `schoolmanagement.figbloom.org/s/${slugValue} is free. ${slugCheck.message}` : slugCheck.message}
             </p>
             {alternatives.length > 0 && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11.5px]">
@@ -363,9 +363,9 @@ export function OnboardSchool({
             <TextField id="phone" label="Mobile (optional)" mono placeholder={countryProfile(form.country).phonePlaceholder} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
           </div>
           <p className="rounded-lg bg-sunken px-3.5 py-3 text-[12px] leading-relaxed text-ink-muted">
-            No email or SMS provider is configured in this environment, so nothing gets sent. Their login is created
-            outright with a starting password shown on the next screen — hand it to them directly, the same way every
-            other development login in this system works.
+            No email or SMS provider is configured, so nothing gets sent. Their login is created outright with a
+            one-time starting password shown on the next screen — hand it to them directly; they choose their own the
+            first time they sign in.
           </p>
         </div>
       )}
@@ -375,7 +375,7 @@ export function OnboardSchool({
           <dl className="mb-4 overflow-hidden rounded-lg border border-line">
             {[
               ["School", form.name || "—"],
-              ["Web address", `figbloom.co.ke/s/${slugValue || "—"}`],
+              ["Web address", `schoolmanagement.figbloom.org/s/${slugValue || "—"}`],
               ...(form.organizationId ? [["Organization", organizations?.find((o) => o.id === form.organizationId)?.name ?? "—"]] : []),
               ["Plan", `${form.plan} · ${form.cycle === "term" ? "per term" : "annual"}`],
               ["Trial", form.trial === "0" ? "No trial" : `${form.trial} days`],

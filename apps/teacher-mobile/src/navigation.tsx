@@ -12,6 +12,8 @@ import { TeacherMore } from "./screens/teacher/More";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherLeave } from "./screens/teacher/Leave";
+import { TeacherHomework } from "./screens/teacher/Homework";
+import { useQueueSync } from "./lib/useQueueSync";
 import { TeacherBuses } from "./screens/teacher/Buses";
 import { TeacherAccount } from "./screens/teacher/Account";
 
@@ -38,6 +40,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MoreMenu">{() => <TeacherMore session={session} />}</Stack.Screen>
       <Stack.Screen name="Timetable">{() => <TeacherTimetable session={session} />}</Stack.Screen>
+      <Stack.Screen name="Homework">{() => <TeacherHomework session={session} />}</Stack.Screen>
       <Stack.Screen name="Classes">{() => <TeacherClasses session={session} />}</Stack.Screen>
       <Stack.Screen name="Leave">{() => <TeacherLeave session={session} />}</Stack.Screen>
       <Stack.Screen name="Buses">{() => <TeacherBuses session={session} />}</Stack.Screen>
@@ -48,6 +51,8 @@ function MoreStack({ session }: { session: TeacherSession }) {
 
 export function Navigation({ session }: { session: TeacherSession }) {
   const a = accentFor(session.accent);
+  // Registers and marks saved on this phone go out as soon as the app opens, not only when a screen asks.
+  useQueueSync(session.profileId);
 
   return (
     <NavigationContainer>

@@ -93,11 +93,13 @@ describe("invite-org-admin handle", () => {
     assertEquals(out.ok, true);
     assertEquals(out.email, validBody.email);
     assertEquals(out.linkedExisting, false);
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
     const profiles = admin.rowsIn("profiles");
     const created = profiles.find((p) => p.id === "new-org-admin-1");
     assertEquals(created?.role, "org_admin");
     assertEquals(created?.tenant_id, null);
+    assertEquals(created?.must_change_password, true);
 
     const links = admin.rowsIn("organization_admins");
     assertEquals(links.length, 1);

@@ -25,9 +25,10 @@ test.describe.configure({ mode: "serial" });
 const LOGINS = {
   platform: { email: "joyce@figbloom.co.ke", password: "figbloom-dev" },
   schoolAdmin: { email: "principal@alliance.sc.ke", password: "figbloom-dev" },
-  teacher: { school: "Alliance High School", loginId: "TC-0001", password: "figbloom-dev" },
-  parent: { school: "Alliance High School", loginId: "PT-0001", password: "figbloom-dev" },
-  student: { school: "Alliance High School", loginId: "ST-0001", password: "figbloom-dev" },
+  // The same IDs as DEMO_LOGINS in packages/shared/src/demo.ts: the seeded accounts.
+  teacher: { school: "Alliance High School", loginId: "TC-0002", password: "figbloom-dev" },
+  parent: { school: "Alliance High School", loginId: "PT-0002", password: "figbloom-dev" },
+  student: { school: "Alliance High School", loginId: "ST-0002", password: "figbloom-dev" },
 };
 
 /** Sign-in is a client-side redirect after an async Supabase call — wait for
@@ -127,7 +128,18 @@ test.describe("sign in", () => {
 });
 
 test.describe("platform", () => {
+  // The onboarding test creates a real school and its admin. Remove them before and
+  // after, so it can run again (a second run used to collide with the first run's school)
+  // and nothing is left in the database for the other checks to trip over.
+  async function removeNyeriGirls() {
+    const { data: admins } = await admin.from("profiles").select("id").eq("email", "peter.mwangi@nyerigirls.sc.ke");
+    for (const row of admins ?? []) await admin.auth.admin.deleteUser(row.id);
+    await admin.from("tenants").delete().eq("slug", "nyeri-girls");
+  }
+  test.afterAll(removeNyeriGirls);
+
   test.beforeEach(async ({ page }) => {
+    await removeNyeriGirls();
     await signInEmail(page, LOGINS.platform.email, LOGINS.platform.password);
   });
 
@@ -173,33 +185,47 @@ test.describe("platform", () => {
   });
 
   test("console chips cannot contradict their own stat cards", async ({ page }) => {
-    await page.goto("/platform/incidents");
-    await page.getByRole("button", { name: "Open" }).click();
-    // "Open" must include Investigating and Fix in review, not just one of them.
-    await expect(page.getByText("Investigating")).toBeVisible();
-    await expect(page.getByText("Fix in review")).toBeVisible();
-    // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
-    // filter chip itself, and a substring match would also hit "resolved 14 Aug"
-    // in a stat card's sub-text.
-    await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+    // The seed has no incidents, so make one in each state (titles avoid the words
+    // under test: getByText matches substrings, case-insensitively).
+    const { data: made, error: insertError } = await admin.from("platform_incidents").insert([
+      { severity: "SEV-2", title: "E2E first", summary: "e2e", affected_schools: 1, status: "investigating" },
+      { severity: "SEV-3", title: "E2E second", summary: "e2e", affected_schools: 2, status: "fix_in_review" },
+      { severity: "SEV-3", title: "E2E third", summary: "e2e", affected_schools: 0, status: "resolved", resolved_at: new Date().toISOString() },
+    ]).select("id");
+    expect(insertError).toBeNull();
+    try {
+      await page.goto("/platform/incidents");
+      await page.getByRole("button", { name: "Open" }).click();
+      // "Open" must include Investigating and Fix in review, not just one of them.
+      await expect(page.getByText("Investigating")).toBeVisible();
+      await expect(page.getByText("Fix in review")).toBeVisible();
+      // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
+      // filter chip itself, and a substring match would also hit "resolved 14 Aug"
+      // in a stat card's sub-text.
+      await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+    } finally {
+      await admin.from("platform_incidents").delete().in("id", (made ?? []).map((r) => r.id));
+    }
   });
 });
 
 test.describe("teacher", () => {
-  // Both attendance tests write to the same class's same day's register —
+  // The attendance tests write to the same class's same day's register —
   // Attendance.tsx prefills from whatever is already saved for today, so a
-  // stale row from an earlier run (or the other Playwright project) would
-  // make the roster no longer all-present. Reset before either test touches
-  // it, rather than relying on run order to keep the starting state honest.
+  // register left by an earlier test (or an earlier run, or the other Playwright
+  // project) would open straight to "register is in". Reset before EACH test.
   test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async () => {
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  async function attendanceRowsToday() {
     const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
-    const today = new Date().toISOString().slice(0, 10);
-    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", today);
-  });
+    const { count } = await admin.from("attendance").select("id", { count: "exact", head: true }).eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
+    return count ?? 0;
+  }
 
   test.beforeEach(async ({ page }) => {
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
     await signInWithId(page, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
     await page.goto("/s/alliance/teacher/attendance");
   });
@@ -222,7 +248,67 @@ test.describe("teacher", () => {
 
     await page.getByRole("button", { name: "Submit register" }).click();
     await expect(page.getByText("register is in")).toBeVisible();
-    await expect(page.getByText(/Parents of absent learners/)).toBeVisible();
+    await expect(page.getByText(/parents of absent learners/i)).toBeVisible();
+  });
+
+  const attendanceWrite = /\/rest\/v1\/attendance/;
+
+  test("a register submitted while the server is unreachable is held, then sent by itself", async ({ page }) => {
+    // The browser believes it is online, but the school's server doesn't answer:
+    // the old screen said "submitted" and quietly lost the register.
+    await page.route(attendanceWrite, (route) => (route.request().method() === "POST" ? route.abort("failed") : route.continue()));
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText("Saved on this phone. It will send itself when you have signal.")).toBeVisible();
+    await expect(page.getByText(/held on this phone/)).toBeVisible();
+    expect(await attendanceRowsToday()).toBe(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toContain('"table":"attendance"');
+
+    // The server comes back: the register goes out without the teacher doing anything.
+    await page.unroute(attendanceWrite);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect.poll(attendanceRowsToday, { timeout: 15000 }).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1")), { timeout: 15000 }).toBe("[]");
+    await expect(page.getByText(/held on this phone/)).toHaveCount(0, { timeout: 15000 });
+  });
+
+  test("a register the server refuses is not reported as saved, and is not held", async ({ page }) => {
+    await page.route(attendanceWrite, (route) => (route.request().method() === "POST"
+      ? route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "42501", message: 'new row violates row-level security policy for table "attendance"', details: null, hint: null }),
+        })
+      : route.continue()));
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText(/The register was not saved: .*row-level security/)).toBeVisible();
+    // Still on the roster, not on "register is in", and nothing parked in the queue to fail forever.
+    await expect(page.getByText("Everyone starts present")).toBeVisible();
+    await expect(page.getByText("register is in")).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toBeNull();
+    expect(await attendanceRowsToday()).toBe(0);
+  });
+
+  test("something saved on this device that the server refused is shown, and can be discarded", async ({ page }) => {
+    // Parked in the queue by an earlier visit: the server said no, so waiting can't help.
+    const refused = [{
+      id: "marks-1", table: "marks", rows: [], queuedAt: new Date().toISOString(), attempts: 1,
+      lastError: "new row violates row-level security policy for table \"marks\"",
+      rejected: { at: new Date().toISOString(), message: "new row violates row-level security policy for table \"marks\"" },
+    }];
+    await page.evaluate((q) => window.localStorage.setItem("figbloom.queue.v1", JSON.stringify(q)), refused);
+    await page.reload();
+
+    const notice = page.getByRole("alert").filter({ hasText: "could not be sent" });
+    await expect(notice).toContainText("Marks saved on this device could not be sent");
+    await expect(notice).toContainText("row-level security");
+
+    await notice.getByRole("button", { name: "Discard" }).click();
+    await expect(notice).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toBe("[]");
   });
 
   test("gradebook will not publish a partial column", async ({ page }) => {
@@ -238,6 +324,108 @@ test.describe("teacher", () => {
     // "abs" is a valid entry — a missed paper is missing, not zero.
     await first.fill("abs");
     await expect(page.getByText("This paper is out of 100")).toHaveCount(0);
+  });
+  test("the gradebook says whether this class's marks are out, and lets the teacher withdraw them", async ({ page }) => {
+    await page.goto("/s/alliance/teacher/gradebook");
+    await page.getByLabel("Class").selectOption({ label: "Form 2 West" });
+    await page.getByLabel("Exam").selectOption({ label: "Mock 1" });
+    // The seed publishes Mock 1 for Form 2 West, one class and subject at a time.
+    await expect(page.getByText("Published to parents")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Withdraw results" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Publish marks" })).toHaveCount(0);
+  });
+
+  test("the homework page offers to set work for the teacher's classes", async ({ page }) => {
+    await page.goto("/s/alliance/teacher/homework");
+    await expect(page.getByRole("heading", { name: "Homework" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Set homework" }).first()).toBeEnabled();
+  });
+});
+
+test.describe("school admin", () => {
+  test("exams are listed for the term, and an exam with marks cannot be deleted", async ({ page }) => {
+    await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+    await page.goto("/s/alliance/admin/exams");
+    await expect(page.getByText("Mock 1").first()).toBeVisible();
+    await expect(page.getByText("Out of 100").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "New exam" }).first()).toBeEnabled();
+    // Mock 1 has marks entered, so its Delete is switched off.
+    await expect(page.locator("button:disabled", { hasText: "Delete" }).first()).toBeVisible();
+  });
+
+  test("a learner with records is archived, not deleted: the roll and class totals follow, and restoring puts them back", async ({ page, browser, isMobile }) => {
+    test.skip(isMobile, "the admin console's Manage dialog is wider than a phone screen");
+    // A learner with a full history (the seed gives every learner attendance, marks and an invoice) and no login of their own.
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: cls } = await admin.from("classes").select("id").eq("tenant_id", tenant!.id).eq("name", "Form 2 West").single();
+    const { data: kid } = await admin.from("students").select("id, full_name, admission_no").eq("class_id", cls!.id).eq("active", true).is("profile_id", null).order("admission_no").limit(1).single();
+    const activeInClass = async () => (await admin.from("students").select("id", { count: "exact", head: true }).eq("class_id", cls!.id).eq("active", true)).count ?? 0;
+    const totalBefore = await activeInClass();
+    const marksBefore = (await admin.from("marks").select("id", { count: "exact", head: true }).eq("student_id", kid!.id)).count ?? 0;
+    expect(marksBefore).toBeGreaterThan(0);
+
+    try {
+      await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+      await page.goto("/s/alliance/admin/people");
+      // Names repeat across classes; the admission number doesn't.
+      await page.getByPlaceholder("Name or admission number").fill(kid!.admission_no);
+      await page.getByText(`ADM ${kid!.admission_no}`).first().click();
+      const manage = page.getByRole("dialog");
+
+      // Deleting is refused, in words, because they have records.
+      page.once("dialog", (d) => void d.accept());
+      await manage.getByRole("button", { name: "Delete…" }).click();
+      await expect(page.getByText(/on file, so they can't be deleted/)).toBeVisible();
+      await expect(manage).toBeVisible();
+
+      // Archiving takes them off the roll and keeps everything.
+      page.once("dialog", (d) => void d.accept());
+      await manage.getByRole("button", { name: "Archive learner" }).click();
+      await expect(page.getByText(/archived\. Find them under "Archived"/)).toBeVisible();
+      await expect(page.getByText("No learner matches that")).toBeVisible();
+      const { data: archived } = await admin.from("students").select("active, archived_at, archived_by").eq("id", kid!.id).single();
+      expect(archived).toMatchObject({ active: false });
+      expect(archived!.archived_at).not.toBeNull();
+      expect((await admin.from("marks").select("id", { count: "exact", head: true }).eq("student_id", kid!.id)).count).toBe(marksBefore);
+
+      // The class totals a teacher sees stop counting them: "n of 43 handed in" becomes "n of 42".
+      const teacher = await (await browser.newContext()).newPage();
+      await signInWithId(teacher, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
+      await teacher.goto("/s/alliance/teacher/homework");
+      await expect(teacher.getByText(new RegExp(`\\bof ${totalBefore - 1}\\b`)).first()).toBeVisible();
+      await teacher.context().close();
+
+      // They are under Archived, and restoring puts them back.
+      await page.getByRole("group", { name: "Which learners" }).getByRole("button", { name: "archived" }).click();
+      await page.getByText(`ADM ${kid!.admission_no}`).first().click();
+      await page.getByRole("dialog").getByRole("button", { name: "Restore learner" }).click();
+      await expect(page.getByText(/restored\./)).toBeVisible();
+      await expect.poll(activeInClass).toBe(totalBefore);
+      await page.getByRole("group", { name: "Which learners" }).getByRole("button", { name: "current" }).click();
+      await expect(page.getByText(`ADM ${kid!.admission_no}`).first()).toBeVisible();
+    } finally {
+      await admin.from("students").update({ active: true, archived_at: null, archived_by: null }).eq("id", kid!.id);
+    }
+  });
+
+  test("a learner added by mistake, with no records, can still be deleted", async ({ page, isMobile }) => {
+    test.skip(isMobile, "the admin console's Manage dialog is wider than a phone screen");
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: cls } = await admin.from("classes").select("id").eq("tenant_id", tenant!.id).eq("name", "Form 2 West").single();
+    const name = `E2E Mistake ${Date.now()}`;
+    const { data: mistake } = await admin.from("students").insert({ tenant_id: tenant!.id, admission_no: `E2E-${Date.now() % 100000}`, full_name: name, class_id: cls!.id, boarding: false }).select("id").single();
+    try {
+      await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+      await page.goto("/s/alliance/admin/people");
+      await page.getByPlaceholder("Name or admission number").fill(name);
+      await page.getByText(name).first().click();
+      page.once("dialog", (d) => void d.accept());
+      await page.getByRole("dialog").getByRole("button", { name: "Delete…" }).click();
+      await expect(page.getByText(`${name} deleted.`)).toBeVisible();
+      expect((await admin.from("students").select("id", { count: "exact", head: true }).eq("id", mistake!.id)).count).toBe(0);
+    } finally {
+      await admin.from("students").delete().eq("id", mistake!.id);
+    }
   });
 });
 
@@ -259,36 +447,35 @@ test.describe("parent", () => {
     await context.close();
   });
 
-  test("parent's M-Pesa prompt simulates a successful payment", async () => {
+  test("with no M-Pesa credentials set up, the dialog says so and claims nothing", async () => {
     const page = await context.newPage();
     await page.goto("/s/alliance/parent");
 
-    // There is no sandbox Daraja account wired up — the STK push is a client-side
-    // simulation, so no real receipt is created (see parent/Fees.tsx's startPay()).
+    // A local stack has no Daraja credentials, so the request comes back
+    // "unavailable". The screen must say that, not pretend a prompt went out
+    // or that money moved (it used to simulate a success here).
     await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
     await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
 
-    // The waiting state tells them to expect a prompt on the handset.
-    await expect(page.getByText("Check your phone")).toBeVisible();
-    await expect(page.getByText(/received/)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Method")).toBeVisible();
+    await expect(page.getByText(/Online M-Pesa isn't available for your school right now/)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Nothing was sent to your phone and nothing was charged/)).toBeVisible();
+    await expect(page.getByText("Check your phone")).toHaveCount(0);
+    await expect(page.getByText(/received/)).toHaveCount(0);
     await page.close();
   });
 
-  test("a failed payment says whether money left the account", async () => {
+  test("paying more than the balance is refused before any prompt is sent", async () => {
     const page = await context.newPage();
     await page.goto("/s/alliance/parent");
 
     await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
-
-    // Overpaying triggers the failure path in the simulation.
     await page.getByRole("button", { name: "Another amount" }).click();
     await page.locator('input[inputmode="numeric"]').first().fill("99999");
-    await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
 
-    await expect(page.getByText("did not go through")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/No money left your account/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Pay at the school office instead" })).toBeVisible();
+    await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
+    await expect(page.getByText(/That is more than the KSh [\d,]+ still owed/)).toBeVisible();
+    await expect(page.getByText("Check your phone")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Send M-Pesa prompt" })).toBeVisible();
     await page.close();
   });
 
@@ -321,5 +508,39 @@ test.describe("student", () => {
     // if results haven't been published for this student yet).
     await expect(page.getByText(/Marks shown against the class mean|Not published yet/)).toBeVisible();
     await expect(page.getByText(/position/i)).toContainText("not shown");
+  });
+
+  test("a half-published exam does not hide the last complete one: the learner can switch", async ({ page }) => {
+    // Teachers publish a class and subject at a time. Put one subject of a new
+    // exam out for this learner's class, the way a first teacher would.
+    const examName = `E2E half published ${Date.now()}`;
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: term } = await admin.from("terms").select("id").eq("tenant_id", tenant!.id).eq("is_current", true).single();
+    const { data: learner } = await admin.from("profiles").select("id").eq("login_id", LOGINS.student.loginId).single();
+    const { data: teacher } = await admin.from("profiles").select("id").eq("login_id", LOGINS.teacher.loginId).single();
+    const { data: studentRow } = await admin.from("students").select("id, class_id").eq("profile_id", learner!.id).single();
+    const { data: subject } = await admin.from("subjects").select("id").eq("tenant_id", tenant!.id).eq("name", "Chemistry").single();
+    const { data: exam } = await admin.from("exams").insert({ tenant_id: tenant!.id, term_id: term!.id, name: examName }).select("id").single();
+    try {
+      await admin.from("marks").insert({ tenant_id: tenant!.id, exam_id: exam!.id, student_id: studentRow!.id, subject_id: subject!.id, score: 71, entered_by: teacher!.id });
+      await admin.from("mark_publications").insert({ tenant_id: tenant!.id, exam_id: exam!.id, class_id: studentRow!.class_id, subject_id: subject!.id });
+
+      await page.goto("/s/alliance/student/results");
+      const switcher = page.getByRole("group", { name: "Exam" });
+      await expect(switcher).toBeVisible();
+      // Newest first, each pill says how many subjects are out, and the new exam is showing.
+      const pills = switcher.getByRole("button");
+      await expect(pills.first()).toContainText(`${examName} · 1 subject`);
+      await expect(pills.first()).toHaveAttribute("aria-pressed", "true");
+
+      // The earlier, complete exam is one tap away.
+      await switcher.getByRole("button", { name: /Mock 1/ }).click();
+      await expect(page.getByText("Mathematics").first()).toBeVisible();
+      await expect(switcher.getByRole("button", { name: /Mock 1/ })).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await admin.from("mark_publications").delete().eq("exam_id", exam!.id);
+      await admin.from("marks").delete().eq("exam_id", exam!.id);
+      await admin.from("exams").delete().eq("id", exam!.id);
+    }
   });
 });

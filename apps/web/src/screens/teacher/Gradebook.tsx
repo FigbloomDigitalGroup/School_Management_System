@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishExam, saveExamMarks,
-  summarise,
+  fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherClasses,
+  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishMarks, saveExamMarks,
+  summarise, unpublishMarks,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
@@ -92,6 +93,13 @@ export function Gradebook() {
     && existingMarksData.subjectId === subjectId && existingMarksData.rosterData === rosterData));
   const existingMarks = useMemo(() => (marksReady && existingMarksData ? existingMarksData.marks : {}), [marksReady, existingMarksData]);
 
+  // Which of this exam's subjects are already out for this class. A save or a publish refetches it.
+  const { data: publishedSet } = useAsync(
+    () => (examId && classId ? fetchPublishedSubjects(examId, classId) : Promise.resolve(new Set<string>())),
+    [examId, classId, marksVersion],
+  );
+  const isPublished = !!subjectId && !!publishedSet?.has(subjectId);
+
   const subject = subjectsData.find((s) => s.id === subjectId);
   const exam = examsData.find((e) => e.id === examId);
   const selectedClass = classesData.find((c) => c.id === classId);
@@ -163,23 +171,37 @@ export function Gradebook() {
       return;
     }
     setMarksVersion((v) => v + 1);
-    toast("Draft saved. Nothing is visible to parents yet.");
+    toast(isPublished ? "Saved. Parents already see this subject, so the change is live." : "Draft saved. Nothing is visible to parents yet.");
   }
 
-  // Publishing has to save whatever's currently on screen first — it used to
-  // only flip the exam's published_at, so typing marks and hitting Publish
-  // without a prior "Save draft" silently lost everything just entered.
+  // Publishing releases THIS class's marks for THIS subject, and nothing else
+  // (publish_marks checks the caller teaches it). It has to save whatever is on
+  // screen first: typing marks and hitting Publish without a prior "Save
+  // draft" must not lose them.
   async function publish() {
-    if (!examId || !subject || !exam) return;
+    if (!examId || !subject || !exam || !classId) return;
     try {
       await saveExamMarks(buildMarkRows());
-      await publishExam(examId);
+      await publishMarks(examId, classId, subject.id);
     } catch (err) {
       toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`, "error");
       return;
     }
     setMarksVersion((v) => v + 1);
-    toast(`${subject.name} ${exam.name} published to ${roster.length} learners and their parents`);
+    toast(`${subject.name} ${exam.name} is now visible to ${roster.length} learners and their parents in ${selectedClass?.name ?? "this class"}`);
+  }
+
+  async function withdraw() {
+    if (!examId || !subject || !exam || !classId) return;
+    if (!window.confirm(`Take ${subject.name} ${exam.name} for ${selectedClass?.name ?? "this class"} back to draft? Parents and learners will stop seeing it until you publish again.`)) return;
+    try {
+      await unpublishMarks(examId, classId, subject.id);
+    } catch (err) {
+      toast(`Could not withdraw: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
+    setMarksVersion((v) => v + 1);
+    toast("Withdrawn. Parents and learners no longer see these marks.");
   }
 
   if (!classesLoading && classesData.length === 0) {
@@ -212,14 +234,18 @@ export function Gradebook() {
         blurb="Type a mark and press Enter to drop to the next learner. Type abs for anyone who missed the paper — it is recorded as missing, not as zero."
         actions={
           <>
-            <Button onClick={() => { void saveDraft(); }}>Save draft</Button>
-            <Button
-              variant="accent"
-              disabled={!marksReady || entered < roster.length}
-              onClick={() => { void publish(); }}
-            >
-              {marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish marks"}
-            </Button>
+            <Button onClick={() => { void saveDraft(); }}>{isPublished ? "Save changes" : "Save draft"}</Button>
+            {isPublished ? (
+              <Button onClick={() => { void withdraw(); }}>Withdraw results</Button>
+            ) : (
+              <Button
+                variant="accent"
+                disabled={!marksReady || entered < roster.length}
+                onClick={() => { void publish(); }}
+              >
+                {marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish marks"}
+              </Button>
+            )}
           </>
         }
       />
@@ -234,6 +260,9 @@ export function Gradebook() {
         <select value={examId ?? ""} onChange={(e) => setExamId(e.target.value)} aria-label="Exam" className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
           {examsData.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
+        {subjectId && examId && (isPublished
+          ? <Badge tone="ok">Published to parents</Badge>
+          : <Badge tone="muted">Draft: school staff only</Badge>)}
         {marksReady ? (
           <div className="ml-auto flex items-center gap-4 text-[12.5px] text-ink-muted">
             <span>{entered} of {roster.length} entered</span>
@@ -310,8 +339,10 @@ export function Gradebook() {
         )}
 
         <p className="mt-4 max-w-[620px] text-[12.5px] leading-relaxed text-ink-muted">
-          Publishing sends the marks to parents and students at the same moment. Until then only you can see them, so a
-          mistyped mark never reaches a parent before you have checked the column.
+          Publishing releases {subject ? `${subject.name} marks` : "these marks"} for {selectedClass?.name ?? "this class"} to its
+          learners and their parents, and nothing else: other teachers' subjects stay private until they publish their own. Until
+          then only school staff can see the marks, so a mistyped mark never reaches a parent before you have checked the column.
+          If you spot a mistake afterwards, withdraw the results, correct them and publish again.
         </p>
       </div>
     </>

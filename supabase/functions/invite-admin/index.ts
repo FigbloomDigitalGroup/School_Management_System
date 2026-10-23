@@ -18,19 +18,18 @@
  * school itself. teacher/driver instead get a school-assigned login_id
  * (FIG-396/397's "TC-0001"/"BD-0099" scheme) — no email, no SMTP dependency,
  * generated server-side from how many staff of that role this tenant
- * already has. Either way there is no real email/SMS provider wired up
- * locally, so the account is created outright with the same fixed dev
- * password every seeded account uses (see supabase/seed.ts and the
- * "Development logins" panel on the sign-in screen) — the credentials
- * (email+password, or login_id+password) are handed to the school directly.
+ * already has. Either way there is no real email/SMS provider wired up, so
+ * the account is created outright with a random one-time password
+ * (_shared/tempPassword.ts) that's returned once and handed over directly;
+ * must_change_password makes the person choose their own at first sign-in.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { dialCodeFor } from "../_shared/countryDialCodes.ts";
-import { formatLoginId, loginIdEmail, ROLE_ID_PREFIX } from "../_shared/loginId.ts";
+import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
+import { tempPassword } from "../_shared/tempPassword.ts";
 
-const DEV_PASSWORD = "figbloom-dev";
 const STAFF_ROLES = new Set(["school_admin", "teacher", "driver"]);
 
 interface Body {
@@ -110,22 +109,24 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: "You do not administer this school." }, 403);
   }
 
-  // Count-based sequence -- correct as long as staff rows are never hard-
-  // deleted (true today; there is no remove-staff flow anywhere in the app).
-  // A future removal flow would need max-existing-suffix instead, to avoid
-  // ever reissuing a login_id that's already been handed out.
+  // One past the highest number already issued, not a count: delete-account
+  // removes staff, and a count would then reissue an ID that still exists.
   const isIdBased = role !== "school_admin";
   let loginId: string | undefined;
   if (isIdBased) {
-    const { data: existing } = await admin.from("profiles")
-      .select("id").eq("tenant_id", tenant_id).eq("role", role);
-    loginId = formatLoginId(ROLE_ID_PREFIX[role], (existing?.length ?? 0) + 1);
+    try {
+      loginId = await nextLoginId(admin, tenant_id, role);
+    } catch (err) {
+      console.error("invite-admin: could not number the account:", err instanceof Error ? err.message : err);
+      return json({ error: "Could not create the account. Try again." }, 500);
+    }
   }
   const loginEmail = isIdBased ? loginIdEmail(loginId!, tenant.slug) : email!;
+  const password = tempPassword();
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: loginEmail,
-    password: DEV_PASSWORD,
+    password,
     email_confirm: true,
     phone: phone ? normalisePhone(phone, tenant.country) : undefined,
     phone_confirm: phone ? true : undefined,
@@ -146,8 +147,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     phone: phone ? normalisePhone(phone, tenant.country) : null,
     staff_title: role === "school_admin" ? (staffTitle || "Principal") : (staffTitle || null),
     login_id: loginId ?? null,
-    // A driver picks their own password at first sign-in (DriverPasswordGate).
-    must_change_password: role === "driver",
+    // The handed-over password is only for getting in the first time (PasswordGate).
+    must_change_password: true,
   });
   if (profileErr) {
     // Roll back the orphaned auth account rather than leaving a login with no profile.
@@ -166,8 +167,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   });
 
   return isIdBased
-    ? json({ ok: true, login_id: loginId, password: DEV_PASSWORD })
-    : json({ ok: true, email: email!, password: DEV_PASSWORD });
+    ? json({ ok: true, login_id: loginId, password })
+    : json({ ok: true, email: email!, password });
 }
 
 if (import.meta.main) {

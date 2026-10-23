@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
-import { classAudienceIncludes, type Audience, type ClassLevel } from "./types";
+import { classAudienceIncludes, type Audience, type ClassLevel, type Payment } from "./types";
 import { yearMatches } from "./levels";
+import { receiptRef } from "./fees";
+import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -31,14 +33,20 @@ export interface ChildInfo {
   classLevel: ClassLevel; // picks the grading scheme (FIG-356) via gradingSchemeFor()
   formLevel: number;
   boarding: boolean;
+  /** This term's invoice, which a payment is made against; null until the school has billed. */
+  invoiceId: string | null;
   balance: number;
   billed: number;
   dueOn: string | null;
   attendancePct: number | null;
   absentDates: string[];
   mean: number | null;
+  /** The exam `mean` and `subjects` come from: the newest one this child has results out for. */
+  examId: string | null;
   examName: string | null;
   subjects: ChildSubject[];
+  /** Every exam this child has results out for, newest first, so the screen can switch between them. */
+  exams: PublishedExam[];
   receipts: Receipt[];
 }
 
@@ -73,16 +81,6 @@ export function formatWhen(iso: string): string {
 
 export function formatShortDate(dateOnly: string): string {
   return new Date(`${dateOnly}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-
-/** The real class-wide mean for every subject of one exam, computed server
- *  side (class_means_for_exam) — RLS only lets a parent/student read their
- *  own child's marks rows, so this can never be derived from a client-side
- *  SELECT without exposing other students' individual scores. */
-export async function fetchClassMeans(examId: string, classId: string): Promise<Map<string, number>> {
-  const { data, error } = await supabase().rpc("class_means_for_exam", { p_exam_id: examId, p_class_id: classId });
-  if (error) throw error;
-  return new Map((data as { subject_id: string; mean_score: number }[] ?? []).map((r) => [r.subject_id, r.mean_score]));
 }
 
 /**
@@ -180,41 +178,35 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
     .sort((a, b) => a.admission_no.localeCompare(b.admission_no));
 
   const studentIds = kids.map((k) => k.id);
-  const classIds = [...new Set(kids.map((k) => k.class_id))];
 
-  const [{ data: term }, { data: invoiceRows }, { data: attendanceRows }, { data: examRows }] = await Promise.all([
+  const [{ data: term }, { data: invoiceRows }, { data: attendanceRows }, examsByStudent] = await Promise.all([
     supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle(),
     studentIds.length
-      ? supabase().from("fee_invoices").select("student_id, total_cents, paid_cents, due_on").in("student_id", studentIds)
-      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
+      ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on").in("student_id", studentIds)
+      : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
     studentIds.length
       ? supabase().from("attendance").select("student_id, mark, taken_on").in("student_id", studentIds)
       : Promise.resolve({ data: [] as { student_id: string; mark: string; taken_on: string }[] }),
-    supabase().from("exams").select("id, name, published_at").not("published_at", "is", null).order("published_at", { ascending: false }).limit(1),
+    // Each child's own list: an exam only one class's teachers have published must not stand in for this child's results.
+    fetchPublishedExams(studentIds),
   ]);
 
-  const exam = (examRows ?? [])[0] as { id: string; name: string } | undefined;
-
-  const [{ data: markRows }, classMeansByClass, { data: feeItemRows }, { data: paymentRows }, { data: announcementRows }, { data: readRows }] = await Promise.all([
-    exam && studentIds.length
-      ? supabase().from("marks").select("student_id, score, subject_id, subjects(name)").eq("exam_id", exam.id).in("student_id", studentIds)
-      : Promise.resolve({ data: [] as { student_id: string; score: number | null; subject_id: string; subjects: { name: string } | null }[] }),
-    exam && classIds.length
-      ? Promise.all(classIds.map((cid) => fetchClassMeans(exam.id, cid)))
-          .then((maps) => new Map(classIds.map((cid, i) => [cid, maps[i]!])))
-      : Promise.resolve(new Map<string, Map<string, number>>()),
+  const [subjectsByStudent, { data: feeItemRows }, { data: paymentRows }, { data: announcementRows }, { data: readRows }] = await Promise.all([
+    Promise.all(kids.map(async (k) => {
+      const newest = examsByStudent.get(k.id)?.[0];
+      return [k.id, newest ? await fetchExamSubjects(k.id, k.class_id, newest.id) : []] as const;
+    })).then((pairs) => new Map<string, ChildSubject[]>(pairs)),
     term
       ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level, level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as ParentData["feeItems"] }),
     studentIds.length
-      ? supabase().from("payments").select("id, amount_cents, mpesa_receipt, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
-      : Promise.resolve({ data: [] as { id: string; amount_cents: number; mpesa_receipt: string | null; msisdn: string | null; completed_at: string | null; created_at: string }[] }),
+      ? supabase().from("payments").select("id, amount_cents, method, mpesa_receipt, reference, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
+      : Promise.resolve({ data: [] as { id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; msisdn: string | null; completed_at: string | null; created_at: string }[] }),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
     supabase().from("announcement_reads").select("announcement_id").eq("profile_id", profileId),
   ]);
 
   const readIds = new Set((readRows ?? []).map((r) => r.announcement_id as string));
-  const meanFor = (classId: string, subjectId: string): number | null => classMeansByClass.get(classId)?.get(subjectId) ?? null;
 
   const invoices = new Map((invoiceRows ?? []).map((i) => [i.student_id, i]));
   const attendanceByStudent = new Map<string, { student_id: string; mark: string; taken_on: string }[]>();
@@ -223,21 +215,15 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
     arr.push(a);
     attendanceByStudent.set(a.student_id, arr);
   }
-  const marksByStudent = new Map<string, { subject_id: string; score: number | null; subjects: { name: string } | null }[]>();
-  for (const m of (markRows ?? []) as { student_id: string; score: number | null; subject_id: string; subjects: { name: string } | null }[]) {
-    const arr = marksByStudent.get(m.student_id) ?? [];
-    arr.push(m);
-    marksByStudent.set(m.student_id, arr);
-  }
   const paymentsByStudent = new Map<string, Receipt[]>();
-  for (const p of (paymentRows ?? []) as { id: string; amount_cents: number; mpesa_receipt: string | null; msisdn: string | null; completed_at: string | null; created_at: string; fee_invoices: { student_id: string } | null }[]) {
+  for (const p of (paymentRows ?? []) as { id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; msisdn: string | null; completed_at: string | null; created_at: string; fee_invoices: { student_id: string } | null }[]) {
     if (!p.fee_invoices) continue;
     const arr = paymentsByStudent.get(p.fee_invoices.student_id) ?? [];
     arr.push({
       id: p.id,
       amount: p.amount_cents,
       when: formatShortDate((p.completed_at ?? p.created_at).slice(0, 10)),
-      ref: p.mpesa_receipt ?? "M-Pesa",
+      ref: receiptRef(p),
     });
     paymentsByStudent.set(p.fee_invoices.student_id, arr);
   }
@@ -247,12 +233,8 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
     const rows = attendanceByStudent.get(k.id) ?? [];
     const present = rows.filter((r) => r.mark === "present" || r.mark === "late").length;
     const absentDates = rows.filter((r) => r.mark === "absent").sort((a, b) => a.taken_on.localeCompare(b.taken_on)).map((r) => r.taken_on);
-    const myMarks = (marksByStudent.get(k.id) ?? []).filter((m) => m.score !== null);
-    const subjects: ChildSubject[] = myMarks.map((m) => ({
-      name: m.subjects?.name ?? "Subject",
-      score: m.score as number,
-      classMean: meanFor(k.class_id, m.subject_id),
-    }));
+    const exams = examsByStudent.get(k.id) ?? [];
+    const subjects = subjectsByStudent.get(k.id) ?? [];
 
     return {
       id: k.id,
@@ -264,14 +246,17 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       classLevel: k.classes?.level ?? "secondary",
       formLevel: k.classes?.form_level ?? 1,
       boarding: k.boarding,
+      invoiceId: inv?.id ?? null,
       balance: inv ? Math.max(inv.total_cents - inv.paid_cents, 0) : 0,
       billed: inv ? inv.total_cents : 0,
       dueOn: inv?.due_on ?? null,
       attendancePct: rows.length ? Math.round((present / rows.length) * 100) : null,
       absentDates,
-      mean: myMarks.length ? Math.round(myMarks.reduce((a, m) => a + (m.score as number), 0) / myMarks.length) : null,
-      examName: exam?.name ?? null,
+      mean: subjects.length ? Math.round(subjects.reduce((a, m) => a + m.score, 0) / subjects.length) : null,
+      examId: exams[0]?.id ?? null,
+      examName: exams[0]?.name ?? null,
       subjects,
+      exams,
       receipts: paymentsByStudent.get(k.id) ?? [],
     };
   });

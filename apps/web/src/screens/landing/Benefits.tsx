@@ -85,8 +85,8 @@ function Benefits() {
     <section className="benefits" id="why-us">
       <div className="benefits-inner">
         <div className="benefits-header">
-          <h1 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>Why schools choose us</h1>
-          <h2>Built for how schools really work.</h2>
+          <h2 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>Why schools choose us</h2>
+          <h3>Built for how schools really work.</h3>
         </div>
 
         <ul className="benefits-grid">

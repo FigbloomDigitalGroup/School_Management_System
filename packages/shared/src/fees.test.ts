@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, payableSuggestions, totalCents,
+  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, payableSuggestions, planTermBilling, totalCents,
 } from "./fees";
 import type { FeeInvoice, FeeItem } from "./types";
 
@@ -90,6 +90,45 @@ describe("itemsForStudent", () => {
     ];
     expect(itemsForStudent(mixed, { boarding: false }, 1, "secondary").map((i) => i.id)).toEqual(["form1", "any1"]);
     expect(itemsForStudent(mixed, { boarding: false }, 1, "primary").map((i) => i.id)).toEqual(["grade1", "any1"]);
+  });
+});
+
+describe("planTermBilling", () => {
+  const items = [
+    item({ id: "tuition", applies_to: "all", amount_cents: 1000000 }),
+    item({ id: "boarding", applies_to: "boarders", amount_cents: 500000 }),
+    item({ id: "kcse", applies_to: "form_level", form_level: 4, level: "secondary", amount_cents: 200000 }),
+  ];
+  const student = (id: string, over: Partial<{ boarding: boolean; formLevel: number | null; classLevel: "secondary" | null }> = {}) =>
+    ({ id, boarding: false, formLevel: 2, classLevel: "secondary" as const, ...over });
+
+  it("bills each learner the items that apply to them", () => {
+    const plan = planTermBilling(
+      [student("day2"), student("boarder4", { boarding: true, formLevel: 4 })],
+      items, new Set(),
+    );
+    expect(plan.invoices).toEqual([
+      { student_id: "day2", total_cents: 1000000 },
+      { student_id: "boarder4", total_cents: 1700000 },
+    ]);
+    expect(plan.totalCents).toBe(2700000);
+  });
+
+  it("skips learners who already have an invoice for the term", () => {
+    const plan = planTermBilling([student("a"), student("b")], items, new Set(["a"]));
+    expect(plan.invoices.map((i) => i.student_id)).toEqual(["b"]);
+    expect(plan.alreadyBilled).toBe(1);
+  });
+
+  it("gives no invoice when nothing applies", () => {
+    const plan = planTermBilling([student("a", { boarding: true })], [item({ applies_to: "day", amount_cents: 100 })], new Set());
+    expect(plan.invoices).toEqual([]);
+    expect(plan.nothingApplies).toBe(1);
+  });
+
+  it("bills a learner with no class only the school-wide items", () => {
+    const plan = planTermBilling([student("uni", { formLevel: null, classLevel: null })], items, new Set());
+    expect(plan.invoices).toEqual([{ student_id: "uni", total_cents: 1000000 }]);
   });
 });
 
