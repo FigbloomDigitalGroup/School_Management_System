@@ -8,6 +8,9 @@ const footerLinks = [
     heading: 'Product',
     links: [
       { label: 'Features', href: '#features' },
+      { label: 'School fees management', href: '#features-fees' },
+      { label: 'Attendance management', href: '#features-attendance' },
+      { label: 'School bus tracking', href: '#features-bus-tracking' },
       { label: "Who it's for", href: '#who-its-for' },
       { label: 'Why schools choose us', href: '#why-us' },
     ],
@@ -17,7 +20,8 @@ const footerLinks = [
     links: [
       { label: 'Request Demo', href: '#contact' },
       { label: 'Contact', href: '#contact' },
-      { label: 'Blog', href: '#blog' },
+      { label: 'FAQ', href: '#faq' },
+      { label: 'Privacy policy', href: '/privacy.html' },
       { label: 'Login', href: '/signin' },
     ],
   },
@@ -98,7 +102,7 @@ function Footer() {
               BloomEd
             </a>
             <p>
-              The school management suite for Kenyan schools. Fees, attendance,
+              The school management system for Kenyan schools. Fees, attendance,
               CBE assessment, bus tracking and communication in one place.
             </p>
             <a className="footer-cta" href="#contact">Request Demo</a>

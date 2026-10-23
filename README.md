@@ -63,6 +63,29 @@ the seeded parent, a PIN for the seeded student).
 Tenants resolve by **path**, not subdomain: one deployment, no wildcard DNS, and
 a school's URL survives a domain change. Mobile bakes the slug into the session.
 
+## SEO for the marketing page
+
+Only `/` (and `/privacy.html`) is meant to be found on Google; everything else is
+the signed-in app.
+
+- **Metadata lives in `apps/web/index.html`** (title, description, canonical, Open
+  Graph, Twitter, Organization/WebSite/SoftwareApplication JSON-LD) so crawlers and
+  link-preview bots that don't run JS still see it. `RouteSeo` swaps in a title and
+  `noindex` for app routes at runtime; `vercel.json` sends the same `X-Robots-Tag`.
+- **The FAQ and its FAQPage markup share one list** in `landing/Faq.tsx`. Keep
+  structured data true to what's on the page: no `offers`/`aggregateRating` until
+  there is real pricing or review data.
+- **The production origin is hard-coded** in `index.html`, `public/robots.txt` and
+  `public/sitemap.xml`. If the domain changes, search for `schoolmanagement.figbloom.org`.
+- **Adding an app route? Add a rewrite to `vercel.json`.** The SPA fallback only
+  covers known prefixes, so unknown URLs get a real 404 (`public/404.html`) instead
+  of the homepage shell. A new route without a rewrite will 404 in production.
+- **Adding a public page?** Give it its own title, description and canonical, and add
+  it to `public/sitemap.xml` (update `<lastmod>` when content changes).
+- `/` boots from its own entry (`main.tsx`) without loading the app bundle; keep
+  `landing/*` free of imports from the app (router, Supabase, `components/`).
+- Use WebP for landing images and keep each well under ~150 KB.
+
 ## The decisions worth knowing before you change anything
 
 **One accent per school, and nothing else.** A tenant's colour enters the system

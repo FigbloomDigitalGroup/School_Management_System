@@ -59,7 +59,7 @@ export function useSlugAvailability(kind: SlugKind, slug: string, place?: string
 export function schoolInsertError(err: unknown, slug: string): Error {
   const e = err as { code?: string; message?: string } | null;
   if (e?.code === "23505" && e.message?.includes("slug")) {
-    return new Error(`figbloom.co.ke/s/${slug} was taken by another school a moment ago. Pick a different web address.`);
+    return new Error(`schoolmanagement.figbloom.org/s/${slug} was taken by another school a moment ago. Pick a different web address.`);
   }
   if (e?.code === "23514" && e.message?.includes("slug")) {
     return new Error("That web address isn't valid: use 3-40 lowercase letters, numbers and hyphens.");

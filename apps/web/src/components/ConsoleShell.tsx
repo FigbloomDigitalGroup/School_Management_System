@@ -435,7 +435,7 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
   async function submit() {
     if (!name.trim()) { toast("Give the organization a name.", "error"); return; }
     if (!slugOk) { toast("Pick a valid address — 3-40 lowercase letters, numbers and hyphens.", "error"); return; }
-    if (availability.status === "taken") { toast(`figbloom.co.ke/org/${slugValue} is already taken. Pick one of the suggestions under the field.`, "error"); return; }
+    if (availability.status === "taken") { toast(`schoolmanagement.figbloom.org/org/${slugValue} is already taken. Pick one of the suggestions under the field.`, "error"); return; }
     setSaving(true);
     try {
       const result = await createMyOrganization({
@@ -477,11 +477,11 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
         <TextField
           id="new-org-slug" label="Web address" mono placeholder={slugValue || "riverside-schools-trust"}
           value={slugTouched ? slug : slugValue}
-          hint={slugOk && availability.status === "idle" ? `figbloom.co.ke/org/${slugValue}` : undefined}
+          hint={slugOk && availability.status === "idle" ? `schoolmanagement.figbloom.org/org/${slugValue}` : undefined}
           error={slugTouched && slug && !slugOk ? "3-40 characters, lowercase letters, numbers and hyphens only." : undefined}
           onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
         />
-        <SlugAvailabilityNote slug={slugValue} noun="organization" base="figbloom.co.ke/org/" availability={availability}
+        <SlugAvailabilityNote slug={slugValue} noun="organization" base="schoolmanagement.figbloom.org/org/" availability={availability}
           onPick={(s) => { setSlugTouched(true); setSlug(s); }} />
         <SelectField id="new-org-kind" label="What best describes it?" value={kind} onChange={(e) => setKind(e.target.value as Organization["kind"])} options={ORG_KIND_OPTIONS} />
         <TextField id="new-org-county" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
