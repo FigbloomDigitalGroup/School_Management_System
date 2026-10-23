@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
   againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishMarks, rubricFor, saveExamMarks,
+  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, isRetryable, parseScoreInput, publishMarks, rubricFor, saveExamMarks,
   summarise, unpublishMarks, type ClassGroup, type Exam, type Student, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
@@ -214,14 +214,16 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
       setMarksVersion((v) => v + 1);
       setStatus(isPublished ? "Saved. Parents already see this subject, so the change is live." : "Draft saved.");
     } catch (err) {
-      // Offline or the request failed — hold the marks on this phone rather
-      // than losing what was typed; they'll send once queue.flush() next runs.
-      // The real reason still goes in the message: a save that keeps failing
-      // because it's genuinely invalid (not just offline) would otherwise
-      // look identical to one patiently waiting for signal, forever.
+      // The server looked at it and said no (a rule, a missing row): holding it would only
+      // park it in the queue for good, so say why and leave what was typed on screen.
+      if (!isRetryable(err)) {
+        setStatus(`Not saved: ${err instanceof Error ? err.message : "something went wrong"}.`);
+        return;
+      }
+      // No signal, or the server isn't answering: hold the marks on this phone rather
+      // than losing what was typed; they send by themselves once there is signal.
       await queue.enqueue("marks", rows);
-      const reason = err instanceof Error ? err.message : null;
-      setStatus(reason ? `Saved on this phone (${reason}). Will send when you have signal.` : "Saved on this phone. Will send when you have signal.");
+      setStatus("Saved on this phone. Will send when you have signal.");
     } finally {
       setBusy(false);
     }

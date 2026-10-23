@@ -187,20 +187,22 @@ test.describe("platform", () => {
 });
 
 test.describe("teacher", () => {
-  // Both attendance tests write to the same class's same day's register —
+  // The attendance tests write to the same class's same day's register —
   // Attendance.tsx prefills from whatever is already saved for today, so a
-  // stale row from an earlier run (or the other Playwright project) would
-  // make the roster no longer all-present. Reset before either test touches
-  // it, rather than relying on run order to keep the starting state honest.
+  // register left by an earlier test (or an earlier run, or the other Playwright
+  // project) would open straight to "register is in". Reset before EACH test.
   test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async () => {
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  async function attendanceRowsToday() {
     const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
-    const today = new Date().toISOString().slice(0, 10);
-    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", today);
-  });
+    const { count } = await admin.from("attendance").select("id", { count: "exact", head: true }).eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
+    return count ?? 0;
+  }
 
   test.beforeEach(async ({ page }) => {
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
     await signInWithId(page, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
     await page.goto("/s/alliance/teacher/attendance");
   });
@@ -223,7 +225,67 @@ test.describe("teacher", () => {
 
     await page.getByRole("button", { name: "Submit register" }).click();
     await expect(page.getByText("register is in")).toBeVisible();
-    await expect(page.getByText(/Parents of absent learners/)).toBeVisible();
+    await expect(page.getByText(/parents of absent learners/i)).toBeVisible();
+  });
+
+  const attendanceWrite = /\/rest\/v1\/attendance/;
+
+  test("a register submitted while the server is unreachable is held, then sent by itself", async ({ page }) => {
+    // The browser believes it is online, but the school's server doesn't answer:
+    // the old screen said "submitted" and quietly lost the register.
+    await page.route(attendanceWrite, (route) => (route.request().method() === "POST" ? route.abort("failed") : route.continue()));
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText("Saved on this phone. It will send itself when you have signal.")).toBeVisible();
+    await expect(page.getByText(/held on this phone/)).toBeVisible();
+    expect(await attendanceRowsToday()).toBe(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toContain('"table":"attendance"');
+
+    // The server comes back: the register goes out without the teacher doing anything.
+    await page.unroute(attendanceWrite);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect.poll(attendanceRowsToday, { timeout: 15000 }).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1")), { timeout: 15000 }).toBe("[]");
+    await expect(page.getByText(/held on this phone/)).toHaveCount(0, { timeout: 15000 });
+  });
+
+  test("a register the server refuses is not reported as saved, and is not held", async ({ page }) => {
+    await page.route(attendanceWrite, (route) => (route.request().method() === "POST"
+      ? route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "42501", message: 'new row violates row-level security policy for table "attendance"', details: null, hint: null }),
+        })
+      : route.continue()));
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText(/The register was not saved: .*row-level security/)).toBeVisible();
+    // Still on the roster, not on "register is in", and nothing parked in the queue to fail forever.
+    await expect(page.getByText("Everyone starts present")).toBeVisible();
+    await expect(page.getByText("register is in")).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toBeNull();
+    expect(await attendanceRowsToday()).toBe(0);
+  });
+
+  test("something saved on this device that the server refused is shown, and can be discarded", async ({ page }) => {
+    // Parked in the queue by an earlier visit: the server said no, so waiting can't help.
+    const refused = [{
+      id: "marks-1", table: "marks", rows: [], queuedAt: new Date().toISOString(), attempts: 1,
+      lastError: "new row violates row-level security policy for table \"marks\"",
+      rejected: { at: new Date().toISOString(), message: "new row violates row-level security policy for table \"marks\"" },
+    }];
+    await page.evaluate((q) => window.localStorage.setItem("figbloom.queue.v1", JSON.stringify(q)), refused);
+    await page.reload();
+
+    const notice = page.getByRole("alert").filter({ hasText: "could not be sent" });
+    await expect(notice).toContainText("Marks saved on this device could not be sent");
+    await expect(notice).toContainText("row-level security");
+
+    await notice.getByRole("button", { name: "Discard" }).click();
+    await expect(notice).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toBe("[]");
   });
 
   test("gradebook will not publish a partial column", async ({ page }) => {
