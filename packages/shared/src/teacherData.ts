@@ -2,7 +2,8 @@ import { fetchClassTimetableSlots } from "./timetable";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
-import { today, type Register } from "./attendance";
+import { today, toRecords, type Register } from "./attendance";
+import { writeErrorFrom } from "./queue";
 import type { Announcement, Audience, AttendanceMark, ClassGroup, Exam, Student, Subject, Term, Weekday } from "./types";
 
 /**
@@ -235,8 +236,8 @@ export interface MarkRow {
  *  courseGrades.ts's higher-ed equivalent (assessment-based, different signature). */
 export async function saveExamMarks(rows: MarkRow[]): Promise<void> {
   if (!rows.length) return;
-  const { error } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
-  if (error) throw new Error(error.message);
+  const { error, status } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
+  if (error) throw writeErrorFrom(error, status);
 }
 
 /**
@@ -283,7 +284,7 @@ export async function sendClassMessage(
   tenantId: string, teacherId: string, classId: string,
   recipients: ClassMessageRecipients, subject: string, body: string,
 ): Promise<void> {
-  const { error } = await supabase().from("announcements").insert({
+  const { error, status } = await supabase().from("announcements").insert({
     tenant_id: tenantId,
     author_id: teacherId,
     subject: subject.trim(),
@@ -292,24 +293,14 @@ export async function sendClassMessage(
     channels: ["in_app"],
     published_at: new Date().toISOString(),
   });
-  if (error) throw new Error(error.message);
+  if (error) throw writeErrorFrom(error, status);
 }
 
 /** Upserts one class's register for today — onConflict(student_id, taken_on) means
  *  correcting a mark after submit is just another call, not a separate edit path.
- *  Deliberately doesn't use attendance.ts's toRecords(), which stamps a
- *  synced_at field the "attendance" table has no column for. */
+ *  Throws a WriteError: `retryable` says whether holding the register and sending
+ *  it later can help (no signal, server trouble) or the server refused it. */
 export async function writeAttendance(reg: Register, tenantId: string, takenBy: string): Promise<void> {
-  const rows = Object.entries(reg.marks).map(([student_id, mark]) => ({
-    tenant_id: tenantId,
-    student_id,
-    class_id: reg.classId,
-    term_id: reg.termId,
-    taken_by: takenBy,
-    taken_on: reg.date,
-    mark,
-    note: reg.notes[student_id] ?? null,
-  }));
-  const { error } = await supabase().from("attendance").upsert(rows, { onConflict: "student_id,taken_on" });
-  if (error) throw new Error(error.message);
+  const { error, status } = await supabase().from("attendance").upsert(toRecords(reg, tenantId, takenBy), { onConflict: "student_id,taken_on" });
+  if (error) throw writeErrorFrom(error, status);
 }
