@@ -4,6 +4,8 @@ import { fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeC
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
+import { QueueNotice } from "./components/QueueNotice";
+import { useQueueSync } from "./lib/queue";
 import { Skeleton } from "./components/ui/Skeleton";
 import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
@@ -77,6 +79,7 @@ import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
+import { RouteSeo } from "./components/RouteSeo";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -86,6 +89,7 @@ import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 export function App() {
   return (
     <ToastHost>
+      <RouteSeo />
       <Routes>
         <Route path="/" element={<Suspense fallback={null}><Landing /></Suspense>} />
         <Route path="/signin" element={<SignIn />} />
@@ -340,6 +344,8 @@ const NOTICE_POLL_MS = 20_000;
 
 const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode }) => {
   const session = useTenantSession();
+  // Registers and marks saved on this device while offline go out as soon as this loads, not only when a screen asks.
+  useQueueSync(session.profile.id);
   // Polled rather than fetched once, so a reminder sent while this teacher is
   // already sitting on some other page still shows up on the badge without
   // them having to navigate away and back (or hit refresh) to notice it.
@@ -365,6 +371,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
           badges={unread ? { "teacher/notices": String(unread) } : {}}
         >
+          <QueueNotice />
           {children}
         </ConsoleShell>
       </TeacherNoticesProvider>

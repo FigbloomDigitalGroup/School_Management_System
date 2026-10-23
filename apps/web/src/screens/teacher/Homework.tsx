@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createHomework, deleteHomework, fetchClassSizes, fetchMyHomework, fetchTeacherClasses, fetchTeacherSubjectsForClass,
-  formatShortDate, HAND_IN_OPTIONS, updateHomework, validateHomework,
+  formatShortDate, HAND_IN_OPTIONS, handedInLabel, updateHomework, validateHomework,
   type HandIn, type HomeworkInput, type HomeworkRow,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -93,7 +93,7 @@ export function Homework() {
                   {w.dueOn < today ? <Badge tone="muted">Past due</Badge> : w.dueOn === today ? <Badge tone="warn">Due today</Badge> : null}
                 </div>
               ) },
-              { key: "in", header: "Handed in", align: "right", render: (w: HomeworkRow) => <Mono>{w.handedIn} of {sizes[w.classId] ?? "?"}</Mono> },
+              { key: "in", header: "Handed in", align: "right", render: (w: HomeworkRow) => <Mono>{handedInLabel(w.handedIn, sizes[w.classId])}</Mono> },
               { key: "actions", header: "", align: "right", width: "1.1fr", render: (w: HomeworkRow) => (
                 <div className="flex justify-end gap-2">
                   <Button onClick={() => setEditing({ work: w })}>Edit</Button>

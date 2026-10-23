@@ -152,7 +152,7 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
     if (!name.trim()) { setError("Give the school a name."); return; }
     if (!saved) {
       if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid web address."); return; }
-      if (availability.status === "taken") { setError(`figbloom.co.ke/s/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
+      if (availability.status === "taken") { setError(`schoolmanagement.figbloom.org/s/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
       if (availability.status === "checking") { setError("Still checking the web address. Give it a second and try again."); return; }
     }
     if (!adminName.trim() || !adminEmail.trim()) { setError("The school's own administrator name and email are required."); return; }
@@ -225,7 +225,7 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
       <form onSubmit={handleSubmit} className="grid gap-3.5">
         {saved && (
           <p className="rounded-lg border border-line bg-sunken px-3 py-2.5 text-[12.5px] text-ink-muted">
-            <span className="font-semibold text-ink">{saved.name}</span> is saved at figbloom.co.ke/s/{saved.slug}. Only its administrator is
+            <span className="font-semibold text-ink">{saved.name}</span> is saved at schoolmanagement.figbloom.org/s/{saved.slug}. Only its administrator is
             left: fix their details below and press Add administrator. Closing keeps the school.
           </p>
         )}
@@ -248,7 +248,7 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
             <TextField
               id="school-slug" label="Web address" mono placeholder={slugValue || "riverside-primary"}
               value={saved ? saved.slug : slug} disabled={!!saved}
-              hint={slugCheck.ok && availability.status === "idle" ? `figbloom.co.ke/s/${slugValue}` : undefined}
+              hint={slugCheck.ok && availability.status === "idle" ? `schoolmanagement.figbloom.org/s/${slugValue}` : undefined}
               error={slug && !slugCheck.ok ? slugCheck.message : undefined}
               onChange={(e) => setSlug(e.target.value)}
             />

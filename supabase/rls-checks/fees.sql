@@ -11,9 +11,9 @@
 begin;
 
 select set_config('t.a',       (select id::text from tenants where slug = 'alliance'), true);
-select set_config('t.admin',   (select id::text from profiles where role = 'school_admin'), true);
-select set_config('t.parent',  (select id::text from profiles where role = 'parent'), true);
-select set_config('t.teacher', (select id::text from profiles where role = 'teacher'), true);
+select set_config('t.admin',   (select id::text from profiles where role = 'school_admin' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
+select set_config('t.parent',  (select id::text from profiles where role = 'parent' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
+select set_config('t.teacher', (select id::text from profiles where role = 'teacher' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
 select set_config('t.inv', (select id::text from fee_invoices where paid_cents < total_cents and paid_cents = 0 order by id limit 1), true);
 select set_config('t.inv2', (select id::text from fee_invoices where paid_cents < total_cents and id::text <> current_setting('t.inv') order by id limit 1), true);
 select set_config('t.bal', (select (total_cents - paid_cents)::text from fee_invoices where id = current_setting('t.inv')::uuid), true);

@@ -3,10 +3,132 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--
+      Search/share metadata for the marketing page at "/". It lives here, in the static HTML,
+      so crawlers and link-preview bots that don't run JavaScript still see it. Signed-in app
+      routes override title/robots/canonical at runtime (src/components/RouteSeo.tsx).
+      The production origin is hard-coded (canonical, og:*, JSON-LD, robots.txt, sitemap.xml):
+      if the domain ever changes, search for "schoolmanagement.figbloom.org" in apps/web.
+    -->
+    <title>School Management System in Kenya | BloomEd</title>
+    <meta
+      name="description"
+      content="School management system for Kenyan schools: fees, attendance, CBE and 8-4-4 results, bus tracking and parent communication. Book a free demo."
+    />
+    <link rel="canonical" href="https://schoolmanagement.figbloom.org/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#123420" />
+
     <link rel="icon" type="image/png" href="/figbloom-mark.png" />
-    <title>Figbloom School Systems</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="BloomEd" />
+    <meta property="og:title" content="BloomEd: School Management System for Kenyan Schools" />
+    <meta
+      property="og:description"
+      content="Fees, attendance, CBE and 8-4-4 results, bus tracking and parent communication in one school management system. Book a free demo."
+    />
+    <meta property="og:url" content="https://schoolmanagement.figbloom.org/" />
+    <meta property="og:image" content="https://schoolmanagement.figbloom.org/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="BloomEd school management system dashboard showing attendance and fee collection" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BloomEd: School Management System for Kenyan Schools" />
+    <meta
+      name="twitter:description"
+      content="Fees, attendance, CBE and 8-4-4 results, bus tracking and parent communication in one school management system. Book a free demo."
+    />
+    <meta name="twitter:image" content="https://schoolmanagement.figbloom.org/og-image.jpg" />
+    <meta name="twitter:image:alt" content="BloomEd school management system dashboard showing attendance and fee collection" />
+
+    <!-- One font request for the whole app (landing page Inter included), warmed up by preconnect. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!--
+      Structured data. Deliberately no "offers" or "aggregateRating": there is no public
+      pricing or review data yet, and schema.org markup must not invent either.
+      The FAQPage block is rendered next to the visible FAQ (src/screens/landing/Faq.tsx).
+    -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://schoolmanagement.figbloom.org/#organization",
+          "name": "Figbloom Digital Group",
+          "url": "https://schoolmanagement.figbloom.org/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://schoolmanagement.figbloom.org/logo.png",
+            "width": 792,
+            "height": 624
+          },
+          "brand": { "@type": "Brand", "name": "BloomEd" },
+          "email": "sales@figbloom.org",
+          "telephone": "+254796286676",
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "SMK Business Centre, Enterprise Road",
+            "addressCountry": "KE"
+          },
+          "areaServed": { "@type": "Country", "name": "Kenya" },
+          "contactPoint": [
+            {
+              "@type": "ContactPoint",
+              "contactType": "sales",
+              "email": "sales@figbloom.org",
+              "telephone": "+254796286676",
+              "areaServed": "KE",
+              "availableLanguage": "English"
+            }
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://schoolmanagement.figbloom.org/#website",
+          "url": "https://schoolmanagement.figbloom.org/",
+          "name": "BloomEd",
+          "description": "School management system for Kenyan schools.",
+          "inLanguage": "en-KE",
+          "publisher": { "@id": "https://schoolmanagement.figbloom.org/#organization" }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://schoolmanagement.figbloom.org/#software",
+          "name": "BloomEd",
+          "alternateName": "BloomEd School Management System",
+          "url": "https://schoolmanagement.figbloom.org/",
+          "description": "BloomEd is a school management system for Kenyan schools. It brings fees, attendance, CBE and 8-4-4 assessment, school bus tracking and parent communication into one platform for administrators, teachers, parents, students and drivers.",
+          "applicationCategory": "EducationalApplication",
+          "operatingSystem": "Web, Android",
+          "image": "https://schoolmanagement.figbloom.org/og-image.jpg",
+          "screenshot": "https://schoolmanagement.figbloom.org/images/adminn-dashboard.webp",
+          "inLanguage": "en",
+          "audience": { "@type": "Audience", "audienceType": "Schools, school administrators, teachers, parents and students in Kenya" },
+          "featureList": [
+            "Student records with spreadsheet import",
+            "School fees management with parent balances and proof-of-payment confirmation",
+            "Class attendance registers",
+            "CBE assessment from PP1 to Grade 12 and 8-4-4 marks for Forms 1 to 4",
+            "Live school bus tracking for parents",
+            "Announcements and messaging between school, teachers and parents",
+            "Teacher leave requests with substitute assignment",
+            "Reports on attendance, fee collection and academic performance",
+            "Multi-school group accounts"
+          ],
+          "publisher": { "@id": "https://schoolmanagement.figbloom.org/#organization" }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -91,14 +91,22 @@ export async function fetchMyHomework(teacherId: string): Promise<HomeworkRow[]>
   }));
 }
 
-/** Active learners per class, for "12 of 43 handed in". */
+/** Active learners per class, for "12 of 43 handed in". A learner who has left is archived and not counted. */
 export async function fetchClassSizes(classIds: string[]): Promise<Record<string, number>> {
   if (!classIds.length) return {};
   const { data, error } = await supabase()
-    .from("classes").select("id, students(count)").in("id", classIds)
+    .from("classes").select("id, students(count)").in("id", classIds).eq("students.active", true)
     .returns<{ id: string; students: { count: number }[] }[]>();
   if (error) throw new Error(error.message);
   return Object.fromEntries((data ?? []).map((c) => [c.id, c.students[0]?.count ?? 0]));
+}
+
+/**
+ * "12 of 43". A learner who handed in and was archived afterwards is no longer
+ * in the 43, so the count never runs past the class ("44 of 43").
+ */
+export function handedInLabel(handedIn: number, classSize: number | undefined): string {
+  return classSize === undefined ? `${handedIn} of ?` : `${Math.min(handedIn, classSize)} of ${classSize}`;
 }
 
 export async function createHomework(tenantId: string, teacherId: string, input: HomeworkInput): Promise<void> {
