@@ -23,7 +23,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 ### P0 follow-ups (RLS should-fix)
 - [ ] Targeted announcements readable school-wide (read policy ignores `audience`).
 - [ ] Teachers can approve their own leave.
-- [ ] Any teacher can edit any exam.
+- [x] Any teacher can edit any exam. The `exam_publish_teacher` policy is gone; only the school admin changes exams, and teachers publish through `publish_marks()`, which checks they teach that class and subject.
 - [ ] Drivers can change their own vehicle's `speed_limit_kmh`.
 - [ ] Suspended organizations keep full access.
 - [ ] Teachers can overwrite/delete private documents and confirm payment proofs.
@@ -38,19 +38,23 @@ The repo isn't linked to a project (no `supabase/.temp/project-ref`); deploys ar
 1. **Back up first** (dashboard → Database → Backups, or `pg_dump`).
 2. **Set the secret** `DARAJA_CALLBACK_SECRET` (long random string; `openssl rand -hex 32`) in the project's edge function secrets, and make sure `DARAJA_CALLBACK_URL` points at the deployed `mpesa-callback`.
 3. **Apply migrations in order** (`supabase db push`, or paste into the SQL editor):
-   `20261021000000_student_tenant_consistency` · `20261021000001_documents_photos_grades_audit` · `20261021000002_payments_server_only` · `20261022000000_payment_method_cheque` · `20261022000001_record_payment` · `20261022000002_login_lookup_rate_limit` · `20261022000003_next_login_number`.
+   `20261021000000_student_tenant_consistency` · `20261021000001_documents_photos_grades_audit` · `20261021000002_payments_server_only` · `20261022000000_payment_method_cheque` · `20261022000001_record_payment` · `20261022000002_login_lookup_rate_limit` · `20261022000003_next_login_number` · `20261023000000_exam_marks_publication`.
+   The last one moves existing published exams into `mark_publications` for every class and subject that has marks, so nothing already published disappears.
    The first migration prints a WARNING for any existing rows that already break the cross-school rule; read them.
 4. **Redeploy the edge functions that changed**, `--no-verify-jwt` where config.toml says so: `invite-admin`, `invite-org-admin`, `provision-guardian`, `provision-student`, `mpesa-callback`, `mpesa-stk-push`, `resolve-login-id`. The functions and the web/mobile builds go together: the new sign-in screens read `display_name`, so deploy `resolve-login-id` first, then the web app and new mobile builds.
-5. **Run the checks** against a copy of the database: `supabase/rls-checks/tenant_isolation.sql` and `fees.sql`.
+5. **Run the checks** against a copy of the database: `supabase/rls-checks/tenant_isolation.sql`, `fees.sql` and `exams_homework.sql`.
 6. **Existing accounts keep their passwords.** Accounts created before this on a hosted project still have `figbloom-dev` (fine for demo accounts; rotate any real ones).
 
 ## P1 — Core flows that can't work end to end
 
 - [x] **Fee invoices**: nothing but the seed creates `fee_invoices`. Build a per-term billing run from fee items. Admin Fees → "Bill learners" (re-runnable; only bills learners without an invoice).
 - [x] **Record payments**: confirming a payment proof doesn't credit the invoice; no way to record cash/bank/cheque. `record_payment()` + admin Fees → "Record a payment" (cash, M-Pesa to the paybill, bank, cheque); confirming a proof records its payment.
-- [ ] **Exams**: no screen creates `exams` (teachers are told to ask the admin, who has no screen).
-- [ ] **Exam publishing**: `publishExam` publishes the whole exam school-wide, exposing other teachers' draft marks.
-- [ ] **Assignments**: no web or mobile screen creates `assignments`.
+- [x] **Exams**: admin Exams screen (web) creates, renames and deletes a term's exams. Deleting is refused once any mark is entered (`guard_exam_delete`). Exams are out of 100 only (see the open item below).
+- [x] **Exam publishing is per class and subject.** `publishExam` released the whole exam school-wide, so one teacher publishing exposed every other teacher's draft marks. Now `mark_publications` holds one row per exam, class and subject; `publish_marks()` / `unpublish_marks()` check the caller teaches it and write an audit event; `mark_read` and `class_means_for_exam` follow it. Teachers can withdraw published marks, on web and in the teacher app. `exams.published_at` is kept in sync by a trigger for the screens that still read it. Checked by `supabase/rls-checks/exams_homework.sql` (33 checks) and in a browser (admin creates, teacher publishes one class and subject, the learner sees only that subject, withdrawing hides it again).
+- [x] **Homework**: teachers set, edit and delete homework for classes and subjects they teach (web and teacher app). Learners see their own class's homework and mark it handed in; the teacher sees "n of class size". The assignment policies used to let any teacher write any homework; they now check the class and subject assignment.
+- [ ] **Exams out of other totals**: every screen assumes marks are percentages, so exams can only be created out of 100. Supporting 50 or 200 means a total per exam and converting to a percentage everywhere marks are shown, graded or averaged (Gradebook, class means, learner, parent and report views).
+- [ ] **Family results while a term is being published**: parent and learner screens (web and mobile) show the exam published most recently. Once one teacher publishes a new exam the family sees only that subject and loses the previous complete exam, with no way back. Needs an exam switcher, or to keep showing the last exam where every subject is out.
+- [ ] **Homework in the teacher app** types the due date as YYYY-MM-DD (no date picker yet), and was only compiled and type-checked, not run on a device.
 - [x] **Payment screens no longer fake it.** Web (parent + student Fees) and mobile (parent Pay) used a timer that said "KSh X received" and invented failures. They now call `mpesa-stk-push` (shared `payWithMpesa`) and show only what the payment row says; "received" only when Safaricom's confirmed callback has set it. When M-Pesa isn't available they show the school's paybill/till/bank details instead of pretending; a payment still unanswered after 90 s says "we haven't heard back" and never invites a second payment. Hard-coded demo phone number removed. Verified in a browser and on the emulator against the real local functions (unavailable path) and a simulated callback (success/failure); **the happy path has never run against Safaricom**.
 - [ ] **Go live with real M-Pesa**: needs Safaricom Daraja credentials (`DARAJA_*`, `DARAJA_CALLBACK_SECRET`) on the production project, a sandbox end-to-end test (prompt → PIN → callback → balance), then production credentials. Mobile has no proof-of-payment upload yet (web does).
 - [ ] **1000-row cap**: no query is paginated; reports, dashboards and people lists are silently truncated in large schools. Started: `fetchAllPages()` in shared; admin Fees and the billing run use it.

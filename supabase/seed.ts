@@ -189,8 +189,9 @@ async function main() {
 
   // ---------------------------------------------------------------- exams and marks
   const { data: exams } = await db.from("exams").insert([
-    { tenant_id: alliance.id, term_id: term!.id, name: "Mock 1", out_of: 100, published_at: new Date().toISOString() },
-    { tenant_id: alliance.id, term_id: term!.id, name: "End of Term 3", out_of: 100, published_at: null },
+    // Not published here: results go out per class and subject (mark_publications), below.
+    { tenant_id: alliance.id, term_id: term!.id, name: "Mock 1", out_of: 100 },
+    { tenant_id: alliance.id, term_id: term!.id, name: "End of Term 3", out_of: 100 },
   ]).select("id, name");
 
   const mock1 = exams!.find((e) => e.name === "Mock 1")!;
@@ -204,6 +205,11 @@ async function main() {
   );
   await db.from("marks").insert(marks);
   console.log(`  ${marks.length} marks for Form 2 West`);
+
+  // Mock 1 is out for Form 2 West in every subject. A trigger keeps exams.published_at in step.
+  await db.from("mark_publications").insert(subjects!.map((sub) => ({
+    tenant_id: alliance.id, exam_id: mock1.id, class_id: form2west.id, subject_id: sub.id,
+  })));
 
   // ---------------------------------------------------------------- attendance, last 10 school days
   const days: string[] = [];
