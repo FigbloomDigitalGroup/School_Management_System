@@ -1,6 +1,6 @@
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { formatMoney, formatShortDate, gradeFor, gradingSchemeFor } from "@figbloom/shared";
+import { formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren, useMessages, useTermLabel } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
@@ -63,7 +63,7 @@ export function ParentHome() {
               ? { label: "ATTENDANCE", value: "—", note: "No attendance recorded yet" }
               : { label: "ATTENDANCE", value: `${child.attendance}%`, note: "this term" },
             child.mean !== null
-              ? { label: "MEAN GRADE", value: gradeFor(child.mean, gradingSchemeFor(country, child.classLevel)), note: `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}` }
+              ? { label: "MEAN GRADE", value: gradeFor(child.mean, gradingSchemeFor(country, child.classLevel)), note: `${child.mean} marks${child.examName ? `, ${child.examName}${newestExamNote(child.exams)}` : ""}` }
               : cbe.results === null && !cbe.failed
                 ? { label: "MEAN GRADE", value: null, note: null } // CBE check still loading
                 : cbe.results?.length

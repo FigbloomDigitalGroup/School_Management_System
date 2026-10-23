@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { formatMoney, gradeFor, gradingSchemeFor, loadPublishedCbeResults, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
+import { formatMoney, gradeFor, gradingSchemeFor, loadPublishedCbeResults, newestExamNote, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
 import { cbeOverall } from "../../components/CbeResults";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -53,7 +53,7 @@ export function ParentHome() {
           : {
               label: "Mean grade",
               value: child.mean === null ? "—" : gradeFor(child.mean, gradingSchemeFor(tenant.country, child.classLevel)),
-              sub: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}` : ""}`,
+              sub: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}${newestExamNote(child.exams)}` : ""}`,
             },
       ]
     : [];

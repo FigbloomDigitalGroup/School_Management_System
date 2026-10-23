@@ -32,4 +32,5 @@ export * from "./paging";
 export * from "./edge";
 export * from "./mpesaPay";
 export * from "./exams";
+export * from "./examResults";
 export * from "./homework";

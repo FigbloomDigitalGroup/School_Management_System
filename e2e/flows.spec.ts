@@ -349,4 +349,38 @@ test.describe("student", () => {
     await expect(page.getByText(/Marks shown against the class mean|Not published yet/)).toBeVisible();
     await expect(page.getByText(/position/i)).toContainText("not shown");
   });
+
+  test("a half-published exam does not hide the last complete one: the learner can switch", async ({ page }) => {
+    // Teachers publish a class and subject at a time. Put one subject of a new
+    // exam out for this learner's class, the way a first teacher would.
+    const examName = `E2E half published ${Date.now()}`;
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: term } = await admin.from("terms").select("id").eq("tenant_id", tenant!.id).eq("is_current", true).single();
+    const { data: learner } = await admin.from("profiles").select("id").eq("login_id", LOGINS.student.loginId).single();
+    const { data: teacher } = await admin.from("profiles").select("id").eq("login_id", LOGINS.teacher.loginId).single();
+    const { data: studentRow } = await admin.from("students").select("id, class_id").eq("profile_id", learner!.id).single();
+    const { data: subject } = await admin.from("subjects").select("id").eq("tenant_id", tenant!.id).eq("name", "Chemistry").single();
+    const { data: exam } = await admin.from("exams").insert({ tenant_id: tenant!.id, term_id: term!.id, name: examName }).select("id").single();
+    try {
+      await admin.from("marks").insert({ tenant_id: tenant!.id, exam_id: exam!.id, student_id: studentRow!.id, subject_id: subject!.id, score: 71, entered_by: teacher!.id });
+      await admin.from("mark_publications").insert({ tenant_id: tenant!.id, exam_id: exam!.id, class_id: studentRow!.class_id, subject_id: subject!.id });
+
+      await page.goto("/s/alliance/student/results");
+      const switcher = page.getByRole("group", { name: "Exam" });
+      await expect(switcher).toBeVisible();
+      // Newest first, each pill says how many subjects are out, and the new exam is showing.
+      const pills = switcher.getByRole("button");
+      await expect(pills.first()).toContainText(`${examName} · 1 subject`);
+      await expect(pills.first()).toHaveAttribute("aria-pressed", "true");
+
+      // The earlier, complete exam is one tap away.
+      await switcher.getByRole("button", { name: /Mock 1/ }).click();
+      await expect(page.getByText("Mathematics").first()).toBeVisible();
+      await expect(switcher.getByRole("button", { name: /Mock 1/ })).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await admin.from("mark_publications").delete().eq("exam_id", exam!.id);
+      await admin.from("marks").delete().eq("exam_id", exam!.id);
+      await admin.from("exams").delete().eq("id", exam!.id);
+    }
+  });
 });

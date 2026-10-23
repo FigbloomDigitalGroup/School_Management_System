@@ -1,28 +1,34 @@
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor, HIT, s, t } from "../../theme";
 import { useChild, useSubjects } from "../../data";
 import { Skeleton } from "../../components/Skeleton";
 import { CbeResults } from "../../components/CbeResults";
+import { ExamSwitcher } from "../../components/ExamSwitcher";
 import { useCbeResults } from "../../lib/useCbeResults";
+import { useExamView } from "../../lib/useExamView";
 
 /** A mark with its context. No class position — that is a decision, see the web note. */
 export function ParentResults() {
   const { child, index, accent, country } = useChild();
-  const subjects = useSubjects();
+  const newestSubjects = useSubjects();
   const cbe = useCbeResults(child.id, country);
+  // The newest exam with results out, or whichever one the parent picks.
+  const view = useExamView({ id: child.id, classId: child.classId, examId: child.examId, examName: child.examName, exams: child.exams, subjects: newestSubjects });
+  const subjects = view.subjects;
+  const mean = subjects.length ? Math.round(subjects.reduce((sum, sub) => sum + sub.score, 0) / subjects.length) : null;
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
   const scheme = gradingSchemeFor(country, child.classLevel);
   const cbeResults = cbe.results ?? [];
   const sorted = [...subjects].sort((x, y) => y.score - x.score);
-  const strongestWeakest = sorted.length > 0 ? { strongest: sorted[0]!.name, weakest: sorted[sorted.length - 1]!.name } : null;
+  const strongestWeakest = sorted.length > 1 ? { strongest: sorted[0]!.name, weakest: sorted[sorted.length - 1]!.name } : null;
 
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: tint }]}>
         <Text style={s.headerTitle}>Results</Text>
-        <Text style={s.headerSub}>{child.name}{child.mean !== null && child.examName ? ` · ${child.examName}` : ""}</Text>
+        <Text style={s.headerSub}>{child.name}{child.mean !== null && view.examName ? ` · ${view.examName}` : ""}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -43,16 +49,30 @@ export function ParentResults() {
           </View>
         ) : (
           <>
+            <ExamSwitcher exams={child.exams} value={view.examId} onPick={view.pick} tint={tint} />
             {cbeResults.length > 0 && <View style={{ marginBottom: child.mean !== null ? 16 : 0 }}><CbeResults results={cbeResults} /></View>}
-            {child.mean !== null && (
+            {view.failed ? (
+              <View style={[s.card, { gap: 8 }]}>
+                <Text style={s.small}>Could not load these results. Check your connection, then tap the exam again.</Text>
+                <TouchableOpacity accessibilityRole="button" onPress={() => view.examId && view.pick(view.examId)} style={{ ...HIT, justifyContent: "center" }}>
+                  <Text style={{ fontSize: 13.5, fontWeight: "600", color: tint }}>Try again</Text>
+                </TouchableOpacity>
+              </View>
+            ) : view.loading ? (
+              <View style={[s.card, { gap: 8 }]}>
+                <Skeleton width="30%" height={10} />
+                <Skeleton width="45%" height={28} />
+                <Skeleton width="80%" height={11} />
+              </View>
+            ) : mean !== null && (
               <>
                 <View style={[s.card, { backgroundColor: tint, borderColor: tint }]}>
                   <Text style={[s.eyebrow, { color: "rgba(255,255,255,0.7)" }]}>
-                    MEAN GRADE{child.examName ? ` · ${child.examName.toUpperCase()}` : ""}
+                    MEAN GRADE{view.examName ? ` · ${view.examName.toUpperCase()}` : ""}
                   </Text>
                   <View style={{ flexDirection: "row", alignItems: "baseline", gap: 12, marginTop: 6 }}>
-                    <Text style={{ fontSize: 38, fontWeight: "700", color: "#fff" }}>{gradeFor(child.mean, scheme)}</Text>
-                    <Text style={[s.mono, { color: "rgba(255,255,255,0.8)", fontSize: 14 }]}>{child.mean} marks</Text>
+                    <Text style={{ fontSize: 38, fontWeight: "700", color: "#fff" }}>{gradeFor(mean, scheme)}</Text>
+                    <Text style={[s.mono, { color: "rgba(255,255,255,0.8)", fontSize: 14 }]}>{mean} marks</Text>
                   </View>
                   {strongestWeakest && (
                     <Text style={{ fontSize: 12.5, lineHeight: 19, color: "rgba(255,255,255,0.85)", marginTop: 8 }}>
