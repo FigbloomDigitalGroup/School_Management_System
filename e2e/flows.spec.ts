@@ -128,7 +128,18 @@ test.describe("sign in", () => {
 });
 
 test.describe("platform", () => {
+  // The onboarding test creates a real school and its admin. Remove them before and
+  // after, so it can run again (a second run used to collide with the first run's school)
+  // and nothing is left in the database for the other checks to trip over.
+  async function removeNyeriGirls() {
+    const { data: admins } = await admin.from("profiles").select("id").eq("email", "peter.mwangi@nyerigirls.sc.ke");
+    for (const row of admins ?? []) await admin.auth.admin.deleteUser(row.id);
+    await admin.from("tenants").delete().eq("slug", "nyeri-girls");
+  }
+  test.afterAll(removeNyeriGirls);
+
   test.beforeEach(async ({ page }) => {
+    await removeNyeriGirls();
     await signInEmail(page, LOGINS.platform.email, LOGINS.platform.password);
   });
 
@@ -174,15 +185,27 @@ test.describe("platform", () => {
   });
 
   test("console chips cannot contradict their own stat cards", async ({ page }) => {
-    await page.goto("/platform/incidents");
-    await page.getByRole("button", { name: "Open" }).click();
-    // "Open" must include Investigating and Fix in review, not just one of them.
-    await expect(page.getByText("Investigating")).toBeVisible();
-    await expect(page.getByText("Fix in review")).toBeVisible();
-    // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
-    // filter chip itself, and a substring match would also hit "resolved 14 Aug"
-    // in a stat card's sub-text.
-    await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+    // The seed has no incidents, so make one in each state (titles avoid the words
+    // under test: getByText matches substrings, case-insensitively).
+    const { data: made, error: insertError } = await admin.from("platform_incidents").insert([
+      { severity: "SEV-2", title: "E2E first", summary: "e2e", affected_schools: 1, status: "investigating" },
+      { severity: "SEV-3", title: "E2E second", summary: "e2e", affected_schools: 2, status: "fix_in_review" },
+      { severity: "SEV-3", title: "E2E third", summary: "e2e", affected_schools: 0, status: "resolved", resolved_at: new Date().toISOString() },
+    ]).select("id");
+    expect(insertError).toBeNull();
+    try {
+      await page.goto("/platform/incidents");
+      await page.getByRole("button", { name: "Open" }).click();
+      // "Open" must include Investigating and Fix in review, not just one of them.
+      await expect(page.getByText("Investigating")).toBeVisible();
+      await expect(page.getByText("Fix in review")).toBeVisible();
+      // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
+      // filter chip itself, and a substring match would also hit "resolved 14 Aug"
+      // in a stat card's sub-text.
+      await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+    } finally {
+      await admin.from("platform_incidents").delete().in("id", (made ?? []).map((r) => r.id));
+    }
   });
 });
 
