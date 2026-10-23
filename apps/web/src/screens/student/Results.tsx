@@ -1,6 +1,8 @@
 import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, loadPublishedCbeResults, pointsFor } from "@figbloom/shared";
 import { CbeResults } from "../../components/CbeResults";
+import { ExamSwitcher } from "../../components/ExamSwitcher";
 import { useAsync } from "../../lib/useAsync";
+import { useExamView } from "../../lib/useExamView";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -27,6 +29,8 @@ export function StudentResults() {
     () => (data?.studentId ? loadPublishedCbeResults([data.studentId], tenant.country) : Promise.resolve(new Map())),
     [data?.studentId, tenant.country],
   );
+  // The newest exam with results out, or whichever one the learner picks.
+  const view = useExamView(data ? { id: data.studentId, classId: data.classId, examId: data.examId, exams: data.exams, subjects: data.subjects } : null);
 
   if (tenant.institution_type === "higher_ed") return <StudentCourseResults />;
 
@@ -65,7 +69,7 @@ export function StudentResults() {
   }
 
   const scheme = gradingSchemeFor(tenant.country, data.classLevel ?? "secondary");
-  const subjects = data.subjects;
+  const subjects = view.subjects;
   const meanMark = subjects.length ? Math.round(subjects.reduce((a, s) => a + s.score, 0) / subjects.length) : null;
   const points = subjects.reduce((a, s) => a + pointsFor(s.score, scheme), 0);
   const cbe = cbeByStudent?.get(data.studentId) ?? [];
@@ -73,20 +77,27 @@ export function StudentResults() {
   return (
     <>
       <PageHead
-        eyebrow={data.examName ?? "Results"}
+        eyebrow={view.examName ?? "Results"}
         title={data.className || "Results"}
         blurb={subjects.length > 0 ? "Marks shown against the class mean — never a class rank." : undefined}
       />
 
       <div className="px-7 py-6">
+        <ExamSwitcher exams={data.exams} value={view.examId} onPick={view.pick} />
         {cbe.length > 0 && <div className="mb-6"><CbeResults results={cbe} heading="Your learning areas" /></div>}
-        {subjects.length === 0 || meanMark === null ? (
+        {view.error ? (
+          <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+            <span aria-hidden>✕</span>Could not load these results: {view.error.message}
+          </p>
+        ) : view.loading ? (
+          <TableSkeleton rows={6} />
+        ) : subjects.length === 0 || meanMark === null ? (
           cbe.length ? null : <EmptyState title="Not published yet" body="Your results will appear here as soon as the school publishes them." />
         ) : (
           <>
             <StatRow
               stats={[
-                { label: data.examName ?? "Latest exam", value: gradeFor(meanMark, scheme), sub: `${meanMark} marks · ${points} points` },
+                { label: view.examName ?? "Latest exam", value: gradeFor(meanMark, scheme), sub: `${meanMark} marks · ${points} points` },
                 { label: "Subjects assessed", value: String(subjects.length) },
               ]}
             />

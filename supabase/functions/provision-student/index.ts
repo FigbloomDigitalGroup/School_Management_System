@@ -10,15 +10,15 @@
  * Deploy: supabase functions deploy provision-student
  *
  * Same login_id + synthetic-email scheme as every other non-email role
- * (FIG-396/397's "ST-0001"), same fixed dev password, same three-way
- * caller check as invite-admin/provision-guardian.
+ * (FIG-396/397's "ST-0001"), same random one-time password that must be
+ * changed at first sign-in, same three-way caller check as
+ * invite-admin/provision-guardian.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { formatLoginId, loginIdEmail, ROLE_ID_PREFIX } from "../_shared/loginId.ts";
-
-const DEV_PASSWORD = "figbloom-dev";
+import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
+import { tempPassword } from "../_shared/tempPassword.ts";
 
 interface Body {
   tenant_id: string;
@@ -76,14 +76,19 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: "This learner already has a login." }, 409);
   }
 
-  const { data: existing } = await admin.from("profiles")
-    .select("id").eq("tenant_id", tenant_id).eq("role", "student");
-  const loginId = formatLoginId(ROLE_ID_PREFIX.student, (existing?.length ?? 0) + 1);
+  let loginId: string;
+  try {
+    loginId = await nextLoginId(admin, tenant_id, "student");
+  } catch (err) {
+    console.error("provision-student: could not number the account:", err instanceof Error ? err.message : err);
+    return json({ error: "Could not create the account. Try again." }, 500);
+  }
   const loginEmail = loginIdEmail(loginId, tenant.slug);
+  const password = tempPassword();
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: loginEmail,
-    password: DEV_PASSWORD,
+    password,
     email_confirm: true,
   });
   if (createErr || !created.user) {
@@ -96,6 +101,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     role: "student",
     full_name: student.full_name,
     login_id: loginId,
+    must_change_password: true,
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
@@ -118,7 +124,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, login_id: loginId, password: DEV_PASSWORD });
+  return json({ ok: true, login_id: loginId, password });
 }
 
 if (import.meta.main) {

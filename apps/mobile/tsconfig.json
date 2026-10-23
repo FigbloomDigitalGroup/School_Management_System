@@ -7,6 +7,9 @@
     "paths": {
       "@figbloom/shared": [
         "../../packages/shared/src/index.ts"
+      ],
+      "react-native-maps": [
+        "apps/mobile/src/types/react-native-maps.d.ts"
       ]
     }
   },

@@ -4,9 +4,9 @@ This covers the map/GPS-tracking feature: the school bus fleet tracker used by a
 
 ## TL;DR
 
-- Maps only exist in the **web app** (`apps/web`). The mobile app collects GPS in the background but never renders a map.
-- Provider: **Google Maps**, via `@vis.gl/react-google-maps` (Google's official React wrapper). No Leaflet/Mapbox anywhere.
-- Two custom map components, one shared data/query layer (`packages/shared/src/fleet.ts`), Postgres/Supabase for storage + realtime + server-side alerting.
+- Web (`apps/web`) has the full-featured live map. Mobile (`apps/mobile`, parent's Bus tab, FIG-874) has a deliberately leaner one: bus + numbered stops + a straight line through them, no road-snapping, no satellite/traffic toggle, no glide animation.
+- Web's provider: **Google Maps**, via `@vis.gl/react-google-maps`. Mobile's: **`react-native-maps`** (Apple Maps by default on iOS, Google Maps SDK for Android on Android — no Leaflet/Mapbox anywhere).
+- One shared data/query layer (`packages/shared/src/fleet.ts`) feeds both. Postgres/Supabase for storage + realtime + server-side alerting.
 
 ## Map components
 
@@ -29,12 +29,29 @@ This covers the map/GPS-tracking feature: the school bus fleet tracker used by a
 
 Driver-facing screens (web `screens/driver/Trip.tsx`, mobile `screens/driver/Trip.tsx`) don't render a map at all — they just show raw text and stream location.
 
+**`apps/mobile/src/components/BusMap.tsx`** — the mobile map (FIG-874).
+- Renders `<MapView>` → `<Marker>` (bus, numbered stops as plain View children) → `<Polyline>` straight through the stops in travel order.
+- Used by `screens/parent/Bus.tsx`'s `RideCard`, one map per child's ride.
+- No student-facing Bus screen exists yet — only parents get live tracking, same as web.
+- `initialRegion` is computed once on mount from the first fix and never recentred — the camera is the viewer's to pan after that.
+
 ## Config
 
 ```
 VITE_GOOGLE_MAPS_API_KEY=
 ```
-Set in `.env` (see `.env.example`). Optional — the feature degrades gracefully without it. Restrict the key to the Maps JavaScript API + your domain(s) in Google Cloud Console. The Directions API must be enabled separately.
+Set in `.env` (see `.env.example`), **web only**. Optional — the feature degrades gracefully without it. Restrict the key to the Maps JavaScript API + your domain(s) in Google Cloud Console. The Directions API must be enabled separately.
+
+**Mobile Android** needs its own, separate key: Google Maps SDK for Android doesn't accept a browser-restricted JS key. Enable "Maps SDK for Android" on the same (or a new) GCP project, issue an Android-app-restricted key, and add it to `apps/mobile/android/local.properties` (gitignored, same file Android Studio writes `sdk.dir` to) as:
+```
+MAPS_API_KEY=your-android-key
+```
+`android/app/build.gradle` reads it into a manifest placeholder consumed by `AndroidManifest.xml`'s `com.google.android.geo.API_KEY` meta-data — mirrors the existing `key.properties`/release-signing pattern in the same file. Missing key: the build still succeeds, the map just renders without tiles. The release workflow
+(`.github/workflows/mobile-release-build.yml`) writes it from a `MAPS_API_KEY` GitHub secret for the parent
+app and fails the build if the secret is missing. If the key is restricted to the app, add the package name
+(`com.figbloom.schools`) and the SHA-1 of every key that signs a build: the debug keystore for development,
+the upload key for CI builds, and Play App Signing's key for builds installed from Google Play.
+**Mobile iOS** needs no key — `react-native-maps` defaults to Apple Maps there.
 
 ## Data flow
 
@@ -68,6 +85,12 @@ This logic lives entirely in SQL — the map UI only displays and lets admins ac
 
 ## Gotchas / things to know before touching this
 
+- `react-native-maps` (needs play-services-location 21.3.0) and `react-native-geolocation-service`
+  (defaults to 18.0.0) share one copy of Google's location library at runtime, the newer one. The driver's
+  GPS library must be compiled against the same version, which `playServicesLocationVersion` in
+  `apps/mobile/android/build.gradle` does. Without it the first location request crashes the app with
+  `IncompatibleClassChangeError: Found interface ...FusedLocationProviderClient, but class was expected`.
+
 - No background tracking beyond the foreground: web only tracks while the driver's tab is open; mobile uses an Android foreground service (required by Android for background location), not a paid background-tracking SDK.
 - Routes are discrete stop points, not polylines — the admin stop editor (`Fleet.tsx` → `StopsEditor`) replaces the whole stop list on save (delete-all-then-insert) rather than diffing.
 - RLS, not the map component, enforces that a parent only sees their own child's bus.
@@ -84,6 +107,8 @@ This logic lives entirely in SQL — the map UI only displays and lets admins ac
 | `apps/web/src/screens/parent/Bus.tsx` | Parent "where's my child's bus" view |
 | `apps/web/src/screens/driver/Trip.tsx` | Web driver GPS reporting (no map) |
 | `apps/mobile/src/screens/driver/locationTask.ts` | Mobile background GPS collection |
+| `apps/mobile/src/components/BusMap.tsx` | Mobile's lean live map (bus + stops + line) |
+| `apps/mobile/src/screens/parent/Bus.tsx` | Parent "where's my child's bus" view (mobile) |
 | `packages/shared/src/fleet.ts` | All fleet queries/mutations (ping, list, subscribe, alerts) |
 | `packages/shared/src/queue.ts` + `apps/web/src/lib/queue.ts` | Offline write queue for GPS pings |
 | `supabase/migrations/20260903000003_fleet.sql` | Core fleet schema + RLS |

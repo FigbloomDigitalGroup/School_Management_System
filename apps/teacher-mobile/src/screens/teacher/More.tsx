@@ -3,8 +3,9 @@ import { useNavigation } from "@react-navigation/native";
 import { accentFor, HIT, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 
-const ITEMS: { to: "Timetable" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
+const ITEMS: { to: "Timetable" | "Homework" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
   { to: "Timetable", label: "Timetable", glyph: "◷" },
+  { to: "Homework", label: "Homework", glyph: "✎" },
   { to: "Classes", label: "My classes", glyph: "▨" },
   { to: "Leave", label: "Leave", glyph: "⚑" },
   { to: "Buses", label: "School buses", glyph: "🚌" },

@@ -4,6 +4,7 @@ import { isLive, listBusUpdates, myChildBus, subscribeBusUpdates, type BusOnRout
 import { accentFor, s } from "../../theme";
 import { useChild, useChildren, useTenantId } from "../../data";
 import { Skeleton } from "../../components/Skeleton";
+import { BusMap } from "../../components/BusMap";
 
 /** A child and the bus they ride, if any. */
 interface Ride { childId: string; first: string; bus: BusOnRoute | null; routeName: string | null; stopName: string | null }
@@ -132,6 +133,11 @@ function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint:
           <Text style={[s.faint, { fontWeight: "600", color: live ? "#1E7A43" : undefined }]}>{live ? "On the road" : "Not on the road"}</Text>
         </View>
       </View>
+
+      <View style={{ marginTop: 10 }}>
+        <BusMap bus={bus} tint={tint} />
+      </View>
+
       <Text style={[s.faint, { marginTop: 6 }]}>{ago(bus.vehicle.last_ping_at, now)}</Text>
 
       {updates.length > 0 && (

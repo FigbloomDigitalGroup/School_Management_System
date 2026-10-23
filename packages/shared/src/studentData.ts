@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
-import { fetchClassMeans, formatShortDate, formatWhen, type Receipt } from "./parentData";
-import { classAudienceIncludes, type ClassLevel } from "./types";
+import { formatShortDate, formatWhen, type Receipt } from "./parentData";
+import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
+import { classAudienceIncludes, type ClassLevel, type Payment } from "./types";
+import { receiptRef } from "./fees";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -47,8 +49,12 @@ export interface StudentData {
   className: string;
   work: WorkItem[];
   notices: NoticeInfo[];
+  /** The newest exam this learner has results out for; `subjects` are its marks. */
   subjects: ResultSubject[];
+  examId: string | null;
   examName: string | null;
+  /** Every exam this learner has results out for, newest first, so the screen can switch between them. */
+  exams: PublishedExam[];
 }
 
 export function daysUntil(dueOn: string): number {
@@ -110,18 +116,18 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
       : Promise.resolve({ data: [] as StudentFeeData["feeItems"] }),
     supabase()
       .from("payments")
-      .select("id, amount_cents, mpesa_receipt, completed_at, created_at, fee_invoices!inner(student_id)")
+      .select("id, amount_cents, method, mpesa_receipt, reference, completed_at, created_at, fee_invoices!inner(student_id)")
       .eq("fee_invoices.student_id", studentRow.id)
       .eq("status", "success")
       .order("completed_at", { ascending: false })
-      .returns<{ id: string; amount_cents: number; mpesa_receipt: string | null; completed_at: string | null; created_at: string }[]>(),
+      .returns<{ id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; completed_at: string | null; created_at: string }[]>(),
   ]);
 
   const receipts: Receipt[] = (paymentRows ?? []).map((p) => ({
     id: p.id,
     amount: p.amount_cents,
     when: formatShortDate((p.completed_at ?? p.created_at).slice(0, 10)),
-    ref: p.mpesa_receipt ?? "M-Pesa",
+    ref: receiptRef(p),
   }));
 
   return {
@@ -153,7 +159,7 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
   // A higher-ed student (FIG-327) has class_id = null — class-scoped queries
   // are skipped rather than run with .eq("class_id", null), which PostgREST
   // rejects outright (400) rather than treating as an IS NULL filter.
-  const [{ data: assignmentRows }, { data: subRows }, { data: examRows }, { data: announcementRows }] = await Promise.all([
+  const [{ data: assignmentRows }, { data: subRows }, examsByStudent, { data: announcementRows }] = await Promise.all([
     studentRow.class_id
       ? supabase()
           .from("assignments")
@@ -162,26 +168,14 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
           .order("due_on", { ascending: true })
       : Promise.resolve({ data: [] as unknown[] }),
     supabase().from("assignment_submissions").select("assignment_id, marked_done_at").eq("student_id", studentRow.id),
-    supabase().from("exams").select("id, name, published_at").not("published_at", "is", null).order("published_at", { ascending: false }).limit(1),
+    fetchPublishedExams([studentRow.id]),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
   ]);
 
-  const exam = (examRows ?? [])[0] as { id: string; name: string } | undefined;
-
-  const [{ data: markRows }, classMeans] = await Promise.all([
-    exam
-      ? supabase().from("marks").select("score, subject_id, subjects(name)").eq("exam_id", exam.id).eq("student_id", studentRow.id)
-      : Promise.resolve({ data: [] as { score: number | null; subject_id: string; subjects: { name: string } | null }[] }),
-    exam && studentRow.class_id
-      ? fetchClassMeans(exam.id, studentRow.class_id)
-      : Promise.resolve(new Map<string, number>()),
-  ]);
-
-  const meanFor = (subjectId: string): number | null => classMeans.get(subjectId) ?? null;
-
-  const subjects: ResultSubject[] = ((markRows ?? []) as { score: number | null; subject_id: string; subjects: { name: string } | null }[])
-    .filter((m) => m.score !== null)
-    .map((m) => ({ name: m.subjects?.name ?? "Subject", score: m.score as number, classMean: meanFor(m.subject_id) }));
+  // The exams come from the marks this learner can read, so an exam only another class has published is not offered.
+  const exams = examsByStudent.get(studentRow.id) ?? [];
+  const exam = exams[0];
+  const subjects: ResultSubject[] = exam ? await fetchExamSubjects(studentRow.id, studentRow.class_id, exam.id) : [];
 
   const submittedAt = new Map(((subRows ?? []) as { assignment_id: string; marked_done_at: string }[]).map((s) => [s.assignment_id, s.marked_done_at]));
 
@@ -232,7 +226,9 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
     work,
     notices,
     subjects,
+    examId: exam?.id ?? null,
     examName: exam?.name ?? null,
+    exams,
   };
 }
 
@@ -241,5 +237,18 @@ export async function markStudentNoticeRead(profileId: string, announcementId: s
   const { error } = await supabase()
     .from("announcement_reads")
     .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * FIG-873: the plain "Mark as handed in" button (no file) — previously local
+ * state only, on both mobile and web. Shares the same row/conflict target as
+ * uploadAssignmentSubmission()'s file-attach path (apps/web/src/lib/uploads.ts),
+ * just without file_path/file_name.
+ */
+export async function markAssignmentHandedIn(assignmentId: string, studentId: string): Promise<void> {
+  const { error } = await supabase()
+    .from("assignment_submissions")
+    .upsert({ assignment_id: assignmentId, student_id: studentId, marked_done_at: new Date().toISOString() }, { onConflict: "assignment_id,student_id" });
   if (error) throw new Error(error.message);
 }

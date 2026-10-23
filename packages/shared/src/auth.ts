@@ -1,5 +1,5 @@
 import type { InstitutionType, Role } from "./types";
-import { supabase } from "./supabase";
+import { invokeEdge } from "./edge";
 
 /**
  * Two ways in (FIG-396, replacing an earlier four-tab/SMS-OTP scheme):
@@ -34,6 +34,9 @@ export function loginIdEmail(loginId: string, tenantSlug: string): string {
   return `${loginId.toLowerCase()}@login.${tenantSlug}.figbloom.internal`;
 }
 
+/** How long the sign-in screens wait for a lookup before saying so, rather than sitting on "Searching…". */
+const LOOKUP_TIMEOUT_MS = 8000;
+
 export interface SchoolSearchResult {
   id: string;
   name: string;
@@ -45,28 +48,13 @@ export interface SchoolSearchResult {
  *  anonymous search-schools edge function, since RLS has no pre-auth SELECT
  *  on tenants. Shared between web and mobile, which both need it. */
 export async function searchSchools(query: string): Promise<SchoolSearchResult[]> {
-  const { data, error } = await supabase().functions.invoke<{ schools: SchoolSearchResult[] } | { error: string }>(
-    "search-schools",
-    { body: { query } },
-  );
-  if (error) {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = (await ctx.json()) as { error?: string };
-        if (body?.error) throw new Error(body.error);
-      } catch (e) {
-        if (e instanceof Error && e.message) throw e;
-      }
-    }
-    throw new Error(error.message);
-  }
-  if (data && "error" in data) throw new Error(data.error);
-  return (data as { schools: SchoolSearchResult[] }).schools;
+  const data = await invokeEdge<{ schools: SchoolSearchResult[] }>("search-schools", { query }, { timeoutMs: LOOKUP_TIMEOUT_MS });
+  return data.schools;
 }
 
 export interface ResolvedLogin {
-  full_name: string;
+  /** Masked ("Esther H."): the lookup is public, so it never returns a full name. */
+  display_name: string;
   email: string;
 }
 
@@ -75,24 +63,7 @@ export interface ResolvedLogin {
  *  handles a password; the caller still authenticates via the returned
  *  email through Supabase's own signInWithPassword. */
 export async function resolveLoginId(tenantId: string, loginId: string): Promise<ResolvedLogin> {
-  const { data, error } = await supabase().functions.invoke<(ResolvedLogin & { ok: true }) | { error: string }>(
-    "resolve-login-id",
-    { body: { tenant_id: tenantId, login_id: loginId } },
-  );
-  if (error) {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = (await ctx.json()) as { error?: string };
-        if (body?.error) throw new Error(body.error);
-      } catch (e) {
-        if (e instanceof Error && e.message) throw e;
-      }
-    }
-    throw new Error(error.message);
-  }
-  if (data && "error" in data) throw new Error(data.error);
-  return data as ResolvedLogin;
+  return invokeEdge<ResolvedLogin>("resolve-login-id", { tenant_id: tenantId, login_id: loginId }, { timeoutMs: LOOKUP_TIMEOUT_MS });
 }
 
 /**
@@ -137,6 +108,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/classes", label: "Classes", icon: "grid" },
     { to: "admin/subjects", label: "Subjects", icon: "grid" },
     { to: "admin/courses", label: "Courses", icon: "grid" },
+    { to: "admin/exams", label: "Exams", icon: "table" },
     { to: "admin/fees", label: "Fees", icon: "receipt" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
     { to: "admin/leave", label: "Leave requests", icon: "flag" },
@@ -148,6 +120,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   teacher: [
     { to: "teacher/attendance", label: "Attendance", icon: "check" },
     { to: "teacher/gradebook", label: "Gradebook", icon: "table" },
+    { to: "teacher/homework", label: "Homework", icon: "pencil" },
     { to: "teacher/timetable", label: "Timetable", icon: "clock" },
     { to: "teacher/classes", label: "My classes", icon: "people" },
     { to: "teacher/sections", label: "My sections", icon: "people" },

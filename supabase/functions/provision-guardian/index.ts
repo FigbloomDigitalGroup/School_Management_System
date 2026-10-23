@@ -18,9 +18,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { formatLoginId, loginIdEmail, ROLE_ID_PREFIX } from "../_shared/loginId.ts";
+import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
+import { tempPassword } from "../_shared/tempPassword.ts";
 
-const DEV_PASSWORD = "figbloom-dev";
 const RELATIONSHIPS = new Set(["mother", "father", "guardian"]);
 
 interface StudentLink {
@@ -100,9 +100,13 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: "One or more learners do not belong to this school." }, 400);
   }
 
-  const { data: existing } = await admin.from("profiles")
-    .select("id").eq("tenant_id", tenant_id).eq("role", "parent");
-  const loginId = formatLoginId(ROLE_ID_PREFIX.parent, (existing?.length ?? 0) + 1);
+  let loginId: string;
+  try {
+    loginId = await nextLoginId(admin, tenant_id, "parent");
+  } catch (err) {
+    console.error("provision-guardian: could not number the account:", err instanceof Error ? err.message : err);
+    return json({ error: "Could not create the account. Try again." }, 500);
+  }
   const loginEmail = loginIdEmail(loginId, tenant.slug);
 
   // phone/email here are optional contact metadata only, stored on the
@@ -110,9 +114,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   // the synthetic loginEmail) is the actual credential, and a raw phone
   // string might not pass Supabase Auth's own phone-format validation for a
   // field that isn't even used for sign-in any more.
+  const password = tempPassword();
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: loginEmail,
-    password: DEV_PASSWORD,
+    password,
     email_confirm: true,
   });
   if (createErr || !created.user) {
@@ -127,6 +132,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     email: email ?? null,
     phone: phone ?? null,
     login_id: loginId,
+    must_change_password: true,
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
@@ -156,7 +162,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, login_id: loginId, password: DEV_PASSWORD });
+  return json({ ok: true, login_id: loginId, password });
 }
 
 if (import.meta.main) {

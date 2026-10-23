@@ -2,13 +2,15 @@ import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatMoney, formatShortDate, itemsForStudent } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
-import { useChild, useFeeItems, useTermLabel } from "../../data";
+import { useChild, useFeeItems, useTenantId, useTermLabel } from "../../data";
+import { PaymentMethodsCard, usePaymentMethods } from "../../components/PaymentMethods";
 
 export function ParentFees() {
   const nav = useNavigation<any>();
   const { child, index, accent, country } = useChild();
   const feeItems = useFeeItems();
   const termLabel = useTermLabel();
+  const methods = usePaymentMethods(useTenantId());
   const items = itemsForStudent(feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel);
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
@@ -52,7 +54,7 @@ export function ParentFees() {
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Receipts</Text>
         <View style={s.card}>
           {child.receipts.length === 0 ? (
-            <Text style={[s.faint, { paddingVertical: 10 }]}>Payments made through M-Pesa appear here once confirmed.</Text>
+            <Text style={[s.faint, { paddingVertical: 10 }]}>Payments appear here once the school has confirmed them.</Text>
           ) : (
             child.receipts.map((r, i) => (
               <View key={r.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 11, borderBottomWidth: i === child.receipts.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
@@ -67,6 +69,13 @@ export function ParentFees() {
             ))
           )}
         </View>
+
+        {!!methods && child.balance > 0 && (
+          <>
+            <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>How to pay</Text>
+            <PaymentMethodsCard methods={methods} />
+          </>
+        )}
 
         {child.balance > 0 && (
           <TouchableOpacity onPress={() => nav.navigate("Pay")} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>

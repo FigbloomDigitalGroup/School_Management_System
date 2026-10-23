@@ -7,6 +7,11 @@ buildscript {
         targetSdkVersion = 34
         ndkVersion = "26.1.10909125"
         kotlinVersion = "1.9.25"
+        // react-native-maps needs play-services-location 21.3.0; react-native-geolocation-service
+        // defaults to 18.0.0. The app can only ship one copy (the newer), so the GPS library has to
+        // be compiled against it too: FusedLocationProviderClient is a class in 18 and an interface
+        // in 21, and a mismatch crashes the first location request (IncompatibleClassChangeError).
+        playServicesLocationVersion = "21.3.0"
     }
     repositories {
         google()

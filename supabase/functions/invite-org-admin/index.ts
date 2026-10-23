@@ -19,16 +19,16 @@
  * link row, so that person's one login now covers both organizations. If
  * the email belongs to some OTHER role (school_admin/parent/student/etc.),
  * that account can't be repurposed and the invite is rejected. Only a
- * genuinely new email creates a new account, with a fixed dev password (no
- * email/SMS provider wired up locally — see invite-admin's own docstring
- * for why) — a failed profile insert rolls back the orphaned auth account
- * rather than leaving a login with no profile.
+ * genuinely new email creates a new account, with a random one-time
+ * password that must be changed at first sign-in (no email/SMS provider
+ * wired up — see invite-admin's own docstring for why) — a failed profile
+ * insert rolls back the orphaned auth account rather than leaving a login
+ * with no profile.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-
-const DEV_PASSWORD = "figbloom-dev";
+import { tempPassword } from "../_shared/tempPassword.ts";
 
 interface Body {
   organization_id: string;
@@ -111,9 +111,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ ok: true, linkedExisting: true, email: email.trim() });
   }
 
+  const password = tempPassword();
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: email.trim(),
-    password: DEV_PASSWORD,
+    password,
     email_confirm: true,
   });
   if (createErr || !created.user) {
@@ -131,6 +132,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     role: "org_admin",
     full_name: full_name.trim(),
     email: email.trim(),
+    must_change_password: true,
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
@@ -158,7 +160,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, linkedExisting: false, email: email.trim(), password: DEV_PASSWORD });
+  return json({ ok: true, linkedExisting: false, email: email.trim(), password });
 }
 
 if (import.meta.main) {

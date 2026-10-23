@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
@@ -6,6 +6,7 @@ import "./src/lib/client";
 import { ParentDataProvider } from "./src/data";
 import { Navigation } from "./src/navigation";
 import { registerPushToken } from "./src/pushNotifications";
+import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { SignIn } from "./src/screens/SignIn";
 import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
@@ -23,16 +24,21 @@ type Session =
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
+  // Set while the school-issued password still has to be replaced; null once it has.
+  const [choosePassword, setChoosePassword] = useState<{ fullName: string; loginId: string | null } | null>(null);
+  // Choosing a password fires USER_UPDATED, whose reload can read the profile
+  // before must_change_password is cleared — don't let that bring the prompt back.
+  const passwordChosen = useRef(false);
 
   useEffect(() => {
     let alive = true;
 
     async function load() {
       const { data: { user } } = await supabase().auth.getUser();
-      if (!user) { if (alive) { setSession(null); setLoading(false); } return; }
+      if (!user) { passwordChosen.current = false; if (alive) { setSession(null); setLoading(false); } return; }
 
       const { data: profile } = await supabase()
-        .from("profiles").select("role, tenant_id, full_name").eq("id", user.id).maybeSingle();
+        .from("profiles").select("role, tenant_id, full_name, login_id, must_change_password").eq("id", user.id).maybeSingle();
       const isSupportedRole = profile && (profile.role === "parent" || profile.role === "student" || profile.role === "driver");
       if (!isSupportedRole || (profile.role === "driver" && !profile.tenant_id)) {
         // Staff and platform roles have no home here — the web console is theirs.
@@ -53,7 +59,8 @@ export default function App() {
       const session: Session = profile.role === "driver"
         ? { role: "driver", accent, profileId: user.id, tenantId: profile.tenant_id!, fullName: profile.full_name }
         : { role: profile.role, accent, profileId: user.id, country, tenantId: profile.tenant_id! };
-      if (alive) { setSession(session); setLoading(false); }
+      const mustChoose = profile.must_change_password && !passwordChosen.current;
+      if (alive) { setSession(session); setChoosePassword(mustChoose ? { fullName: profile.full_name, loginId: profile.login_id } : null); setLoading(false); }
     }
 
     load().catch(() => { if (alive) { setSession(null); setLoading(false); } });
@@ -81,7 +88,14 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
       {session ? (
-        session.role === "parent" ? (
+        choosePassword ? (
+          <ChoosePassword
+            profileId={session.profileId}
+            fullName={choosePassword.fullName}
+            loginId={choosePassword.loginId}
+            onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
+          />
+        ) : session.role === "parent" ? (
           <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
             <Navigation role="parent" accent={session.accent} />
           </ParentDataProvider>

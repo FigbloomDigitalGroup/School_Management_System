@@ -105,11 +105,13 @@ describe("invite-admin handle", () => {
     const out = await res.json();
     assertEquals(out.ok, true);
     assertEquals(out.email, validBody.email);
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
     const profiles = admin.rowsIn("profiles");
     const created = profiles.find((p) => p.id === "new-admin-1");
     assertEquals(created?.role, "school_admin");
     assertEquals(created?.tenant_id, TENANT_ID);
+    assertEquals(created?.must_change_password, true);
     assertEquals(created?.phone, "+254712345678");
 
     const audit = admin.rowsIn("audit_events")[0];
@@ -149,12 +151,13 @@ describe("invite-admin handle", () => {
       const out = await res.json();
       assertEquals(out.ok, true);
       assertEquals(out.login_id, "TC-0001");
-      assertEquals(out.password, "figbloom-dev");
+      assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
 
       const created = admin.rowsIn("profiles").find((p) => p.id === "new-admin-1");
       assertEquals(created?.role, "teacher");
       assertEquals(created?.login_id, "TC-0001");
       assertEquals(created?.tenant_id, TENANT_ID);
+      assertEquals(created?.must_change_password, true);
     });
 
     it("creates a driver with a BD-prefixed login_id", async () => {
@@ -252,5 +255,36 @@ describe("invite-admin handle", () => {
       const res = await handle(request(validBody), { admin, asUser });
       assertEquals(res.status, 403);
     });
+  });
+});
+
+describe("login_id numbering", () => {
+  it("numbers one past the highest ID, so deleting a teacher never reissues one that still exists", async () => {
+    const { admin, asUser } = makeClients();
+    // TC-0002 was deleted. Three teachers remain: counting would offer TC-0004, which exists.
+    admin.seed("profiles", [
+      { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+      { id: "t1", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0001" },
+      { id: "t3", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0003" },
+      { id: "t4", role: "teacher", tenant_id: TENANT_ID, login_id: "TC-0004" },
+    ]);
+    const res = await handle(request({ tenant_id: TENANT_ID, full_name: "New Teacher", role: "teacher" }), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).login_id, "TC-0005");
+  });
+
+  it("starts at 0001 when the school has none yet", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request({ tenant_id: TENANT_ID, full_name: "First Driver", role: "driver" }), { admin, asUser });
+    assertEquals((await res.json()).login_id, "BD-0001");
+  });
+
+  it("answers 500 and creates nothing when the numbering lookup fails", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextRpc("database unavailable");
+    const res = await handle(request({ tenant_id: TENANT_ID, full_name: "New Teacher", role: "teacher" }), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(admin.rowsIn("profiles").length, 1);
+    assertEquals(admin.deletedUserIds, []);
   });
 });

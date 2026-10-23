@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
-  againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishExam, rubricFor, saveExamMarks,
-  summarise, type ClassGroup, type Exam, type Student, type Subject,
+  againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherClasses,
+  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishMarks, rubricFor, saveExamMarks,
+  summarise, unpublishMarks, type ClassGroup, type Exam, type Student, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
@@ -132,6 +132,18 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     return () => { alive = false; };
   }, [examId, subjectId, roster, marksVersion]);
 
+  // Which of this exam's subjects are already out for this class. Re-read after every save, publish or withdraw.
+  const [publishedSubjects, setPublishedSubjects] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!examId || !classId || mode !== "marks") { setPublishedSubjects(new Set()); return; }
+    let alive = true;
+    fetchPublishedSubjects(examId, classId)
+      .then((set) => { if (alive) setPublishedSubjects(set); })
+      .catch(() => { /* offline: keep what we last knew */ });
+    return () => { alive = false; };
+  }, [examId, classId, mode, marksVersion]);
+  const isPublished = !!subjectId && publishedSubjects.has(subjectId);
+
   const scheme = gradingSchemeFor(session.country, selectedClass?.level ?? "secondary");
   const subject = subjects?.find((s) => s.id === subjectId);
   const exam = exams?.find((e) => e.id === examId);
@@ -200,7 +212,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
     try {
       await saveExamMarks(rows);
       setMarksVersion((v) => v + 1);
-      setStatus("Draft saved.");
+      setStatus(isPublished ? "Saved. Parents already see this subject, so the change is live." : "Draft saved.");
     } catch (err) {
       // Offline or the request failed — hold the marks on this phone rather
       // than losing what was typed; they'll send once queue.flush() next runs.
@@ -217,25 +229,45 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
 
   // Publishing means "visible to parents right now" — that can't be true
   // while offline, so unlike saveDraft this surfaces the failure instead of
-  // queuing it silently. Also requires the subject and exam to have actually
-  // resolved (not just examId being non-null): exams aren't scoped per
-  // subject in the database (publishExam flips one shared published_at), so
-  // publishing with no subject picked would still mark the whole exam
-  // published, exposing every other subject's marks for it early.
+  // queuing it silently. It releases THIS class's marks for THIS subject and
+  // nothing else; publish_marks checks the caller teaches it.
   async function publish() {
-    if (!examId || !subject || !exam) return;
+    if (!examId || !classId || !subject || !exam) return;
     setBusy(true);
     setStatus(null);
     try {
       await saveExamMarks(buildRows());
-      await publishExam(examId);
+      await publishMarks(examId, classId, subject.id);
       setMarksVersion((v) => v + 1);
-      setStatus(`${subject.name} ${exam.name} published to ${roll.length} learners and their parents.`);
+      setStatus(`${subject.name} ${exam.name} is now visible to ${roll.length} learners and their parents in ${selectedClass?.name ?? "this class"}.`);
     } catch (err) {
       setStatus(err instanceof Error ? `Could not publish: ${err.message}` : "Could not publish — check your connection and try again.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function withdraw() {
+    if (!examId || !classId || !subject || !exam) return;
+    Alert.alert(
+      "Withdraw these results?",
+      `${subject.name} ${exam.name} for ${selectedClass?.name ?? "this class"} goes back to draft. Parents and learners stop seeing it until you publish again.`,
+      [
+        { text: "Keep published", style: "cancel" },
+        {
+          text: "Withdraw",
+          style: "destructive",
+          onPress: () => {
+            setBusy(true);
+            setStatus(null);
+            unpublishMarks(examId, classId, subject.id)
+              .then(() => { setMarksVersion((v) => v + 1); setStatus("Withdrawn. Parents and learners no longer see these marks."); })
+              .catch((err) => setStatus(err instanceof Error ? `Could not withdraw: ${err.message}` : "Could not withdraw — check your connection and try again."))
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+    );
   }
 
   if (!classes || (classes.length > 0 && !selectedClass)) {
@@ -412,6 +444,11 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
 
       <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card }}>
         {!!status && <Text style={[s.small, { marginBottom: 10 }]}>{status}</Text>}
+        {!!subjectId && !!examId && (
+          <Text style={[s.faint, { marginBottom: 10 }]}>
+            {isPublished ? "Published to parents. Changes you save go live." : "Draft: only school staff can see these marks."}
+          </Text>
+        )}
         <View style={{ flexDirection: "row", gap: 10 }}>
           <TouchableOpacity
             accessibilityRole="button"
@@ -419,18 +456,29 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
             onPress={() => void saveDraft()}
             style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy || rowsLoading ? 0.6 : 1 }]}
           >
-            <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Save draft</Text>
+            <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>{isPublished ? "Save changes" : "Save draft"}</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityRole="button"
-            disabled={busy || rowsLoading || entered < roll.length}
-            onPress={() => void publish()}
-            style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || rowsLoading || entered < roll.length ? 0.6 : 1 }]}
-          >
-            {busy ? <ActivityIndicator color="#fff" /> : (
-              <Text style={s.primaryLabel}>{!rowsLoading && entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
-            )}
-          </TouchableOpacity>
+          {isPublished ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={busy || rowsLoading}
+              onPress={withdraw}
+              style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || rowsLoading ? 0.6 : 1 }]}
+            >
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Withdraw</Text>}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={busy || rowsLoading || entered < roll.length}
+              onPress={() => void publish()}
+              style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || rowsLoading || entered < roll.length ? 0.6 : 1 }]}
+            >
+              {busy ? <ActivityIndicator color="#fff" /> : (
+                <Text style={s.primaryLabel}>{!rowsLoading && entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </View>
       </>

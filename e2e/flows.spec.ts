@@ -25,9 +25,10 @@ test.describe.configure({ mode: "serial" });
 const LOGINS = {
   platform: { email: "joyce@figbloom.co.ke", password: "figbloom-dev" },
   schoolAdmin: { email: "principal@alliance.sc.ke", password: "figbloom-dev" },
-  teacher: { school: "Alliance High School", loginId: "TC-0001", password: "figbloom-dev" },
-  parent: { school: "Alliance High School", loginId: "PT-0001", password: "figbloom-dev" },
-  student: { school: "Alliance High School", loginId: "ST-0001", password: "figbloom-dev" },
+  // The same IDs as DEMO_LOGINS in packages/shared/src/demo.ts: the seeded accounts.
+  teacher: { school: "Alliance High School", loginId: "TC-0002", password: "figbloom-dev" },
+  parent: { school: "Alliance High School", loginId: "PT-0002", password: "figbloom-dev" },
+  student: { school: "Alliance High School", loginId: "ST-0002", password: "figbloom-dev" },
 };
 
 /** Sign-in is a client-side redirect after an async Supabase call — wait for
@@ -239,6 +240,33 @@ test.describe("teacher", () => {
     await first.fill("abs");
     await expect(page.getByText("This paper is out of 100")).toHaveCount(0);
   });
+  test("the gradebook says whether this class's marks are out, and lets the teacher withdraw them", async ({ page }) => {
+    await page.goto("/s/alliance/teacher/gradebook");
+    await page.getByLabel("Class").selectOption({ label: "Form 2 West" });
+    await page.getByLabel("Exam").selectOption({ label: "Mock 1" });
+    // The seed publishes Mock 1 for Form 2 West, one class and subject at a time.
+    await expect(page.getByText("Published to parents")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Withdraw results" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Publish marks" })).toHaveCount(0);
+  });
+
+  test("the homework page offers to set work for the teacher's classes", async ({ page }) => {
+    await page.goto("/s/alliance/teacher/homework");
+    await expect(page.getByRole("heading", { name: "Homework" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Set homework" }).first()).toBeEnabled();
+  });
+});
+
+test.describe("school admin", () => {
+  test("exams are listed for the term, and an exam with marks cannot be deleted", async ({ page }) => {
+    await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+    await page.goto("/s/alliance/admin/exams");
+    await expect(page.getByText("Mock 1").first()).toBeVisible();
+    await expect(page.getByText("Out of 100").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "New exam" }).first()).toBeEnabled();
+    // Mock 1 has marks entered, so its Delete is switched off.
+    await expect(page.locator("button:disabled", { hasText: "Delete" }).first()).toBeVisible();
+  });
 });
 
 test.describe("parent", () => {
@@ -259,36 +287,35 @@ test.describe("parent", () => {
     await context.close();
   });
 
-  test("parent's M-Pesa prompt simulates a successful payment", async () => {
+  test("with no M-Pesa credentials set up, the dialog says so and claims nothing", async () => {
     const page = await context.newPage();
     await page.goto("/s/alliance/parent");
 
-    // There is no sandbox Daraja account wired up — the STK push is a client-side
-    // simulation, so no real receipt is created (see parent/Fees.tsx's startPay()).
+    // A local stack has no Daraja credentials, so the request comes back
+    // "unavailable". The screen must say that, not pretend a prompt went out
+    // or that money moved (it used to simulate a success here).
     await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
     await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
 
-    // The waiting state tells them to expect a prompt on the handset.
-    await expect(page.getByText("Check your phone")).toBeVisible();
-    await expect(page.getByText(/received/)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Method")).toBeVisible();
+    await expect(page.getByText(/Online M-Pesa isn't available for your school right now/)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Nothing was sent to your phone and nothing was charged/)).toBeVisible();
+    await expect(page.getByText("Check your phone")).toHaveCount(0);
+    await expect(page.getByText(/received/)).toHaveCount(0);
     await page.close();
   });
 
-  test("a failed payment says whether money left the account", async () => {
+  test("paying more than the balance is refused before any prompt is sent", async () => {
     const page = await context.newPage();
     await page.goto("/s/alliance/parent");
 
     await page.getByRole("button", { name: "Pay with M-Pesa" }).click();
-
-    // Overpaying triggers the failure path in the simulation.
     await page.getByRole("button", { name: "Another amount" }).click();
     await page.locator('input[inputmode="numeric"]').first().fill("99999");
-    await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
 
-    await expect(page.getByText("did not go through")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/No money left your account/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Pay at the school office instead" })).toBeVisible();
+    await page.getByRole("button", { name: "Send M-Pesa prompt" }).click();
+    await expect(page.getByText(/That is more than the KSh [\d,]+ still owed/)).toBeVisible();
+    await expect(page.getByText("Check your phone")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Send M-Pesa prompt" })).toBeVisible();
     await page.close();
   });
 
@@ -321,5 +348,39 @@ test.describe("student", () => {
     // if results haven't been published for this student yet).
     await expect(page.getByText(/Marks shown against the class mean|Not published yet/)).toBeVisible();
     await expect(page.getByText(/position/i)).toContainText("not shown");
+  });
+
+  test("a half-published exam does not hide the last complete one: the learner can switch", async ({ page }) => {
+    // Teachers publish a class and subject at a time. Put one subject of a new
+    // exam out for this learner's class, the way a first teacher would.
+    const examName = `E2E half published ${Date.now()}`;
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: term } = await admin.from("terms").select("id").eq("tenant_id", tenant!.id).eq("is_current", true).single();
+    const { data: learner } = await admin.from("profiles").select("id").eq("login_id", LOGINS.student.loginId).single();
+    const { data: teacher } = await admin.from("profiles").select("id").eq("login_id", LOGINS.teacher.loginId).single();
+    const { data: studentRow } = await admin.from("students").select("id, class_id").eq("profile_id", learner!.id).single();
+    const { data: subject } = await admin.from("subjects").select("id").eq("tenant_id", tenant!.id).eq("name", "Chemistry").single();
+    const { data: exam } = await admin.from("exams").insert({ tenant_id: tenant!.id, term_id: term!.id, name: examName }).select("id").single();
+    try {
+      await admin.from("marks").insert({ tenant_id: tenant!.id, exam_id: exam!.id, student_id: studentRow!.id, subject_id: subject!.id, score: 71, entered_by: teacher!.id });
+      await admin.from("mark_publications").insert({ tenant_id: tenant!.id, exam_id: exam!.id, class_id: studentRow!.class_id, subject_id: subject!.id });
+
+      await page.goto("/s/alliance/student/results");
+      const switcher = page.getByRole("group", { name: "Exam" });
+      await expect(switcher).toBeVisible();
+      // Newest first, each pill says how many subjects are out, and the new exam is showing.
+      const pills = switcher.getByRole("button");
+      await expect(pills.first()).toContainText(`${examName} · 1 subject`);
+      await expect(pills.first()).toHaveAttribute("aria-pressed", "true");
+
+      // The earlier, complete exam is one tap away.
+      await switcher.getByRole("button", { name: /Mock 1/ }).click();
+      await expect(page.getByText("Mathematics").first()).toBeVisible();
+      await expect(switcher.getByRole("button", { name: /Mock 1/ })).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await admin.from("mark_publications").delete().eq("exam_id", exam!.id);
+      await admin.from("marks").delete().eq("exam_id", exam!.id);
+      await admin.from("exams").delete().eq("id", exam!.id);
+    }
   });
 });
