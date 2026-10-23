@@ -15,11 +15,11 @@ begin;
 -- ---------------------------------------------------------------- fixtures (as postgres)
 select set_config('t.a',        (select id::text from tenants where slug = 'alliance'), true);
 select set_config('t.b',        (select id::text from tenants where slug = 'kisumu-boys'), true);
-select set_config('t.admin',    (select id::text from profiles where role = 'school_admin'), true);
-select set_config('t.parent',   (select id::text from profiles where role = 'parent'), true);
-select set_config('t.student',  (select id::text from profiles where role = 'student'), true);
-select set_config('t.teacher',  (select id::text from profiles where role = 'teacher'), true);
-select set_config('t.driver',   (select id::text from profiles where role = 'driver'), true);
+select set_config('t.admin',    (select id::text from profiles where role = 'school_admin' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
+select set_config('t.parent',   (select id::text from profiles where role = 'parent' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
+select set_config('t.student',  (select id::text from profiles where role = 'student' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
+select set_config('t.teacher',  (select id::text from profiles where role = 'teacher' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
+select set_config('t.driver',   (select id::text from profiles where role = 'driver' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
 -- the seeded student is also one of the seeded parent's children
 select set_config('t.child',    (select s.id::text from students s where s.profile_id = current_setting('t.student')::uuid), true);
 select set_config('t.other',    (select s.id::text from students s

@@ -1,11 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { WriteQueue, conflictKeyFor, supabase, type QueuedWrite } from "@figbloom/shared";
+import { WriteQueue, sendQueuedWrite } from "@figbloom/shared";
 
 /**
- * Same queue as the web, different store. A parent's half-finished payment or a
- * teacher's register survives a force-quit because it is on disk, not in memory.
+ * Same queue as the web, different store. A driver's GPS pings survive a
+ * force-quit because they are on disk, not in memory.
  */
-export const queue = new WriteQueue(AsyncStorage, async (w: QueuedWrite) => {
-  const { error } = await supabase().from(w.table).upsert(w.rows as never[], { onConflict: conflictKeyFor(w.table) });
-  if (error) throw new Error(error.message);
-});
+export const queue = new WriteQueue(AsyncStorage, sendQueuedWrite);

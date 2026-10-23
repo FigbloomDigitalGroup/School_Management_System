@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import {
-  fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, writeAttendance,
+  fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
   MARK_LABEL, MARK_SHORT, MARK_STYLE, newRegister, nextMark, submitWarning, tally, toRecords,
   type AttendanceMark, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { queue } from "../../storage";
 import { PillPicker } from "../../components/PillPicker";
+import { QueueNotice } from "../../components/QueueNotice";
 import type { TeacherSession } from "../../navigation";
 
 const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
@@ -32,10 +33,18 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   const [submitted, setSubmitted] = useState<boolean | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The server refused the register (not a connection problem): shown instead of pretending it was saved. */
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Registers saved on this phone that haven't gone out yet. Re-read on a timer so it
+  // drops to zero by itself once they have, rather than staying at what it was at submit.
   const [held, setHeld] = useState(0);
 
   useEffect(() => {
-    void queue.flush().then((r) => setHeld(r.remaining));
+    let alive = true;
+    const load = () => { void queue.pending().then((p) => { if (alive) setHeld(p.length); }).catch(() => {}); };
+    void queue.flush().then(load).catch(() => {});
+    const timer = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -87,15 +96,26 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
     const warning = submitWarning(reg);
     if (warning && !confirming) { setConfirming(warning); return; }
     setConfirming(null);
+    setSaveError(null);
     setBusy(true);
     try {
       await writeAttendance(reg, session.tenantId, session.profileId);
       setSubmitted(true);
-    } catch {
-      await queue.enqueue("attendance", toRecords(reg, session.tenantId, session.profileId));
-      const pending = await queue.pending();
-      setHeld(pending.length);
-      setSubmitted(true);
+    } catch (err) {
+      if (!isRetryable(err)) {
+        // The server looked at it and said no. Holding it would only park it in the queue
+        // for good, so keep the roster open and say why.
+        setSaveError(`The register was not saved: ${err instanceof Error ? err.message : "something went wrong"}.`);
+        return;
+      }
+      // No signal, or the server isn't answering: hold it on this phone.
+      try {
+        await queue.enqueue("attendance", toRecords(reg, session.tenantId, session.profileId));
+        setHeld((await queue.pending()).length);
+        setSubmitted(true);
+      } catch {
+        setSaveError("The register could not be saved on this phone either. Check your storage and try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -163,6 +183,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
           </Text>
         </View>
         <View style={{ padding: 16 }}>
+          <QueueNotice />
           <TouchableOpacity
             accessibilityRole="button"
             onPress={() => setSubmitted(false)}
@@ -205,6 +226,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 8 }}>
+        <QueueNotice />
         {(roster ?? []).map((student) => {
           const mark = reg?.marks[student.id] ?? "present";
           return (
@@ -240,6 +262,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       </ScrollView>
 
       <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card }}>
+        {!!saveError && <Text style={[s.small, { marginBottom: 10, color: t.status.warnInk }]} accessibilityRole="alert">{saveError}</Text>}
         {confirming ? (
           <>
             <Text style={[s.small, { marginBottom: 10 }]}>{confirming}</Text>

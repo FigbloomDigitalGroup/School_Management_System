@@ -128,7 +128,18 @@ test.describe("sign in", () => {
 });
 
 test.describe("platform", () => {
+  // The onboarding test creates a real school and its admin. Remove them before and
+  // after, so it can run again (a second run used to collide with the first run's school)
+  // and nothing is left in the database for the other checks to trip over.
+  async function removeNyeriGirls() {
+    const { data: admins } = await admin.from("profiles").select("id").eq("email", "peter.mwangi@nyerigirls.sc.ke");
+    for (const row of admins ?? []) await admin.auth.admin.deleteUser(row.id);
+    await admin.from("tenants").delete().eq("slug", "nyeri-girls");
+  }
+  test.afterAll(removeNyeriGirls);
+
   test.beforeEach(async ({ page }) => {
+    await removeNyeriGirls();
     await signInEmail(page, LOGINS.platform.email, LOGINS.platform.password);
   });
 
@@ -174,33 +185,47 @@ test.describe("platform", () => {
   });
 
   test("console chips cannot contradict their own stat cards", async ({ page }) => {
-    await page.goto("/platform/incidents");
-    await page.getByRole("button", { name: "Open" }).click();
-    // "Open" must include Investigating and Fix in review, not just one of them.
-    await expect(page.getByText("Investigating")).toBeVisible();
-    await expect(page.getByText("Fix in review")).toBeVisible();
-    // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
-    // filter chip itself, and a substring match would also hit "resolved 14 Aug"
-    // in a stat card's sub-text.
-    await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+    // The seed has no incidents, so make one in each state (titles avoid the words
+    // under test: getByText matches substrings, case-insensitively).
+    const { data: made, error: insertError } = await admin.from("platform_incidents").insert([
+      { severity: "SEV-2", title: "E2E first", summary: "e2e", affected_schools: 1, status: "investigating" },
+      { severity: "SEV-3", title: "E2E second", summary: "e2e", affected_schools: 2, status: "fix_in_review" },
+      { severity: "SEV-3", title: "E2E third", summary: "e2e", affected_schools: 0, status: "resolved", resolved_at: new Date().toISOString() },
+    ]).select("id");
+    expect(insertError).toBeNull();
+    try {
+      await page.goto("/platform/incidents");
+      await page.getByRole("button", { name: "Open" }).click();
+      // "Open" must include Investigating and Fix in review, not just one of them.
+      await expect(page.getByText("Investigating")).toBeVisible();
+      await expect(page.getByText("Fix in review")).toBeVisible();
+      // Scoped to table rows — "Resolved" is also the label of the (always-rendered)
+      // filter chip itself, and a substring match would also hit "resolved 14 Aug"
+      // in a stat card's sub-text.
+      await expect(page.getByRole("row").filter({ hasText: "Resolved" })).toHaveCount(0);
+    } finally {
+      await admin.from("platform_incidents").delete().in("id", (made ?? []).map((r) => r.id));
+    }
   });
 });
 
 test.describe("teacher", () => {
-  // Both attendance tests write to the same class's same day's register —
+  // The attendance tests write to the same class's same day's register —
   // Attendance.tsx prefills from whatever is already saved for today, so a
-  // stale row from an earlier run (or the other Playwright project) would
-  // make the roster no longer all-present. Reset before either test touches
-  // it, rather than relying on run order to keep the starting state honest.
+  // register left by an earlier test (or an earlier run, or the other Playwright
+  // project) would open straight to "register is in". Reset before EACH test.
   test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async () => {
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  async function attendanceRowsToday() {
     const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
-    const today = new Date().toISOString().slice(0, 10);
-    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", today);
-  });
+    const { count } = await admin.from("attendance").select("id", { count: "exact", head: true }).eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
+    return count ?? 0;
+  }
 
   test.beforeEach(async ({ page }) => {
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
     await signInWithId(page, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
     await page.goto("/s/alliance/teacher/attendance");
   });
@@ -223,7 +248,67 @@ test.describe("teacher", () => {
 
     await page.getByRole("button", { name: "Submit register" }).click();
     await expect(page.getByText("register is in")).toBeVisible();
-    await expect(page.getByText(/Parents of absent learners/)).toBeVisible();
+    await expect(page.getByText(/parents of absent learners/i)).toBeVisible();
+  });
+
+  const attendanceWrite = /\/rest\/v1\/attendance/;
+
+  test("a register submitted while the server is unreachable is held, then sent by itself", async ({ page }) => {
+    // The browser believes it is online, but the school's server doesn't answer:
+    // the old screen said "submitted" and quietly lost the register.
+    await page.route(attendanceWrite, (route) => (route.request().method() === "POST" ? route.abort("failed") : route.continue()));
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText("Saved on this phone. It will send itself when you have signal.")).toBeVisible();
+    await expect(page.getByText(/held on this phone/)).toBeVisible();
+    expect(await attendanceRowsToday()).toBe(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toContain('"table":"attendance"');
+
+    // The server comes back: the register goes out without the teacher doing anything.
+    await page.unroute(attendanceWrite);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect.poll(attendanceRowsToday, { timeout: 15000 }).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1")), { timeout: 15000 }).toBe("[]");
+    await expect(page.getByText(/held on this phone/)).toHaveCount(0, { timeout: 15000 });
+  });
+
+  test("a register the server refuses is not reported as saved, and is not held", async ({ page }) => {
+    await page.route(attendanceWrite, (route) => (route.request().method() === "POST"
+      ? route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "42501", message: 'new row violates row-level security policy for table "attendance"', details: null, hint: null }),
+        })
+      : route.continue()));
+
+    await page.getByRole("button", { name: "Submit register" }).click();
+    await page.getByRole("button", { name: "Yes, submit" }).click();
+    await expect(page.getByText(/The register was not saved: .*row-level security/)).toBeVisible();
+    // Still on the roster, not on "register is in", and nothing parked in the queue to fail forever.
+    await expect(page.getByText("Everyone starts present")).toBeVisible();
+    await expect(page.getByText("register is in")).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toBeNull();
+    expect(await attendanceRowsToday()).toBe(0);
+  });
+
+  test("something saved on this device that the server refused is shown, and can be discarded", async ({ page }) => {
+    // Parked in the queue by an earlier visit: the server said no, so waiting can't help.
+    const refused = [{
+      id: "marks-1", table: "marks", rows: [], queuedAt: new Date().toISOString(), attempts: 1,
+      lastError: "new row violates row-level security policy for table \"marks\"",
+      rejected: { at: new Date().toISOString(), message: "new row violates row-level security policy for table \"marks\"" },
+    }];
+    await page.evaluate((q) => window.localStorage.setItem("figbloom.queue.v1", JSON.stringify(q)), refused);
+    await page.reload();
+
+    const notice = page.getByRole("alert").filter({ hasText: "could not be sent" });
+    await expect(notice).toContainText("Marks saved on this device could not be sent");
+    await expect(notice).toContainText("row-level security");
+
+    await notice.getByRole("button", { name: "Discard" }).click();
+    await expect(notice).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("figbloom.queue.v1"))).toBe("[]");
   });
 
   test("gradebook will not publish a partial column", async ({ page }) => {
@@ -266,6 +351,81 @@ test.describe("school admin", () => {
     await expect(page.getByRole("button", { name: "New exam" }).first()).toBeEnabled();
     // Mock 1 has marks entered, so its Delete is switched off.
     await expect(page.locator("button:disabled", { hasText: "Delete" }).first()).toBeVisible();
+  });
+
+  test("a learner with records is archived, not deleted: the roll and class totals follow, and restoring puts them back", async ({ page, browser, isMobile }) => {
+    test.skip(isMobile, "the admin console's Manage dialog is wider than a phone screen");
+    // A learner with a full history (the seed gives every learner attendance, marks and an invoice) and no login of their own.
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: cls } = await admin.from("classes").select("id").eq("tenant_id", tenant!.id).eq("name", "Form 2 West").single();
+    const { data: kid } = await admin.from("students").select("id, full_name, admission_no").eq("class_id", cls!.id).eq("active", true).is("profile_id", null).order("admission_no").limit(1).single();
+    const activeInClass = async () => (await admin.from("students").select("id", { count: "exact", head: true }).eq("class_id", cls!.id).eq("active", true)).count ?? 0;
+    const totalBefore = await activeInClass();
+    const marksBefore = (await admin.from("marks").select("id", { count: "exact", head: true }).eq("student_id", kid!.id)).count ?? 0;
+    expect(marksBefore).toBeGreaterThan(0);
+
+    try {
+      await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+      await page.goto("/s/alliance/admin/people");
+      // Names repeat across classes; the admission number doesn't.
+      await page.getByPlaceholder("Name or admission number").fill(kid!.admission_no);
+      await page.getByText(`ADM ${kid!.admission_no}`).first().click();
+      const manage = page.getByRole("dialog");
+
+      // Deleting is refused, in words, because they have records.
+      page.once("dialog", (d) => void d.accept());
+      await manage.getByRole("button", { name: "Delete…" }).click();
+      await expect(page.getByText(/on file, so they can't be deleted/)).toBeVisible();
+      await expect(manage).toBeVisible();
+
+      // Archiving takes them off the roll and keeps everything.
+      page.once("dialog", (d) => void d.accept());
+      await manage.getByRole("button", { name: "Archive learner" }).click();
+      await expect(page.getByText(/archived\. Find them under "Archived"/)).toBeVisible();
+      await expect(page.getByText("No learner matches that")).toBeVisible();
+      const { data: archived } = await admin.from("students").select("active, archived_at, archived_by").eq("id", kid!.id).single();
+      expect(archived).toMatchObject({ active: false });
+      expect(archived!.archived_at).not.toBeNull();
+      expect((await admin.from("marks").select("id", { count: "exact", head: true }).eq("student_id", kid!.id)).count).toBe(marksBefore);
+
+      // The class totals a teacher sees stop counting them: "n of 43 handed in" becomes "n of 42".
+      const teacher = await (await browser.newContext()).newPage();
+      await signInWithId(teacher, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
+      await teacher.goto("/s/alliance/teacher/homework");
+      await expect(teacher.getByText(new RegExp(`\\bof ${totalBefore - 1}\\b`)).first()).toBeVisible();
+      await teacher.context().close();
+
+      // They are under Archived, and restoring puts them back.
+      await page.getByRole("group", { name: "Which learners" }).getByRole("button", { name: "archived" }).click();
+      await page.getByText(`ADM ${kid!.admission_no}`).first().click();
+      await page.getByRole("dialog").getByRole("button", { name: "Restore learner" }).click();
+      await expect(page.getByText(/restored\./)).toBeVisible();
+      await expect.poll(activeInClass).toBe(totalBefore);
+      await page.getByRole("group", { name: "Which learners" }).getByRole("button", { name: "current" }).click();
+      await expect(page.getByText(`ADM ${kid!.admission_no}`).first()).toBeVisible();
+    } finally {
+      await admin.from("students").update({ active: true, archived_at: null, archived_by: null }).eq("id", kid!.id);
+    }
+  });
+
+  test("a learner added by mistake, with no records, can still be deleted", async ({ page, isMobile }) => {
+    test.skip(isMobile, "the admin console's Manage dialog is wider than a phone screen");
+    const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
+    const { data: cls } = await admin.from("classes").select("id").eq("tenant_id", tenant!.id).eq("name", "Form 2 West").single();
+    const name = `E2E Mistake ${Date.now()}`;
+    const { data: mistake } = await admin.from("students").insert({ tenant_id: tenant!.id, admission_no: `E2E-${Date.now() % 100000}`, full_name: name, class_id: cls!.id, boarding: false }).select("id").single();
+    try {
+      await signInEmail(page, LOGINS.schoolAdmin.email, LOGINS.schoolAdmin.password);
+      await page.goto("/s/alliance/admin/people");
+      await page.getByPlaceholder("Name or admission number").fill(name);
+      await page.getByText(name).first().click();
+      page.once("dialog", (d) => void d.accept());
+      await page.getByRole("dialog").getByRole("button", { name: "Delete…" }).click();
+      await expect(page.getByText(`${name} deleted.`)).toBeVisible();
+      expect((await admin.from("students").select("id", { count: "exact", head: true }).eq("id", mistake!.id)).count).toBe(0);
+    } finally {
+      await admin.from("students").delete().eq("id", mistake!.id);
+    }
   });
 });
 
