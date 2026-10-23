@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
@@ -13,6 +13,9 @@ import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
 import { ParentDataProvider } from "./lib/parentContext";
 import { StudentDataProvider } from "./lib/studentContext";
 import { TeacherNoticesProvider } from "./lib/teacherNoticesContext";
+
+// Marketing page: lazy so its CSS and images never load for signed-in console users.
+const Landing = lazy(() => import("./screens/landing/Landing"));
 
 import { SignIn } from "./screens/SignIn";
 import { OrgPicker } from "./screens/OrgPicker";
@@ -84,7 +87,7 @@ export function App() {
   return (
     <ToastHost>
       <Routes>
-        <Route path="/" element={<Navigate to="/signin" replace />} />
+        <Route path="/" element={<Suspense fallback={null}><Landing /></Suspense>} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/org-picker" element={<OrgPicker />} />
         <Route path="/signup" element={<Signup />} />

@@ -78,6 +78,7 @@ html[data-a11y-reduce-motion] *::after {
   scroll-behavior: auto !important;
 }
 
+
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .animate-rise { animation: rise 0.2s ease; }
 
