@@ -77,6 +77,7 @@ import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
+import { RouteSeo } from "./components/RouteSeo";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -86,6 +87,7 @@ import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 export function App() {
   return (
     <ToastHost>
+      <RouteSeo />
       <Routes>
         <Route path="/" element={<Suspense fallback={null}><Landing /></Suspense>} />
         <Route path="/signin" element={<SignIn />} />
