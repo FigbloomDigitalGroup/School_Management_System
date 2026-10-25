@@ -10,6 +10,7 @@ import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import type { ChildSubject } from "@figbloom/shared";
 import { ChildSwitcher } from "./ChildSwitcher";
+import { ChildExamPapers } from "./ExamPapers";
 
 /**
  * An exam for the selected child, the newest one with results out unless the
@@ -122,6 +123,9 @@ export function ParentResults() {
             </div>
             </>)}
           </>
+        )}
+        {child && child.classId && data && !error && (
+          <div className="mt-6"><ChildExamPapers child={child} /></div>
         )}
       </div>
     </>

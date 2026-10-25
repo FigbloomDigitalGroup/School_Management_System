@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  createHomework, deleteHomework, fetchClassSizes, fetchMyHomework, fetchTeacherClasses, fetchTeacherSubjectsForClass,
-  formatShortDate, HAND_IN_OPTIONS, handedInLabel, updateHomework, validateHomework,
-  type HandIn, type HomeworkInput, type HomeworkRow,
+  addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchClassSizes, fetchMyHomework, fetchTeacherClasses,
+  fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty,
+  minutesWords, NEED_CHIPS, notifyHomeworkParents, removeNeed, retoneGuide, updateHomework, validateHomework,
+  type ClassGroup, type HandIn, type HomeworkInput, type HomeworkRow, type ParentGuide,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
@@ -21,7 +22,9 @@ const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 
 /**
  * Homework a teacher sets for a class and subject they teach. Learners see it
  * on their Work tab (their own class only) and mark it handed in; this screen
- * shows how many have.
+ * shows how many have. Each piece can carry a short "For parents" guide that
+ * parents read on their Homework screen, and new work can be announced to
+ * the class's parents in the same step.
  */
 export function Homework() {
   const toast = useToast();
@@ -85,7 +88,12 @@ export function Homework() {
           <DataTable
             title="Homework you've set"
             columns={[
-              { key: "title", header: "Homework", width: "1.8fr", render: (w: HomeworkRow) => <Cell sub={w.body ? w.body.slice(0, 80) + (w.body.length > 80 ? "…" : "") : undefined}>{w.title}</Cell> },
+              { key: "title", header: "Homework", width: "1.8fr", render: (w: HomeworkRow) => (
+                <div className="flex items-start gap-2">
+                  <Cell sub={w.body ? w.body.slice(0, 80) + (w.body.length > 80 ? "…" : "") : undefined}>{w.title}</Cell>
+                  {!isGuideEmpty(w.guide) && <span title="Has a guide for parents"><Badge tone="info">Parent guide</Badge></span>}
+                </div>
+              ) },
               { key: "class", header: "Class · subject", width: "1.2fr", render: (w: HomeworkRow) => <Cell sub={w.subjectName}>{w.className}</Cell> },
               { key: "due", header: "Due", render: (w: HomeworkRow) => (
                 <div className="flex items-center gap-2">
@@ -116,10 +124,19 @@ export function Homework() {
           teacherId={profile.id}
           today={today}
           onClose={() => setEditing(null)}
-          onSave={async (input) => {
-            if (editing.work) await updateHomework(editing.work.id, input);
-            else await createHomework(tenant.id, profile.id, input);
-            toast(editing.work ? "Homework updated" : "Homework set. Learners in the class can see it now.");
+          onSave={async (input, tell) => {
+            if (editing.work) {
+              await updateHomework(editing.work.id, input);
+              toast("Homework updated");
+            } else {
+              await createHomework(tenant.id, profile.id, input);
+              // The homework is saved either way; a note that didn't send is reported, not treated as a failed save.
+              const told = tell
+                ? await notifyHomeworkParents(tenant.id, profile.id, input, tell.subjectName, tell.className).then(() => true, () => false)
+                : null;
+              if (told === false) toast("Homework set, but the note to parents didn't send. You can message them from Messages.", "error");
+              else toast(told ? "Homework set. Learners can see it and parents have been told." : "Homework set. Learners in the class can see it now.");
+            }
             setEditing(null);
             setReloadKey((k) => k + 1);
           }}
@@ -131,11 +148,12 @@ export function Homework() {
 
 function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
   work?: HomeworkRow;
-  classes: { id: string; name: string }[];
+  classes: ClassGroup[];
   teacherId: string;
   today: string;
   onClose: () => void;
-  onSave: (input: HomeworkInput) => Promise<void>;
+  /** `tell` is set when the teacher ticked "Tell parents" on new homework. */
+  onSave: (input: HomeworkInput, tell: { subjectName: string; className: string } | null) => Promise<void>;
 }) {
   const [classId, setClassId] = useState(work?.classId ?? classes[0]?.id ?? "");
   const [subjectId, setSubjectId] = useState(work?.subjectId ?? "");
@@ -143,6 +161,13 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
   const [body, setBody] = useState(work?.body ?? "");
   const [dueOn, setDueOn] = useState(work?.dueOn ?? "");
   const [handIn, setHandIn] = useState<HandIn>(work?.handIn ?? "paper");
+  const cls = classes.find((c) => c.id === classId);
+  const tone = guideToneFor(cls?.level, cls?.form_level ?? 0);
+  // New work starts with help/avoid/time written for the class's age; existing work keeps exactly what was saved.
+  const [guide, setGuide] = useState<ParentGuide>(() =>
+    work ? (work.guide ?? { ...EMPTY_GUIDE, needs: [] }) : defaultGuide(cls?.level, cls?.form_level ?? 0));
+  const [customNeed, setCustomNeed] = useState("");
+  const [tellParents, setTellParents] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -159,13 +184,26 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
     if (!subjects.some((s) => s.id === subjectId)) setSubjectId(subjects[0]?.id ?? "");
   }, [subjects, subjectId]);
 
+  function pickClass(id: string) {
+    const next = classes.find((c) => c.id === id);
+    // Only help/avoid/time still holding the old class's wording change; anything typed stays.
+    setGuide((g) => retoneGuide(g, tone, guideToneFor(next?.level, next?.form_level ?? 0)));
+    setClassId(id);
+  }
+
+  function addCustomNeed() {
+    setGuide((g) => ({ ...g, needs: addNeed(g.needs, customNeed) }));
+    setCustomNeed("");
+  }
+
   async function save() {
-    const checked = validateHomework({ classId, subjectId, title, body, dueOn, handIn }, today, { allowPast: !!work });
+    const checked = validateHomework({ classId, subjectId, title, body, dueOn, handIn, guide }, today, { allowPast: !!work });
     if (!checked.ok) { setError(checked.message); return; }
     setSaving(true);
     setError("");
     try {
-      await onSave(checked.value);
+      const subjectName = subjects?.find((s) => s.id === subjectId)?.name ?? "";
+      await onSave(checked.value, !work && tellParents ? { subjectName, className: cls?.name ?? "" } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
       setSaving(false);
@@ -190,7 +228,7 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
     >
       <div className="grid gap-3.5">
         <div className="grid gap-3.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <SelectField id="hw-class" label="Class" value={classId} onChange={(e) => setClassId(e.target.value)} options={classes.map((c) => ({ value: c.id, label: c.name }))} />
+          <SelectField id="hw-class" label="Class" value={classId} onChange={(e) => pickClass(e.target.value)} options={classes.map((c) => ({ value: c.id, label: c.name }))} />
           <SelectField
             id="hw-subject" label="Subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}
             options={(subjects ?? []).map((s) => ({ value: s.id, label: s.name }))}
@@ -207,6 +245,66 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
             hint={HAND_IN_OPTIONS.find((o) => o.value === handIn)?.hint}
           />
         </div>
+
+        <fieldset className="grid gap-3 rounded-lg border border-line-soft bg-page px-3.5 pb-3.5 pt-1">
+          <legend className="px-1 text-small font-semibold">For parents</legend>
+          <p className="text-[11.5px] leading-snug text-ink-faint">
+            {tone === "sit_with"
+              ? "Parents of young learners usually sit with them, so say how to help without doing it for them."
+              : "Older learners work on their own. A line on what it's about and how long it takes is plenty."}
+            {" "}Anything left blank just won't show.
+          </p>
+          <TextArea id="hw-about" label="What it's about" placeholder={GUIDE_PLACEHOLDERS[tone].about} value={guide.about} onChange={(e) => setGuide((g) => ({ ...g, about: e.target.value }))} />
+          <div>
+            <span className="mb-1.5 block text-small font-semibold">Your child will need</span>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Things the child needs">
+              {[...NEED_CHIPS, ...guide.needs.filter((n) => !NEED_CHIPS.some((c) => c.toLowerCase() === n.toLowerCase()))].map((n) => {
+                const on = guide.needs.some((x) => x.toLowerCase() === n.toLowerCase());
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setGuide((g) => ({ ...g, needs: on ? removeNeed(g.needs, n) : addNeed(g.needs, n) }))}
+                    className="rounded-full px-2.5 py-1 text-[11.5px]"
+                    style={on ? { background: "#17402A", color: "#fff", fontWeight: 600 } : { background: "#EEF1EE", color: "#5F6B62" }}
+                  >
+                    {on ? "✓ " : ""}{n}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                aria-label="Something else the child needs"
+                placeholder="Something else, e.g. Old magazines"
+                value={customNeed}
+                onChange={(e) => setCustomNeed(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomNeed(); } }}
+                className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none focus:border-forest"
+              />
+              <Button disabled={!customNeed.trim()} onClick={addCustomNeed}>Add</Button>
+            </div>
+          </div>
+          <TextArea id="hw-help" label="How you can help" placeholder={GUIDE_PLACEHOLDERS[tone].help} value={guide.help} onChange={(e) => setGuide((g) => ({ ...g, help: e.target.value }))} />
+          <TextArea id="hw-avoid" label="Please avoid" placeholder={GUIDE_PLACEHOLDERS[tone].avoid} value={guide.avoid} onChange={(e) => setGuide((g) => ({ ...g, avoid: e.target.value }))} />
+          <TextField
+            id="hw-minutes" label="Time it should take (minutes)" type="number" min={1} max={600} inputMode="numeric"
+            value={guide.minutes ?? ""}
+            onChange={(e) => setGuide((g) => ({ ...g, minutes: e.target.value === "" ? null : Number(e.target.value) }))}
+            hint={minutesWords(guide.minutes) || "Optional."}
+          />
+        </fieldset>
+
+        {!work && (
+          <label className="flex items-start gap-2.5">
+            <input type="checkbox" checked={tellParents} onChange={(e) => setTellParents(e.target.checked)} style={{ accentColor: "#17402A", marginTop: 3 }} />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium">Tell parents</span>
+              <span className="block text-[11.5px] leading-snug text-ink-faint">Sends the class's parents an in-app message with the due date and the guide above.</span>
+            </span>
+          </label>
+        )}
         {error && (
           <p className="flex items-start gap-1.5 text-[12px] leading-snug text-warn-ink"><span aria-hidden>✕</span>{error}</p>
         )}

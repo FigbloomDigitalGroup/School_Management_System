@@ -106,7 +106,7 @@ export function Announcements() {
         ? { kind: "form_level", form_level: yearGroup.year, level: yearGroup.level }
         : { kind: "form_level", form_level: 1 };
       case "class": return { kind: "class", class_id: effectiveClassId };
-      case "user": throw new Error("The composer never selects a per-person audience.");
+      default: throw new Error("The composer never selects a per-person or multi-role audience.");
     }
   }
 

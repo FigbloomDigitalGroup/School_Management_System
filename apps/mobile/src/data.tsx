@@ -71,6 +71,8 @@ interface Ctx {
   accent: string;
   country: string;
   tenantId: string;
+  /** The signed-in parent, for loaders that need to know who "you" is (homework's "You marked it done"). */
+  profileId: string;
   /** Fetches everything again, e.g. so a payment that has just been confirmed shows in the balance. */
   reload: () => void;
 }
@@ -153,6 +155,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
     accent,
     country,
     tenantId,
+    profileId,
     reload: () => setReloadKey((k) => k + 1),
   };
 
@@ -173,6 +176,11 @@ export function useChild() {
 /** The school's id, for Realtime subscriptions scoped to it (the Bus tab's live updates). */
 export function useTenantId(): string {
   return useParentData().tenantId;
+}
+
+/** The signed-in parent's profile id. */
+export function useParentProfileId(): string {
+  return useParentData().profileId;
 }
 
 /** Re-fetches the parent's data (balances, receipts, ...). */

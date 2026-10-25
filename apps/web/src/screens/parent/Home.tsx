@@ -11,6 +11,8 @@ import { useAsync } from "../../lib/useAsync";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { ChildSwitcher } from "./ChildSwitcher";
+import { ParentChildProfile } from "../../components/learners/ParentChildProfile";
+import { useToast } from "../../components/ui/Toast";
 
 /**
  * Desktop dashboard for the selected child: the fee balance, how they are
@@ -24,6 +26,7 @@ export function ParentHome() {
   const { slug } = useParams();
   const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
+  const toast = useToast();
   // A CBE learner with no exam marks is summarised from their published strand
   // assessments instead; exam marks still win for anyone who has them.
   const rubric = child ? rubricFor(tenant.country, child.classLevel) : null;
@@ -180,6 +183,7 @@ export function ParentHome() {
                 )}
               </div>
             </section>
+            <ParentChildProfile tenantId={tenant.id} childId={child.id} childFirst={child.first} toast={toast} />
           </>
         )}
       </div>

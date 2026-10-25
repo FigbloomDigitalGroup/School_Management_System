@@ -1,4 +1,4 @@
-import { supabase } from "@figbloom/shared";
+import { examPaperFilePath, supabase } from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -140,4 +140,11 @@ export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PaymentProof[];
+}
+
+/** An exam paper's PDF (or reference sheet). Staff write it; families can read it once the paper opens (private_docs_exam_papers_read). */
+export async function uploadExamPaperFile(input: { tenantId: string; paperId: string; file: File }): Promise<{ path: string; name: string }> {
+  const path = examPaperFilePath(input.tenantId, input.paperId, input.file.name);
+  await uploadToBucket("private-documents", path, input.file);
+  return { path, name: input.file.name };
 }

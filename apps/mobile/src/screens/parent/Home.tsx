@@ -1,11 +1,13 @@
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote } from "@figbloom/shared";
+import { dueWords, formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote, splitHomework } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
-import { useChild, useChildren, useMessages, useTermLabel } from "../../data";
+import { useChild, useChildren, useMessages, useTenantId, useTermLabel } from "../../data";
+import { ChildHealthCard } from "../../components/ChildHealthCard";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { Skeleton } from "../../components/Skeleton";
 import { useCbeResults } from "../../lib/useCbeResults";
+import { useParentHomework } from "../../lib/useParentHomework";
 
 /**
  * The screen a parent opens. Balance first, because that is what they came for;
@@ -17,6 +19,7 @@ export function ParentHome() {
   const kids = useChildren();
   const messages = useMessages();
   const termLabel = useTermLabel();
+  const tenantId = useTenantId();
   // Only needed when there is no exam mean: a CBE learner's results are strand levels, not marks.
   const cbe = useCbeResults(child.mean === null ? child.id : null, country);
   const a = accentFor(accent);
@@ -110,6 +113,8 @@ export function ParentHome() {
           </View>
         )}
 
+        <HomeworkCard childId={child.id} childFirst={child.first} tint={tint} onOpen={() => nav.navigate("Homework")} />
+
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>From the school</Text>
         {messages.slice(0, 2).map((m) => (
           <TouchableOpacity
@@ -128,7 +133,48 @@ export function ParentHome() {
             </View>
           </TouchableOpacity>
         ))}
+
+        <ChildHealthCard tenantId={tenantId} childId={child.id} childFirst={child.first} tint={tint} />
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * What's still to do for this child, and the one thing due soonest. The
+ * whole list, with each teacher's note for parents, is one tap away.
+ */
+function HomeworkCard({ childId, childFirst, tint, onOpen }: { childId: string; childFirst: string; tint: string; onOpen: () => void }) {
+  const { byChild, failed } = useParentHomework();
+  const mine = byChild?.[childId];
+  if (failed && !byChild) return null; // offline: the rest of Home still reads from cache
+  const groups = splitHomework(mine?.items ?? []);
+  const toDo = groups.overdue.length + groups.upcoming.length;
+  const next = groups.overdue[0] ?? groups.upcoming[0];
+
+  return (
+    <TouchableOpacity accessibilityRole="button" onPress={onOpen} style={[s.card, { marginTop: 16, padding: 14 }]}>
+      <View style={[s.row, { justifyContent: "space-between" }]}>
+        <Text style={s.eyebrow}>HOMEWORK</Text>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>See all ›</Text>
+      </View>
+      {byChild === null ? (
+        <View style={{ gap: 6, marginTop: 8 }}>
+          <Skeleton width="60%" height={16} />
+          <Skeleton width="80%" height={10} />
+        </View>
+      ) : (
+        <>
+          <Text style={{ fontSize: 16, fontWeight: "600", marginTop: 6 }}>
+            {toDo === 0 ? "Nothing to do right now" : `${toDo} piece${toDo === 1 ? "" : "s"} to do`}
+          </Text>
+          <Text style={[s.small, { marginTop: 4 }]} numberOfLines={2}>
+            {next
+              ? `${next.subject}: ${next.title}. ${dueWords(next.dueOn)}.${groups.overdue.length ? ` ${groups.overdue.length} overdue.` : ""}`
+              : `New homework for ${childFirst} shows here, with a note on how you can help.`}
+          </Text>
+        </>
+      )}
+    </TouchableOpacity>
   );
 }

@@ -8,13 +8,11 @@
  *
  * Deploy: supabase functions deploy create-organization
  *
- * New organizations start 'pending' regardless of who creates them —
- * treating "already an org_admin elsewhere" as no exemption from the same
- * one-click staff approval every self-registered org goes through (FIG-368/
- * FIG-375). This isn't just cosmetic: tenant_write_org_admin (FIG-369) only
- * lets an org's own admin create schools once that org's status = 'active',
- * so a pending org the caller just made is, correctly, not usable yet
- * either — the existing approval queue needs no changes to enforce this.
+ * New organizations are created 'active', the same as self-registered ones
+ * from signup-organization: approval is paused for now, so the caller can
+ * add schools to the new organization straight away (tenant_write_org_admin
+ * only lets an 'active' organization's admin create schools). Switch both
+ * functions back to 'pending' to bring approval back.
  *
  * Caller must already be an org_admin (any organization) — that's what a
  * "workspace" belongs to; other roles have no use for one.
@@ -77,7 +75,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     name,
     slug,
     kind,
-    status: "pending",
+    status: "active", // no approval step for now: see the header
     county: body.county?.trim() || null,
     contact_name: callerProfile.full_name,
     contact_email: body.contact_email?.trim() || callerProfile.email,
@@ -99,7 +97,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   await admin.from("audit_events").insert({
     tenant_id: null,
     actor_label: `${callerProfile.full_name} · org admin`,
-    event: `Organization "${organization.name}" created by existing org admin ${callerProfile.full_name}, pending approval`,
+    event: `Organization "${organization.name}" created by existing org admin ${callerProfile.full_name}`,
     category: "provisioning",
   });
 

@@ -118,7 +118,7 @@ export function fmtAgo(iso: string | null, now: number): string {
 // ---------------------------------------------------------------- the map
 
 export function LiveRouteMap({
-  buses, selectedId, onSelect, highlightStopIds, colorFor, showAllStops, selfPos, accent = "#17402A", className = "", children,
+  buses, selectedId, onSelect, highlightStopIds, colorFor, showAllStops, selfPos, accent = "#17402A", className = "", children, below,
 }: {
   buses: BusOnRoute[];
   /** The bus whose route is drawn in colour with its stops; null shows every route equally. */
@@ -136,6 +136,8 @@ export function LiveRouteMap({
   className?: string;
   /** Overlays (bottom sheet, buttons), rendered inside the maps context so they can use <Eta>. */
   children?: ReactNode;
+  /** Content under the map (not over it), still inside the maps context so it can use <Eta>. */
+  below?: ReactNode;
 }) {
   const [view, setView] = useMapView();
   if (!GOOGLE_MAPS_API_KEY) {
@@ -149,6 +151,7 @@ export function LiveRouteMap({
           </div>
           {children}
         </div>
+        {below}
       </MapsAvailable.Provider>
     );
   }
@@ -161,6 +164,7 @@ export function LiveRouteMap({
           <MapViewControls view={view} onChange={setView} />
           {children}
         </div>
+        {below}
       </APIProvider>
     </MapsAvailable.Provider>
   );

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
-import { formatDueLabel, markAssignmentHandedIn, type WorkItem } from "@figbloom/shared";
+import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
 
@@ -62,6 +62,11 @@ export function StudentWork() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{w.title}</Text>
                     <Text style={[s.faint, { marginTop: 4 }]}>{w.subject} · {w.teacher}</Text>
+                    {(!!w.needs?.length || !!minutesWords(w.minutes)) && (
+                      <Text style={[s.small, { marginTop: 6 }]}>
+                        {[w.needs?.length ? `You'll need: ${w.needs.join(", ")}` : "", minutesWords(w.minutes)].filter(Boolean).join(" · ")}
+                      </Text>
+                    )}
                   </View>
                   <View style={[s.pill, { backgroundColor: tag.bg }]}>
                     <Text style={[s.pillLabel, { color: tag.ink }]}>

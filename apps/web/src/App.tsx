@@ -60,10 +60,13 @@ import { TeacherLeave } from "./screens/teacher/Leave";
 import { Homework as TeacherHomework } from "./screens/teacher/Homework";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { TeacherBuses } from "./screens/teacher/Buses";
+import { ExamPapers } from "./screens/teacher/ExamPapers";
+import { StudentExams } from "./screens/student/Exams";
 
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
 import { ParentResults } from "./screens/parent/Results";
+import { ParentHomework } from "./screens/parent/Homework";
 import { ParentBus } from "./screens/parent/Bus";
 import { ParentInbox } from "./screens/parent/Inbox";
 import { ParentSettings } from "./screens/parent/Settings";
@@ -192,6 +195,7 @@ function TenantRoutes() {
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
+          <Route path="admin/papers" element={<AdminShell allow={["school_admin"]}><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
@@ -204,12 +208,14 @@ function TenantRoutes() {
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
+          <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
           <Route path="parent/results" element={<ParentShell><ParentResults /></ParentShell>} />
+          <Route path="parent/homework" element={<ParentShell><ParentHomework /></ParentShell>} />
           <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
@@ -217,6 +223,7 @@ function TenantRoutes() {
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
           <Route path="student/work" element={<StudentShell><StudentWork /></StudentShell>} />
+          <Route path="student/exams" element={<StudentShell><K12Gate><StudentExams /></K12Gate></StudentShell>} />
           <Route path="student/results" element={<StudentShell><StudentResults /></StudentShell>} />
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
@@ -309,6 +316,18 @@ function RoleGate({ allow, children }: { allow: Role[]; children: ReactNode }) {
 function DeliveryModeGate({ children }: { children: ReactNode }) {
   const session = useTenantSession();
   if (session.tenant.delivery_mode === "online") {
+    const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
+    return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
+  }
+  return <>{children}</>;
+}
+
+/** Exam papers are set per class and subject, which a higher-ed tenant never
+ *  has (it runs course sections), so the screens are K-12 only: hidden from
+ *  the nav in ConsoleShell and gated here, since hiding alone never blocks the route. */
+function K12Gate({ children }: { children: ReactNode }) {
+  const session = useTenantSession();
+  if (session.tenant.institution_type === "higher_ed") {
     const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
     return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
   }
