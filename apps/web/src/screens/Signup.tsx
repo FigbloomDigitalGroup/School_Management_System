@@ -1,23 +1,23 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { normalizeSlug, suggestSlug, supabase } from "@figbloom/shared";
+import { normalizeSlug, suggestSlug, supabase, validateSlug } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { SelectField, TextField } from "../components/ui/Field";
-import { signupOrganization } from "../lib/signup";
+import { WebAddressField } from "../components/WebAddressField";
+import { signupOrganization, type SignupOrganizationInput } from "../lib/signup";
 import { useSlugAvailability } from "../lib/slugAvailability";
-import { SlugAvailabilityNote } from "../components/SlugAvailabilityNote";
 
 /**
  * Public self-service signup (FIG-371) — the one screen a stranger reaches
- * with no account and no invite. One page, not a wizard: there's no
- * "plan"/"administrator" step to collect since the signer *is* the admin,
- * and every extra step here costs real signups. Submits to the
- * signup-organization edge function (FIG-370, the one publicly-callable
- * privileged endpoint in the app), then signs the new org_admin in directly
- * with the password they just chose and lands them on their own org
- * console — which shows a "pending approval" holding screen (FIG-372) until
- * a super_admin approves them.
+ * with no account and no invite. Kept to the minimum: the organization's
+ * name, and the signer's own name, email and password. The web address
+ * fills itself in from the name as it's typed (and can be edited); what
+ * kind of organization it is, the county and contact details are optional,
+ * folded under "More details". Submits to the signup-organization edge
+ * function (FIG-370), signs the new org_admin straight in with the password
+ * they just chose, and lands them on their own org console, live at once:
+ * there's no approval step for now.
  */
 
 /** Same illustrated layout as sign-in; the admin art, since the signer becomes the org admin. */
@@ -27,34 +27,24 @@ const SCENE: Scene = {
   tagline: "One console for every school you run: learners, staff, fees, CBE results and the school bus.",
 };
 
-const KIND_OPTIONS = [
-  { value: "group_owner", label: "I own/manage a group of schools" },
+const ORG_BASE = "schoolmanagement.figbloom.org/org/";
+
+const KIND_OPTIONS: { value: SignupOrganizationInput["kind"]; label: string }[] = [
+  { value: "group_owner", label: "I own/manage a school or a group of schools" },
   { value: "government", label: "National government body" },
   { value: "county", label: "County government" },
   { value: "constituency", label: "Constituency" },
 ];
-
-const SLUG_RE = /^[a-z0-9-]{3,40}$/;
-const RESERVED_SLUGS = new Set([
-  "admin", "api", "app", "auth", "console", "figbloom", "help", "login",
-  "platform", "s", "org", "signin", "signup", "status", "support", "www",
-]);
-
-function validateOrgSlug(raw: string): { ok: boolean; message: string } {
-  const slug = raw.trim().toLowerCase();
-  if (!slug) return { ok: false, message: "Pick an address for your organization." };
-  if (!SLUG_RE.test(slug)) return { ok: false, message: "3-40 characters, lowercase letters, numbers and hyphens only." };
-  if (RESERVED_SLUGS.has(slug)) return { ok: false, message: `"${slug}" is reserved by the platform.` };
-  return { ok: true, message: "" };
-}
 
 export function Signup() {
   const nav = useNavigate();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
-  const [kind, setKind] = useState("group_owner");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [kind, setKind] = useState<SignupOrganizationInput["kind"]>("group_owner");
   const [county, setCounty] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [adminName, setAdminName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -63,14 +53,15 @@ export function Signup() {
   const [busy, setBusy] = useState(false);
 
   const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
-  const slugCheck = slugValue ? validateOrgSlug(slugValue) : { ok: false, message: "" };
+  const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
   const availability = useSlugAvailability("organization", slugValue, county);
 
-  async function submit() {
+  async function submit(e?: FormEvent) {
+    e?.preventDefault();
     setError("");
     if (!name.trim()) { setError("Give your organization a name."); return; }
-    if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid address."); return; }
-    if (availability.status === "taken") { setError(`schoolmanagement.figbloom.org/org/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
+    if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid web address."); return; }
+    if (availability.status === "taken") { setError(`${ORG_BASE}${slugValue} is already taken. Pick another web address: there are suggestions under it.`); return; }
     if (!adminName.trim()) { setError("Your name is required."); return; }
     if (!email.trim()) { setError("Your email is required."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
@@ -81,8 +72,9 @@ export function Signup() {
       const result = await signupOrganization({
         name: name.trim(),
         slug: slugValue,
-        kind: kind as "government" | "county" | "constituency" | "group_owner",
+        kind,
         county: county.trim() || undefined,
+        contact_phone: contactPhone.trim() || undefined,
         admin_full_name: adminName.trim(),
         admin_email: email.trim(),
         admin_password: password,
@@ -105,42 +97,59 @@ export function Signup() {
         <Link to="/signin" className="mb-4 inline-block text-[12px] font-medium text-forest hover:underline">
           ← Back to sign in
         </Link>
-        <h2 className="text-[22px] font-semibold tracking-tight">Register your organization</h2>
+        <h2 className="text-[22px] font-semibold tracking-tight">Create your organization</h2>
         <p className="mt-1 text-body text-ink-muted">
-          A group of schools, or a government body. Our team reviews new organizations before they go live, usually
-          within a day.
+          A school, a group of schools, or a government body. It takes a minute, and you can add your first school
+          straight after.
         </p>
 
-        <div className="mt-5 rounded-xl border border-line bg-white p-5">
+        <form onSubmit={(e) => void submit(e)} className="mt-5 rounded-xl border border-line bg-white p-5">
           <div className="grid gap-3.5">
-            <TextField id="orgName" label="Organization name" placeholder="e.g. Riverside Schools Trust" value={name} onChange={(e) => setName(e.target.value)} />
-            <TextField
-              id="orgSlug" label="Web address" mono placeholder={slugValue || "riverside-schools-trust"}
-              value={slugTouched ? slug : slugValue}
-              hint={slugCheck.ok && availability.status === "idle" ? `schoolmanagement.figbloom.org/org/${slugValue} — this cannot be changed later.` : undefined}
-              error={slugTouched && slug && !slugCheck.ok ? slugCheck.message : undefined}
-              onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }}
+            <TextField id="orgName" label="Organization name" placeholder="e.g. Kijani Schools" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+            <WebAddressField
+              id="orgSlug" base={ORG_BASE} noun="organization"
+              slug={slugValue} editing={slugTouched} availability={availability}
+              onEdit={() => { setSlug(slugValue); setSlugTouched(true); }}
+              onChange={(s) => { setSlugTouched(true); setSlug(s); }}
             />
-            <SlugAvailabilityNote slug={slugValue} noun="organization" base="schoolmanagement.figbloom.org/org/" availability={availability}
-              onPick={(s) => { setSlugTouched(true); setSlug(s); }} />
-            <SelectField id="orgKind" label="What best describes you?" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
-            <TextField id="orgCounty" label="County (optional)" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
 
             <div className="mt-1 border-t border-line-soft pt-3.5">
               <p className="mb-3 text-[12.5px] font-semibold text-ink">Your own login</p>
               <div className="grid gap-3.5">
-                <TextField id="adminName" label="Your name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
-                <TextField id="adminEmail" label="Email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-                <TextField id="adminPassword" label="Password" type="password" hint="At least 8 characters." value={password} onChange={(e) => setPassword(e.target.value)} />
-                <TextField id="adminConfirm" label="Confirm password" type="password" error={error} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+                <TextField id="adminName" label="Your name" autoComplete="name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+                <TextField id="adminEmail" label="Email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <TextField id="adminPassword" label="Password" type="password" showToggle autoComplete="new-password" hint="At least 8 characters." value={password} onChange={(e) => setPassword(e.target.value)} />
+                <TextField id="adminConfirm" label="Confirm password" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
               </div>
             </div>
 
-            <Button variant="primary" block disabled={busy} onClick={() => void submit()}>
+            <div className="border-t border-line-soft pt-3">
+              <button
+                type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}
+                className="flex w-full items-center justify-between text-left text-[12.5px] font-semibold text-ink"
+              >
+                More details <span className="font-normal text-ink-faint">{moreOpen ? "Hide" : "Optional"}</span>
+              </button>
+              {moreOpen && (
+                <div className="mt-3 grid gap-3.5">
+                  <SelectField id="orgKind" label="What best describes you?" value={kind} onChange={(e) => setKind(e.target.value as SignupOrganizationInput["kind"])} options={KIND_OPTIONS} />
+                  <TextField id="orgCounty" label="County" placeholder="e.g. Kiambu" value={county} onChange={(e) => setCounty(e.target.value)} />
+                  <TextField id="orgPhone" label="Contact phone" type="tel" placeholder="e.g. 0712 345 678" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+                <span aria-hidden>✕</span>{error}
+              </p>
+            )}
+
+            <Button type="submit" variant="primary" block disabled={busy}>
               {busy ? "Creating your organization…" : "Create organization"}
             </Button>
           </div>
-        </div>
+        </form>
 
         <p className="mt-5 text-center text-small text-ink-muted">
           Already have an account? <Link to="/signin" className="font-medium text-forest hover:underline">Sign in</Link>

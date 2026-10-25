@@ -11,7 +11,7 @@
 // deno-lint-ignore no-explicit-any
 export type Row = Record<string, any>;
 
-type Filter = { col: string; op: "eq" | "gte" | "in" | "ilike"; val: unknown };
+type Filter = { col: string; op: "eq" | "gte" | "in" | "ilike" | "is"; val: unknown };
 
 /** Turns a SQL LIKE/ILIKE pattern (%, _, backslash-escaped literals) into a
  *  case-insensitive RegExp -- just enough for search-schools' `%query%`
@@ -129,6 +129,11 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.filters.push({ col, op: "ilike", val: pattern });
     return this;
   }
+  /** Only `.is(col, null)` is used: a missing column counts as null, as it would in Postgres. */
+  is(col: string, val: null) {
+    this.filters.push({ col, op: "is", val });
+    return this;
+  }
   limit(n: number) {
     this.limitN = n;
     return this;
@@ -142,6 +147,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     return this.filters.every((f) => {
       if (f.op === "eq") return row[f.col] === f.val;
       if (f.op === "in") return (f.val as unknown[]).includes(row[f.col]);
+      if (f.op === "is") return (row[f.col] ?? null) === f.val;
       if (f.op === "ilike") return ilikeToRegExp(f.val as string).test(String(row[f.col] ?? ""));
       return (row[f.col] as never) >= (f.val as never);
     });
@@ -196,11 +202,24 @@ export class FakeSupabaseClient {
     error: { message: "onCreateUser not configured" },
   });
   deletedUserIds: string[] = [];
+  /** Every auth.admin.updateUserById call, in order. */
+  updatedUsers: { id: string; attrs: Row }[] = [];
+  /** Set to make the next updateUserById fail with this message. */
+  failNextUserUpdate: string | null = null;
 
   auth = {
     getUser: async () => ({ data: { user: this.authUser } }),
     admin: {
       createUser: async (attrs: Row) => this.onCreateUser(attrs),
+      updateUserById: async (id: string, attrs: Row) => {
+        if (this.failNextUserUpdate) {
+          const message = this.failNextUserUpdate;
+          this.failNextUserUpdate = null;
+          return { data: { user: null }, error: { message } };
+        }
+        this.updatedUsers.push({ id, attrs });
+        return { data: { user: { id } }, error: null };
+      },
       deleteUser: async (id: string) => {
         this.deletedUserIds.push(id);
         return { error: null };

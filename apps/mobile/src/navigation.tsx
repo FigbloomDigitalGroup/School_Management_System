@@ -9,6 +9,7 @@ import { useStudentData } from "./studentData";
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
 import { ParentPay } from "./screens/parent/Pay";
+import { ParentHomework } from "./screens/parent/Homework";
 import { ParentResults } from "./screens/parent/Results";
 import { ParentInbox } from "./screens/parent/Inbox";
 import { ParentBus } from "./screens/parent/Bus";
@@ -57,6 +58,8 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="ParentTabs" component={ParentTabs} />
           {/* Payment is a stack screen, not a tab — it must not be swiped away mid-prompt. */}
           <Stack.Screen name="Pay" component={ParentPay} options={{ presentation: "modal" }} />
+          {/* Homework is opened from the Home card, not a seventh tab — six is already a full bar. */}
+          <Stack.Screen name="Homework" component={ParentHomework} />
         </Stack.Navigator>
       ) : (
         <StudentTabs a={a} />
