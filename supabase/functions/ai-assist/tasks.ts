@@ -3,15 +3,15 @@
  * answer in. Kept apart from index.ts so it can be tested without a network:
  * the prompts are product behaviour, not plumbing.
  *
- * Every task except the study helper answers in JSON fixed by a schema
- * (structured outputs), so the app never parses free text. Staff always see
+ * Every task except the study helper and Bloom chat answers in JSON fixed by
+ * a schema (structured outputs), so the app never parses free text. Staff always see
  * a draft and edit it; nothing a task returns is saved or sent by itself.
  */
 
-export type Task = "report_comment" | "questions" | "homework" | "message" | "translate" | "tutor";
+export type Task = "report_comment" | "questions" | "homework" | "message" | "translate" | "tutor" | "chat";
 export type Role = "school_admin" | "teacher" | "student";
 
-export const TASKS: Task[] = ["report_comment", "questions", "homework", "message", "translate", "tutor"];
+export const TASKS: Task[] = ["report_comment", "questions", "homework", "message", "translate", "tutor", "chat"];
 
 /** Who may run each task. Org admins and Figbloom staff work through a school's own accounts. */
 export const ALLOWED: Record<Task, Role[]> = {
@@ -21,6 +21,7 @@ export const ALLOWED: Record<Task, Role[]> = {
   message: ["school_admin", "teacher"],
   translate: ["school_admin", "teacher"],
   tutor: ["student"],
+  chat: ["school_admin", "teacher"],
 };
 
 /** How hard the model thinks: drafting short text doesn't need much; a question paper with a marking key does. */
@@ -31,6 +32,8 @@ export const EFFORT: Record<Task, "low" | "medium"> = {
   message: "low",
   translate: "low",
   tutor: "low",
+  // an open-ended assistant gets maths, planning and code too
+  chat: "medium",
 };
 
 export class BadInput extends Error {}
@@ -280,7 +283,45 @@ function tutorMessages(p: Json): { role: "user" | "assistant"; content: string }
   return msgs;
 }
 
-export function prepare(task: Exclude<Task, "tutor">, payload: Json): PreparedTask {
+// ------------------------------------------------------------------ Bloom chat
+
+/** Turns of history sent with each question; older ones stay in the saved chat but aren't re-sent. */
+export const CHAT_MAX_TURNS = 40;
+export const CHAT_MAX_CHARS = 12000;
+/** Everything sent at once, so a long chat can't spend the school's month in a few questions. */
+export const CHAT_MAX_TOTAL_CHARS = 60000;
+
+export function chatSystem(schoolName: string, role: "school_admin" | "teacher", today: string): string {
+  return `You are Bloom, the AI assistant in Figbloom, a school management app used in Kenya. You are talking with ${role === "teacher" ? "a teacher" : "a member of the school office"}${schoolName ? ` at ${schoolName}` : ""}. Today is ${today}.
+
+Help with anything they ask, as a capable general assistant would: writing and editing (letters, circulars, reports, speeches, minutes), explaining ideas, planning lessons and schemes of work, setting and marking questions, maths and science with working shown, translation (especially English and Kiswahili), summarising, brainstorming, spreadsheets and formulas, and code.
+
+- Know the Kenyan school context: CBC/CBE (KICD) and 8-4-4/KCSE, terms, KNEC, TSC, boarding and day schools, fees in shillings. Use British spelling.
+- Be direct. Lead with the answer, then the detail. Keep it as short as the question allows.
+- Format with Markdown where it helps: headings, lists, tables, **bold**, and fenced code blocks with a language. Use $…$ only if asked for LaTeX.
+- If you are not sure of a fact, a date or a regulation, say so plainly instead of guessing. Never invent names, figures or policies about their school; you have no access to its records.
+- Learners' personal details don't belong here; if someone pastes them, work with what you need and suggest leaving the rest out.
+- You are an AI. Anything you write is a draft for the person to check.`;
+}
+
+export function chatMessages(p: Json): { role: "user" | "assistant"; content: string }[] {
+  const msgs = list(p.messages, "messages", 500).slice(-CHAT_MAX_TURNS).map((m: Json, i) => {
+    const role = oneOf(m?.role, `messages[${i}].role`, ["user", "assistant"] as const);
+    // Bloom's own earlier answers can be longer than a question may be; only their start is re-sent.
+    const content = role === "assistant" && typeof m?.content === "string"
+      ? str(m.content.slice(0, CHAT_MAX_CHARS), `messages[${i}].content`, CHAT_MAX_CHARS)
+      : str(m?.content, `messages[${i}].content`, CHAT_MAX_CHARS);
+    return { role, content };
+  });
+  // Oldest turns go first when the whole is too long; the question itself always stays.
+  let total = msgs.reduce((n, m) => n + m.content.length, 0);
+  while (msgs.length > 1 && total > CHAT_MAX_TOTAL_CHARS) total -= msgs.shift()!.content.length;
+  while (msgs.length && msgs[0]!.role !== "user") msgs.shift();
+  if (!msgs.length || msgs[msgs.length - 1]!.role !== "user") throw new BadInput("Ask a question first.");
+  return msgs;
+}
+
+export function prepare(task: Exclude<Task, "tutor" | "chat">, payload: Json): PreparedTask {
   if (!payload || typeof payload !== "object") throw new BadInput("Missing request details.");
   switch (task) {
     case "report_comment": return reportComment(payload);
