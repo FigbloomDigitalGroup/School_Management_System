@@ -17,6 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { SIGN_IN_STATUSES } from "../_shared/signInStatuses.ts";
 
 const RESULT_LIMIT = 8;
 
@@ -52,7 +53,7 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
   const { data, error } = await admin
     .from("tenants")
     .select("id, name, slug, county")
-    .eq("status", "active")
+    .in("status", SIGN_IN_STATUSES)
     .ilike("name", `%${escaped}%`)
     .order("name")
     .limit(RESULT_LIMIT);
