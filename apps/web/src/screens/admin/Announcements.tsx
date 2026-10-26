@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import {
-  fetchAllPages, formatMoney, publishAnnouncement, removeAttachmentFilesFor, supabase, yearGroupKey, yearGroupsOf, yearLabel,
+  fetchAllPages, formatMoney, STAFF_ROLES, publishAnnouncement, removeAttachmentFilesFor, supabase, yearGroupKey, yearGroupsOf, yearLabel,
   type Audience, type ClassGroup, type YearGroup,
 } from "@figbloom/shared";
 import { AiWriteHelper } from "../../components/AiWriteHelper";
@@ -79,7 +79,7 @@ async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsDa
     count(["parent"]),
     count(["student"]),
     count(["teacher"]),
-    count(["school_admin", "teacher", "driver"]),
+    count(STAFF_ROLES),
     sb.from("announcements").select("id,subject,published_at").eq("tenant_id", tenantId).not("published_at", "is", null)
       .order("published_at", { ascending: false }).limit(5).returns<RecentAnnouncement[]>(),
   ]);
@@ -156,7 +156,7 @@ export function Announcements() {
       case "parents": return { kind: "role", role: "parent" };
       case "students": return { kind: "role", role: "student" };
       case "teachers": return { kind: "role", role: "teacher" };
-      case "staff": return { kind: "roles", roles: ["school_admin", "teacher", "driver"] };
+      case "staff": return { kind: "roles", roles: STAFF_ROLES };
       case "year": return yearGroup
         ? { kind: "form_level", form_level: yearGroup.year, level: yearGroup.level, recipients }
         : { kind: "form_level", form_level: 1, recipients };

@@ -16,7 +16,7 @@ import { PasswordResetRequests, ResetPasswordSection } from "../../components/Pa
 import { useAsync } from "../../lib/useAsync";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
-import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
+import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
 import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
@@ -48,7 +48,7 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "guard", "receptionist"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
@@ -853,16 +853,18 @@ function PhotoReview({ staff, onDone, toast }: { staff: StaffRow; onDone: (remov
 const STAFF_ROLE_OPTIONS = [
   { value: "teacher", label: "Teacher" },
   { value: "driver", label: "Driver" },
+  { value: "guard", label: "Gate guard" },
+  { value: "receptionist", label: "Receptionist" },
 ];
 
-/** Adds a teacher or driver (FIG-398/400) — no email, an assigned login_id
+/** Adds a teacher, driver, guard or receptionist (FIG-398/400) — no email, an assigned login_id
  *  (e.g. "TC-0001") instead, shown once on success the same way every other
  *  credential-reveal modal in this app works. */
 function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   tenantId: string; onClose: () => void; onAdded: () => void; toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"teacher" | "driver">("teacher");
+  const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
@@ -908,7 +910,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
       ) : (
         <div className="grid gap-3.5">
           <TextField id="staff-name" label="Full name" placeholder="e.g. Otieno Ouma" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-          <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as "teacher" | "driver")} options={STAFF_ROLE_OPTIONS} />
+          <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as InviteStaffInput["role"])} options={STAFF_ROLE_OPTIONS} />
           <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>

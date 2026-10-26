@@ -46,7 +46,7 @@ async function main() {
   const alliance = tenants!.find((t) => t.slug === "alliance")!;
 
   // ---------------------------------------------------------------- staff accounts
-  // super_admin/school_admin keep a real email login; teacher/driver sign in
+  // super_admin/school_admin keep a real email login; teacher/driver/guard/receptionist sign in
   // with a school-assigned login_id instead (FIG-396) -- parent/student are
   // handled separately below, since they need extra linking (guardians,
   // students.profile_id) this simple profile-insert loop doesn't do.
@@ -67,7 +67,7 @@ async function main() {
       full_name: login.who,
       email: isEmailBased ? login.email : null,
       login_id: isEmailBased ? null : login.login_id,
-      staff_title: login.role === "school_admin" ? "Principal" : login.role === "teacher" ? "Chemistry teacher" : login.role === "driver" ? "Bus driver" : null,
+      staff_title: login.role === "school_admin" ? "Principal" : login.role === "teacher" ? "Chemistry teacher" : login.role === "driver" ? "Bus driver" : login.role === "guard" ? "Main gate" : login.role === "receptionist" ? "Front office" : null,
     });
     staff[login.role] = user.user.id;
   }

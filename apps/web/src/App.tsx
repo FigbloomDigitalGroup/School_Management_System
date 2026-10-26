@@ -85,6 +85,10 @@ import { StudentNotices } from "./screens/student/Notices";
 
 import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
+import { Gate, Reception } from "./screens/frontdesk/Desk";
+import { AdminVisitors } from "./screens/admin/Visitors";
+import { TeacherVisitors } from "./screens/teacher/Visitors";
+import { VisitAlertsListener } from "./components/visitors/Visits";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 import { RouteSeo } from "./components/RouteSeo";
@@ -204,6 +208,7 @@ function TenantRoutes() {
           <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
+          <Route path="admin/visitors" element={<AdminShell allow={["school_admin"]}><AdminVisitors /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -220,6 +225,7 @@ function TenantRoutes() {
           <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
+          <Route path="teacher/visitors" element={<TeacherShell allow={["teacher"]}><TeacherVisitors /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
@@ -243,6 +249,9 @@ function TenantRoutes() {
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
           <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverProfile /></RoleGate>} />
+
+          <Route path="gate" element={<FrontDeskShell role="guard"><Gate /></FrontDeskShell>} />
+          <Route path="reception" element={<FrontDeskShell role="receptionist"><Reception /></FrontDeskShell>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -356,6 +365,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
   }
   return (
     <RoleGate allow={allow}>
+      <VisitAlertsListener />
       <ConsoleShell
         role="school_admin"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? "Principal" }}
@@ -364,6 +374,21 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
           schoolName: session.tenant.name,
           onExit: () => void exitToOrganization(),
         } : undefined}
+      >
+        {children}
+      </ConsoleShell>
+    </RoleGate>
+  );
+};
+
+/** The gate and reception: one page each, in the console frame. */
+const FrontDeskShell = ({ role, children }: { role: "guard" | "receptionist"; children: ReactNode }) => {
+  const session = useTenantSession();
+  return (
+    <RoleGate allow={[role]}>
+      <ConsoleShell
+        role={role}
+        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? (role === "guard" ? "Gate" : "Reception") }}
       >
         {children}
       </ConsoleShell>
@@ -396,6 +421,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
 
   return (
     <RoleGate allow={allow}>
+      <VisitAlertsListener />
       <TeacherNoticesProvider value={() => setUnread((n) => (n ? n - 1 : n))}>
         <ConsoleShell
           role="teacher"
