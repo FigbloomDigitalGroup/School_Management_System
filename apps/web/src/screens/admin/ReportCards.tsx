@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, gradingSchemeFor,
+  defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, gradingSchemeFor, rubricFor,
   prepareClassReportCards, reportCardFileName, saveReportCardComments, saveReportCards, saveTeacherComment,
   setReportCardsPublished, suggestComment, type ReportCardOptions, type StoredReportCard,
 } from "@figbloom/shared";
+import { CompetencyRatings } from "../../components/CompetencyRatings";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -48,6 +49,8 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
 
   const cls = classes.find((c) => c.id === classId);
   const scheme = cls ? gradingSchemeFor(tenant.country, cls.level) : "kcse";
+  // CBE classes are judged on a rubric, so their cards can come from CBE assessments alone, with no exams.
+  const isCbe = !!cls && rubricFor(tenant.country, cls.level) !== null;
 
   const exams = useAsync(() => (termId ? fetchTermExams(termId) : Promise.resolve([])), [termId]);
   // Every exam with results out counts by default; options start from the class's grading scheme.
@@ -163,7 +166,9 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                 </p>
                 <div className="mt-3 text-[12px] font-medium text-ink-soft">Exams that count</div>
                 {exams.loading && !exams.data ? <p className="mt-1 text-[12.5px] text-ink-faint">Loading exams…</p> : !(exams.data ?? []).length ? (
-                  <p className="mt-1 text-[12.5px] text-ink-faint">No exams this term. Set them up under Exams.</p>
+                  <p className="mt-1 text-[12.5px] text-ink-faint">
+                    {isCbe ? "No exams this term. The report cards will carry this term's published CBE assessments and the core competencies." : "No exams this term. Set them up under Exams."}
+                  </p>
                 ) : (
                   <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-2">
                     {(exams.data ?? []).map((e) => (
@@ -196,12 +201,14 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                   <p className="mt-2 text-[11.5px] text-warn-ink">CBC report cards usually leave out position. It's on for this class.</p>
                 )}
                 <div className="mt-4">
-                  <Button variant="accent" disabled={!!busy || !examIds?.length} onClick={prepare}>
+                  <Button variant="accent" disabled={!!busy || (!examIds?.length && !isCbe)} onClick={prepare}>
                     {busy === "prepare" ? "Preparing…" : rows.length ? "Prepare again" : "Prepare report cards"}
                   </Button>
                 </div>
               </section>
             )}
+
+            {isCbe && termId && <CompetencyRatings tenantId={tenant.id} termId={termId} classId={classId} />}
 
             {cards.error ? (
               <p className="rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">Could not load report cards: {cards.error.message}</p>

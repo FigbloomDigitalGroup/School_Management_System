@@ -22,6 +22,8 @@ export interface PrintableCard {
 
 const A4: [number, number] = [595.28, 841.89];
 const MARGIN = 40;
+/** Lowest a line of content may sit; the footer goes below it. */
+const BOTTOM = MARGIN + 6;
 const INK = rgb(0.11, 0.13, 0.12);
 const MUTED = rgb(0.42, 0.45, 0.43);
 const LINE = rgb(0.85, 0.86, 0.85);
@@ -105,7 +107,7 @@ class Sheet {
 
   /** Makes room for h points, or moves to a new page. */
   need(h: number) {
-    if (this.y - h < MARGIN + 24) this.addPage(true);
+    if (this.y - h < BOTTOM) this.addPage(true);
   }
 
   text(t: string, x: number, size: number, opts: { bold?: boolean; color?: RGB; y?: number; align?: "left" | "right" | "center"; width?: number } = {}) {
@@ -204,7 +206,7 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
     };
     header();
     d.subjects.forEach((s, r) => {
-      if (sheet.y - 16 < MARGIN + 24) { sheet.addPage(true); header(); }
+      if (sheet.y - 16 < BOTTOM) { sheet.addPage(true); header(); }
       if (r % 2 === 1) sheet.box(MARGIN, sheet.y - 12, sheet.inner, 16, rgb(0.985, 0.985, 0.985));
       let x = MARGIN;
       for (const c of table) {
@@ -231,30 +233,90 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
     ];
     sheet.text(parts.join("  ·  "), MARGIN, 10, { bold: true });
     sheet.y -= 10;
-  } else if (!d.cbe.length) {
-    sheet.text("No exam results were published for this term.", MARGIN, 10, { color: MUTED, y: sheet.y - 8 });
+  } else if (!d.cbe.length && !d.competencies?.length) {
+    sheet.text("No results were published for this term.", MARGIN, 10, { color: MUTED, y: sheet.y - 8 });
     sheet.y -= 24;
   }
 
-  // CBC
+  // CBC: each learning area's overall level, its strands underneath, and the teacher's remark
   if (d.cbe.length) {
     sheet.need(40);
     sheet.y -= 16;
-    sheet.text("Competency-based assessment", MARGIN, 10, { bold: true });
+    sheet.text("Learning areas", MARGIN, 10, { bold: true });
     sheet.y -= 8;
-    const w = [sheet.inner * 0.32, sheet.inner * 0.4, sheet.inner * 0.28];
-    sheet.box(MARGIN, sheet.y - 14, sheet.inner, 18, SHADE);
-    ["Learning area", "Assessment", "Level"].forEach((l, i) =>
-      sheet.text(l, MARGIN + 4 + w.slice(0, i).reduce((a, b) => a + b, 0), 7, { bold: true, color: MUTED, y: sheet.y - 8 }));
-    sheet.y -= 18;
+    const w = [sheet.inner * 0.36, sheet.inner * 0.34, sheet.inner * 0.3];
+    const at = (i: number) => MARGIN + 4 + w.slice(0, i).reduce((a, b) => a + b, 0);
+    const header = () => {
+      sheet.box(MARGIN, sheet.y - 14, sheet.inner, 18, SHADE);
+      ["Learning area / strand", "Assessment", "Level"].forEach((l, i) => sheet.text(l, at(i), 7, { bold: true, color: MUTED, y: sheet.y - 8 }));
+      sheet.y -= 18;
+    };
+    header();
+    const levelText = (code: string | null, label: string | null) => (code ? `${code}${label ? ` - ${label}` : ""}` : "-");
     for (const a of d.cbe) {
-      sheet.need(16);
-      const vals = [a.area, a.assessment, a.level ? `${a.level}${a.label ? ` - ${a.label}` : ""}` : "-"];
-      vals.forEach((v, i) =>
-        sheet.text(v, MARGIN + 4 + w.slice(0, i).reduce((x, y) => x + y, 0), 9, { y: sheet.y - 8, width: w[i]! - 8, bold: i === 2 }));
+      const strands = a.strands ?? [];
+      const remark = a.comment?.trim() ? wrap(`Remark: ${a.comment.trim()}`, fonts.regular, 8.5, sheet.inner - 20) : [];
+      const h = 16 + strands.length * 13 + remark.length * 11 + 4;
+      if (sheet.y - Math.min(h, 200) < BOTTOM) { sheet.addPage(true); header(); }
+      sheet.text(a.area, at(0), 9, { y: sheet.y - 8, width: w[0]! - 8, bold: true });
+      sheet.text(a.assessment, at(1), 9, { y: sheet.y - 8, width: w[1]! - 8 });
+      sheet.text(levelText(a.level, a.label), at(2), 9, { y: sheet.y - 8, width: w[2]! - 8, bold: true });
       sheet.y -= 16;
+      for (const st of strands) {
+        sheet.need(13);
+        sheet.text(st.name, at(0) + 10, 8.5, { y: sheet.y - 7, width: w[0]! + w[1]! - 18, color: MUTED });
+        sheet.text(levelText(st.level, st.label), at(2), 8.5, { y: sheet.y - 7, width: w[2]! - 8 });
+        sheet.y -= 13;
+      }
+      for (const l of remark) {
+        sheet.need(11);
+        sheet.text(l, at(0) + 10, 8.5, { y: sheet.y - 6, color: MUTED });
+        sheet.y -= 11;
+      }
+      sheet.y -= 4;
+      sheet.rule(sheet.y + 2);
+    }
+  }
+
+  // core competencies and values, side by side
+  const rated = d.competencies ?? [];
+  if (rated.length) {
+    const comps = rated.filter((r) => r.kind === "competency");
+    const vals = rated.filter((r) => r.kind === "value");
+    const rows = Math.max(comps.length, vals.length);
+    sheet.need(40 + Math.min(rows, 8) * 13);
+    sheet.y -= 16;
+    sheet.text("Core competencies and values", MARGIN, 10, { bold: true });
+    sheet.y -= 8;
+    const half = sheet.inner / 2;
+    sheet.box(MARGIN, sheet.y - 14, sheet.inner, 18, SHADE);
+    sheet.text("Core competency", MARGIN + 4, 7, { bold: true, color: MUTED, y: sheet.y - 8 });
+    sheet.text("Level", MARGIN + half - 12, 7, { bold: true, color: MUTED, y: sheet.y - 8, align: "right" });
+    sheet.text("Value", MARGIN + half + 8, 7, { bold: true, color: MUTED, y: sheet.y - 8 });
+    sheet.text("Level", MARGIN + sheet.inner - 8, 7, { bold: true, color: MUTED, y: sheet.y - 8, align: "right" });
+    sheet.y -= 18;
+    for (let i = 0; i < rows; i++) {
+      sheet.need(13);
+      const c = comps[i], v = vals[i];
+      if (c) {
+        sheet.text(c.label, MARGIN + 4, 8.5, { y: sheet.y - 7, width: half - 50 });
+        sheet.text(c.level, MARGIN + half - 12, 8.5, { y: sheet.y - 7, align: "right", bold: true });
+      }
+      if (v) {
+        sheet.text(v.label, MARGIN + half + 8, 8.5, { y: sheet.y - 7, width: half - 50 });
+        sheet.text(v.level, MARGIN + sheet.inner - 8, 8.5, { y: sheet.y - 7, align: "right", bold: true });
+      }
+      sheet.y -= 13;
     }
     sheet.rule(sheet.y + 2);
+  }
+
+  // what the rubric codes mean
+  if (d.rubric?.length && (d.cbe.length || rated.length)) {
+    const key = wrap(`Key: ${d.rubric.map((l) => `${l.code} ${l.label}`).join("  ·  ")}`, fonts.regular, 7.5, sheet.inner);
+    sheet.need(key.length * 10 + 8);
+    sheet.y -= 12;
+    for (const l of key) { sheet.text(l, MARGIN, 7.5, { color: MUTED }); sheet.y -= 10; }
   }
 
   // attendance, fees, next term
@@ -276,16 +338,16 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
   // comments
   const comment = (title: string, text: string | null) => {
     const lines = wrap(text?.trim() || "", fonts.regular, 9.5, sheet.inner - 16);
-    const h = 30 + Math.max(1, lines.length) * 12 + 22;
+    const h = 24 + Math.max(1, lines.length) * 12 + 18;
     sheet.need(h + 10);
     sheet.y -= 14;
     sheet.page.drawRectangle({ x: MARGIN, y: sheet.y - h + 10, width: sheet.inner, height: h, borderColor: LINE, borderWidth: 0.8 });
     sheet.text(title, MARGIN + 8, 8, { bold: true, color: MUTED, y: sheet.y - 4 });
-    let ly = sheet.y - 20;
+    let ly = sheet.y - 18;
     if (lines.length && lines[0]) for (const l of lines) { sheet.text(l, MARGIN + 8, 9.5, { y: ly }); ly -= 12; }
     else ly -= 12;
-    sheet.text("Signature: ____________________", MARGIN + 8, 8, { color: MUTED, y: ly - 8 });
-    sheet.text("Date: ______________", sheet.width - MARGIN - 8, 8, { color: MUTED, y: ly - 8, align: "right" });
+    sheet.text("Signature: ____________________", MARGIN + 8, 8, { color: MUTED, y: ly - 4 });
+    sheet.text("Date: ______________", sheet.width - MARGIN - 8, 8, { color: MUTED, y: ly - 4, align: "right" });
     sheet.y -= h;
   };
   comment(`Class teacher's comment${d.classTeacher ? ` (${d.classTeacher})` : ""}`, card.teacherComment);
