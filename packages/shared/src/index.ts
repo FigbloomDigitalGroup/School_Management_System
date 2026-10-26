@@ -36,17 +36,24 @@ export * from "./organizations";
 export * from "./paging";
 export * from "./edge";
 export * from "./mpesaPay";
+export * from "./paymentSms";
 export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";
 export * from "./homework";
 export * from "./materials";
 export * from "./learners";
+export * from "./learnerBio";
 export * from "./audience";
 export * from "./messageRoster";
+export * from "./chat";
 // reportCardPdf.ts is deliberately not exported here: it pulls in pdf-lib, and
 // the web app loads it only when someone downloads (apps/web/src/lib/reportCardPdf.ts).
 export * from "./reportCards";
 export * from "./competencies";
 export * from "./ai";
 export * from "./visitors";
+export * from "./signatures";
+export * from "./aiChat";
+export * from "./markdown";
+export * from "./inventory";
