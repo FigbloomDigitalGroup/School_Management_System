@@ -20,6 +20,7 @@ import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } 
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
 import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
@@ -309,6 +310,9 @@ export function People() {
       )}
 
       <div className="px-7 py-6">
+        {tab === "students" && (
+          <BioRequestsPanel tenantId={tenant.id} toast={toast} reloadKey={reloadKey} onOpenLearner={(id) => setManage({ kind: "students", id })} />
+        )}
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load people: {error.message}
@@ -466,6 +470,8 @@ export function People() {
           {manage.kind === "students" && (
             <div className="mt-5">
               <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
+              <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />
+              <GuardianContacts studentId={manageRow.id} />
               <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
             </div>
           )}

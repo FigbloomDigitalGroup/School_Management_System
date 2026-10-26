@@ -1,11 +1,15 @@
 import { useState } from "react";
-import { fetchAllPages, formatMoney, itemsForStudent, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel } from "@figbloom/shared";
-import type { ClassLevel, FeeItem, Term, YearGroup } from "@figbloom/shared";
+import {
+  PAYMENT_SMS_FLAG_LABEL, fetchAllPages, formatMoney, itemsForStudent, paymentSmsFlags, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel,
+} from "@figbloom/shared";
+import type { ClassLevel, FeeItem, PaymentSmsSource, Term, YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Modal } from "../../components/ui/Modal";
+import { TextField } from "../../components/ui/Field";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
@@ -13,7 +17,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
-import { BillTermModal, RecordPaymentModal, type PayableInvoice } from "./FeeCollection";
+import { BillTermModal, RecordPaymentModal, type PayableInvoice, type ProofToConfirm } from "./FeeCollection";
 
 interface OutstandingRow {
   id: string;
@@ -30,10 +34,22 @@ interface RawInvoiceRow {
   students: { full_name: string; classes: { name: string } | null } | null;
 }
 
-interface PendingProofRow {
+/** What a pasted confirmation SMS said (payment_proofs.sms_text and the txn_* fields parsed from it). */
+interface ProofSms {
+  sms_text: string | null;
+  txn_source: PaymentSmsSource | null;
+  txn_code: string | null;
+  txn_amount_cents: number | null;
+  txn_at: string | null;
+  txn_payee: string | null;
+  txn_payee_number: string | null;
+  txn_account: string | null;
+}
+
+interface PendingProofRow extends ProofSms {
   id: string;
-  file_path: string;
-  file_name: string;
+  file_path: string | null;
+  file_name: string | null;
   note: string | null;
   uploaded_at: string;
   studentName: string;
@@ -41,10 +57,10 @@ interface PendingProofRow {
   invoice: PayableInvoice | null;
 }
 
-interface RawProofRow {
+interface RawProofRow extends ProofSms {
   id: string;
-  file_path: string;
-  file_name: string;
+  file_path: string | null;
+  file_name: string | null;
   note: string | null;
   uploaded_at: string;
   fee_invoices: { id: string; total_cents: number; paid_cents: number; students: { full_name: string; classes: { name: string } | null } | null } | null;
@@ -78,7 +94,7 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
     // through fee_invoices the same way the outstanding-balances query does.
     termId
       ? sb.from("payment_proofs")
-          .select("id,file_path,file_name,note,uploaded_at,fee_invoices!inner(id,total_cents,paid_cents,term_id,students(full_name,classes(name)))")
+          .select("id,file_path,file_name,note,uploaded_at,sms_text,txn_source,txn_code,txn_amount_cents,txn_at,txn_payee,txn_payee_number,txn_account,fee_invoices!inner(id,total_cents,paid_cents,term_id,students(full_name,classes(name)))")
           .eq("tenant_id", tenantId)
           .eq("status", "pending")
           .eq("fee_invoices.term_id", termId)
@@ -108,12 +124,9 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
   const pendingProofs: PendingProofRow[] = (proofsRes.data ?? []).map((r) => {
     const studentName = r.fee_invoices?.students?.full_name ?? "Unknown learner";
     const cls = r.fee_invoices?.students?.classes?.name ?? "—";
+    const { fee_invoices: _invoice, ...proof } = r;
     return {
-      id: r.id,
-      file_path: r.file_path,
-      file_name: r.file_name,
-      note: r.note,
-      uploaded_at: r.uploaded_at,
+      ...proof,
       studentName,
       cls,
       invoice: r.fee_invoices
@@ -140,6 +153,7 @@ export function Fees() {
   const [billing, setBilling] = useState(false);
   // null: closed. {}: open with a learner search. Otherwise that invoice (and proof, when confirming one).
   const [recording, setRecording] = useState<{ invoice?: PayableInvoice; proof?: PendingProofRow } | null>(null);
+  const [rejecting, setRejecting] = useState<PendingProofRow | null>(null);
 
   function done(message: string) {
     setBilling(false);
@@ -150,17 +164,20 @@ export function Fees() {
 
   // Confirming goes through RecordPaymentModal instead: a proof is only
   // confirmed together with the payment it shows, so the balance moves too.
-  async function rejectProof(id: string) {
+  // The reason is shown to the family, so they know whether to resubmit or call.
+  async function rejectProof(id: string, reason: string): Promise<boolean> {
     const { error: updateError } = await supabase()
       .from("payment_proofs")
-      .update({ status: "rejected", reviewed_by: profile.id, reviewed_at: new Date().toISOString() })
+      .update({ status: "rejected", reviewed_by: profile.id, reviewed_at: new Date().toISOString(), rejection_reason: reason })
       .eq("id", id);
     if (updateError) {
       toast(`Could not update: ${updateError.message}`, "error");
-      return;
+      return false;
     }
     setReviewedIds((s) => new Set(s).add(id));
+    setRejecting(null);
     toast("Payment proof rejected");
+    return true;
   }
 
   async function openProof(path: string) {
@@ -334,30 +351,54 @@ export function Fees() {
               title="Payment proof awaiting review"
               columns={[
                 { key: "student", header: "Learner", width: "1.4fr", render: (r: PendingProofRow) => <Cell sub={r.cls}>{r.studentName}</Cell> },
-                { key: "file", header: "File", render: (r: PendingProofRow) => (
-                  <button
-                    type="button"
-                    onClick={() => openProof(r.file_path)}
-                    className="min-w-0 truncate text-left text-[12.5px] font-medium text-forest hover:underline"
-                  >
-                    {r.file_name}
-                  </button>
-                ) },
+                { key: "file", header: "Evidence", width: "1.6fr", render: (r: PendingProofRow) => {
+                  const flags = r.sms_text
+                    ? paymentSmsFlags(
+                        { code: r.txn_code, amountCents: r.txn_amount_cents, payeeNumber: r.txn_payee_number, paidAt: r.txn_at },
+                        { balanceCents: r.invoice?.balanceCents ?? null, paybill: tenant.payment_paybill, till: tenant.payment_till },
+                      )
+                    : [];
+                  const path = r.file_path;
+                  return (
+                    <div className="min-w-0">
+                      {r.txn_code && (
+                        <div className="truncate font-mono text-[12.5px]" title={r.sms_text ?? undefined}>
+                          {r.txn_code}
+                          {r.txn_amount_cents !== null && <span className="text-ink-faint"> · {formatMoney(r.txn_amount_cents, tenant.country)}</span>}
+                        </div>
+                      )}
+                      {path && (
+                        <button
+                          type="button"
+                          onClick={() => openProof(path)}
+                          className="block min-w-0 max-w-full truncate text-left text-[12.5px] font-medium text-forest hover:underline"
+                        >
+                          {r.file_name}
+                        </button>
+                      )}
+                      {flags.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {flags.map((f) => <Badge key={f} tone="warn">{PAYMENT_SMS_FLAG_LABEL[f]}</Badge>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                } },
                 { key: "note", header: "Note", render: (r: PendingProofRow) => <Cell>{r.note ?? "—"}</Cell> },
                 { key: "when", header: "Uploaded", width: "0.8fr", render: (r: PendingProofRow) => (
                   <Mono>{new Date(r.uploaded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</Mono>
                 ) },
                 { key: "actions", header: "", align: "right", width: "1.2fr", render: (r: PendingProofRow) => (
                   <div className="flex justify-end gap-2">
-                    <Button onClick={() => void rejectProof(r.id)}>Reject</Button>
+                    <Button onClick={() => setRejecting(r)}>Reject</Button>
                     <Button variant="accent" disabled={!r.invoice} onClick={() => r.invoice && setRecording({ invoice: r.invoice, proof: r })}>Confirm</Button>
                   </div>
                 ) },
               ]}
               rows={data.pendingProofs.filter((r) => !reviewedIds.has(r.id))}
               rowKey={(r) => r.id}
-              minWidth="720px"
-              empty={{ title: "Nothing to review", body: "Bank slips and other payment evidence parents upload will appear here for confirmation." }}
+              minWidth="820px"
+              empty={{ title: "Nothing to review", body: "Bank slips, pasted M-Pesa messages and other payment evidence parents send will appear here for confirmation." }}
             />
           )}
         </div>
@@ -389,11 +430,81 @@ export function Fees() {
           termId={data.term.id}
           country={tenant.country}
           invoice={recording.invoice}
-          proof={recording.proof && { id: recording.proof.id, fileName: recording.proof.file_name, note: recording.proof.note }}
+          proof={recording.proof && proofToConfirm(recording.proof)}
           onClose={() => setRecording(null)}
           onRecorded={done}
         />
       )}
+
+      {rejecting && (
+        <RejectProofModal proof={rejecting} onClose={() => setRejecting(null)} onReject={(reason) => rejectProof(rejecting.id, reason)} />
+      )}
     </>
+  );
+}
+
+function proofToConfirm(p: PendingProofRow): ProofToConfirm {
+  return {
+    id: p.id,
+    fileName: p.file_name,
+    note: p.note,
+    smsText: p.sms_text,
+    code: p.txn_code,
+    amountCents: p.txn_amount_cents,
+    // Airtel Money and bank transfers are recorded as bank: there is no separate method for them.
+    method: p.txn_source === "mpesa" ? "mpesa" : p.sms_text ? "bank" : null,
+  };
+}
+
+const REJECT_REASONS = [
+  "The transaction code is not on the school's statement.",
+  "The amount on the statement is different.",
+  "This payment is for a different learner.",
+  "The file or message can't be read.",
+];
+
+function RejectProofModal({ proof, onClose, onReject }: {
+  proof: PendingProofRow;
+  onClose: () => void;
+  onReject: (reason: string) => Promise<boolean>;
+}) {
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const ready = reason.trim().length >= 3 && !saving;
+
+  async function submit() {
+    if (!ready) return;
+    setSaving(true);
+    if (!(await onReject(reason.trim().slice(0, 300)))) setSaving(false);
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow="Fees"
+      title={`Reject ${proof.txn_code ?? proof.file_name ?? "this proof"}`}
+      blurb={`${proof.studentName}'s family will see this reason, and can send the proof again if it was a mistake.`}
+      actions={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="accent" disabled={!ready} onClick={() => void submit()}>{saving ? "Rejecting…" : "Reject proof"}</Button>
+        </>
+      }
+      width={520}
+    >
+      <div className="grid gap-3">
+        {proof.sms_text && <pre className="whitespace-pre-wrap rounded-md bg-sunken px-3 py-2 font-mono text-[12px] text-ink-muted">{proof.sms_text}</pre>}
+        <div className="flex flex-wrap gap-1.5">
+          {REJECT_REASONS.map((r) => (
+            <button key={r} type="button" onClick={() => setReason(r)}
+              className="rounded-full border border-line px-2.5 py-1 text-left text-[12px] hover:bg-page">
+              {r}
+            </button>
+          ))}
+        </div>
+        <TextField id="reject-reason" label="Reason" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+    </Modal>
   );
 }

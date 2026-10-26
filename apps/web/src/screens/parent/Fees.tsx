@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { formatMoney, itemsForStudent, supabase } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -13,7 +13,8 @@ import { formatPhone, formatShortDate, type Receipt } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-import { listPaymentProofs, privateDocUrl, uploadPaymentProof, type PaymentProof } from "../../lib/uploads";
+import { listPaymentProofs, privateDocUrl, type PaymentProof } from "../../lib/uploads";
+import { PaymentProofForm, ProofLabel } from "../../components/PaymentProofForm";
 import { InvoiceSignature } from "../../components/signatures/InvoiceSignatures";
 import { ChildSwitcher } from "./ChildSwitcher";
 
@@ -48,9 +49,6 @@ export function ParentFees() {
 
   const [open, setOpen] = useState(false);
 
-  const [proofFile, setProofFile] = useState<File | null>(null);
-  const [proofNote, setProofNote] = useState("");
-  const [uploadingProof, setUploadingProof] = useState(false);
   const [proofReload, setProofReload] = useState(0);
 
   const { data: invoiceId, loading: invoiceLoading } = useAsync(
@@ -65,29 +63,6 @@ export function ParentFees() {
   );
   const proofs = !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
   const proofsPending = !proofs && (invoiceLoading || proofsLoading);
-
-  async function handleUploadProof(e: FormEvent) {
-    e.preventDefault();
-    if (!invoiceId || invoiceLoading || !proofFile) return;
-    setUploadingProof(true);
-    try {
-      await uploadPaymentProof({
-        tenantId: tenant.id,
-        invoiceId,
-        uploadedBy: profile.id,
-        note: proofNote.trim() || undefined,
-        file: proofFile,
-      });
-      toast("Payment proof uploaded — the bursar will review it.");
-      setProofFile(null);
-      setProofNote("");
-      setProofReload((n) => n + 1);
-    } catch (err) {
-      toast(err instanceof Error ? `Could not upload proof: ${err.message}` : "Could not upload proof.", "error");
-    } finally {
-      setUploadingProof(false);
-    }
-  }
 
   async function openProof(path: string) {
     try {
@@ -233,34 +208,20 @@ export function ParentFees() {
               <header className="border-b border-line px-4 py-3">
                 <h2 className="text-body font-semibold">Payment proof</h2>
                 <p className="mt-0.5 text-[12px] text-ink-faint">
-                  Paid by bank slip or cash at the office? Upload evidence here for the bursar to confirm.
+                  Paid to the school's paybill, by bank or at the office? Paste the confirmation SMS or upload the slip for the bursar to confirm.
                 </p>
               </header>
 
-              <form onSubmit={handleUploadProof} className="flex flex-wrap items-end gap-3 border-b border-line-soft px-4 py-3.5">
-                <label className="block">
-                  <span className="mb-1.5 block text-[12px] font-semibold">File</span>
-                  <input
-                    key={proofReload}
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
-                    className="block text-[12.5px]"
-                  />
-                </label>
-                <label className="block min-w-[200px] flex-1">
-                  <span className="mb-1.5 block text-[12px] font-semibold">Note (optional)</span>
-                  <input
-                    value={proofNote}
-                    onChange={(e) => setProofNote(e.target.value)}
-                    placeholder="Paid at the school office"
-                    className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[12.5px] outline-none"
-                  />
-                </label>
-                <Button type="submit" variant="accent" disabled={!proofFile || !invoiceId || invoiceLoading || uploadingProof}>
-                  {uploadingProof ? "Uploading…" : "Upload proof"}
-                </Button>
-              </form>
+              <PaymentProofForm
+                tenantId={tenant.id}
+                invoiceId={invoiceId ?? null}
+                uploadedBy={profile.id}
+                balanceCents={child.balance}
+                country={tenant.country}
+                school={{ paybill: tenant.payment_paybill, till: tenant.payment_till }}
+                disabled={invoiceLoading}
+                onSent={() => setProofReload((n) => n + 1)}
+              />
 
               <div>
                 {proofsPending ? (
@@ -274,18 +235,17 @@ export function ParentFees() {
                   <div className="px-4 py-6 text-center text-[12.5px] text-ink-faint">No payment proof uploaded yet.</div>
                 ) : (
                   proofs.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
-                      <button
-                        type="button"
-                        onClick={() => openProof(p.file_path)}
-                        className="min-w-0 truncate text-left text-[12.5px] font-medium text-forest hover:underline"
-                      >
-                        {p.file_name}
-                      </button>
-                      <div className="flex shrink-0 items-center gap-2">
-                        {p.note && <span className="hidden max-w-[160px] truncate text-[11.5px] text-ink-faint sm:inline">{p.note}</span>}
-                        <Badge tone={PROOF_TONE[p.status]}>{PROOF_LABEL[p.status]}</Badge>
+                    <div key={p.id} className="border-b border-line-soft px-4 py-2.5 last:border-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <ProofLabel proof={p} country={tenant.country} onOpen={openProof} />
+                        <div className="flex shrink-0 items-center gap-2">
+                          {p.note && <span className="hidden max-w-[160px] truncate text-[11.5px] text-ink-faint sm:inline">{p.note}</span>}
+                          <Badge tone={PROOF_TONE[p.status]}>{PROOF_LABEL[p.status]}</Badge>
+                        </div>
                       </div>
+                      {p.status === "rejected" && p.rejection_reason && (
+                        <p className="mt-1 text-[12px] text-warn-ink">Not accepted: {p.rejection_reason}</p>
+                      )}
                     </div>
                   ))
                 )}
