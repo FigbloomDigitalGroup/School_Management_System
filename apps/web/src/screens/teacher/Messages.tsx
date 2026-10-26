@@ -3,6 +3,7 @@ import {
   fetchSentByMe, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, sendClassMessage, supabase,
   type ClassMessageRecipients,
 } from "@figbloom/shared";
+import { AiWriteHelper } from "../../components/AiWriteHelper";
 import { AttachmentPicker } from "../../components/AttachmentPicker";
 import { PageHead } from "../../components/ConsoleShell";
 import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
@@ -121,6 +122,14 @@ export function TeacherMessages() {
                 ]}
               />
 
+              <AiWriteHelper
+                audience={`${recipientsLabel(recipients)} of ${classById.get(effectiveClassId)?.name ?? "the class"}`}
+                schoolName={tenant.name}
+                subject={subject}
+                body={body}
+                disabled={sending}
+                onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
+              />
               <TextField id="subject" label="Subject" placeholder="e.g. CAT results out Friday"
                 value={subject} onChange={(e) => setSubject(e.target.value)} />
 
