@@ -24,7 +24,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] Targeted announcements readable school-wide (read policy ignores `audience`).
 - [ ] Teachers can approve their own leave.
 - [x] Any teacher can edit any exam. The `exam_publish_teacher` policy is gone; only the school admin changes exams, and teachers publish through `publish_marks()`, which checks they teach that class and subject.
-- [ ] Drivers can change their own vehicle's `speed_limit_kmh`.
+- [x] Drivers can change their own vehicle's `speed_limit_kmh`. A trigger (`guard_vehicle_driver_columns`) now lets a driver change only `last_lat`, `last_lng` and `last_ping_at`; every other column, including ones added later, needs the office. Check: `supabase/rls-checks/vehicles.sql`.
 - [ ] Suspended organizations keep full access.
 - [ ] Teachers can overwrite/delete private documents and confirm payment proofs.
 - [x] Admins can set `fee_invoices.paid_cents` directly with no audit trail. A trigger now refuses any change to paid_cents/status that isn't a recorded payment.
