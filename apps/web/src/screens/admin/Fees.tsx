@@ -15,6 +15,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
+import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
 import { BillTermModal, RecordPaymentModal, type PayableInvoice, type ProofToConfirm } from "./FeeCollection";
 
@@ -217,6 +218,7 @@ export function Fees() {
         actions={
           <>
             <Button onClick={() => setBilling(true)} disabled={!data?.term}>Bill learners</Button>
+            {data?.term && <SignTermInvoices key={`${data.term.id}:${reloadKey}`} termId={data.term.id} />}
             <Button variant="accent" onClick={() => setRecording({})} disabled={!data?.term}>Record a payment</Button>
           </>
         }
