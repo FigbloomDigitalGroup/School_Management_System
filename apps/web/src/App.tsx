@@ -92,6 +92,8 @@ import { DriverProfile } from "./screens/driver/Profile";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 import { RouteSeo } from "./components/RouteSeo";
+import { BloomFab } from "./components/BloomFab";
+import { BloomChat } from "./screens/bloom/BloomChat";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -209,6 +211,7 @@ function TenantRoutes() {
           <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
+          <Route path="admin/bloom" element={<AdminShell allow={["school_admin"]}><BloomChat console="admin" /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -226,6 +229,7 @@ function TenantRoutes() {
           <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
+          <Route path="teacher/bloom" element={<TeacherShell allow={["teacher"]}><BloomChat console="teacher" /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
@@ -374,6 +378,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
         } : undefined}
       >
         {children}
+        <BloomFab console="admin" />
       </ConsoleShell>
     </RoleGate>
   );
@@ -412,6 +417,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
         >
           <QueueNotice />
           {children}
+          <BloomFab console="teacher" />
         </ConsoleShell>
       </TeacherNoticesProvider>
     </RoleGate>

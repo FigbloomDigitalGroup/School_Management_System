@@ -50,4 +50,6 @@ export * from "./messageRoster";
 export * from "./reportCards";
 export * from "./competencies";
 export * from "./ai";
+export * from "./aiChat";
+export * from "./markdown";
 export * from "./inventory";
