@@ -26,3 +26,15 @@ export function splitCsvLine(line: string): string[] {
 export function csvLines(text: string): string[] {
   return text.split(/\r\n|\n|\r/).filter((l) => l.trim().length > 0);
 }
+
+/** One CSV field, quoted only when it has to be (a comma, a quote, a line break). */
+export function csvCell(value: string | number | null | undefined): string {
+  if (value == null) return "";
+  const s = String(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** A header row and data rows as CSV text, the same shape splitCsvLine() reads back. */
+export function toCsv(header: string[], rows: (string | number | null | undefined)[][]): string {
+  return [header.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))].join("\n");
+}
