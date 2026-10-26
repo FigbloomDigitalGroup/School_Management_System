@@ -42,6 +42,7 @@ export * from "./examPapers";
 export * from "./homework";
 export * from "./materials";
 export * from "./learners";
+export * from "./learnerBio";
 export * from "./audience";
 export * from "./messageRoster";
 // reportCardPdf.ts is deliberately not exported here: it pulls in pdf-lib, and
