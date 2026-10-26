@@ -22,7 +22,7 @@ Work top to bottom; tick an item in the same commit that fixes it.
 
 ### P0 follow-ups (RLS should-fix)
 - [ ] Targeted announcements readable school-wide (read policy ignores `audience`).
-- [ ] Teachers can approve their own leave.
+- [x] Teachers can approve their own leave. A trigger (`guard_leave_review`) now lets a teacher file a pending request, edit it while pending and withdraw it; only the office sets any other status or the review fields. Check: `supabase/rls-checks/leave.sql`.
 - [x] Any teacher can edit any exam. The `exam_publish_teacher` policy is gone; only the school admin changes exams, and teachers publish through `publish_marks()`, which checks they teach that class and subject.
 - [ ] Drivers can change their own vehicle's `speed_limit_kmh`.
 - [ ] Suspended organizations keep full access.
