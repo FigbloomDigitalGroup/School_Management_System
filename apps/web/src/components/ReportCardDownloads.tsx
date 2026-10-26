@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchMyReportCards, reportCardFileName, type StoredReportCard } from "@figbloom/shared";
+import { fetchDocumentSignatures, fetchMyReportCards, reportCardFileName, signatureFor, type StoredReportCard } from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { useToast } from "./ui/Toast";
 import { useAsync } from "../lib/useAsync";
@@ -19,8 +19,15 @@ export function ReportCardDownloads({ studentId, logoUrl }: { studentId: string;
     setBusy(card.id);
     try {
       const pdf = await import("../lib/reportCardPdf");
+      const sigs = await fetchDocumentSignatures("report_card", [card.id]);
       const bytes = await pdf.renderReportCardsPdf(
-        [{ data: card.data, teacherComment: card.teacherComment, principalComment: card.principalComment }],
+        [{
+          data: card.data, teacherComment: card.teacherComment, principalComment: card.principalComment,
+          signatures: {
+            teacher: signatureFor(sigs, card.id, "class_teacher", { currentOnly: true }),
+            principal: signatureFor(sigs, card.id, "principal", { currentOnly: true }),
+          },
+        }],
         { logo: await pdf.fetchLogo(logoUrl) },
       );
       pdf.saveFile(bytes, reportCardFileName(card.data));

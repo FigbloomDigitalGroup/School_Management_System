@@ -23,12 +23,15 @@ export function MyAccountFields({ nameLocked = false }: {
 } = {}) {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
+  // a family's second number: the office tries it when the first is off
+  const withAltPhone = profile.role === "parent";
   const [reloadKey, setReloadKey] = useState(0);
   // No `loading`: the reload after a save must not swap the form for a skeleton.
   const { data, error } = useAsync(() => fetchMyProfile(profile.id), [profile.id, reloadKey]);
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [altPhone, setAltPhone] = useState("");
   const [avatarOverride, setAvatarOverride] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,6 +40,7 @@ export function MyAccountFields({ nameLocked = false }: {
     if (!data) return;
     setFullName(data.full_name);
     setPhone(data.phone ?? "");
+    setAltPhone(data.alt_phone ?? "");
     setDirty(false);
   }, [data]);
 
@@ -44,7 +48,8 @@ export function MyAccountFields({ nameLocked = false }: {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
     setSaving(true);
     try {
-      await updateMyProfile(profile.id, nameLocked ? { phone: phone.trim() || null } : { full_name: fullName.trim(), phone: phone.trim() || null });
+      const phones = { phone: phone.trim() || null, ...(withAltPhone ? { alt_phone: altPhone.trim() || null } : {}) };
+      await updateMyProfile(profile.id, nameLocked ? phones : { full_name: fullName.trim(), ...phones });
       toast(nameLocked ? "Saved" : "Saved — the sidebar picks it up next time you sign in or reload.");
       setDirty(false);
       setReloadKey((k) => k + 1);
@@ -84,6 +89,12 @@ export function MyAccountFields({ nameLocked = false }: {
         id="my-phone" label="Phone" value={phone} placeholder="e.g. 0712 345 678"
         onChange={(e) => { setPhone(e.target.value); setDirty(true); }}
       />
+      {withAltPhone && (
+        <TextField
+          id="my-alt-phone" label="Other phone (optional)" value={altPhone} placeholder="e.g. a work or second line"
+          onChange={(e) => { setAltPhone(e.target.value); setDirty(true); }}
+        />
+      )}
       <div className="flex items-center gap-2 text-[12.5px] text-ink-faint">
         <span>Login:</span>
         <span className="font-mono text-ink-muted">{data.login_id ?? data.email ?? "—"}</span>

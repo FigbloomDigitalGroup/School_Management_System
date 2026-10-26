@@ -45,6 +45,7 @@ import { AdminSubjects } from "./screens/admin/Subjects";
 import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
 import { AdminLeave } from "./screens/admin/Leave";
+import { AdminInventory } from "./screens/admin/Inventory";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
@@ -61,6 +62,7 @@ import { TeacherMySections } from "./screens/teacher/MySections";
 import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
 import { TeacherLeave } from "./screens/teacher/Leave";
+import { TeacherItems } from "./screens/teacher/Items";
 import { Homework as TeacherHomework } from "./screens/teacher/Homework";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { TeacherBuses } from "./screens/teacher/Buses";
@@ -76,6 +78,7 @@ import { ParentHomework } from "./screens/parent/Homework";
 import { ParentMaterials } from "./screens/parent/Materials";
 import { ParentBus } from "./screens/parent/Bus";
 import { ParentInbox } from "./screens/parent/Inbox";
+import { ParentItems } from "./screens/parent/Items";
 import { ParentSettings } from "./screens/parent/Settings";
 
 import { StudentToday } from "./screens/student/Today";
@@ -85,12 +88,15 @@ import { StudentMaterials } from "./screens/student/Materials";
 import { StudentResults } from "./screens/student/Results";
 import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
+import { StudentItems } from "./screens/student/Items";
 
 import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 import { RouteSeo } from "./components/RouteSeo";
+import { BloomFab } from "./components/BloomFab";
+import { BloomChat } from "./screens/bloom/BloomChat";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -202,12 +208,14 @@ function TenantRoutes() {
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
+          <Route path="admin/inventory" element={<AdminShell allow={["school_admin"]}><AdminInventory /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell allow={["school_admin"]}><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
           <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/chats" element={<AdminShell allow={["school_admin"]}><AdminChats /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
+          <Route path="admin/bloom" element={<AdminShell allow={["school_admin"]}><BloomChat console="admin" /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -218,6 +226,7 @@ function TenantRoutes() {
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
+          <Route path="teacher/items" element={<TeacherShell allow={["teacher"]}><TeacherItems /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
           <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
           <Route path="teacher/materials" element={<TeacherShell allow={["teacher"]}><K12Gate><LearningMaterials /></K12Gate></TeacherShell>} />
@@ -225,6 +234,7 @@ function TenantRoutes() {
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/chats" element={<TeacherShell allow={["teacher"]}><MyChats role="teacher" /></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
+          <Route path="teacher/bloom" element={<TeacherShell allow={["teacher"]}><BloomChat console="teacher" /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
@@ -234,6 +244,7 @@ function TenantRoutes() {
           <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
           <Route path="parent/chats" element={<ParentShell><MyChats role="parent" /></ParentShell>} />
+          <Route path="parent/items" element={<ParentShell><ParentItems /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
@@ -246,6 +257,7 @@ function TenantRoutes() {
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
           <Route path="student/chats" element={<StudentShell><MyChats role="student" /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
+          <Route path="student/items" element={<StudentShell><StudentItems /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
@@ -375,6 +387,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
         badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
       >
         {children}
+        <BloomFab console="admin" />
       </ConsoleShell>
     </RoleGate>
   );
@@ -417,6 +430,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
         >
           <QueueNotice />
           {children}
+          <BloomFab console="teacher" />
         </ConsoleShell>
       </TeacherNoticesProvider>
     </RoleGate>

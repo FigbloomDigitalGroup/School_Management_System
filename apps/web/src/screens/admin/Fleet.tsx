@@ -61,7 +61,7 @@ function fmtLastSeen(iso: string | null): string {
 }
 
 /** How each alert kind reads. Alerts sit under the live map, so a busy morning never pushes the map down the page. */
-const ALERT_LABEL: Record<string, string> = { speed: "Speeding", geofence: "Off route", rider: "Children still on the bus" };
+const ALERT_LABEL: Record<string, string> = { speed: "Speeding", geofence: "Off route", rider: "Children still on the bus", breakdown: "Bus broken down" };
 
 function fmtAlertTime(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });

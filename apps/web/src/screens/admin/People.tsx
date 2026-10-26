@@ -14,11 +14,13 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PasswordResetRequests, ResetPasswordSection } from "../../components/PasswordReset";
 import { useAsync } from "../../lib/useAsync";
+import { LearnerDocumentSignatures } from "../../components/signatures/LearnerDocumentSignatures";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
 import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
@@ -308,6 +310,9 @@ export function People() {
       )}
 
       <div className="px-7 py-6">
+        {tab === "students" && (
+          <BioRequestsPanel tenantId={tenant.id} toast={toast} reloadKey={reloadKey} onOpenLearner={(id) => setManage({ kind: "students", id })} />
+        )}
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load people: {error.message}
@@ -465,6 +470,8 @@ export function People() {
           {manage.kind === "students" && (
             <div className="mt-5">
               <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
+              <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />
+              <GuardianContacts studentId={manageRow.id} />
               <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
             </div>
           )}
@@ -1204,6 +1211,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
   const [loading, setLoading] = useState(true);
   const [docType, setDocType] = useState("birth_certificate");
   const [uploading, setUploading] = useState(false);
+  const [signing, setSigning] = useState<StudentDocument | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1253,15 +1261,16 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
       ) : (
         <ul className="mt-2 grid gap-1.5">
           {docs.map((d) => (
-            <li key={d.id}>
+            <li key={d.id} className="flex items-center gap-1.5">
               <button type="button" onClick={() => openDoc(d)}
-                className="flex w-full items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
                 <span className="min-w-0 truncate text-small font-medium">{d.file_name}</span>
                 <span className="flex shrink-0 items-center gap-2">
                   <Badge tone="muted">{DOC_TYPES.find((t) => t.value === d.doc_type)?.label ?? d.doc_type}</Badge>
                   <span className="font-mono text-[10.5px] text-ink-faint">{new Date(d.uploaded_at).toLocaleDateString()}</span>
                 </span>
               </button>
+              <Button onClick={() => setSigning(d)} title="Sign it, or ask guardians or staff to sign">Signatures</Button>
             </li>
           ))}
         </ul>
@@ -1275,6 +1284,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
         <input ref={fileRef} type="file" aria-label="Document file" className="text-small" />
         <Button type="submit" variant="primary" disabled={uploading}>{uploading ? "Uploading…" : "Add document"}</Button>
       </form>
+      {signing && <LearnerDocumentSignatures doc={signing} studentId={studentId} onClose={() => setSigning(null)} />}
     </div>
   );
 }
