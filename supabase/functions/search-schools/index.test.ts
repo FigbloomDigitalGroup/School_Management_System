@@ -57,11 +57,24 @@ describe("search-schools handle", () => {
     assertEquals(out.schools[0].name, "Green Valley Academy");
   });
 
-  it("excludes a school that isn't active", async () => {
+  it("excludes a school that is still onboarding", async () => {
     const admin = makeClient();
     const res = await handle(request({ query: "pending" }), { admin });
     const out = await res.json();
     assertEquals(out.schools, []);
+  });
+
+  it("finds schools on trial or overdue, but not stalled or suspended ones", async () => {
+    const admin = makeClient();
+    admin.seed("tenants", [
+      { id: "s1", name: "Status Trial School", slug: "status-trial", county: "Nairobi", status: "trial" },
+      { id: "s2", name: "Status Overdue School", slug: "status-overdue", county: "Nairobi", status: "overdue" },
+      { id: "s3", name: "Status Stalled School", slug: "status-stalled", county: "Nairobi", status: "setup_stalled" },
+      { id: "s4", name: "Status Suspended School", slug: "status-suspended", county: "Nairobi", status: "suspended" },
+    ]);
+    const res = await handle(request({ query: "status " }), { admin });
+    const out = await res.json();
+    assertEquals(out.schools.map((s: { slug: string }) => s.slug).sort(), ["status-overdue", "status-trial"]);
   });
 
   it("matches more than one school for a shared name fragment", async () => {

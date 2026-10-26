@@ -100,12 +100,25 @@ describe("resolve-login-id handle", () => {
     assertEquals(res.status, 404);
   });
 
-  it("404s for a tenant that isn't active", async () => {
-    const admin = makeClient();
-    admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status: "onboarding" }]);
-    const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), deps(admin));
-    assertEquals(res.status, 404);
-  });
+  for (const status of ["onboarding", "setup_stalled", "suspended"]) {
+    it(`404s for a school that is ${status}`, async () => {
+      const admin = makeClient();
+      admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), deps(admin));
+      assertEquals(res.status, 404);
+    });
+  }
+
+  for (const status of ["trial", "overdue"]) {
+    it(`still resolves the account of a school that is ${status}`, async () => {
+      const admin = makeClient();
+      admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), deps(admin));
+      assertEquals(res.status, 200);
+      const out = await res.json();
+      assertEquals(out.display_name, "Otieno O.");
+    });
+  }
 
   it("never returns the full name", async () => {
     const admin = makeClient();
