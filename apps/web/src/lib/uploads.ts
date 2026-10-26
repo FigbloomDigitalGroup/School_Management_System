@@ -7,6 +7,9 @@ import { examPaperFilePath, supabase } from "@figbloom/shared";
  * proof and assignment hand-ins — tenant-readable, staff-write plus two
  * narrow self-service carve-outs (a guardian for their own child's invoice,
  * a student for their own submission).
+ *
+ * Learning materials and files on announcements and homework go to a third
+ * bucket, `learning-media`, through lib/resumableUpload.ts (big videos).
  */
 
 function extOf(filename: string): string {

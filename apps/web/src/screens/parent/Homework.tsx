@@ -1,9 +1,10 @@
 import { useState } from "react";
 import {
-  daysFromToday, doneByWords, dueWords, HAND_IN_PARENT_LABEL, loadParentHomework, minutesWords, setHomeworkDone, splitHomework,
-  type HomeworkItem,
+  daysFromToday, doneByWords, dueWords, fetchAttachments, HAND_IN_PARENT_LABEL, loadParentHomework, minutesWords, setHomeworkDone,
+  splitHomework, type HomeworkItem, type MediaItem,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { MediaList } from "../../components/Media";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -31,6 +32,9 @@ export function ParentHomework() {
   const { data, loading, error } = useAsync(() => loadParentHomework(profile.id, ids), [profile.id, ids.join(","), reloadKey]);
 
   const mine = child ? data?.[child.id] : undefined;
+  // Worksheets and videos the teacher attached, for every card on screen in one query.
+  const itemIds = (mine?.items ?? []).map((i) => i.id);
+  const { data: files } = useAsync(() => fetchAttachments("homework", itemIds), [itemIds.join(",")]);
   const groups = splitHomework(mine?.items ?? []);
 
   async function mark(item: HomeworkItem, done: boolean) {
@@ -92,6 +96,7 @@ export function ParentHomework() {
                     <HomeworkCard
                       key={item.id}
                       item={item}
+                      files={files?.get(item.id) ?? []}
                       childFirst={child.first}
                       canMark={mine.parentMarksDone}
                       busy={busy === item.id}
@@ -108,8 +113,9 @@ export function ParentHomework() {
   );
 }
 
-function HomeworkCard({ item, childFirst, canMark, busy, onMark }: {
+function HomeworkCard({ item, files, childFirst, canMark, busy, onMark }: {
   item: HomeworkItem;
+  files: MediaItem[];
   childFirst: string;
   canMark: boolean;
   busy: boolean;
@@ -130,6 +136,8 @@ function HomeworkCard({ item, childFirst, canMark, busy, onMark }: {
       </div>
 
       {item.body && <p className="mt-3 whitespace-pre-line text-[13px] leading-relaxed text-ink">{item.body}</p>}
+
+      {files.length > 0 && <div className="mt-3"><MediaList items={files} heading="From the teacher" /></div>}
 
       {g && (
         <dl className="mt-4 grid gap-3 rounded-lg border border-line-soft bg-page px-4 py-3.5 text-[13px] leading-relaxed">

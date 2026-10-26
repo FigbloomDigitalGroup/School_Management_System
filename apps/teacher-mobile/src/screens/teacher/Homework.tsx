@@ -9,6 +9,7 @@ import {
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import type { TeacherSession } from "../../navigation";
 
 /** Today as YYYY-MM-DD in the teacher's own timezone (toISOString alone is UTC, a day behind after midnight in Nairobi). */
@@ -40,6 +41,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const files = useAttachments("homework", (work?.rows ?? []).map((w) => w.id));
 
   useEffect(() => {
     let alive = true;
@@ -210,6 +212,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                 numberOfLines={3}
                 style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, padding: 12, fontSize: 14, minHeight: 72, textAlignVertical: "top" }}
               />
+              <Text style={[s.faint, { marginTop: 6 }]}>To attach a worksheet, video or link, edit this homework on the web.</Text>
             </View>
 
             <View>
@@ -346,6 +349,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                 {isGuideEmpty(w.guide) ? "" : " · parent guide"}
               </Text>
               <Text style={[s.small, { marginTop: 4 }]}>{handedInLabel(w.handedIn, work.sizes[w.classId])} handed in</Text>
+              <MediaLinks items={files.get(w.id) ?? []} tint={a.deep} />
               <View style={{ flexDirection: "row", gap: 16, marginTop: 6 }}>
                 <TouchableOpacity accessibilityRole="button" onPress={() => startEdit(w)} style={{ ...HIT, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Edit</Text>

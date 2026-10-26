@@ -1,10 +1,15 @@
-import { useState } from "react";
-import { formatMoney, supabase, yearGroupKey, yearGroupsOf, yearLabel, type Audience, type ClassGroup, type YearGroup } from "@figbloom/shared";
+import { useRef, useState } from "react";
+import {
+  formatMoney, publishAnnouncement, removeAttachmentFilesFor, supabase, yearGroupKey, yearGroupsOf, yearLabel,
+  type Audience, type ClassGroup, type YearGroup,
+} from "@figbloom/shared";
+import { AttachmentPicker } from "../../components/AttachmentPicker";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
@@ -88,6 +93,9 @@ export function Announcements() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [drafts, setDrafts] = useState<WebMediaDraft[]>([]);
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
+  const batch = useRef<AttachmentBatch | null>(null);
 
   const effectiveClassId = classId || data?.classes[0]?.id || "";
   const reach = !data ? 0
@@ -114,6 +122,10 @@ export function Announcements() {
     if (!subject.trim() || !body.trim()) return;
     if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first.", "error"); return; }
     setSending(true);
+    // With files, the notice goes in as a draft, the files go up, and only
+    // then is it published: nobody gets a notice whose attachments are missing.
+    const withFiles = drafts.length > 0;
+    let createdId: string | null = null;
     try {
       const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
       const { data: created, error } = await supabase().from("announcements").insert({
@@ -123,9 +135,16 @@ export function Announcements() {
         body: body.trim(),
         audience: audienceValue(),
         channels: activeChannels,
-        published_at: publish ? new Date().toISOString() : null,
-      }).select("id").single();
+        published_at: publish && !withFiles ? new Date().toISOString() : null,
+      }).select("id").single<{ id: string }>();
       if (error) throw error;
+      createdId = created.id;
+      if (withFiles) {
+        batch.current = saveAttachments(tenant.id, "announcement", created.id, drafts, setProgress);
+        await batch.current.done;
+        if (publish) await publishAnnouncement(created.id);
+      }
+      createdId = null;
       toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
 
       if (publish && channels.push) {
@@ -135,10 +154,20 @@ export function Announcements() {
 
       setSubject("");
       setBody("");
+      setDrafts([]);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
+      // Half an announcement is worse than none: take it back out and keep the form as it was, to try again.
+      if (createdId) {
+        const id = createdId;
+        await removeAttachmentFilesFor("announcement", id).catch(() => {});
+        await supabase().from("announcements").delete().eq("id", id);
+      }
+      if (err instanceof UploadCancelled) toast("Upload cancelled. Nothing was sent; your message is still here.", "error");
+      else toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
     } finally {
+      batch.current = null;
+      setProgress(null);
       setSending(false);
     }
   }
@@ -195,6 +224,8 @@ export function Announcements() {
           <TextArea id="body" label="Message" value={body} onChange={(e) => setBody(e.target.value)}
             placeholder="School closes for half-term on Friday 12 September at 12:30pm. Boarders travelling upcountry should collect travel passes from the deputy's office on Thursday."
             hint="Plain language, one instruction per paragraph. Most parents read this on a phone in the sun." />
+
+          <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
         </div>
 
         <aside className="grid content-start gap-4">

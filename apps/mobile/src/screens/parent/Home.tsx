@@ -115,6 +115,14 @@ export function ParentHome() {
 
         <HomeworkCard childId={child.id} childFirst={child.first} tint={tint} onOpen={() => nav.navigate("Homework")} />
 
+        <TouchableOpacity accessibilityRole="button" onPress={() => nav.navigate("Materials")} style={[s.card, { marginTop: 10, padding: 14 }]}>
+          <View style={[s.row, { justifyContent: "space-between" }]}>
+            <Text style={s.eyebrow}>LEARNING MATERIALS</Text>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Open ›</Text>
+          </View>
+          <Text style={[s.small, { marginTop: 4 }]}>Notes, worksheets and videos {child.first}'s teachers have shared with the class.</Text>
+        </TouchableOpacity>
+
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>From the school</Text>
         {messages.slice(0, 2).map((m) => (
           <TouchableOpacity
