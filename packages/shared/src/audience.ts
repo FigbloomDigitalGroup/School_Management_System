@@ -24,8 +24,11 @@ export interface AudienceViewer {
   years: readonly { level: ClassLevel | null | undefined; year: number }[];
 }
 
-/** "All staff": everyone who works at the school, drivers included. */
-export const STAFF_ROLES: Role[] = ["school_admin", "teacher", "driver"];
+/** "All staff": everyone who works at the school, drivers and the front desk included. */
+export const STAFF_ROLES: Role[] = ["school_admin", "teacher", "driver", "guard", "receptionist"];
+/** What "All staff" was before the front desk had accounts: still labelled "All staff" on what was sent to it. */
+const EARLIER_STAFF_ROLES: Role[] = ["school_admin", "teacher", "driver"];
+const isRoleSet = (roles: Role[], set: Role[]) => roles.length === set.length && set.every((r) => roles.includes(r));
 
 /** Which side of a class a role reads class notices from, if either. Taken
  *  from the role alone so a teacher who is also somebody's guardian still
@@ -61,6 +64,8 @@ const ROLE_GROUP_LABEL: Partial<Record<Role, string>> = {
   school_admin: "admins",
   teacher: "teachers",
   driver: "drivers",
+  guard: "guards",
+  receptionist: "receptionists",
   parent: "parents",
   student: "students",
 };
@@ -83,7 +88,7 @@ export function audienceLabel(
     case "role": return `All ${ROLE_GROUP_LABEL[audience.role] ?? audience.role}`;
     case "roles": {
       const roles = audience.roles ?? [];
-      if (STAFF_ROLES.every((r) => roles.includes(r)) && roles.length === STAFF_ROLES.length) return "All staff";
+      if (isRoleSet(roles, STAFF_ROLES) || isRoleSet(roles, EARLIER_STAFF_ROLES)) return "All staff";
       const words = roles.map((r) => ROLE_GROUP_LABEL[r] ?? r);
       if (words.length <= 1) return `All ${words[0] ?? "staff"}`;
       return `All ${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;

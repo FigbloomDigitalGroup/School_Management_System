@@ -1,6 +1,7 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
+import { LineCapStyle, PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
 import { formatMoney } from "./fees";
 import type { ReportCardData } from "./reportCards";
+import { signatureDate, strokeBounds, strokesToSvgPath, type Stroke } from "./signatures";
 
 /**
  * Report cards and class results sheets as real PDF files, drawn with
@@ -14,10 +15,20 @@ import type { ReportCardData } from "./reportCards";
 
 export interface PdfLogo { bytes: Uint8Array; type: "png" | "jpg" }
 
+/** A signature to stamp on a card's signature line (signatures.ts). */
+export interface PdfSignature {
+  fullName: string;
+  style: "drawn" | "typed";
+  strokes: Stroke[] | null;
+  signedAt: string;
+}
+
 export interface PrintableCard {
   data: ReportCardData;
   teacherComment: string | null;
   principalComment: string | null;
+  /** Left out, or one missing, prints a blank line to sign by hand. */
+  signatures?: { teacher?: PdfSignature; principal?: PdfSignature };
 }
 
 const A4: [number, number] = [595.28, 841.89];
@@ -85,7 +96,7 @@ function fit(text: string, font: PDFFont, size: number, width: number): string {
   return `${t}…`;
 }
 
-interface Fonts { regular: PDFFont; bold: PDFFont }
+interface Fonts { regular: PDFFont; bold: PDFFont; italic: PDFFont }
 
 /** A page with a cursor that moves down, starting a new page when it runs out. */
 class Sheet {
@@ -336,9 +347,10 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
   }
 
   // comments
-  const comment = (title: string, text: string | null) => {
+  const comment = (title: string, text: string | null, signature?: PdfSignature) => {
     const lines = wrap(text?.trim() || "", fonts.regular, 9.5, sheet.inner - 16);
-    const h = 24 + Math.max(1, lines.length) * 12 + 18;
+    // a signed line is taller, to fit the mark above it
+    const h = 24 + Math.max(1, lines.length) * 12 + 18 + (signature ? SIGNED_LINE : 0);
     sheet.need(h + 10);
     sheet.y -= 14;
     sheet.page.drawRectangle({ x: MARGIN, y: sheet.y - h + 10, width: sheet.inner, height: h, borderColor: LINE, borderWidth: 0.8 });
@@ -346,12 +358,20 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
     let ly = sheet.y - 18;
     if (lines.length && lines[0]) for (const l of lines) { sheet.text(l, MARGIN + 8, 9.5, { y: ly }); ly -= 12; }
     else ly -= 12;
-    sheet.text("Signature: ____________________", MARGIN + 8, 8, { color: MUTED, y: ly - 4 });
-    sheet.text("Date: ______________", sheet.width - MARGIN - 8, 8, { color: MUTED, y: ly - 4, align: "right" });
+    if (signature) {
+      ly -= SIGNED_LINE;
+      drawSignature(sheet.page, fonts, signature, MARGIN + 52, ly - 1);
+      sheet.text("Signature:", MARGIN + 8, 8, { color: MUTED, y: ly - 4 });
+      sheet.text(`${signature.fullName}, signed electronically`, MARGIN + 52, 7, { color: MUTED, y: ly - 13, width: 220 });
+      sheet.text(`Date: ${signatureDate(signature.signedAt)}`, sheet.width - MARGIN - 8, 8, { color: MUTED, y: ly - 4, align: "right" });
+    } else {
+      sheet.text("Signature: ____________________", MARGIN + 8, 8, { color: MUTED, y: ly - 4 });
+      sheet.text("Date: ______________", sheet.width - MARGIN - 8, 8, { color: MUTED, y: ly - 4, align: "right" });
+    }
     sheet.y -= h;
   };
-  comment(`Class teacher's comment${d.classTeacher ? ` (${d.classTeacher})` : ""}`, card.teacherComment);
-  comment("Principal's comment", card.principalComment);
+  comment(`Class teacher's comment${d.classTeacher ? ` (${d.classTeacher})` : ""}`, card.teacherComment, card.signatures?.teacher);
+  comment("Principal's comment", card.principalComment, card.signatures?.principal);
 
   // footer on every page of this card
   for (const p of doc.getPages().slice(firstPage)) {
@@ -361,12 +381,35 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
   }
 }
 
+/** Room above a signature line for the mark itself. */
+const SIGNED_LINE = 22;
+const SIGNATURE_INK = rgb(0.08, 0.16, 0.42);
+
+/** The mark, sitting on the line at baseline y: drawn strokes fitted into the space, or the typed name in italics. */
+function drawSignature(page: PDFPage, fonts: Fonts, sig: PdfSignature, x: number, y: number) {
+  const box = { width: 140, height: SIGNED_LINE + 2 };
+  const bounds = sig.style === "drawn" && sig.strokes ? strokeBounds(sig.strokes) : null;
+  if (bounds && sig.strokes) {
+    const scale = Math.min(box.width / bounds.width, box.height / bounds.height);
+    // drawSvgPath puts the path's 0,0 at (x, y) with y running down the page, as in SVG
+    page.drawSvgPath(strokesToSvgPath(sig.strokes, { crop: true }), {
+      x, y: y + bounds.height * scale, scale, borderColor: SIGNATURE_INK, borderWidth: 1.4 / scale,
+      borderLineCap: LineCapStyle.Round,
+    });
+    return;
+  }
+  const name = fit(sig.fullName, fonts.italic, 15, box.width);
+  page.drawText(name, { x, y: y + 4, size: 15, font: fonts.italic, color: SIGNATURE_INK });
+}
+
 async function newDoc(title: string) {
   const doc = await PDFDocument.create();
   doc.setTitle(pdfText(title));
   doc.setProducer("Figbloom");
   doc.setCreator("Figbloom School Management");
-  const fonts: Fonts = { regular: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold) };
+  const fonts: Fonts = { regular: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold),
+    italic: await doc.embedFont(StandardFonts.HelveticaOblique),
+  };
   return { doc, fonts };
 }
 

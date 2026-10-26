@@ -2,14 +2,16 @@ import { useEffect, useState } from "react";
 import { setLearnerHome, supabase, type LatLngPoint } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
+import { BioDataEditor } from "./BioData";
 import { HealthEditor } from "./Health";
 import { HomePinPicker } from "./HomePinPicker";
 
 /**
- * A parent's own view of their child's record: health details (which the
- * school's teachers see as an allergy chip on the register) and where they
- * live, which the school uses to plan bus stops. A parent can change both;
- * which bus and stop the child rides stays with the school office.
+ * A parent's own view of their child's record: bio data (identity changes
+ * go to the office to approve), health details (which the school's teachers
+ * see as an allergy chip on the register) and where they live, which the
+ * school uses to plan bus stops. Which class, bus and stop the child has
+ * stays with the school office.
  */
 export function ParentChildProfile({ tenantId, childId, childFirst, toast }: {
   tenantId: string; childId: string; childFirst: string; toast: ToastFn;
@@ -17,10 +19,11 @@ export function ParentChildProfile({ tenantId, childId, childFirst, toast }: {
   return (
     <section className="mt-4 overflow-hidden rounded-lg border border-line bg-white">
       <header className="border-b border-line px-4 py-3">
-        <h2 className="text-body font-semibold">{childFirst}'s health and home</h2>
-        <p className="mt-0.5 text-[12px] text-ink-muted">Keep these up to date so the school knows what to do in an emergency and where to stop the bus.</p>
+        <h2 className="text-body font-semibold">{childFirst}'s details, health and home</h2>
+        <p className="mt-0.5 text-[12px] text-ink-muted">Keep these up to date so the school has the right records, knows what to do in an emergency and where to stop the bus.</p>
       </header>
       <div className="px-4 pt-4">
+        <BioDataEditor key={`bio-${childId}`} studentId={childId} toast={toast} mode="parent" title="Details" />
         <HealthEditor key={childId} tenantId={tenantId} studentId={childId} toast={toast} title="Health" />
         <HomeEditor key={`home-${childId}`} childId={childId} toast={toast} />
       </div>

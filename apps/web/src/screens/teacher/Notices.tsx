@@ -6,6 +6,7 @@ import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useNoticeRead } from "../../lib/teacherNoticesContext";
+import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
 const NOTICE_POLL_MS = 20_000;
 
@@ -85,6 +86,7 @@ export function TeacherNotices() {
   return (
     <>
       <PageHead eyebrow="Notices" title="Notices" blurb={notices.length ? `${notices.length} notice${notices.length === 1 ? "" : "s"}.` : undefined} />
+      <div className="px-7 pt-6 empty:hidden"><PendingSignatures compact /></div>
 
       {notices.length === 0 ? (
         <div className="px-7 py-6">

@@ -14,11 +14,14 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PasswordResetRequests, ResetPasswordSection } from "../../components/PasswordReset";
 import { useAsync } from "../../lib/useAsync";
+import { LearnerDocumentSignatures } from "../../components/signatures/LearnerDocumentSignatures";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
-import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
+import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
 import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { LearnerActivitiesView } from "../../components/learners/Activities";
+import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
@@ -48,7 +51,7 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "guard", "receptionist"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
@@ -308,6 +311,9 @@ export function People() {
       )}
 
       <div className="px-7 py-6">
+        {tab === "students" && (
+          <BioRequestsPanel tenantId={tenant.id} toast={toast} reloadKey={reloadKey} onOpenLearner={(id) => setManage({ kind: "students", id })} />
+        )}
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load people: {error.message}
@@ -465,11 +471,19 @@ export function People() {
           {manage.kind === "students" && (
             <div className="mt-5">
               <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
+              <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />
+              <GuardianContacts studentId={manageRow.id} />
               <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
             </div>
           )}
           {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
+          )}
+          {manage.kind === "students" && (
+            <section className="mt-5">
+              <h3 className="mb-2 text-small font-semibold">Sports & activities</h3>
+              <LearnerActivitiesView tenantId={tenant.id} studentId={manageRow.id} first={manageRow.full_name.split(" ")[0] ?? null} compact />
+            </section>
           )}
           {manage.kind === "staff" && (manageRow as StaffRow).role === "teacher" && data && (
             <TeacherSubjectsEditor
@@ -853,16 +867,18 @@ function PhotoReview({ staff, onDone, toast }: { staff: StaffRow; onDone: (remov
 const STAFF_ROLE_OPTIONS = [
   { value: "teacher", label: "Teacher" },
   { value: "driver", label: "Driver" },
+  { value: "guard", label: "Gate guard" },
+  { value: "receptionist", label: "Receptionist" },
 ];
 
-/** Adds a teacher or driver (FIG-398/400) — no email, an assigned login_id
+/** Adds a teacher, driver, guard or receptionist (FIG-398/400) — no email, an assigned login_id
  *  (e.g. "TC-0001") instead, shown once on success the same way every other
  *  credential-reveal modal in this app works. */
 function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   tenantId: string; onClose: () => void; onAdded: () => void; toast: ToastFn;
 }) {
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"teacher" | "driver">("teacher");
+  const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
@@ -908,7 +924,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
       ) : (
         <div className="grid gap-3.5">
           <TextField id="staff-name" label="Full name" placeholder="e.g. Otieno Ouma" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-          <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as "teacher" | "driver")} options={STAFF_ROLE_OPTIONS} />
+          <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as InviteStaffInput["role"])} options={STAFF_ROLE_OPTIONS} />
           <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
@@ -1204,6 +1220,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
   const [loading, setLoading] = useState(true);
   const [docType, setDocType] = useState("birth_certificate");
   const [uploading, setUploading] = useState(false);
+  const [signing, setSigning] = useState<StudentDocument | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1253,15 +1270,16 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
       ) : (
         <ul className="mt-2 grid gap-1.5">
           {docs.map((d) => (
-            <li key={d.id}>
+            <li key={d.id} className="flex items-center gap-1.5">
               <button type="button" onClick={() => openDoc(d)}
-                className="flex w-full items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
                 <span className="min-w-0 truncate text-small font-medium">{d.file_name}</span>
                 <span className="flex shrink-0 items-center gap-2">
                   <Badge tone="muted">{DOC_TYPES.find((t) => t.value === d.doc_type)?.label ?? d.doc_type}</Badge>
                   <span className="font-mono text-[10.5px] text-ink-faint">{new Date(d.uploaded_at).toLocaleDateString()}</span>
                 </span>
               </button>
+              <Button onClick={() => setSigning(d)} title="Sign it, or ask guardians or staff to sign">Signatures</Button>
             </li>
           ))}
         </ul>
@@ -1275,6 +1293,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
         <input ref={fileRef} type="file" aria-label="Document file" className="text-small" />
         <Button type="submit" variant="primary" disabled={uploading}>{uploading ? "Uploading…" : "Add document"}</Button>
       </form>
+      {signing && <LearnerDocumentSignatures doc={signing} studentId={studentId} onClose={() => setSigning(null)} />}
     </div>
   );
 }

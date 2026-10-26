@@ -1,7 +1,8 @@
 /**
  * Creates a staff account for a school: the first administrator during
  * onboarding (role: "school_admin", unchanged since this function's
- * original version), OR — new as of FIG-398 — a teacher or driver, added by
+ * original version), OR — new as of FIG-398 — a teacher, driver, gate guard
+ * or receptionist, added by
  * the school's own admin as routine day-to-day staffing rather than a
  * platform/org-owner-only action.
  *
@@ -30,12 +31,14 @@ import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
-const STAFF_ROLES = new Set(["school_admin", "teacher", "driver"]);
+const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "guard", "receptionist"]);
+
+const STAFF_WORD: Record<string, string> = { teacher: "Teacher", driver: "Driver", guard: "Guard", receptionist: "Receptionist" };
 
 interface Body {
   tenant_id: string;
   full_name: string;
-  role?: "school_admin" | "teacher" | "driver";
+  role?: "school_admin" | "teacher" | "driver" | "guard" | "receptionist";
   staff_title?: string;
   /** Required when role is (the default) "school_admin" -- the login itself
    *  for that role. Optional contact info for teacher/driver, who sign in
@@ -162,7 +165,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     actor_label: callerProfile!.full_name ? `${callerProfile!.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: role === "school_admin"
       ? `First administrator ${full_name.trim()} added for ${tenant.name}`
-      : `${role === "teacher" ? "Teacher" : "Driver"} ${full_name.trim()} (${loginId}) added for ${tenant.name}`,
+      : `${STAFF_WORD[role]} ${full_name.trim()} (${loginId}) added for ${tenant.name}`,
     category: "provisioning",
   });
 
