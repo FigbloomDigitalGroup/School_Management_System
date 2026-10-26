@@ -547,7 +547,7 @@ export interface CourseGrade {
 }
 
 /** rider: a trip ended with children still marked on the bus (20261025020000_bus_riders_and_homes.sql) */
-export type AlertKind = "speed" | "geofence" | "rider";
+export type AlertKind = "speed" | "geofence" | "rider" | "breakdown";
 
 export interface VehicleAlert {
   id: string;
