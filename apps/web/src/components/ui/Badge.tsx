@@ -25,11 +25,11 @@ export function Badge({ tone = "muted", children }: { tone?: Tone; children: Rea
 }
 
 const ROLE_TONE = {
-  super_admin: "info", school_admin: "info", teacher: "ok", parent: "muted", student: "muted", driver: "ok", org_admin: "info",
+  super_admin: "info", school_admin: "info", teacher: "ok", parent: "muted", student: "muted", driver: "ok", org_admin: "info", guard: "ok", receptionist: "ok",
 } as const;
 
 const ROLE_LABEL = {
-  super_admin: "Platform", school_admin: "Admin", teacher: "Teacher", parent: "Parent", student: "Student", driver: "Driver", org_admin: "Org admin",
+  super_admin: "Platform", school_admin: "Admin", teacher: "Teacher", parent: "Parent", student: "Student", driver: "Driver", org_admin: "Org admin", guard: "Guard", receptionist: "Receptionist",
 } as const;
 
 /** Descriptive only (FIG-357 v1) — a label, not yet a functional distinction. */

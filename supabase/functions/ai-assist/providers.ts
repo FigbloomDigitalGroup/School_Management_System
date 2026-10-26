@@ -14,9 +14,16 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import OpenAI from "npm:openai@7.32.0";
 
+/** A document or page photo sent with a message (importing a paper), base64-encoded. */
+export type AiPart =
+  | { type: "text"; text: string }
+  | { type: "pdf"; name: string; data: string }
+  | { type: "image"; mediaType: "image/jpeg" | "image/png"; data: string };
+
 export interface AiRequest {
   system: string;
-  messages: { role: "user" | "assistant"; content: string }[];
+  /** Text, or for a document task, the document's parts followed by the instructions. */
+  messages: { role: "user" | "assistant"; content: string | AiPart[] }[];
   /** JSON Schema the answer must follow, or null for plain text (the study helper). */
   schema: Record<string, unknown> | null;
   effort: "low" | "medium";
@@ -60,11 +67,19 @@ export function openAiReply(r: OpenAiResponse): AiReply {
   };
 }
 
+function openAiContent(content: string | AiPart[]): unknown {
+  if (typeof content === "string") return content;
+  return content.map((p) =>
+    p.type === "text" ? { type: "input_text", text: p.text }
+    : p.type === "pdf" ? { type: "input_file", filename: p.name, file_data: `data:application/pdf;base64,${p.data}` }
+    : { type: "input_image", image_url: `data:${p.mediaType};base64,${p.data}`, detail: "high" });
+}
+
 export function openAiParams(model: string, req: AiRequest): Record<string, unknown> {
   return {
     model,
     instructions: req.system,
-    input: req.messages,
+    input: req.messages.map((m) => ({ role: m.role, content: openAiContent(m.content) })),
     max_output_tokens: MAX_OUTPUT_TOKENS,
     reasoning: { effort: req.effort },
     ...(req.schema ? { text: { format: { type: "json_schema", name: "bloom_draft", schema: req.schema, strict: true } } } : {}),
@@ -101,6 +116,14 @@ export function anthropicReply(m: AnthropicMessage): AiReply {
   };
 }
 
+function anthropicContent(content: string | AiPart[]): unknown {
+  if (typeof content === "string") return content;
+  return content.map((p) =>
+    p.type === "text" ? { type: "text", text: p.text }
+    : p.type === "pdf" ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: p.data } }
+    : { type: "image", source: { type: "base64", media_type: p.mediaType, data: p.data } });
+}
+
 export function anthropicParams(model: string, req: AiRequest): Record<string, unknown> {
   return {
     model,
@@ -109,7 +132,7 @@ export function anthropicParams(model: string, req: AiRequest): Record<string, u
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
-    messages: req.messages,
+    messages: req.messages.map((m) => ({ role: m.role, content: anthropicContent(m.content) })),
     output_config: { effort: req.effort, ...(req.schema ? { format: { type: "json_schema", schema: req.schema } } : {}) },
   };
 }

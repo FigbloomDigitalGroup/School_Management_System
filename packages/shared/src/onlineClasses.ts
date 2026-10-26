@@ -4,8 +4,9 @@ import type { TimetableSlot, Weekday } from "./types";
 
 /**
  * Online classes for days the school can't meet in person (teachers'
- * strikes, protests, insecurity, floods). There's no built-in video: a
- * teacher pastes a Google Meet / Zoom / Teams link and learners tap "Join".
+ * strikes, protests, insecurity, floods). A teacher either pastes a Google
+ * Meet / Zoom / Teams link, or uses the class's Figbloom live class (room
+ * "live", built in: calls.ts), and learners tap "Join".
  * Lessons still follow the normal weekly timetable_slots; the three tables
  * here (supabase/migrations/20261025010000_online_classes.sql) only say
  * which periods are online on a date and where to join them.
@@ -30,7 +31,9 @@ export interface ClassMeetingLink {
   class_id: string;
   /** null = the class-wide room, used for any period without its own link */
   subject_id: string | null;
-  url: string;
+  /** "live" = the Figbloom live class, which has no url */
+  room: MeetingRoom;
+  url: string | null;
   created_by: string | null;
   updated_at: string;
 }
@@ -42,16 +45,21 @@ export interface OnlineLesson {
   on_date: string;
   start_time: string;
   subject_id: string | null;
-  /** null = online, using the class's standing link */
+  /** null (with room "link") = online, using the class's standing link */
   url: string | null;
+  /** "live" = this one period is a Figbloom live class */
+  room: MeetingRoom;
   note: string | null;
   created_by: string | null;
 }
 
-export type MeetingProvider = "meet" | "zoom" | "teams" | "other";
+/** A pasted link, or the built-in live class. */
+export type MeetingRoom = "link" | "live";
+
+export type MeetingProvider = "meet" | "zoom" | "teams" | "other" | "figbloom";
 
 export const MEETING_PROVIDER_LABEL: Record<MeetingProvider, string> = {
-  meet: "Google Meet", zoom: "Zoom", teams: "Microsoft Teams", other: "Online lesson",
+  meet: "Google Meet", zoom: "Zoom", teams: "Microsoft Teams", other: "Online lesson", figbloom: "Figbloom live class",
 };
 
 /** Which app a pasted link opens, for the "Join on Zoom" label. */
@@ -145,6 +153,8 @@ export interface OnlinePeriod {
   subjectId: string | null;
   mode: "in_person" | "online";
   joinUrl: string | null;
+  /** joined in the app (the class's Figbloom live class), not at joinUrl */
+  live: boolean;
   provider: MeetingProvider | null;
   /** where joinUrl came from — dated lesson override, the subject's standing room, or the class-wide room */
   source: LinkSource | null;
@@ -164,17 +174,22 @@ export interface OnlineDay {
 }
 
 type SlotLike = Pick<TimetableSlot, "class_id" | "day" | "start_time" | "label" | "room" | "subject_id">;
+/** Rows saved before live classes existed have no room: they're links. */
+type LinkLike = Pick<ClassMeetingLink, "class_id" | "subject_id" | "url"> & { room?: MeetingRoom };
+type LessonLike = Pick<OnlineLesson, "id" | "class_id" | "on_date" | "start_time" | "subject_id" | "url" | "note"> & { room?: MeetingRoom };
 
-/** A class's standing link for a subject, falling back to its class-wide room. */
+/** A class's standing room for a subject, falling back to its class-wide room. url is null for a live class. */
 export function standingLinkFor(
-  classId: string, subjectId: string | null, links: Pick<ClassMeetingLink, "class_id" | "subject_id" | "url">[],
-): { url: string; source: "subject_link" | "class_link" } | null {
+  classId: string, subjectId: string | null, links: LinkLike[],
+): { url: string | null; live: boolean; source: "subject_link" | "class_link" } | null {
+  const pick = (l: LinkLike, source: "subject_link" | "class_link") =>
+    l.room === "live" ? { url: null, live: true, source } : { url: l.url, live: false, source };
   if (subjectId) {
     const own = links.find((l) => l.class_id === classId && l.subject_id === subjectId);
-    if (own) return { url: own.url, source: "subject_link" };
+    if (own) return pick(own, "subject_link");
   }
   const classWide = links.find((l) => l.class_id === classId && l.subject_id === null);
-  return classWide ? { url: classWide.url, source: "class_link" } : null;
+  return classWide ? pick(classWide, "class_link") : null;
 }
 
 /**
@@ -182,8 +197,10 @@ export function standingLinkFor(
  *
  * A period is online when the date is inside a remote-day block, or a
  * teacher made that one dated lesson online. Its link is the dated lesson's
- * own link if it has one, else the class+subject standing link, else the
- * class-wide one. Non-subject periods (Games, Break, Class meeting) are
+ * own link (or its own live class) if it has one, else the class+subject
+ * standing room, else the class-wide one. A room set to "live" is the
+ * class's Figbloom live class: joined in the app, so it has no joinUrl but
+ * never needs a link either. Non-subject periods (Games, Break, Class meeting) are
  * online on a remote day too, but never "need" a link — there may simply be
  * no session for them.
  */
@@ -191,8 +208,8 @@ export function resolveOnlineDay(input: {
   date: string;
   slots: SlotLike[];
   remoteDays: RemoteDay[];
-  links: Pick<ClassMeetingLink, "class_id" | "subject_id" | "url">[];
-  lessons: Pick<OnlineLesson, "id" | "class_id" | "on_date" | "start_time" | "subject_id" | "url" | "note">[];
+  links: LinkLike[];
+  lessons: LessonLike[];
 }): OnlineDay {
   const { date, slots, remoteDays, links, lessons } = input;
   const weekday = weekdayOfDate(date);
@@ -207,15 +224,20 @@ export function resolveOnlineDay(input: {
       const lesson = lessonByKey.get(`${s.class_id}|${s.start_time}`) ?? null;
       const online = !!remoteDay || !!lesson;
       let joinUrl: string | null = null;
+      let live = false;
       let source: LinkSource | null = null;
       if (online) {
-        if (lesson?.url) {
+        if (lesson?.room === "live") {
+          live = true;
+          source = "lesson";
+        } else if (lesson?.url) {
           joinUrl = lesson.url;
           source = "lesson";
         } else {
           const standing = standingLinkFor(s.class_id, s.subject_id ?? lesson?.subject_id ?? null, links);
           if (standing) {
             joinUrl = standing.url;
+            live = standing.live;
             source = standing.source;
           }
         }
@@ -228,10 +250,11 @@ export function resolveOnlineDay(input: {
         subjectId: s.subject_id,
         mode: online ? "online" : "in_person",
         joinUrl,
-        provider: joinUrl ? meetingProvider(joinUrl) : null,
+        live,
+        provider: live ? "figbloom" : joinUrl ? meetingProvider(joinUrl) : null,
         source,
         note: lesson?.note ?? null,
-        needsLink: online && !joinUrl && (!!s.subject_id || !!lesson),
+        needsLink: online && !joinUrl && !live && (!!s.subject_id || !!lesson),
         onlineLessonId: lesson?.id ?? null,
       };
     })
@@ -242,7 +265,7 @@ export function resolveOnlineDay(input: {
 
 /** "12 of 40 lessons have no link" — only academic online lessons count. */
 export function linkGaps(periods: OnlinePeriod[]): { lessons: number; missing: number } {
-  const lessons = periods.filter((p) => p.mode === "online" && (p.subjectId || p.joinUrl || p.needsLink));
+  const lessons = periods.filter((p) => p.mode === "online" && (p.subjectId || p.joinUrl || p.live || p.needsLink));
   return { lessons: lessons.length, missing: lessons.filter((p) => p.needsLink).length };
 }
 
@@ -321,8 +344,8 @@ export async function fetchOnlineDay(date: string, opts: { classIds?: string[]; 
   const weekday = weekdayOfDate(date);
 
   let slotsQ = sb.from("timetable_slots").select("class_id, day, start_time, label, room, subject_id").eq("day", weekday ?? "Mon");
-  let linksQ = sb.from("class_meeting_links").select("class_id, subject_id, url");
-  let lessonsQ = sb.from("online_lessons").select("id, class_id, on_date, start_time, subject_id, url, note").eq("on_date", date);
+  let linksQ = sb.from("class_meeting_links").select("class_id, subject_id, url, room");
+  let lessonsQ = sb.from("online_lessons").select("id, class_id, on_date, start_time, subject_id, url, room, note").eq("on_date", date);
   let remoteQ = sb.from("remote_days").select("*").lte("starts_on", date).gte("ends_on", date);
   if (classIds) {
     slotsQ = slotsQ.in("class_id", classIds);
@@ -338,8 +361,8 @@ export async function fetchOnlineDay(date: string, opts: { classIds?: string[]; 
 
   const [slots, links, lessons, remote] = await Promise.all([
     weekday ? slotsQ.returns<SlotLike[]>() : Promise.resolve({ data: [] as SlotLike[], error: null }),
-    linksQ.returns<Pick<ClassMeetingLink, "class_id" | "subject_id" | "url">[]>(),
-    lessonsQ.returns<Pick<OnlineLesson, "id" | "class_id" | "on_date" | "start_time" | "subject_id" | "url" | "note">[]>(),
+    linksQ.returns<LinkLike[]>(),
+    lessonsQ.returns<LessonLike[]>(),
     remoteQ.returns<RemoteDay[]>(),
   ]);
   for (const r of [slots, links, lessons, remote]) if (r.error) throw new Error(r.error.message);
@@ -360,19 +383,21 @@ export async function fetchClassMeetingLinks(classIds: string[]): Promise<ClassM
 
 /**
  * Sets (or replaces) a class's standing link for a subject, or its
- * class-wide room when subjectId is null. Select-then-write rather than an
+ * class-wide room when subjectId is null. url null makes it the class's
+ * Figbloom live class instead of a pasted link. Select-then-write rather than an
  * upsert: the unique key is NULLS NOT DISTINCT on a nullable column, which
  * isn't something to lean on ON CONFLICT inference for.
  */
-export async function saveClassMeetingLink(tenantId: string, classId: string, subjectId: string | null, url: string): Promise<void> {
+export async function saveClassMeetingLink(tenantId: string, classId: string, subjectId: string | null, url: string | null): Promise<void> {
+  const room: MeetingRoom = url === null ? "live" : "link";
   const sb = supabase();
   let q = sb.from("class_meeting_links").select("id").eq("class_id", classId);
   q = subjectId ? q.eq("subject_id", subjectId) : q.is("subject_id", null);
   const { data: existing, error: findErr } = await q.maybeSingle<{ id: string }>();
   if (findErr) throw new Error(findErr.message);
   const { error } = existing
-    ? await sb.from("class_meeting_links").update({ url, updated_at: new Date().toISOString() }).eq("id", existing.id)
-    : await sb.from("class_meeting_links").insert({ tenant_id: tenantId, class_id: classId, subject_id: subjectId, url });
+    ? await sb.from("class_meeting_links").update({ url, room, updated_at: new Date().toISOString() }).eq("id", existing.id)
+    : await sb.from("class_meeting_links").insert({ tenant_id: tenantId, class_id: classId, subject_id: subjectId, url, room });
   if (error) throw new Error(error.message);
 }
 
@@ -381,14 +406,14 @@ export async function deleteClassMeetingLink(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/** Makes one dated period online (url null = use the standing link), or updates its link/note. */
+/** Makes one dated period online (url null = use the standing link; live = a Figbloom live class), or updates its link/note. */
 export async function saveOnlineLesson(row: {
   tenantId: string; classId: string; onDate: string; startTime: string;
-  subjectId: string | null; url: string | null; note: string | null;
+  subjectId: string | null; url: string | null; note: string | null; live?: boolean;
 }): Promise<void> {
   const { error } = await supabase().from("online_lessons").upsert({
     tenant_id: row.tenantId, class_id: row.classId, on_date: row.onDate, start_time: row.startTime,
-    subject_id: row.subjectId, url: row.url, note: row.note?.trim() || null,
+    subject_id: row.subjectId, url: row.live ? null : row.url, room: row.live ? "live" : "link", note: row.note?.trim() || null,
   }, { onConflict: "class_id,on_date,start_time" });
   if (error) throw new Error(error.message);
 }

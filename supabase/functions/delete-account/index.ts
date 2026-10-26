@@ -20,7 +20,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 
-const REMOVABLE_ROLES = new Set(["teacher", "driver", "school_admin"]);
+const REMOVABLE_ROLES = new Set(["teacher", "driver", "guard", "receptionist", "school_admin"]);
 
 interface Body {
   tenant_id: string;

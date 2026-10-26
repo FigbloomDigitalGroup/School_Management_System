@@ -3,7 +3,8 @@
  * place the platform calls a model. The API key, the prompts (tasks.ts) and
  * every check live here, never in an app:
  *  - who: the task's roles (tasks.ts ALLOWED), at a school with AI switched
- *    on; the study helper also needs the school to have turned it on, and is
+ *    on. An org admin acting inside a member school names it (tenantId) and
+ *    counts as that school's office; the study helper also needs the school to have turned it on, and is
  *    off while the learner has an exam in progress or open
  *    (ai_tutor_blocked() in 20261026040000_ai_assist.sql)
  *  - how much: the school's monthly token allowance (tenants.ai_monthly_tokens)
@@ -11,10 +12,13 @@
  *  - what is sent: only what the task needs. Report card drafting gets a
  *    first name and results, never an admission number or surname.
  *  - what is kept: one ai_usage row per request (who, task, tokens), never
- *    the prompt or the reply.
+ *    the prompt or the reply. A paper sent for importing is deleted from
+ *    storage as soon as it has been read (documents.ts).
  *
- * Staff tasks answer in JSON fixed by a schema; the app shows the draft for
- * a person to edit, and nothing is saved or sent from here.
+ * Staff drafting tasks answer in JSON fixed by a schema; the app shows the
+ * draft for a person to edit, and nothing is saved or sent from here. Bloom
+ * chat answers in Markdown; the app keeps the person's own chat history
+ * (ai_chats, 20261027060000_ai_chat_workspace.sql), not this function.
  *
  * Which model answers is a secret, not code (providers.ts): AI_PROVIDER
  * "openai" (the default, with OPENAI_API_KEY) or "anthropic" (with
@@ -24,8 +28,12 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { aiFromEnv, type AiCall, type AiReply } from "./providers.ts";
-import { ALLOWED, BadInput, EFFORT, prepare, TASKS, tutorMessages, tutorSystem, type Role, type Task } from "./tasks.ts";
+import { paperImportContent, readStaged } from "./documents.ts";
+import { aiFromEnv, type AiCall, type AiReply, type AiRequest } from "./providers.ts";
+import {
+  ALLOWED, BadInput, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
+  type Role, type Task,
+} from "./tasks.ts";
 
 /** Requests per person per day: staff draft in batches at the end of term; a learner chats. */
 export const DAILY_LIMIT: Record<Role, number> = { school_admin: 400, teacher: 400, student: 80 };
@@ -49,17 +57,31 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   if (!user) return json({ error: "Unauthorized" }, 401);
 
   const { data: caller } = await admin.from("profiles").select("id, role, tenant_id").eq("id", user.id).maybeSingle();
-  if (!caller?.tenant_id) return json({ error: "Bloom is for school accounts." }, 403);
+  if (!caller) return json({ error: "Bloom is for school accounts." }, 403);
 
-  let body: { task?: string; payload?: unknown };
+  let body: { task?: string; payload?: unknown; tenantId?: unknown };
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
+
+  // An org admin has no school of their own; inside a member school's
+  // console they work as its office, against that school's switch and allowance.
+  let tenantId: string | null = caller.tenant_id;
+  let effectiveRole: string = caller.role;
+  if (caller.role === "org_admin" && typeof body.tenantId === "string") {
+    const { data: school } = await admin.from("tenants").select("id, organization_id").eq("id", body.tenantId).maybeSingle();
+    const { data: membership } = school?.organization_id
+      ? await admin.from("organization_admins").select("id").eq("profile_id", caller.id).eq("organization_id", school.organization_id).maybeSingle()
+      : { data: null };
+    if (membership) { tenantId = school.id; effectiveRole = "school_admin"; }
+  }
+  if (!tenantId) return json({ error: "Bloom is for school accounts." }, 403);
+
   const task = body.task as Task;
   if (!TASKS.includes(task)) return json({ error: "Unknown task." }, 400);
-  if (!(ALLOWED[task] as string[]).includes(caller.role)) return json({ error: "Your account can't use this." }, 403);
-  const role = caller.role as Role;
+  if (!(ALLOWED[task] as string[]).includes(effectiveRole)) return json({ error: "Your account can't use this." }, 403);
+  const role = effectiveRole as Role;
 
   const { data: tenant } = await admin.from("tenants")
-    .select("id, name, country, ai_enabled, ai_tutor_enabled, ai_monthly_tokens").eq("id", caller.tenant_id).maybeSingle();
+    .select("id, name, country, ai_enabled, ai_tutor_enabled, ai_monthly_tokens").eq("id", tenantId).maybeSingle();
   if (!tenant?.ai_enabled) return json({ error: "Bloom is turned off for this school. The school office can turn it on in School settings." }, 403);
   if ("error" in ai) {
     console.error("ai-assist:", ai.error);
@@ -68,7 +90,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
 
   // Build the request before spending anything, so a bad input costs nothing.
   let system: string;
-  let messages: { role: "user" | "assistant"; content: string }[];
+  let messages: AiRequest["messages"];
   let schema: Record<string, unknown> | null = null;
   try {
     if (task === "tutor") {
@@ -81,6 +103,15 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
       const label = level ? `${CLASS_WORD[level] ?? "Year "}${me.classes.form_level}` : "";
       system = tutorSystem(label, level === "secondary" ? "844" : "cbc");
       messages = tutorMessages(body.payload ?? {});
+    } else if (task === "paper_import") {
+      const request = paperImportRequest(body.payload, tenant.id, caller.id);
+      system = paperImportSystem(request.kind);
+      schema = PAPER_IMPORT_SCHEMA;
+      messages = [{ role: "user", content: paperImportContent(request, await readStaged(admin, request.paths)) }];
+    } else if (task === "chat") {
+      const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Nairobi" });
+      system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today);
+      messages = chatMessages(body.payload ?? {});
     } else {
       const prepared = prepare(task, body.payload);
       system = prepared.system;
@@ -120,11 +151,20 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
 
   if (reply.outcome === "refused") {
     await log(reply, "refused");
-    return json({ error: task === "tutor" ? "I can't help with that one. Try asking about your schoolwork." : "Bloom couldn't draft this. Try rewording it." }, 422);
+    return json({
+      error: task === "tutor" ? "I can't help with that one. Try asking about your schoolwork."
+        : task === "chat" ? "Bloom can't help with that one. Try asking another way."
+        : task === "paper_import" ? "Bloom couldn't read this paper. Check it's the right file."
+        : "Bloom couldn't draft this. Try rewording it.",
+    }, 422);
   }
   if (reply.outcome === "too_long") {
     await log(reply, "error");
-    return json({ error: "That was too much to draft at once. Try asking for less." }, 422);
+    return json({
+      error: task === "chat" ? "That answer ran too long. Try asking for less at once, or start a new chat."
+        : task === "paper_import" ? "That paper is too long to import in one go. Import it a section at a time."
+        : "That was too much to draft at once. Try asking for less.",
+    }, 422);
   }
 
   await log(reply, "ok");

@@ -135,6 +135,18 @@ export interface PayableInvoice {
   balanceCents: number;
 }
 
+/** A parent's proof being confirmed: an uploaded file, a pasted confirmation SMS, or both. */
+export interface ProofToConfirm {
+  id: string;
+  fileName: string | null;
+  note: string | null;
+  smsText?: string | null;
+  /** Read from the pasted SMS; they fill the form, and the bursar checks them against the statement. */
+  code?: string | null;
+  amountCents?: number | null;
+  method?: "mpesa" | "bank" | null;
+}
+
 const METHODS = [
   { value: "cash", label: "Cash", refLabel: "Receipt book number", refHint: "Optional for cash." },
   { value: "mpesa", label: "M-Pesa to the school's paybill/till", refLabel: "M-Pesa receipt", refHint: "The code on the confirmation SMS, e.g. SFC1234ABC. Each receipt can only be recorded once." },
@@ -179,7 +191,7 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
   country: string;
   invoice?: PayableInvoice;
   /** Recording the payment a parent's uploaded proof shows; confirms the proof too. */
-  proof?: { id: string; fileName: string; note: string | null };
+  proof?: ProofToConfirm;
   onClose: () => void;
   onRecorded: (message: string) => void;
 }) {
@@ -187,9 +199,11 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PayableInvoice[]>([]);
   const [searching, setSearching] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState<Method>(proof ? "bank" : "cash");
-  const [reference, setReference] = useState("");
+  // A pasted SMS fills the form in; never more than the balance, which record_payment would refuse anyway.
+  const [amount, setAmount] = useState(() =>
+    proof?.amountCents ? String(Math.min(proof.amountCents, preset?.balanceCents ?? proof.amountCents) / 100) : "");
+  const [method, setMethod] = useState<Method>(proof?.method ?? (proof ? "bank" : "cash"));
+  const [reference, setReference] = useState(proof?.code ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -238,7 +252,9 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
       eyebrow="Fees"
       title={proof ? "Confirm payment proof" : "Record a payment"}
       blurb={proof
-        ? `Check ${proof.fileName} and enter what it shows. The balance only moves once the payment is recorded.`
+        ? proof.smsText
+          ? "Find this code on the school's M-Pesa or bank statement before confirming. The balance only moves once the payment is recorded."
+          : `Check ${proof.fileName ?? "the proof"} and enter what it shows. The balance only moves once the payment is recorded.`
         : "For money received outside the M-Pesa prompt in the app."}
       actions={
         <>
@@ -285,6 +301,12 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
           </div>
         )}
 
+        {proof?.smsText && (
+          <div>
+            <span className="mb-1 block text-[12px] font-semibold">Message the parent pasted</span>
+            <pre className="whitespace-pre-wrap rounded-md bg-sunken px-3 py-2 font-mono text-[12px] text-ink-muted">{proof.smsText}</pre>
+          </div>
+        )}
         {proof?.note && <p className="rounded-md bg-sunken px-3 py-2 text-[12.5px] text-ink-muted">Parent's note: {proof.note}</p>}
 
         <TextField id="pay-amount" label="Amount received" inputMode="decimal" mono placeholder="e.g. 15000" value={amount} onChange={(e) => setAmount(e.target.value)} />

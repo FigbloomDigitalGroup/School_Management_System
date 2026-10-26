@@ -11,8 +11,11 @@
   },
   "dependencies": {
     "@figbloom/shared": "*",
+    "@livekit/components-react": "2.9.24",
+    "@livekit/components-styles": "1.2.0",
     "@supabase/supabase-js": "^2.45.0",
     "@vis.gl/react-google-maps": "^1.9.0",
+    "livekit-client": "2.22.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.3",

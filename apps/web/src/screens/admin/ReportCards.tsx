@@ -4,8 +4,10 @@ import {
   defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, gradingSchemeFor, rubricFor,
   prepareClassReportCards, reportCardFileName, saveReportCardComments, saveReportCards, saveTeacherComment,
   setReportCardsPublished, suggestComment, type ReportCardOptions, type StoredReportCard,
+  CAPACITY_LABEL, fetchDocumentSignatures, signatureDate, signatureFor, signDocuments, type StoredSignature,
 } from "@figbloom/shared";
 import { CompetencyRatings } from "../../components/CompetencyRatings";
+import { SignDocumentModal } from "../../components/signatures/SignDocumentModal";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -36,6 +38,7 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [commenting, setCommenting] = useState<StoredReportCard | null>(null);
+  const [signing, setSigning] = useState(false);
 
   const setup = useAsync(() => fetchReportCardSetup(tenant.id, teacher ? profile.id : undefined), [tenant.id, teacher, profile.id]);
   const terms = setup.data?.terms ?? [];
@@ -69,6 +72,13 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   const rows = cards.data ?? [];
   const drafts = rows.filter((c) => !c.publishedAt);
   const published = rows.filter((c) => c.publishedAt);
+
+  // The office signs as principal, a class teacher as class teacher; both
+  // are stamped on the PDF while the card is unchanged since signing.
+  const capacity = teacher ? "class_teacher" : "principal";
+  const sigs = useAsync(() => fetchDocumentSignatures("report_card", rows.map((c) => c.id)), [cards.data, reloadKey]);
+  const signatures: StoredSignature[] = sigs.data ?? [];
+  const unsigned = rows.filter((c) => !signatureFor(signatures, c.id, capacity, { currentOnly: true }));
 
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label);
@@ -150,7 +160,13 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
     if (kind === "sheet") {
       pdf.saveFile(await pdf.renderResultsSheetPdf(list.map((c) => c.data), { logo }), `${first.term.name} results - ${first.learner.className}.pdf`);
     } else {
-      const bytes = await pdf.renderReportCardsPdf(list.map((c) => ({ data: c.data, teacherComment: c.teacherComment, principalComment: c.principalComment })), { logo });
+      const bytes = await pdf.renderReportCardsPdf(list.map((c) => ({
+        data: c.data, teacherComment: c.teacherComment, principalComment: c.principalComment,
+        signatures: {
+          teacher: signatureFor(signatures, c.id, "class_teacher", { currentOnly: true }),
+          principal: signatureFor(signatures, c.id, "principal", { currentOnly: true }),
+        },
+      })), { logo });
       pdf.saveFile(bytes, list.length === 1 ? reportCardFileName(first) : `${first.term.name} report cards - ${first.learner.className}.pdf`);
     }
   });
@@ -249,8 +265,12 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
             ) : (
               <DataTable
                 title={`${cls?.name ?? "Class"} · ${rows.length} report card${rows.length === 1 ? "" : "s"}`}
-                filters={rows.length && (!teacher || ai?.aiEnabled) ? (
+                filters={rows.length ? (
                   <div className="flex flex-wrap items-center gap-2">
+                    <Button disabled={!!busy || !unsigned.length} onClick={() => setSigning(true)}
+                      title={`Sign as ${CAPACITY_LABEL[capacity].toLowerCase()}; the signature and date go on the PDF`}>
+                      {unsigned.length ? `Sign ${unsigned.length} card${unsigned.length === 1 ? "" : "s"}` : "All signed"}
+                    </Button>
                     {ai?.aiEnabled && (
                       <Button disabled={!!busy || !drafts.length} onClick={aiComments} title={AI_DRAFT_NOTE}>
                         {busy === "ai" ? "Drafting…" : "Draft comments with Bloom"}
@@ -271,6 +291,20 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                       {[c.teacherComment && "Class teacher", c.principalComment && "Principal"].filter(Boolean).join(" · ") || "None yet"}
                     </span>
                   ) },
+                  { key: "signed", header: "Signed", width: "1fr", render: (c: StoredReportCard) => {
+                    const mine = signatures.filter((s) => s.docId === c.id);
+                    if (!mine.length) return <span className="text-[12px] text-ink-faint">Not yet</span>;
+                    return (
+                      <span className="text-[12px] text-ink-faint">
+                        {mine.map((s) => (
+                          <span key={s.id} className={`block ${s.isCurrent === false ? "text-warn-ink" : ""}`}
+                            title={s.isCurrent === false ? "The card changed after this signature, so it isn't printed. Sign again." : `${s.fullName}, ${signatureDate(s.signedAt)}`}>
+                            {CAPACITY_LABEL[s.capacity]}{s.isCurrent === false ? " (changed since)" : ""}
+                          </span>
+                        ))}
+                      </span>
+                    );
+                  } },
                   { key: "status", header: "Status", render: (c: StoredReportCard) => (c.publishedAt ? <Badge tone="ok">Sent</Badge> : <Badge tone="muted">Draft</Badge>) },
                   { key: "actions", header: "", align: "right", width: "1.3fr", render: (c: StoredReportCard) => (
                     <div className="flex justify-end gap-1.5">
@@ -289,6 +323,22 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
           </>
         )}
       </div>
+
+      {signing && (
+        <SignDocumentModal
+          title={`Sign ${unsigned.length} report card${unsigned.length === 1 ? "" : "s"}`}
+          what={`these ${unsigned.length === 1 ? "report card" : `${unsigned.length} report cards`} for ${cls?.name ?? "this class"}`}
+          capacityLabel={CAPACITY_LABEL[capacity]}
+          defaultName={profile.full_name}
+          onSign={async (mark) => {
+            const n = await signDocuments("report_card", unsigned.map((c) => c.id), capacity, mark);
+            setSigning(false);
+            setReloadKey((k) => k + 1);
+            toast(`Signed ${n} report card${n === 1 ? "" : "s"}. Your signature and the date are on their PDFs.`);
+          }}
+          onClose={() => setSigning(false)}
+        />
+      )}
 
       {commenting && (
         <CommentsModal
