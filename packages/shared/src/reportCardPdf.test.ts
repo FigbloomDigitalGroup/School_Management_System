@@ -51,6 +51,33 @@ describe("renderReportCardsPdf", () => {
   });
 });
 
+describe("CBE report cards", () => {
+  it("prepares and draws a card from CBE assessments and competencies alone, with no exams", async () => {
+    const [card] = buildReportCards({
+      ...input(1), scheme: "cbc", exams: [], marks: [],
+      cbe: new Map([["s0", Array.from({ length: 9 }, (_, i) => ({
+        area: `Learning area ${i}`, assessment: "End of term", level: "ME", label: "Meeting expectations", comment: "Works well with others and asks good questions.",
+        strands: [{ name: "Numbers", level: "EE", label: "Exceeding expectations" }, { name: "Measurement", level: "AE", label: "Approaching expectations" }],
+      }))]]),
+      competencies: new Map([["s0", [{ kind: "competency" as const, label: "Citizenship", level: "EE", levelLabel: "Exceeding expectations" }]]]),
+      rubric: [{ code: "EE", label: "Exceeding expectations" }, { code: "ME", label: "Meeting expectations" }],
+    });
+    expect(card!.subjects).toEqual([]);
+    expect(card!.summary.mean).toBeNull();
+    expect(card!.cbe[0]!.strands).toHaveLength(2);
+    expect(card!.competencies).toHaveLength(1);
+    const doc = await PDFDocument.load(await renderReportCardsPdf([{ data: card!, teacherComment: null, principalComment: null }]));
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("still draws a card prepared before strands and competencies existed", async () => {
+    const [card] = buildReportCards({ ...input(1), cbe: new Map([["s0", [{ area: "Maths", assessment: "CAT", level: "ME", label: null, comment: null }]]]) });
+    const old = { ...card!, competencies: undefined, rubric: undefined };
+    const doc = await PDFDocument.load(await renderReportCardsPdf([{ data: old, teacherComment: null, principalComment: null }]));
+    expect(doc.getPageCount()).toBe(1);
+  });
+});
+
 describe("renderResultsSheetPdf", () => {
   it("fits a class on landscape pages, repeating the header as it goes", async () => {
     const doc = await PDFDocument.load(await renderResultsSheetPdf(buildReportCards(input(60))));

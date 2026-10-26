@@ -1,8 +1,9 @@
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 import { gradeFor, pointsFor, summarise } from "./grading";
-import { gradingSchemeFor, type GradingSchemeId } from "./gradingSchemes";
+import { gradingSchemeFor, rubricFor, type GradingSchemeId } from "./gradingSchemes";
 import { loadPublishedCbeResults } from "./cbeData";
+import { fetchCompetencyRatings, ratedItems, type RatedItem } from "./competencies";
 import type { ClassLevel } from "./types";
 
 /**
@@ -41,6 +42,8 @@ export interface ReportCardCbeArea {
   level: string | null;
   label: string | null;
   comment: string | null;
+  /** Each strand's level. Optional: cards prepared before strands were printed don't have it. */
+  strands?: { name: string; level: string; label: string }[];
 }
 
 export interface ReportCardData {
@@ -64,6 +67,10 @@ export interface ReportCardData {
     ranked: number;
   };
   cbe: ReportCardCbeArea[];
+  /** Core competencies and values the class teacher rated (CBC classes). Optional for older cards. */
+  competencies?: RatedItem[];
+  /** The rubric the levels on this card are read against, for the key; null for 8-4-4 classes. */
+  rubric?: { code: string; label: string }[] | null;
   attendance: { present: number; days: number } | null;
   fees: { billedCents: number; paidCents: number } | null;
   classTeacher: string | null;
@@ -97,6 +104,8 @@ export interface ReportCardInput {
   learners: { id: string; name: string; admissionNo: string }[];
   marks: { studentId: string; examId: string; subjectId: string; subjectName: string; subjectCode: string; score: number | null }[];
   cbe?: Map<string, ReportCardCbeArea[]>;
+  competencies?: Map<string, RatedItem[]>;
+  rubric?: { code: string; label: string }[] | null;
   attendance?: Map<string, { present: number; days: number }>;
   fees?: Map<string, { billedCents: number; paidCents: number }>;
   options: ReportCardOptions;
@@ -190,6 +199,8 @@ export function buildReportCards(input: ReportCardInput): ReportCardData[] {
         ranked: 0,
       },
       cbe: input.cbe?.get(l.id) ?? [],
+      competencies: input.competencies?.get(l.id) ?? [],
+      rubric: input.rubric ?? null,
       attendance: input.options.showAttendance ? (input.attendance?.get(l.id) ?? null) : null,
       fees: input.options.showFees ? (input.fees?.get(l.id) ?? null) : null,
       classTeacher: input.classTeacher,
@@ -255,8 +266,10 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
   for (const e of [tErr, cErr, lErr, eErr]) if (e) throw new Error(e.message);
   const ids = (learners ?? []).map((l) => l.id);
   const scheme = gradingSchemeFor(p.school.country, cls!.level);
+  // CBE classes are judged on a rubric (null for 8-4-4 Forms): their cards carry its key and the core competencies.
+  const rubric = rubricFor(p.school.country, cls!.level);
 
-  const [marks, cbe, attendance, fees] = await Promise.all([
+  const [marks, cbe, attendance, fees, ratings] = await Promise.all([
     p.examIds.length && ids.length
       ? fetchAllPages<{ student_id: string; exam_id: string; subject_id: string; score: number | null; subjects: { name: string; code: string } | null }>((from, to) =>
           sb.from("marks").select("student_id, exam_id, subject_id, score, subjects(name, code)")
@@ -267,6 +280,7 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
     loadClassCbe(ids, p.school.country, p.termId),
     p.options.showAttendance ? loadAttendance(ids, p.termId) : Promise.resolve(new Map()),
     p.options.showFees ? loadFees(ids, p.termId) : Promise.resolve(new Map()),
+    rubric ? fetchCompetencyRatings(p.termId, ids) : Promise.resolve(new Map<string, Map<string, string>>()),
   ]);
 
   // Columns in the order the exams went out, unpublished last, then by name.
@@ -286,6 +300,8 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
       subjectName: m.subjects?.name ?? "Subject", subjectCode: m.subjects?.code ?? "", score: m.score,
     })),
     cbe,
+    competencies: new Map([...ratings.entries()].map(([id, levels]) => [id, ratedItems(levels)])),
+    rubric: rubric?.map((l) => ({ code: l.code, label: l.label })) ?? null,
     attendance,
     fees,
     options: p.options,
@@ -297,6 +313,7 @@ async function loadClassCbe(studentIds: string[], country: string, termId: strin
   const results = await loadPublishedCbeResults(studentIds, country, { termId });
   return new Map([...results.entries()].map(([id, areas]) => [id, areas.map((a) => ({
     area: a.subjectName, assessment: a.assessmentTitle, level: a.overall?.code ?? null, label: a.overall?.label ?? null, comment: a.comment,
+    strands: a.strands.map((st) => ({ name: st.name, level: st.code, label: st.label })),
   }))]));
 }
 
