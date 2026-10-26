@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceM, fmtDistance, isLive, locationPingRow, routeProgress } from "./fleet";
+import { arrangeRiders, breakdownAffected, distanceM, fmtDistance, isLive, locationPingRow, riderMarkRow, routeProgress, type TripRider } from "./fleet";
 
 // Three stops roughly 1.5-3km apart along a line, Nakuru-ish.
 const STOPS = [
@@ -83,5 +83,59 @@ describe("locationPingRow", () => {
     const row = locationPingRow(base);
     expect(row.speed_kmh).toBeNull();
     expect(row.heading).toBeNull();
+  });
+});
+
+function rider(name: string, fields: Partial<TripRider> = {}): TripRider {
+  return { student_id: name, full_name: name, stop_id: null, status: "expected", boarded_at: null, alighted_at: null, absent_from_class: false, ...fields };
+}
+
+describe("arrangeRiders", () => {
+  it("puts children on the bus first, then those waiting in stop order, then the greyed-out rest", () => {
+    const list = arrangeRiders([
+      rider("Dropped", { status: "alighted", stop_id: "s1" }),
+      rider("Wanjiru", { stop_id: "s2" }),
+      rider("Absent", { absent_from_class: true, stop_id: "s1" }),
+      rider("Amani", { stop_id: "s1" }),
+      rider("Onboard", { status: "boarded", stop_id: "s2" }),
+      rider("NotHere", { status: "absent" }),
+      rider("NoStop"),
+    ], ["s1", "s2"]);
+    expect(list.map((r) => r.full_name)).toEqual(["Onboard", "Amani", "Wanjiru", "NoStop", "Dropped", "NotHere", "Absent"]);
+    expect(list.map((r) => r.faded)).toEqual([false, false, false, false, true, true, true]);
+    expect(list.filter((r) => r.struck).map((r) => r.full_name)).toEqual(["Absent"]);
+  });
+
+  it("treats a child absent from class who got on anyway as on the bus", () => {
+    const [r] = arrangeRiders([rider("Amani", { status: "boarded", absent_from_class: true })], []);
+    expect(r!.place).toBe("on_bus");
+    expect(r!.struck).toBe(false);
+  });
+});
+
+describe("breakdownAffected", () => {
+  it("is everyone on the bus or still waiting, not those dropped off, not here or absent from class", () => {
+    const affected = breakdownAffected([
+      rider("Onboard", { status: "boarded" }),
+      rider("Waiting"),
+      rider("Dropped", { status: "alighted" }),
+      rider("NotHere", { status: "absent" }),
+      rider("Absent", { absent_from_class: true }),
+    ]);
+    expect(affected.map((r) => r.full_name)).toEqual(["Onboard", "Waiting"]);
+  });
+});
+
+describe("riderMarkRow", () => {
+  const base = { tenantId: "t1", tripId: "trip1", studentId: "s1", stopId: "stop1", markedAt: "2026-10-27T12:31:00.000Z" };
+
+  it("stamps the tap time on the matching column, so a queued mark keeps its real time", () => {
+    expect(riderMarkRow({ ...base, status: "boarded" }).boarded_at).toBe(base.markedAt);
+    expect(riderMarkRow({ ...base, status: "alighted" }).alighted_at).toBe(base.markedAt);
+  });
+
+  it("sends no time for not-here or an undo back to expected", () => {
+    expect(riderMarkRow({ ...base, status: "absent" })).not.toHaveProperty("boarded_at");
+    expect(riderMarkRow({ ...base, status: "expected" })).not.toHaveProperty("alighted_at");
   });
 });
