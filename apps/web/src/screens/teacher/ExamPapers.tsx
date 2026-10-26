@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, blankQuestion, createExamPaper, deleteExamPaper,
   fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, fromLocalInput, paperWindow, publishProblem, saveExamQuestions, savePaperBody,
+  fetchTeacherSubjectsForClass, fromLocalInput, paperWindow, publishProblem, questionsToCheck, saveExamQuestions, savePaperBody,
   setPaperFile, setPaperPublished, supabase, toLocalInput, totalPoints, updateExamPaper, validatePaper,
   validateQuestions, windowLabel,
-  type ExamPaperRow, type PaperKind, type PaperMode, type QuestionDraft, type QuestionKind,
+  type ExamPaperRow, type PaperImportDraft, type PaperKind, type PaperMode, type QuestionDraft, type QuestionKind, type ReviewQuestion,
 } from "@figbloom/shared";
+import { AiPaperImportModal } from "../../components/AiPaperImport";
 import { AiQuestionsModal } from "../../components/AiQuestions";
 import { useAiStatus } from "../../lib/useAi";
 import { PageHead } from "../../components/ConsoleShell";
@@ -43,9 +44,11 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const [editing, setEditing] = useState<{ paper?: ExamPaperRow } | null>(null);
+  // importing: open the editor straight onto "Import a paper with Bloom"
+  const [editing, setEditing] = useState<{ paper?: ExamPaperRow; importing?: boolean } | null>(null);
   const [scripts, setScripts] = useState<ExamPaperRow | null>(null);
   const reload = () => setReloadKey((k) => k + 1);
+  const aiStatus = useAiStatus();
 
   const scope: Scope = useMemo(() => admin
     ? {
@@ -112,7 +115,12 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
         blurb={admin
           ? "Every exam paper and test posted in the school. Learners read a paper, or sit it online and get it marked here."
           : "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here."}
-        actions={<Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>New paper</Button>}
+        actions={
+          <>
+            {aiStatus?.aiEnabled && <Button disabled={!classes?.length} onClick={() => setEditing({ importing: true })}>Import a paper</Button>}
+            <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>New paper</Button>
+          </>
+        }
       />
 
       <div className="px-7 py-6">
@@ -167,6 +175,7 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
       {editing && (
         <PaperEditor
           paper={editing.paper}
+          startImport={editing.importing}
           classes={classes ?? []}
           scope={scope}
           onClose={() => setEditing(null)}
@@ -193,8 +202,9 @@ function tomorrowMorning(): string {
   return toLocalInput(d.toISOString());
 }
 
-function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
+function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSaved }: {
   paper?: ExamPaperRow;
+  startImport?: boolean;
   classes: Option[];
   scope: Scope;
   onClose: () => void;
@@ -215,7 +225,9 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
   const [duration, setDuration] = useState(paper?.durationMinutes ? String(paper.durationMinutes) : paper ? "" : "60");
   const [file, setFile] = useState<File | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
-  const [questions, setQuestions] = useState<QuestionDraft[]>([]);
+  const [questions, setQuestions] = useState<ReviewQuestion[]>([]);
+  // What Bloom said about an imported paper as a whole (missing pages, totals that don't add up).
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   // Set once a new paper is created, so a retry after a later step fails updates it rather than creating a second one.
@@ -244,6 +256,17 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
   }, [subjects, subjectId]);
 
   const hasFile = !!file || (!!paper?.fileName && !removeFile);
+  const toCheck = questionsToCheck(questions);
+
+  /** Bloom's paper into the editor: its questions, and its title, instructions and time where these are still empty. */
+  function applyImport(draft: PaperImportDraft, replace: boolean) {
+    setQuestions((qs) => (replace ? draft.questions : [...qs, ...draft.questions]));
+    if (!title.trim() && draft.title) setTitle(draft.title);
+    if (!instructions.trim() && draft.instructions) setInstructions(draft.instructions);
+    // A new paper's 60 minutes is only a default; the paper's own time wins.
+    if (draft.durationMinutes && (!paper || !duration.trim())) setDuration(String(draft.durationMinutes));
+    setImportWarnings(draft.warnings);
+  }
 
   async function save(publish: boolean) {
     const checked = validatePaper({
@@ -257,6 +280,10 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
       const q = validateQuestions(questions);
       if (!q.ok) { setError(q.message); return; }
       qs = q.value;
+    }
+    if (publish && mode === "online" && toCheck) {
+      setError(`${toCheck} question${toCheck === 1 ? " is" : "s are"} flagged for checking. Look at each one and press "Looks right", or save a draft for now.`);
+      return;
     }
     if (publish) {
       const problem = publishProblem({ mode, hasContent: hasFile || !!checked.value.body, questionCount: qs.length });
@@ -387,6 +414,9 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
               questions={questions}
               onChange={setQuestions}
               locked={locked}
+              startImport={startImport}
+              onImport={applyImport}
+              importWarnings={importWarnings}
               ai={{
                 subject: subjects?.find((s) => s.id === subjectId)?.name ?? "",
                 className: classes.find((c) => c.id === classId)?.name ?? "",
@@ -404,16 +434,21 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
   );
 }
 
-function QuestionBuilder({ questions, onChange, locked, ai }: {
-  questions: QuestionDraft[];
-  onChange: (q: QuestionDraft[]) => void;
+function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImport, importWarnings }: {
+  questions: ReviewQuestion[];
+  onChange: (q: ReviewQuestion[]) => void;
   locked: boolean;
   /** What the AI needs to draft questions for this paper. */
   ai: { subject: string; className: string; kind: PaperKind };
+  startImport: boolean;
+  onImport: (draft: PaperImportDraft, replace: boolean) => void;
+  importWarnings: string[];
 }) {
   const aiStatus = useAiStatus();
   const [drafting, setDrafting] = useState(false);
-  const set = (i: number, patch: Partial<QuestionDraft>) => onChange(questions.map((q, j) => (j === i ? { ...q, ...patch } : q)));
+  const [importing, setImporting] = useState(startImport && !locked);
+  const toCheck = questionsToCheck(questions);
+  const set = (i: number, patch: Partial<ReviewQuestion>) => onChange(questions.map((q, j) => (j === i ? { ...q, ...patch } : q)));
   const move = (i: number, by: number) => {
     const next = [...questions];
     const [q] = next.splice(i, 1);
@@ -431,9 +466,21 @@ function QuestionBuilder({ questions, onChange, locked, ai }: {
         <div className="text-small font-semibold">Questions</div>
         <div className="text-[11.5px] text-ink-faint">{totalPoints(questions)} marks in total</div>
       </div>
+      {(importWarnings.length > 0 || toCheck > 0) && (
+        <div role="status" className="mb-3 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3.5 py-2.5 text-[12.5px] leading-snug text-warn-ink">
+          {toCheck > 0 && (
+            <p className="font-semibold">
+              Imported by Bloom. {toCheck} question{toCheck === 1 ? " needs" : "s need"} checking against the paper before you can publish.
+            </p>
+          )}
+          {importWarnings.length > 0 && (
+            <ul className="mt-1 list-disc pl-5">{importWarnings.map((w, k) => <li key={k}>{w}</li>)}</ul>
+          )}
+        </div>
+      )}
       <fieldset disabled={locked} className="grid gap-3">
         {questions.map((q, i) => (
-          <div key={i} className="rounded-lg border border-line bg-white p-3.5">
+          <div key={i} className={`rounded-lg border bg-white p-3.5 ${q.check?.length ? "border-warn-ink/50" : "border-line"}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-micro tracking-[0.1em] text-ink-faint">Q{i + 1}</span>
               <select
@@ -470,6 +517,14 @@ function QuestionBuilder({ questions, onChange, locked, ai }: {
               value={q.prompt}
               onChange={(e) => set(i, { prompt: e.target.value })}
             />
+            {q.check?.length ? (
+              <div className="mt-2 flex items-start gap-3 rounded-md bg-warn-ink/5 px-2.5 py-2 text-[12px] leading-snug text-warn-ink">
+                <ul className="flex-1 list-disc pl-4" aria-label={`Question ${i + 1}: check this`}>
+                  {q.check.map((c, k) => <li key={k}>{c}</li>)}
+                </ul>
+                {!locked && <Button onClick={() => set(i, { check: undefined })}>Looks right</Button>}
+              </div>
+            ) : null}
             {q.kind === "choice" ? (
               <div className="mt-2.5 grid gap-1.5">
                 {q.options.map((o, k) => (
@@ -521,8 +576,12 @@ function QuestionBuilder({ questions, onChange, locked, ai }: {
             <Button key={k} onClick={() => onChange([...questions, blankQuestion(k)])}>+ {QUESTION_KIND_LABEL[k]}</Button>
           ))}
           {aiStatus?.aiEnabled && (
-            <Button disabled={!ai.subject || !ai.className} onClick={() => setDrafting(true)}
-              title={!ai.subject ? "Pick the class and subject first." : undefined}>Draft questions with Bloom</Button>
+            <>
+              <Button disabled={!ai.subject || !ai.className} onClick={() => setDrafting(true)}
+                title={!ai.subject ? "Pick the class and subject first." : undefined}>Draft questions with Bloom</Button>
+              <Button disabled={!ai.subject || !ai.className} onClick={() => setImporting(true)}
+                title={!ai.subject ? "Pick the class and subject first." : undefined}>Import a paper with Bloom</Button>
+            </>
           )}
         </div>
       )}
@@ -533,6 +592,16 @@ function QuestionBuilder({ questions, onChange, locked, ai }: {
           kind={ai.kind}
           onClose={() => setDrafting(false)}
           onAdd={(drafts) => { onChange([...questions, ...drafts]); setDrafting(false); }}
+        />
+      )}
+      {importing && (
+        <AiPaperImportModal
+          subject={ai.subject}
+          className={ai.className}
+          kind={ai.kind}
+          hasQuestions={questions.length > 0}
+          onClose={() => setImporting(false)}
+          onImported={(draft, replace) => { onImport(draft, replace); setImporting(false); }}
         />
       )}
     </div>

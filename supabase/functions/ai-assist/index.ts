@@ -12,7 +12,8 @@
  *  - what is sent: only what the task needs. Report card drafting gets a
  *    first name and results, never an admission number or surname.
  *  - what is kept: one ai_usage row per request (who, task, tokens), never
- *    the prompt or the reply.
+ *    the prompt or the reply. A paper sent for importing is deleted from
+ *    storage as soon as it has been read (documents.ts).
  *
  * Staff drafting tasks answer in JSON fixed by a schema; the app shows the
  * draft for a person to edit, and nothing is saved or sent from here. Bloom
@@ -27,8 +28,12 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { aiFromEnv, type AiCall, type AiReply } from "./providers.ts";
-import { ALLOWED, BadInput, chatMessages, chatSystem, EFFORT, prepare, TASKS, tutorMessages, tutorSystem, type Role, type Task } from "./tasks.ts";
+import { paperImportContent, readStaged } from "./documents.ts";
+import { aiFromEnv, type AiCall, type AiReply, type AiRequest } from "./providers.ts";
+import {
+  ALLOWED, BadInput, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
+  type Role, type Task,
+} from "./tasks.ts";
 
 /** Requests per person per day: staff draft in batches at the end of term; a learner chats. */
 export const DAILY_LIMIT: Record<Role, number> = { school_admin: 400, teacher: 400, student: 80 };
@@ -85,7 +90,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
 
   // Build the request before spending anything, so a bad input costs nothing.
   let system: string;
-  let messages: { role: "user" | "assistant"; content: string }[];
+  let messages: AiRequest["messages"];
   let schema: Record<string, unknown> | null = null;
   try {
     if (task === "tutor") {
@@ -98,6 +103,11 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
       const label = level ? `${CLASS_WORD[level] ?? "Year "}${me.classes.form_level}` : "";
       system = tutorSystem(label, level === "secondary" ? "844" : "cbc");
       messages = tutorMessages(body.payload ?? {});
+    } else if (task === "paper_import") {
+      const request = paperImportRequest(body.payload, tenant.id, caller.id);
+      system = paperImportSystem(request.kind);
+      schema = PAPER_IMPORT_SCHEMA;
+      messages = [{ role: "user", content: paperImportContent(request, await readStaged(admin, request.paths)) }];
     } else if (task === "chat") {
       const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Nairobi" });
       system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today);
@@ -144,12 +154,17 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
     return json({
       error: task === "tutor" ? "I can't help with that one. Try asking about your schoolwork."
         : task === "chat" ? "Bloom can't help with that one. Try asking another way."
+        : task === "paper_import" ? "Bloom couldn't read this paper. Check it's the right file."
         : "Bloom couldn't draft this. Try rewording it.",
     }, 422);
   }
   if (reply.outcome === "too_long") {
     await log(reply, "error");
-    return json({ error: task === "chat" ? "That answer ran too long. Try asking for less at once, or start a new chat." : "That was too much to draft at once. Try asking for less." }, 422);
+    return json({
+      error: task === "chat" ? "That answer ran too long. Try asking for less at once, or start a new chat."
+        : task === "paper_import" ? "That paper is too long to import in one go. Import it a section at a time."
+        : "That was too much to draft at once. Try asking for less.",
+    }, 422);
   }
 
   await log(reply, "ok");

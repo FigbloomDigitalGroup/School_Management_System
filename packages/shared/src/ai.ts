@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
 import type { QuestionDraft } from "./examPapers";
 import type { ParentGuide } from "./homework";
+import { draftFromImport, parseImportedPaper, type PaperImportDraft } from "./paperImport";
 import type { ReportCardData } from "./reportCards";
 
 /**
@@ -14,8 +15,11 @@ import type { ReportCardData } from "./reportCards";
 /** Drafting a class's comments or a question paper can take a while. */
 const AI_TIMEOUT_MS = 120_000;
 
-async function ask<T>(task: string, payload: unknown): Promise<T> {
-  const { result } = await invokeEdge<{ result: T }>("ai-assist", { task, payload }, { timeoutMs: AI_TIMEOUT_MS });
+/** Reading a whole paper, PDF pages and all, takes longest. */
+const IMPORT_TIMEOUT_MS = 240_000;
+
+async function ask<T>(task: string, payload: unknown, timeoutMs = AI_TIMEOUT_MS): Promise<T> {
+  const { result } = await invokeEdge<{ result: T }>("ai-assist", { task, payload }, { timeoutMs });
   return result;
 }
 
@@ -109,6 +113,24 @@ export function questionDraftsFromAi(questions: AiQuestion[]): QuestionDraft[] {
 export async function draftQuestions(req: QuestionRequest): Promise<QuestionDraft[]> {
   const { questions } = await ask<{ questions: AiQuestion[] }>("questions", req);
   return questionDraftsFromAi(questions);
+}
+
+// ------------------------------------------------------------------ importing a paper
+
+export interface PaperImportRequest {
+  /** Staged with paperImportPath(); the function deletes them once read. */
+  paths: string[];
+  subject: string;
+  classLabel: string;
+  curriculum: "844" | "cbc";
+  kind: "exam" | "assessment";
+  notes?: string;
+}
+
+/** Bloom reads an existing paper and returns it as builder drafts, flagged where the teacher should check. */
+export async function importPaperWithAi(req: PaperImportRequest): Promise<PaperImportDraft> {
+  const raw = await ask<unknown>("paper_import", req, IMPORT_TIMEOUT_MS);
+  return draftFromImport(parseImportedPaper(raw));
 }
 
 // ------------------------------------------------------------------ homework
