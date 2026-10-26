@@ -272,7 +272,45 @@ export class FakeSupabaseClient {
         .map(Number);
       return Promise.resolve({ data: Math.max(0, ...numbers) + 1, error: null });
     }
+    if (name === "announcement_recipients") {
+      const a = this.rowsIn("announcements").find((r) => r.id === args.p_announcement_id);
+      const ids = a
+        ? this.rowsIn("profiles").filter((p) => p.tenant_id === a.tenant_id && this.audienceReaches(a, p)).map((p) => p.id)
+        : [];
+      return Promise.resolve({ data: ids, error: null });
+    }
     return Promise.resolve({ data: null, error: { message: `rpc ${name} is not configured in the fake` } });
+  }
+
+  /** audience_reaches() in 20261026030000_announcement_audiences.sql, for the fake. */
+  private audienceReaches(a: Row, p: Row): boolean {
+    // deno-lint-ignore no-explicit-any
+    const au = (a.audience ?? {}) as any;
+    const role = String(p.role);
+    switch (au.kind) {
+      case "whole_school": return true;
+      case "role": return au.role === role;
+      case "roles": return Array.isArray(au.roles) && au.roles.includes(role);
+      case "user": return au.user_id === p.id;
+      case "people": return Array.isArray(au.profile_ids) && au.profile_ids.includes(p.id);
+      case "class":
+      case "form_level": break;
+      default: return false;
+    }
+    const side = role === "parent" ? "guardians" : role === "student" ? "students" : null;
+    const recipients = au.recipients ?? "both";
+    if (!side || (recipients !== "both" && recipients !== side)) return false;
+    return this.rowsIn("students").some((s) => {
+      if (s.tenant_id !== a.tenant_id || s.active === false) return false;
+      const mine = side === "students"
+        ? s.profile_id === p.id
+        : this.rowsIn("guardians").some((g) => g.student_id === s.id && g.profile_id === p.id);
+      if (!mine) return false;
+      if (au.kind === "class") return s.class_id === au.class_id;
+      // deno-lint-ignore no-explicit-any
+      const cls = (this.rowsIn("classes").find((c) => c.id === s.class_id) ?? s.classes ?? {}) as any;
+      return cls.form_level === au.form_level && (!au.level || cls.level === au.level);
+    });
   }
 
   from(table: string) {

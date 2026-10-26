@@ -57,6 +57,11 @@ function seedAnnouncement(admin: FakeSupabaseClient, overrides: Record<string, u
   }]);
 }
 
+/** Accounts at the school, so the audience rule can see their role. */
+function seedPeople(admin: FakeSupabaseClient, ids: string[], role: string) {
+  admin.seed("profiles", [...admin.rowsIn("profiles"), ...ids.map((id) => ({ id, role, tenant_id: TENANT_ID }))]);
+}
+
 function request(body: unknown = { announcement_id: ANNOUNCEMENT_ID }, opts: { method?: string; auth?: string | null } = {}) {
   const headers = new Headers();
   if (opts.auth !== null) headers.set("Authorization", opts.auth ?? "Bearer token");
@@ -170,6 +175,8 @@ describe("send-push handle", () => {
   it("resolves a class audience to its students and their guardians", async () => {
     const { admin, asUser } = makeClients();
     seedAnnouncement(admin, { audience: { kind: "class", class_id: "class-1" } });
+    seedPeople(admin, ["student-profile-1", "student-profile-2"], "student");
+    seedPeople(admin, ["parent-of-1", "parent-of-2"], "parent");
     admin.seed("students", [
       { id: "student-1", tenant_id: TENANT_ID, class_id: "class-1", profile_id: "student-profile-1", active: true },
       { id: "student-2", tenant_id: TENANT_ID, class_id: "other-class", profile_id: "student-profile-2", active: true },
@@ -194,6 +201,7 @@ describe("send-push handle", () => {
   it("resolves a form_level audience via the student's class", async () => {
     const { admin, asUser } = makeClients();
     seedAnnouncement(admin, { audience: { kind: "form_level", form_level: 2 } });
+    seedPeople(admin, ["parent-of-1"], "parent");
     admin.seed("students", [
       { id: "student-1", tenant_id: TENANT_ID, class_id: "c1", profile_id: null, active: true, classes: { form_level: 2 } },
       { id: "student-2", tenant_id: TENANT_ID, class_id: "c2", profile_id: null, active: true, classes: { form_level: 1 } },
@@ -210,6 +218,7 @@ describe("send-push handle", () => {
   it("keeps a Grade 2 announcement away from Form 2 in a school that runs both", async () => {
     const { admin, asUser } = makeClients();
     seedAnnouncement(admin, { audience: { kind: "form_level", form_level: 2, level: "primary" } });
+    seedPeople(admin, ["parent-of-1", "parent-of-2"], "parent");
     admin.seed("students", [
       { id: "student-1", tenant_id: TENANT_ID, class_id: "c1", profile_id: null, active: true, classes: { form_level: 2, level: "primary" } },
       { id: "student-2", tenant_id: TENANT_ID, class_id: "c2", profile_id: null, active: true, classes: { form_level: 2, level: "secondary" } },
@@ -226,6 +235,44 @@ describe("send-push handle", () => {
     const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ name: "ok" }), { status: 200 }));
     const res = await handle(request(), { admin, asUser }, fetchImpl);
     const out = await res.json();
+    assertEquals(out.sent, 1);
+  });
+
+  it("sends a students-only class message to the learners, not their parents", async () => {
+    const { admin, asUser } = makeClients();
+    seedAnnouncement(admin, { audience: { kind: "class", class_id: "class-1", recipients: "students" } });
+    seedPeople(admin, ["student-profile-1"], "student");
+    seedPeople(admin, ["parent-of-1"], "parent");
+    admin.seed("students", [{ id: "student-1", tenant_id: TENANT_ID, class_id: "class-1", profile_id: "student-profile-1", active: true }]);
+    admin.seed("guardians", [{ student_id: "student-1", profile_id: "parent-of-1" }]);
+    admin.seed("device_tokens", [
+      { id: "dt1", profile_id: "student-profile-1", token: "tok-student-1", platform: "android" },
+      { id: "dt2", profile_id: "parent-of-1", token: "tok-parent-1", platform: "android" },
+    ]);
+    const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ name: "ok" }), { status: 200 }));
+    const out = await (await handle(request(), { admin, asUser }, fetchImpl)).json();
+    assertEquals(out.sent, 1);
+  });
+
+  it("sends an all-students notice to learners only", async () => {
+    const { admin, asUser } = makeClients();
+    seedAnnouncement(admin, { audience: { kind: "role", role: "student" } });
+    seedPeople(admin, ["student-a", "student-b"], "student");
+    seedPeople(admin, ["parent-a"], "parent");
+    seedPeople(admin, ["teacher-a"], "teacher");
+    admin.seed("device_tokens", ["student-a", "student-b", "parent-a", "teacher-a"].map((id, i) => ({ id: `dt${i}`, profile_id: id, token: `tok-${id}`, platform: "android" })));
+    const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ name: "ok" }), { status: 200 }));
+    const out = await (await handle(request(), { admin, asUser }, fetchImpl)).json();
+    assertEquals(out.sent, 2);
+  });
+
+  it("sends a one-person notice to that person only", async () => {
+    const { admin, asUser } = makeClients();
+    seedAnnouncement(admin, { audience: { kind: "user", user_id: "teacher-a" } });
+    seedPeople(admin, ["teacher-a", "teacher-b"], "teacher");
+    admin.seed("device_tokens", ["teacher-a", "teacher-b"].map((id, i) => ({ id: `dt${i}`, profile_id: id, token: `tok-${id}`, platform: "android" })));
+    const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ name: "ok" }), { status: 200 }));
+    const out = await (await handle(request(), { admin, asUser }, fetchImpl)).json();
     assertEquals(out.sent, 1);
   });
 

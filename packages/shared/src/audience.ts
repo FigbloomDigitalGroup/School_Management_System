@@ -4,11 +4,11 @@ import { targetYearLabel, yearMatches } from "./levels";
 /**
  * Who an announcement is for, decided in one place. Every inbox (parent,
  * student and teacher, on web and both mobile apps) filters with
- * audienceIncludes(), and send-push resolves recipients the same way. The
- * database enforces the same rule on its own: announcement_visible_to_me()
- * in supabase/migrations/20261009000000_announcement_audiences.sql. If you
- * change one, change the other two (send-push keeps its own copy, since
- * edge functions can't import this package).
+ * audienceIncludes(). The database enforces the same rule on its own:
+ * audience_reaches() in
+ * supabase/migrations/20261026030000_announcement_audiences.sql decides who
+ * may read an announcement and, through announcement_recipients(), who
+ * send-push notifies. If you change one, change the other.
  */
 
 export type AudienceRecipients = "guardians" | "students" | "both";
