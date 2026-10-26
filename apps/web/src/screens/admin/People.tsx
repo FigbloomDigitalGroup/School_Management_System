@@ -23,6 +23,7 @@ import { HealthEditor, OptionalHealthSection } from "../../components/learners/H
 import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
+import { CallButton } from "../../components/calls/CallButton";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at"> & { avatar_url: string | null };
@@ -373,6 +374,7 @@ export function People() {
                   {s.photo_changed_at && (
                     <span className="shrink-0 rounded-full bg-warn-bg px-2 py-0.5 text-[11px] font-semibold text-warn-ink">New photo</span>
                   )}
+                  {s.id !== profile.id && <CallButton profileId={s.id} name={s.full_name} className="ml-auto" />}
                 </div>
               ) },
               { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} tenant={tenant} /> },

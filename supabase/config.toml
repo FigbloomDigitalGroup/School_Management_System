@@ -80,3 +80,6 @@ verify_jwt = true              # the gate, reception or office that just recorde
 
 [functions.ai-assist]
 verify_jwt = true              # staff drafting, or a learner asking Bloom; secrets AI_PROVIDER (openai|anthropic), OPENAI_API_KEY or ANTHROPIC_API_KEY, optional AI_MODEL
+
+[functions.call-token]
+verify_jwt = true              # in-app calls and live classes; secrets LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
