@@ -106,10 +106,18 @@ export function kindForMime(mime: string): MaterialKind {
   return "document";
 }
 
-/** Why this file can't be uploaded, or null if it can. */
-export function fileProblem(file: { name: string; size: number; type?: string | null }): string | null {
+/**
+ * Why this file can't be uploaded, or null if it can. `maxBytes` is the
+ * hosted project's own upload limit when that is lower than the bucket's
+ * (the web app passes VITE_MAX_UPLOAD_MB), so a file that would be refused
+ * is caught before any of it is sent.
+ */
+export function fileProblem(
+  file: { name: string; size: number; type?: string | null }, maxBytes: number = MAX_FILE_BYTES,
+): string | null {
+  const limit = Math.min(maxBytes, MAX_FILE_BYTES);
   if (file.size <= 0) return `"${file.name}" is empty.`;
-  if (file.size > MAX_FILE_BYTES) return `"${file.name}" is ${formatFileSize(file.size)}. Files can be up to ${formatFileSize(MAX_FILE_BYTES)}.`;
+  if (file.size > limit) return `"${file.name}" is ${formatFileSize(file.size)}. Files can be up to ${formatFileSize(limit)}. For a longer video, upload it to YouTube or Google Drive and paste the link instead.`;
   if (!mimeForFile(file)) {
     return `"${file.name}" isn't a type we can share. Use a PDF, Word, Excel or PowerPoint file, a picture, a video (MP4, WebM, MOV) or a recording (MP3, M4A).`;
   }
