@@ -229,7 +229,7 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
       ...(d.scheme === "kcse" ? [`Points: ${dash(sm.points)}`] : []),
       ...(sm.position !== null ? [`Position: ${sm.position} of ${sm.ranked}`] : []),
     ];
-    sheet.text(parts.join("     "), MARGIN, 10, { bold: true });
+    sheet.text(parts.join("  ·  "), MARGIN, 10, { bold: true });
     sheet.y -= 10;
   } else if (!d.cbe.length) {
     sheet.text("No exam results were published for this term.", MARGIN, 10, { color: MUTED, y: sheet.y - 8 });
