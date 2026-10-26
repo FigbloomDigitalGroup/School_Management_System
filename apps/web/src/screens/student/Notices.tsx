@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { NoticeInfo } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { PageHead } from "../../components/ConsoleShell";
+import { OwnerAttachments } from "../../components/Media";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 
@@ -89,6 +90,7 @@ export function StudentNotices() {
                 <h2 className="text-[18px] font-semibold leading-snug tracking-tight">{selected.subject}</h2>
                 <div className="mt-1.5 text-[12.5px] text-ink-faint">{selected.from} · {selected.when}</div>
                 <p className="mt-4 max-w-[620px] whitespace-pre-line text-[14px] leading-relaxed">{selected.body}</p>
+                <div className="mt-5 max-w-[620px]"><OwnerAttachments owner="announcement" id={selected.id} /></div>
               </>
             ) : (
               <EmptyState title="No notice selected" body="Choose a notice from the list on the left." />

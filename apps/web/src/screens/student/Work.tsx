@@ -4,6 +4,7 @@ import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
 import { PageHead } from "../../components/ConsoleShell";
+import { OwnerAttachments } from "../../components/Media";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -186,6 +187,8 @@ export function StudentWork() {
                 )}
 
                 <p className="mt-4 whitespace-pre-line text-[13.5px] leading-relaxed text-ink">{selected.body}</p>
+
+                <div className="mt-4"><OwnerAttachments owner="homework" id={selected.id} heading="From your teacher" /></div>
 
                 {selected.state === "done" ? (
                   <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">

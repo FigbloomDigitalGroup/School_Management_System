@@ -97,15 +97,16 @@ export function formatShortDate(dateOnly: string): string {
  * second mount — calling .on() on an already-subscribed channel throws.
  * (Date.now()/Math.random() rather than crypto.randomUUID(): this file is
  * also type-checked for the React Native build, which has no DOM lib.)
+ * Updates count too: a notice with files attached is saved as a draft, its
+ * files go up, and only then is it published (an UPDATE), so families get
+ * the notice and its attachments together.
  */
 export function subscribeAnnouncements(tenantId: string, onInsert: () => void): () => void {
+  const filter = { schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` };
   const channel = supabase()
     .channel(`announcements-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` },
-      () => onInsert(),
-    )
+    .on("postgres_changes", { event: "INSERT", ...filter }, () => onInsert())
+    .on("postgres_changes", { event: "UPDATE", ...filter }, () => onInsert())
     .subscribe();
   return () => { void supabase().removeChannel(channel); };
 }

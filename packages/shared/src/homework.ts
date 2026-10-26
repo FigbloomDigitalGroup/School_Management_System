@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { formatShortDate } from "./parentData";
 import { sendClassMessage } from "./teacherData";
+import { removeAttachmentFilesFor } from "./materials";
 import type { ClassLevel } from "./types";
 
 /**
@@ -167,6 +168,8 @@ export async function updateHomework(id: string, input: HomeworkInput): Promise<
 }
 
 export async function deleteHomework(id: string): Promise<void> {
+  // Its attachments' rows go with it; their files in storage don't, so they go first.
+  await removeAttachmentFilesFor("homework", id);
   const { data, error } = await supabase().from("assignments").delete().eq("id", id).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);

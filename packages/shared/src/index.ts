@@ -40,6 +40,7 @@ export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";
 export * from "./homework";
+export * from "./materials";
 export * from "./learners";
 export * from "./audience";
 export * from "./messageRoster";

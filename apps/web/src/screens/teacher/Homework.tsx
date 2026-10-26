@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchClassSizes, fetchMyHomework, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty,
-  minutesWords, NEED_CHIPS, notifyHomeworkParents, removeNeed, retoneGuide, updateHomework, validateHomework,
-  type ClassGroup, type HandIn, type HomeworkInput, type HomeworkRow, type ParentGuide,
+  addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchAttachments, fetchClassSizes, fetchMyHomework,
+  fetchTeacherClasses, fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS,
+  handedInLabel, isGuideEmpty, minutesWords, NEED_CHIPS, notifyHomeworkParents, removeAttachment, removeNeed, retoneGuide,
+  updateHomework, validateHomework,
+  type ClassGroup, type HandIn, type HomeworkInput, type HomeworkRow, type MediaItem, type ParentGuide,
 } from "@figbloom/shared";
+import { AttachmentPicker } from "../../components/AttachmentPicker";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -13,6 +15,7 @@ import { SelectField, TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
@@ -24,7 +27,8 @@ const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 
  * on their Work tab (their own class only) and mark it handed in; this screen
  * shows how many have. Each piece can carry a short "For parents" guide that
  * parents read on their Homework screen, and new work can be announced to
- * the class's parents in the same step.
+ * the class's parents in the same step. Worksheets, videos and links can be
+ * attached; learners and parents open them from the homework itself.
  */
 export function Homework() {
   const toast = useToast();
@@ -36,8 +40,11 @@ export function Homework() {
   const { data: classes } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data, loading, error } = useAsync(async () => {
     const work = await fetchMyHomework(profile.id);
-    const sizes = await fetchClassSizes([...new Set(work.map((w) => w.classId))]);
-    return { work, sizes };
+    const [sizes, files] = await Promise.all([
+      fetchClassSizes([...new Set(work.map((w) => w.classId))]),
+      fetchAttachments("homework", work.map((w) => w.id)),
+    ]);
+    return { work, sizes, files };
   }, [profile.id, reloadKey]);
 
   async function remove(w: HomeworkRow) {
@@ -54,6 +61,7 @@ export function Homework() {
 
   const work = data?.work ?? [];
   const sizes = data?.sizes ?? {};
+  const fileCount = (id: string) => data?.files.get(id)?.length ?? 0;
   const today = localToday();
 
   return (
@@ -92,6 +100,7 @@ export function Homework() {
                 <div className="flex items-start gap-2">
                   <Cell sub={w.body ? w.body.slice(0, 80) + (w.body.length > 80 ? "…" : "") : undefined}>{w.title}</Cell>
                   {!isGuideEmpty(w.guide) && <span title="Has a guide for parents"><Badge tone="info">Parent guide</Badge></span>}
+                  {fileCount(w.id) > 0 && <Badge tone="muted">{fileCount(w.id)} attached</Badge>}
                 </div>
               ) },
               { key: "class", header: "Class · subject", width: "1.2fr", render: (w: HomeworkRow) => <Cell sub={w.subjectName}>{w.className}</Cell> },
@@ -122,14 +131,13 @@ export function Homework() {
           work={editing.work}
           classes={classes ?? []}
           teacherId={profile.id}
+          tenantId={tenant.id}
           today={today}
-          onClose={() => setEditing(null)}
-          onSave={async (input, tell) => {
-            if (editing.work) {
-              await updateHomework(editing.work.id, input);
+          onClose={() => { setEditing(null); setReloadKey((k) => k + 1); }}
+          onDone={async (input, created, tell) => {
+            if (!created) {
               toast("Homework updated");
             } else {
-              await createHomework(tenant.id, profile.id, input);
               // The homework is saved either way; a note that didn't send is reported, not treated as a failed save.
               const told = tell
                 ? await notifyHomeworkParents(tenant.id, profile.id, input, tell.subjectName, tell.className).then(() => true, () => false)
@@ -146,14 +154,15 @@ export function Homework() {
   );
 }
 
-function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
+function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onDone }: {
   work?: HomeworkRow;
   classes: ClassGroup[];
   teacherId: string;
+  tenantId: string;
   today: string;
   onClose: () => void;
-  /** `tell` is set when the teacher ticked "Tell parents" on new homework. */
-  onSave: (input: HomeworkInput, tell: { subjectName: string; className: string } | null) => Promise<void>;
+  /** Everything is saved, files included. `tell` is set when the teacher ticked "Tell parents" on new homework. */
+  onDone: (input: HomeworkInput, created: boolean, tell: { subjectName: string; className: string } | null) => Promise<void>;
 }) {
   const [classId, setClassId] = useState(work?.classId ?? classes[0]?.id ?? "");
   const [subjectId, setSubjectId] = useState(work?.subjectId ?? "");
@@ -170,6 +179,21 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
   const [tellParents, setTellParents] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [drafts, setDrafts] = useState<WebMediaDraft[]>([]);
+  // Saved attachments taken off in the form: only removed when the teacher saves.
+  const [removed, setRemoved] = useState<string[]>([]);
+  // ...and the ones already gone, so a retry doesn't try to remove them twice.
+  const gone = useRef(new Set<string>());
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
+  const batch = useRef<AttachmentBatch | null>(null);
+  // Set once new homework is created, so a retry after an upload fails updates it rather than setting it twice.
+  const createdId = useRef<string | null>(null);
+
+  const { data: saved } = useAsync(
+    async () => (work ? (await fetchAttachments("homework", [work.id])).get(work.id) ?? [] : []),
+    [work?.id],
+  );
+  const existing = (saved ?? []).filter((m) => !removed.includes(m.id));
 
   // Subjects are per class: only the ones this teacher is assigned in the chosen class.
   const { data: subjectList } = useAsync(
@@ -201,13 +225,43 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
     if (!checked.ok) { setError(checked.message); return; }
     setSaving(true);
     setError("");
+    let id = work?.id ?? createdId.current;
     try {
+      if (id) await updateHomework(id, checked.value);
+      else id = createdId.current = await createHomework(tenantId, teacherId, checked.value);
+      for (const m of (saved ?? []).filter((x) => removed.includes(x.id) && !gone.current.has(x.id))) {
+        await removeAttachment(m);
+        gone.current.add(m.id);
+      }
+      if (drafts.length) {
+        batch.current = saveAttachments(tenantId, "homework", id, drafts, setProgress,
+          (d) => setDrafts((list) => list.filter((x) => x !== d)));
+        await batch.current.done;
+      }
       const subjectName = subjects?.find((s) => s.id === subjectId)?.name ?? "";
-      await onSave(checked.value, !work && tellParents ? { subjectName, className: cls?.name ?? "" } : null);
+      await onDone(checked.value, !work, !work && tellParents ? { subjectName, className: cls?.name ?? "" } : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save.");
+      const why = err instanceof UploadCancelled ? "Upload cancelled." : err instanceof Error ? err.message : "Could not save.";
+      // The homework itself is in by now if `id` is set; only the files are left.
+      setError(id && drafts.length
+        ? `${why} The homework is saved; the files still listed haven't been added${!work && tellParents ? " and parents haven't been told yet" : ""}. Save again to retry.`
+        : why);
       setSaving(false);
+    } finally {
+      batch.current = null;
+      setProgress(null);
     }
+  }
+
+  function removeSaved(m: MediaItem) {
+    if (window.confirm(`Remove "${m.title}" from this homework? It goes when you save.`)) setRemoved((r) => [...r, m.id]);
+  }
+
+  /** Closing mid-upload stops the upload rather than leaving it running unseen. */
+  function close() {
+    if (batch.current && !window.confirm("Files are still uploading. Stop and close?")) return;
+    batch.current?.cancel();
+    onClose();
   }
 
   const noSubjects = subjects !== null && subjects.length === 0;
@@ -215,12 +269,12 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={close}
       eyebrow="Homework"
       title={work ? "Edit homework" : "Set homework"}
       actions={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={close}>Cancel</Button>
           <Button variant="accent" disabled={saving || noSubjects} onClick={() => void save()}>{saving ? "Saving…" : work ? "Save changes" : "Set homework"}</Button>
         </>
       }
@@ -295,6 +349,16 @@ function HomeworkModal({ work, classes, teacherId, today, onClose, onSave }: {
             hint={minutesWords(guide.minutes) || "Optional."}
           />
         </fieldset>
+
+        <AttachmentPicker
+          drafts={drafts}
+          onChange={setDrafts}
+          existing={existing}
+          onRemoveExisting={removeSaved}
+          progress={progress}
+          onCancel={() => batch.current?.cancel()}
+          disabled={saving}
+        />
 
         {!work && (
           <label className="flex items-start gap-2.5">

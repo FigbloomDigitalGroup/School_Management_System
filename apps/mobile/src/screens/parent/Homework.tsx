@@ -3,11 +3,12 @@ import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "rea
 import { useNavigation } from "@react-navigation/native";
 import {
   daysFromToday, doneByWords, dueWords, HAND_IN_PARENT_LABEL, minutesWords, setHomeworkDone, splitHomework,
-  type HomeworkItem,
+  type HomeworkItem, type MediaItem,
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
+import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import { useParentHomework } from "../../lib/useParentHomework";
 
 /**
@@ -28,6 +29,7 @@ export function ParentHomework() {
 
   const mine = byChild?.[child.id];
   const groups = splitHomework(mine?.items ?? []);
+  const files = useAttachments("homework", (mine?.items ?? []).map((i) => i.id));
 
   async function mark(item: HomeworkItem, done: boolean) {
     setBusy(item.id);
@@ -84,6 +86,7 @@ export function ParentHomework() {
                 <HomeworkCard
                   key={item.id}
                   item={item}
+                  files={files.get(item.id) ?? []}
                   childFirst={child.first}
                   canMark={mine.parentMarksDone}
                   busy={busy === item.id}
@@ -100,8 +103,9 @@ export function ParentHomework() {
   );
 }
 
-function HomeworkCard({ item, childFirst, canMark, busy, failed, tint, onMark }: {
+function HomeworkCard({ item, files, childFirst, canMark, busy, failed, tint, onMark }: {
   item: HomeworkItem;
+  files: MediaItem[];
   childFirst: string;
   canMark: boolean;
   busy: boolean;
@@ -131,6 +135,8 @@ function HomeworkCard({ item, childFirst, canMark, busy, failed, tint, onMark }:
       </View>
 
       {!!item.body && <Text style={[s.small, { marginTop: 8 }]}>{item.body}</Text>}
+
+      <MediaLinks items={files} tint={tint} heading="FROM THE TEACHER" />
 
       {g && (
         <View style={{ marginTop: 10, gap: 8, padding: 12, borderRadius: 12, backgroundColor: t.appSurface.page }}>

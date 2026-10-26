@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 
 const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
   late: { bg: t.status.warnBg, ink: t.status.warnInk },
@@ -17,6 +19,7 @@ const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
  * fallback to fall back on here.
  */
 export function StudentWork() {
+  const nav = useNavigation<any>();
   const { data, accent } = useStudentData();
   const a = accentFor(accent);
   const [done, setDone] = useState<Record<string, boolean>>({});
@@ -24,6 +27,7 @@ export function StudentWork() {
   const [failedId, setFailedId] = useState<string | null>(null);
 
   const work = data.work;
+  const files = useAttachments("homework", work.map((w) => w.id));
   const toHandIn = work.filter((w) => w.state !== "done" && !done[w.id]).length;
 
   async function handIn(assignmentId: string) {
@@ -48,6 +52,19 @@ export function StudentWork() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {/* Learning materials is a stack screen, not a seventh tab: six is already a full bar. */}
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={() => nav.navigate("Materials")}
+          style={[s.card, { marginBottom: 12, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={s.eyebrow}>LEARNING MATERIALS</Text>
+            <Text style={[s.small, { marginTop: 4 }]}>Notes, worksheets and videos your teachers have shared</Text>
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>Open ›</Text>
+        </TouchableOpacity>
+
         {work.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
             <Text style={s.small}>Nothing set yet. Anything your teachers set appears here the moment they set it.</Text>
@@ -74,6 +91,8 @@ export function StudentWork() {
                     </Text>
                   </View>
                 </View>
+
+                <MediaLinks items={files.get(w.id) ?? []} tint={a.deep} heading="FROM YOUR TEACHER" />
 
                 {state !== "done" && (
                   <>
