@@ -5,6 +5,7 @@ import {
   mimeForFile, setMaterialPublished, supabase, updateMaterial, validateLink, validateMaterial,
   type MaterialRow,
 } from "@figbloom/shared";
+import { UPLOAD_LIMIT_BYTES } from "../../lib/uploadLimit";
 import { PageHead } from "../../components/ConsoleShell";
 import { MediaGlyph, MediaPlayer } from "../../components/Media";
 import { Badge } from "../../components/ui/Badge";
@@ -31,7 +32,7 @@ interface Scope {
  * class for a subject they teach; the school admin sees and can post for
  * every class. A material is a draft, seen only by staff, until it's
  * published; then the class's learners and their parents find it under
- * Learning materials. Videos can be uploaded (up to 2 GB) or linked from
+ * Learning materials. Videos can be uploaded (up to VITE_MAX_UPLOAD_MB) or linked from
  * YouTube, Vimeo or Google Drive.
  */
 export function LearningMaterials({ admin = false }: { admin?: boolean }) {
@@ -205,7 +206,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
 
   function pickFile(f: File | null) {
     setFile(f);
-    setError(f ? fileProblem(f) ?? "" : "");
+    setError(f ? fileProblem(f, UPLOAD_LIMIT_BYTES) ?? "" : "");
     // A file named "Photosynthesis notes.pdf" is usually titled just that.
     if (f && !title.trim()) setTitle(f.name.replace(/\.[a-z0-9]+$/i, ""));
   }
@@ -244,7 +245,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
     }
 
     if (!file) { setError("Choose the file to upload."); return; }
-    const problem = fileProblem(file);
+    const problem = fileProblem(file, UPLOAD_LIMIT_BYTES);
     const mime = mimeForFile(file);
     if (problem || !mime) { setError(problem ?? "That type of file can't be uploaded."); return; }
 
@@ -328,7 +329,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
                 >
                   <div className="text-[13px] font-semibold">{s === "file" ? "Upload a file" : "Paste a link"}</div>
                   <div className="mt-0.5 text-[11.5px] text-ink-faint">
-                    {s === "file" ? "Notes, a worksheet, slides, a picture, a recording, or a video up to 2 GB." : "A YouTube, Vimeo or Google Drive video plays right in the app. Any other site opens in a new tab."}
+                    {s === "file" ? `Notes, a worksheet, slides, a picture, a recording, or a video up to ${formatFileSize(UPLOAD_LIMIT_BYTES)}.` : "A YouTube, Vimeo or Google Drive video plays right in the app. Any other site opens in a new tab."}
                   </div>
                 </button>
               ))}
@@ -336,7 +337,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
             {source === "file" ? (
               <div className="rounded-lg border border-line-soft bg-page px-3.5 py-3">
                 <input type="file" disabled={saving} onChange={(e) => pickFile(e.target.files?.[0] ?? null)} className="text-[12.5px]" />
-                {file && !fileProblem(file) && (
+                {file && !fileProblem(file, UPLOAD_LIMIT_BYTES) && (
                   <div className="mt-1.5 text-[11.5px] text-ink-faint">{MATERIAL_KIND_LABEL[kindForMime(mimeForFile(file) ?? "")]} · {formatFileSize(file.size)}</div>
                 )}
                 {fraction !== null && (

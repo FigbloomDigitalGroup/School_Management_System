@@ -3,6 +3,7 @@ import {
   draftTitle, fileProblem, formatFileSize, kindForLink, kindForMime, mediaSummary, mimeForFile, validateLink,
   type MediaItem,
 } from "@figbloom/shared";
+import { UPLOAD_LIMIT_BYTES } from "../lib/uploadLimit";
 import { batchProgressLabel, type BatchProgress, type WebMediaDraft } from "../lib/resumableUpload";
 import { MediaGlyph } from "./Media";
 import { Button } from "./ui/Button";
@@ -30,9 +31,9 @@ export function AttachmentPicker({ drafts, onChange, existing = [], onRemoveExis
   function addFiles(list: FileList | null) {
     if (!list?.length) return;
     const files = Array.from(list);
-    const bad = files.map((f) => fileProblem(f)).find(Boolean);
+    const bad = files.map((f) => fileProblem(f, UPLOAD_LIMIT_BYTES)).find(Boolean);
     setProblem(bad ?? "");
-    onChange([...drafts, ...files.filter((f) => !fileProblem(f)).map((file): WebMediaDraft => ({ type: "file", file, title: "" }))]);
+    onChange([...drafts, ...files.filter((f) => !fileProblem(f, UPLOAD_LIMIT_BYTES)).map((file): WebMediaDraft => ({ type: "file", file, title: "" }))]);
   }
 
   function addLink() {
@@ -49,7 +50,7 @@ export function AttachmentPicker({ drafts, onChange, existing = [], onRemoveExis
     <fieldset className="grid gap-2.5 rounded-lg border border-line-soft bg-page px-3.5 pb-3.5 pt-1">
       <legend className="px-1 text-small font-semibold">Files and links (optional)</legend>
       <p className="text-[11.5px] leading-snug text-ink-faint">
-        Worksheets, notes, pictures, recordings or a video up to 2 GB. Or paste a YouTube, Vimeo or Google Drive link: it plays right in the app.
+        Worksheets, notes, pictures, recordings or a video up to {formatFileSize(UPLOAD_LIMIT_BYTES)}. Or paste a YouTube, Vimeo or Google Drive link: it plays right in the app.
       </p>
 
       {(existing.length > 0 || drafts.length > 0) && (

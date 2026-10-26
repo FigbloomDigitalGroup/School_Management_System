@@ -185,3 +185,15 @@ describe("groupBySubject", () => {
     expect(g[1]!.items.map((x) => x.id)).toEqual(["1", "3"]);
   });
 });
+
+describe("fileProblem with the project's upload limit", () => {
+  it("refuses a file over a lower project limit and points to a link instead", () => {
+    const fifty = 50 * 1024 ** 2;
+    expect(fileProblem({ name: "talk.mp4", size: 120 * 1024 ** 2, type: "video/mp4" }, fifty)).toMatch(/up to 50 MB.*YouTube/);
+    expect(fileProblem({ name: "notes.pdf", size: 3 * 1024 ** 2, type: "application/pdf" }, fifty)).toBeNull();
+  });
+
+  it("never allows more than the bucket does", () => {
+    expect(fileProblem({ name: "a.mp4", size: MAX_FILE_BYTES + 1, type: "video/mp4" }, 10 * MAX_FILE_BYTES)).toMatch(/up to 2\.0 GB/);
+  });
+});
