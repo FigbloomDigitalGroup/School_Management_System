@@ -48,6 +48,7 @@ import { AdminLeave } from "./screens/admin/Leave";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
+import { Activities } from "./screens/admin/Activities";
 
 import { Attendance } from "./screens/teacher/Attendance";
 import { K12Gradebook } from "./screens/teacher/K12Gradebook";
@@ -74,6 +75,7 @@ import { ParentMaterials } from "./screens/parent/Materials";
 import { ParentBus } from "./screens/parent/Bus";
 import { ParentInbox } from "./screens/parent/Inbox";
 import { ParentSettings } from "./screens/parent/Settings";
+import { ParentActivities } from "./screens/parent/Activities";
 
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
@@ -82,6 +84,7 @@ import { StudentMaterials } from "./screens/student/Materials";
 import { StudentResults } from "./screens/student/Results";
 import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
+import { StudentActivities } from "./screens/student/Activities";
 
 import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
@@ -204,6 +207,7 @@ function TenantRoutes() {
           <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
+          <Route path="admin/activities" element={<AdminShell allow={["school_admin"]}><Activities admin /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -220,6 +224,7 @@ function TenantRoutes() {
           <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
+          <Route path="teacher/activities" element={<TeacherShell allow={["teacher"]}><Activities /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
@@ -229,6 +234,7 @@ function TenantRoutes() {
           <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
+          <Route path="parent/activities" element={<ParentShell><ParentActivities /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
@@ -239,6 +245,7 @@ function TenantRoutes() {
           <Route path="student/study-helper" element={<StudentShell><StudyHelper /></StudentShell>} />
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
+          <Route path="student/activities" element={<StudentShell><StudentActivities /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
