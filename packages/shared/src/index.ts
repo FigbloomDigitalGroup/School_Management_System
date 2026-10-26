@@ -36,6 +36,7 @@ export * from "./organizations";
 export * from "./paging";
 export * from "./edge";
 export * from "./mpesaPay";
+export * from "./paymentSms";
 export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";
