@@ -88,6 +88,7 @@ import { DriverProfile } from "./screens/driver/Profile";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 import { RouteSeo } from "./components/RouteSeo";
+import { CallHost } from "./components/calls/CallHost";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -187,6 +188,7 @@ function TenantRoutes() {
     <SessionCtx.Provider value={session}>
       <PasswordGate profile={session.profile}>
       <TenantTheme tenant={session.tenant}>
+      <CallHost profileId={session.profile.id}>
         <Routes>
           <Route path="admin" element={<AdminShell allow={["school_admin"]}><AdminDashboard /></AdminShell>} />
           <Route path="admin/people" element={<AdminShell allow={["school_admin"]}><People /></AdminShell>} />
@@ -246,6 +248,7 @@ function TenantRoutes() {
 
           <Route path="*" element={<NotFound />} />
         </Routes>
+      </CallHost>
       </TenantTheme>
       </PasswordGate>
     </SessionCtx.Provider>

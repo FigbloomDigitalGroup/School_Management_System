@@ -291,8 +291,13 @@ export class FakeSupabaseClient {
         : [];
       return Promise.resolve({ data: ids, error: null });
     }
+    const answer = this.rpcAnswers[name];
+    if (answer) return Promise.resolve({ data: answer(args), error: null });
     return Promise.resolve({ data: null, error: { message: `rpc ${name} is not configured in the fake` } });
   }
+
+  /** A test's own stand-in for a database function this fake doesn't model. */
+  rpcAnswers: Record<string, (args: Row) => unknown> = {};
 
   /** audience_reaches() in 20261026030000_announcement_audiences.sql, for the fake. */
   private audienceReaches(a: Row, p: Row): boolean {
