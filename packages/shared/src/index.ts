@@ -49,3 +49,4 @@ export * from "./messageRoster";
 export * from "./reportCards";
 export * from "./competencies";
 export * from "./ai";
+export * from "./signatures";

@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import {
-  fetchAllPages, formatMoney, publishAnnouncement, removeAttachmentFilesFor, supabase, yearGroupKey, yearGroupsOf, yearLabel,
+  fetchAllPages, formatMoney, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, supabase, yearGroupKey, yearGroupsOf, yearLabel,
   type Audience, type ClassGroup, type YearGroup,
 } from "@figbloom/shared";
 import { AiWriteHelper } from "../../components/AiWriteHelper";
 import { AttachmentPicker } from "../../components/AttachmentPicker";
+import { MessageSignatureStatus, NeedsSignatureToggle } from "../../components/signatures/SignatureStatus";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
@@ -130,6 +131,7 @@ export function Announcements() {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [drafts, setDrafts] = useState<WebMediaDraft[]>([]);
+  const [needsSignature, setNeedsSignature] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
   const batch = useRef<AttachmentBatch | null>(null);
 
@@ -188,6 +190,8 @@ export function Announcements() {
       if (withFiles) {
         batch.current = saveAttachments(tenant.id, "announcement", created.id, drafts, setProgress);
         await batch.current.done;
+        // before it goes out: sending is what asks the families to sign
+        if (needsSignature) await requireAttachmentSignatures(created.id);
         if (publish) await publishAnnouncement(created.id);
       }
       createdId = null;
@@ -201,6 +205,7 @@ export function Announcements() {
       setSubject("");
       setBody("");
       setDrafts([]);
+      setNeedsSignature(false);
       setReloadKey((k) => k + 1);
     } catch (err) {
       // Half an announcement is worse than none: take it back out and keep the form as it was, to try again.
@@ -297,6 +302,7 @@ export function Announcements() {
             hint="Plain language, one instruction per paragraph. Most parents read this on a phone in the sun." />
 
           <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
+          {drafts.some((d) => d.type === "file") && <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />}
         </div>
 
         <aside className="grid content-start gap-4">
@@ -361,6 +367,7 @@ export function Announcements() {
                     <div className="mt-0.5 font-mono text-[10.5px] text-ink-faint">
                       {a.published_at ? new Date(a.published_at).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) : "Draft"}
                     </div>
+                    <MessageSignatureStatus announcementId={a.id} />
                   </li>
                 ))}
               </ul>

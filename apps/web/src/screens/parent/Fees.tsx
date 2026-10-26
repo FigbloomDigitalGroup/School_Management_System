@@ -14,6 +14,7 @@ import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listPaymentProofs, privateDocUrl, uploadPaymentProof, type PaymentProof } from "../../lib/uploads";
+import { InvoiceSignature } from "../../components/signatures/InvoiceSignatures";
 import { ChildSwitcher } from "./ChildSwitcher";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
@@ -160,6 +161,7 @@ export function ParentFees() {
                 { label: "Paid so far", value: formatMoney(child.billed - child.balance, tenant.country), sub: child.billed > 0 ? `${Math.round(((child.billed - child.balance) / child.billed) * 100)}% of billed` : "" },
               ]}
             />
+            {invoiceId && <InvoiceSignature invoiceId={invoiceId} />}
 
             <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)" }}>
               <section className="overflow-hidden rounded-lg border border-line bg-white">

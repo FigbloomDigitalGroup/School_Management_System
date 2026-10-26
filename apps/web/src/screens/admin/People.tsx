@@ -14,6 +14,7 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PasswordResetRequests, ResetPasswordSection } from "../../components/PasswordReset";
 import { useAsync } from "../../lib/useAsync";
+import { LearnerDocumentSignatures } from "../../components/signatures/LearnerDocumentSignatures";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
@@ -1204,6 +1205,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
   const [loading, setLoading] = useState(true);
   const [docType, setDocType] = useState("birth_certificate");
   const [uploading, setUploading] = useState(false);
+  const [signing, setSigning] = useState<StudentDocument | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1253,15 +1255,16 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
       ) : (
         <ul className="mt-2 grid gap-1.5">
           {docs.map((d) => (
-            <li key={d.id}>
+            <li key={d.id} className="flex items-center gap-1.5">
               <button type="button" onClick={() => openDoc(d)}
-                className="flex w-full items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border border-line-soft bg-page px-3 py-2 text-left hover:bg-sunken">
                 <span className="min-w-0 truncate text-small font-medium">{d.file_name}</span>
                 <span className="flex shrink-0 items-center gap-2">
                   <Badge tone="muted">{DOC_TYPES.find((t) => t.value === d.doc_type)?.label ?? d.doc_type}</Badge>
                   <span className="font-mono text-[10.5px] text-ink-faint">{new Date(d.uploaded_at).toLocaleDateString()}</span>
                 </span>
               </button>
+              <Button onClick={() => setSigning(d)} title="Sign it, or ask guardians or staff to sign">Signatures</Button>
             </li>
           ))}
         </ul>
@@ -1275,6 +1278,7 @@ function StudentDocuments({ tenantId, uploaderId, studentId, toast }: {
         <input ref={fileRef} type="file" aria-label="Document file" className="text-small" />
         <Button type="submit" variant="primary" disabled={uploading}>{uploading ? "Uploading…" : "Add document"}</Button>
       </form>
+      {signing && <LearnerDocumentSignatures doc={signing} studentId={studentId} onClose={() => setSigning(null)} />}
     </div>
   );
 }

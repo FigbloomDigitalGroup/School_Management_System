@@ -13,6 +13,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { ChildSwitcher } from "./ChildSwitcher";
 import { ParentChildProfile } from "../../components/learners/ParentChildProfile";
 import { useToast } from "../../components/ui/Toast";
+import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
 /**
  * Desktop dashboard for the selected child: the fee balance, how they are
@@ -71,6 +72,7 @@ export function ParentHome() {
       />
 
       <div className="px-7 py-6">
+        <PendingSignatures />
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the dashboard: {error.message}
