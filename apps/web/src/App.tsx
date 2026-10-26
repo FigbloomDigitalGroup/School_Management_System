@@ -46,6 +46,7 @@ import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
 import { AdminLeave } from "./screens/admin/Leave";
 import { Exams as AdminExams } from "./screens/admin/Exams";
+import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
 
 import { Attendance } from "./screens/teacher/Attendance";
@@ -196,6 +197,7 @@ function TenantRoutes() {
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell allow={["school_admin"]}><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
+          <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
@@ -209,6 +211,7 @@ function TenantRoutes() {
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
           <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
+          <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
 

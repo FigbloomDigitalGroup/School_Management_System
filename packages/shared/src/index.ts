@@ -43,3 +43,6 @@ export * from "./homework";
 export * from "./learners";
 export * from "./audience";
 export * from "./messageRoster";
+// reportCardPdf.ts is deliberately not exported here: it pulls in pdf-lib, and
+// the web app loads it only when someone downloads (apps/web/src/lib/reportCardPdf.ts).
+export * from "./reportCards";
