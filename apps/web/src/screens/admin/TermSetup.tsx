@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { accentFor, gradingSchemeFor, schoolAccents, supabase, yearGroupsOf, yearLabel } from "@figbloom/shared";
 import type { ClassGroup, Profile, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { AiSettings } from "../../components/AiSettings";
 import { applyAccent } from "../../components/TenantTheme";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -615,6 +616,8 @@ export function TermSetup() {
             shows the total billed and the number of parents before it goes.
           </p>
         </div>
+
+        <AiSettings tenantId={tenant.id} />
       </div>
     </>
   );

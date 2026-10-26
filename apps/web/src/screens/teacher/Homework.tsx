@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  draftHomework, isYoungLearner,
   addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchAttachments, fetchClassSizes, fetchMyHomework,
   fetchTeacherClasses, fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS,
   handedInLabel, isGuideEmpty, minutesWords, NEED_CHIPS, notifyHomeworkParents, removeAttachment, removeNeed, retoneGuide,
   updateHomework, validateHomework,
   type ClassGroup, type HandIn, type HomeworkInput, type HomeworkRow, type MediaItem, type ParentGuide,
 } from "@figbloom/shared";
+import { curriculumFromClassName } from "../../components/AiQuestions";
+import { AI_DRAFT_NOTE, useAiStatus } from "../../lib/useAi";
 import { AttachmentPicker } from "../../components/AttachmentPicker";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
@@ -176,6 +179,30 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
   const [guide, setGuide] = useState<ParentGuide>(() =>
     work ? (work.guide ?? { ...EMPTY_GUIDE, needs: [] }) : defaultGuide(cls?.level, cls?.form_level ?? 0));
   const [customNeed, setCustomNeed] = useState("");
+  const ai = useAiStatus();
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+
+  /** Fills title, instructions and the parent guide with an AI draft for the teacher to edit. */
+  async function aiDraft() {
+    const subjectName = subjects?.find((s) => s.id === subjectId)?.name;
+    if (!aiTopic.trim() || !cls || !subjectName) { setError("Pick the class and subject, and say what the homework is on."); return; }
+    setAiBusy(true);
+    setError("");
+    try {
+      const d = await draftHomework({
+        subject: subjectName, topic: aiTopic.trim(), classLabel: cls.name,
+        curriculum: curriculumFromClassName(cls.name), youngLearner: isYoungLearner(cls.level, cls.form_level ?? 0),
+      });
+      setTitle(d.title);
+      setBody(d.body);
+      setGuide(d.guide);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not draft the homework.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
   const [tellParents, setTellParents] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -289,6 +316,18 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
             hint={noSubjects ? "You aren't assigned a subject in this class. Ask the school admin." : undefined}
           />
         </div>
+        {ai?.aiEnabled && (
+          <div className="rounded-lg border border-line-soft bg-page px-3.5 py-3">
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <TextField id="hw-ai-topic" label="Draft with Bloom (optional)" placeholder="What's it on? e.g. Adding fractions with unlike denominators"
+                  value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} />
+              </div>
+              <Button disabled={aiBusy || !aiTopic.trim()} onClick={() => void aiDraft()}>{aiBusy ? "Drafting…" : "Draft"}</Button>
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-ink-faint">Fills in the title, instructions and the parent guide below. {AI_DRAFT_NOTE}</p>
+          </div>
+        )}
         <TextField id="hw-title" label="Title" placeholder="e.g. Exercise 4.2, page 61" value={title} onChange={(e) => setTitle(e.target.value)} />
         <TextArea id="hw-body" label="Instructions (optional)" placeholder="Anything learners need to know" value={body} onChange={(e) => setBody(e.target.value)} />
         <div className="grid gap-3.5" style={{ gridTemplateColumns: "1fr 1fr" }}>

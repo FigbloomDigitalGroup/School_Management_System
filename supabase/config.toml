@@ -71,3 +71,6 @@ verify_jwt = false             # "Forgot password?" from the sign-in screen — 
 
 [functions.reset-user-password]
 verify_jwt = true              # the school admin / org admin / parent setting the new temporary password
+
+[functions.ai-assist]
+verify_jwt = true              # staff drafting, or a learner using the study helper; ANTHROPIC_API_KEY secret

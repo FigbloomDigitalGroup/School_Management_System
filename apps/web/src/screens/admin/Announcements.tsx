@@ -3,6 +3,7 @@ import {
   fetchAllPages, formatMoney, publishAnnouncement, removeAttachmentFilesFor, supabase, yearGroupKey, yearGroupsOf, yearLabel,
   type Audience, type ClassGroup, type YearGroup,
 } from "@figbloom/shared";
+import { AiWriteHelper } from "../../components/AiWriteHelper";
 import { AttachmentPicker } from "../../components/AttachmentPicker";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -272,6 +273,20 @@ export function Announcements() {
               })}
             </div>
           </fieldset>
+
+          <AiWriteHelper
+            audience={(() => {
+              const who = RECIPIENT_OPTIONS.find((r) => r.value === recipients)?.label.toLowerCase() ?? "parents and students";
+              if (audienceId === "class") return `${who} of ${data?.classes.find((c) => c.id === effectiveClassId)?.name ?? "one class"}`;
+              if (audienceId === "year") return `${who} of ${yearGroup ? yearLabel(yearGroup.level, yearGroup.year) : "one year group"}`;
+              return AUDIENCE_META.find((a) => a.id === audienceId)?.label.toLowerCase() ?? "the whole school";
+            })()}
+            schoolName={tenant.name}
+            subject={subject}
+            body={body}
+            disabled={sending}
+            onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
+          />
 
           <TextField id="subject" label="Subject" placeholder="e.g. Half-term closing Friday 12 September"
             hint="This is all a parent sees in the notification, so put the date in it."

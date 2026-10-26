@@ -87,6 +87,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   private op: OpKind | null = null;
   private payload?: Row | Row[];
   private limitN: number | null = null;
+  private wantCount = false;
 
   constructor(private table: FakeTable) {}
 
@@ -95,8 +96,9 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   // select syntax ("classes(form_level)") makes column projection genuinely
   // hard to replicate correctly here; the real Postgres API is what
   // actually enforces "only these columns come back", not this fake.
-  select(_cols?: string) {
+  select(_cols?: string, opts?: { count?: string; head?: boolean }) {
     if (!this.op) this.op = "select";
+    if (opts?.count) this.wantCount = true;
     return this;
   }
   insert(payload: Row | Row[]) {
@@ -190,7 +192,8 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
     const { rows, error } = this.run();
-    return Promise.resolve({ data: error ? null : rows, error }).then(onfulfilled, onrejected);
+    const result = { data: error ? null : rows, error, ...(this.wantCount ? { count: error ? null : rows.length } : {}) };
+    return Promise.resolve(result).then(onfulfilled, onrejected);
   }
 }
 
@@ -252,6 +255,9 @@ export class FakeSupabaseClient {
 
   private pendingRpcError: string | null = null;
 
+  /** What ai_tutor_blocked() answers: a reason, or null when the study helper is open. */
+  tutorBlocked: string | null = null;
+
   /** Makes the next rpc() resolve with this error. */
   failNextRpc(message: string) {
     this.pendingRpcError = message;
@@ -272,6 +278,12 @@ export class FakeSupabaseClient {
         .map(Number);
       return Promise.resolve({ data: Math.max(0, ...numbers) + 1, error: null });
     }
+    if (name === "ai_month_tokens") {
+      const used = this.rowsIn("ai_usage").filter((r) => r.tenant_id === args.p_tenant_id)
+        .reduce((n, r) => n + Number(r.input_tokens ?? 0) + Number(r.output_tokens ?? 0), 0);
+      return Promise.resolve({ data: used, error: null });
+    }
+    if (name === "ai_tutor_blocked") return Promise.resolve({ data: this.tutorBlocked, error: null });
     if (name === "announcement_recipients") {
       const a = this.rowsIn("announcements").find((r) => r.id === args.p_announcement_id);
       const ids = a
