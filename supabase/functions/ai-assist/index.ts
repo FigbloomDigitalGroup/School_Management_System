@@ -1,6 +1,6 @@
 /**
- * AI drafting for staff, and the study helper for learners: the one place
- * the platform calls a model. The Anthropic key, the prompts (tasks.ts) and
+ * Bloom: AI drafting for staff, and the study helper for learners. The one
+ * place the platform calls a model. The API key, the prompts (tasks.ts) and
  * every check live here, never in an app:
  *  - who: the task's roles (tasks.ts ALLOWED), at a school with AI switched
  *    on; the study helper also needs the school to have turned it on, and is
@@ -16,37 +16,31 @@
  * Staff tasks answer in JSON fixed by a schema; the app shows the draft for
  * a person to edit, and nothing is saved or sent from here.
  *
- * Model: Claude Opus 5.5, with server-side refusal fallbacks
- * (fallbacks: "default"). Deploy: supabase functions deploy ai-assist
- * Needs the ANTHROPIC_API_KEY secret.
+ * Which model answers is a secret, not code (providers.ts): AI_PROVIDER
+ * "openai" (the default, with OPENAI_API_KEY) or "anthropic" (with
+ * ANTHROPIC_API_KEY), and optionally AI_MODEL.
+ * Deploy: supabase functions deploy ai-assist
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Anthropic from "npm:@anthropic-ai/sdk@0.133.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { aiFromEnv, type AiCall, type AiReply } from "./providers.ts";
 import { ALLOWED, BadInput, EFFORT, prepare, TASKS, tutorMessages, tutorSystem, type Role, type Task } from "./tasks.ts";
 
-export const MODEL = "claude-opus-5-5";
-const MAX_TOKENS = 16000;
 /** Requests per person per day: staff draft in batches at the end of term; a learner chats. */
 export const DAILY_LIMIT: Record<Role, number> = { school_admin: 400, teacher: 400, student: 80 };
 
-/** The parts of a Messages API response this function reads. */
-export interface ClaudeReply {
-  model: string;
-  stop_reason: string | null;
-  content: { type: string; text?: string }[];
-  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null };
-}
+/** The configured model, or why there isn't one (a missing key): checked before anything else is spent. */
+export type AiSetup = { call: AiCall; model: string } | { error: string };
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any; claude: (params: Record<string, unknown>) => Promise<ClaudeReply> }
+export interface Deps { admin: any; asUser: any; ai: AiSetup }
 
 const CLASS_WORD: Record<string, string> = {
   pre_primary: "PP", primary: "Grade ", junior_secondary: "Grade ", senior_school: "Grade ", secondary: "Form ",
 };
 
-export async function handle(req: Request, { admin, asUser, claude }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!req.headers.get("Authorization")) return json({ error: "Unauthorized" }, 401);
@@ -67,11 +61,15 @@ export async function handle(req: Request, { admin, asUser, claude }: Deps): Pro
   const { data: tenant } = await admin.from("tenants")
     .select("id, name, country, ai_enabled, ai_tutor_enabled, ai_monthly_tokens").eq("id", caller.tenant_id).maybeSingle();
   if (!tenant?.ai_enabled) return json({ error: "Bloom is turned off for this school. The school office can turn it on in School settings." }, 403);
+  if ("error" in ai) {
+    console.error("ai-assist:", ai.error);
+    return json({ error: "Bloom isn't set up yet. Please tell the school office." }, 503);
+  }
 
   // Build the request before spending anything, so a bad input costs nothing.
   let system: string;
   let messages: { role: "user" | "assistant"; content: string }[];
-  let schema: unknown = null;
+  let schema: Record<string, unknown> | null = null;
   try {
     if (task === "tutor") {
       if (!tenant.ai_tutor_enabled) return json({ error: "Bloom isn't turned on for learners at your school." }, 403);
@@ -86,7 +84,7 @@ export async function handle(req: Request, { admin, asUser, claude }: Deps): Pro
     } else {
       const prepared = prepare(task, body.payload);
       system = prepared.system;
-      schema = prepared.schema;
+      schema = prepared.schema as Record<string, unknown> | null;
       messages = [{ role: "user", content: prepared.user }];
     }
   } catch (err) {
@@ -105,44 +103,34 @@ export async function handle(req: Request, { admin, asUser, claude }: Deps): Pro
     .eq("profile_id", caller.id).gte("created_at", dayStart.toISOString());
   if ((count ?? 0) >= DAILY_LIMIT[role]) return json({ error: "You've reached today's limit for Bloom. Try again tomorrow." }, 429);
 
-  const log = (reply: ClaudeReply | null, outcome: "ok" | "refused" | "error") =>
+  const log = (reply: AiReply | null, outcome: "ok" | "refused" | "error") =>
     admin.from("ai_usage").insert({
-      tenant_id: tenant.id, profile_id: caller.id, task, model: reply?.model ?? MODEL, outcome,
-      input_tokens: reply ? reply.usage.input_tokens + (reply.usage.cache_creation_input_tokens ?? 0) + (reply.usage.cache_read_input_tokens ?? 0) : 0,
-      output_tokens: reply?.usage.output_tokens ?? 0,
+      tenant_id: tenant.id, profile_id: caller.id, task, model: reply?.model ?? ai.model, outcome,
+      input_tokens: reply?.inputTokens ?? 0, output_tokens: reply?.outputTokens ?? 0,
     });
 
-  let reply: ClaudeReply;
+  let reply: AiReply;
   try {
-    reply = await claude({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages,
-      output_config: { effort: EFFORT[task], ...(schema ? { format: { type: "json_schema", schema } } : {}) },
-    });
+    reply = await ai.call({ system, messages, schema, effort: EFFORT[task] });
   } catch (err) {
     await log(null, "error");
     console.error("ai-assist: model call failed", err instanceof Error ? err.message : err);
     return json({ error: "Bloom didn't answer. Please try again in a minute." }, 502);
   }
 
-  if (reply.stop_reason === "refusal") {
+  if (reply.outcome === "refused") {
     await log(reply, "refused");
     return json({ error: task === "tutor" ? "I can't help with that one. Try asking about your schoolwork." : "Bloom couldn't draft this. Try rewording it." }, 422);
   }
-  if (reply.stop_reason === "max_tokens") {
+  if (reply.outcome === "too_long") {
     await log(reply, "error");
     return json({ error: "That was too much to draft at once. Try asking for less." }, 422);
   }
 
-  const text = reply.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").trim();
   await log(reply, "ok");
-  if (!schema) return json({ result: { text } });
+  if (!schema) return json({ result: { text: reply.text } });
   try {
-    return json({ result: JSON.parse(text) });
+    return json({ result: JSON.parse(reply.text) });
   } catch {
     return json({ error: "The draft came back in an unexpected form. Please try again." }, 502);
   }
@@ -153,16 +141,13 @@ function json(body: unknown, status = 200): Response {
 }
 
 if (import.meta.main) {
-  const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
+  const ai = aiFromEnv((name) => Deno.env.get(name));
   Deno.serve((req) => {
     const auth = req.headers.get("Authorization") ?? "";
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    // fallbacks/betas are newer than this SDK's request types; the API accepts them.
-    // deno-lint-ignore no-explicit-any
-    const claude = (params: Record<string, unknown>) => anthropic.beta.messages.create(params as any) as unknown as Promise<ClaudeReply>;
-    return handle(req, { admin, asUser, claude });
+    return handle(req, { admin, asUser, ai });
   });
 }

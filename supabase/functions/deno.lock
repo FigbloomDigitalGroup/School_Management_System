@@ -7,7 +7,8 @@
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/testing@*": "1.0.20",
-    "npm:@anthropic-ai/sdk@0.133.0": "0.133.0"
+    "npm:@anthropic-ai/sdk@0.133.0": "0.133.0",
+    "npm:openai@7.32.0": "7.32.0"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -51,6 +52,9 @@
         "@babel/runtime",
         "ts-algebra"
       ]
+    },
+    "openai@7.32.0": {
+      "integrity": "sha512-avqxu/jl1gsVBCBgFNPr9sTh+wZppQphuhhFy1zEvAJxEaJ4t0ery6hZdOT9kws/EcNTARoQcZs2IT3bliE1SA=="
     },
     "standardwebhooks@1.1.1": {
       "integrity": "sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ==",
