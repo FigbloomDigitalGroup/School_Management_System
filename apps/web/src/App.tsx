@@ -44,10 +44,16 @@ import { AdminClasses } from "./screens/admin/Classes";
 import { AdminSubjects } from "./screens/admin/Subjects";
 import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
+import { Performance } from "./screens/admin/Performance";
 import { AdminLeave } from "./screens/admin/Leave";
+import { AdminInventory } from "./screens/admin/Inventory";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
+import { Activities } from "./screens/admin/Activities";
+import { AdminChats } from "./screens/admin/Chats";
+import { MyChats } from "./screens/chat/MyChats";
+import { useChatUnread } from "./lib/useChatUnread";
 
 import { Attendance } from "./screens/teacher/Attendance";
 import { K12Gradebook } from "./screens/teacher/K12Gradebook";
@@ -58,6 +64,7 @@ import { TeacherMySections } from "./screens/teacher/MySections";
 import { TeacherMessages } from "./screens/teacher/Messages";
 import { TeacherNotices } from "./screens/teacher/Notices";
 import { TeacherLeave } from "./screens/teacher/Leave";
+import { TeacherItems } from "./screens/teacher/Items";
 import { Homework as TeacherHomework } from "./screens/teacher/Homework";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { TeacherBuses } from "./screens/teacher/Buses";
@@ -73,7 +80,9 @@ import { ParentHomework } from "./screens/parent/Homework";
 import { ParentMaterials } from "./screens/parent/Materials";
 import { ParentBus } from "./screens/parent/Bus";
 import { ParentInbox } from "./screens/parent/Inbox";
+import { ParentItems } from "./screens/parent/Items";
 import { ParentSettings } from "./screens/parent/Settings";
+import { ParentActivities } from "./screens/parent/Activities";
 
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
@@ -82,13 +91,21 @@ import { StudentMaterials } from "./screens/student/Materials";
 import { StudentResults } from "./screens/student/Results";
 import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
+import { StudentActivities } from "./screens/student/Activities";
+import { StudentItems } from "./screens/student/Items";
 
 import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
+import { Gate, Reception } from "./screens/frontdesk/Desk";
+import { AdminVisitors } from "./screens/admin/Visitors";
+import { TeacherVisitors } from "./screens/teacher/Visitors";
+import { VisitAlertsListener } from "./components/visitors/Visits";
 import { PasswordGate } from "./components/PasswordGate";
 import { BusUpdatesListener } from "./components/fleet/BusUpdates";
 import { RouteSeo } from "./components/RouteSeo";
 import { CallHost } from "./components/calls/CallHost";
+import { BloomFab } from "./components/BloomFab";
+import { BloomChat } from "./screens/bloom/BloomChat";
 
 /**
  * Routing mirrors the tenancy model: /platform/* is cross-tenant and belongs to
@@ -200,12 +217,18 @@ function TenantRoutes() {
           <Route path="admin/subjects" element={<AdminShell allow={["school_admin"]}><AdminSubjects /></AdminShell>} />
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
+          <Route path="admin/performance" element={<AdminShell allow={["school_admin"]}><K12Gate><Performance /></K12Gate></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
+          <Route path="admin/inventory" element={<AdminShell allow={["school_admin"]}><AdminInventory /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell allow={["school_admin"]}><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
           <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
+          <Route path="admin/chats" element={<AdminShell allow={["school_admin"]}><AdminChats /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
+          <Route path="admin/activities" element={<AdminShell allow={["school_admin"]}><Activities admin /></AdminShell>} />
+          <Route path="admin/visitors" element={<AdminShell allow={["school_admin"]}><AdminVisitors /></AdminShell>} />
+          <Route path="admin/bloom" element={<AdminShell allow={["school_admin"]}><BloomChat console="admin" /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -216,12 +239,18 @@ function TenantRoutes() {
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
+          <Route path="teacher/items" element={<TeacherShell allow={["teacher"]}><TeacherItems /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
           <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
           <Route path="teacher/materials" element={<TeacherShell allow={["teacher"]}><K12Gate><LearningMaterials /></K12Gate></TeacherShell>} />
           <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
+          <Route path="teacher/performance" element={<TeacherShell allow={["teacher"]}><K12Gate><Performance teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
+          <Route path="teacher/chats" element={<TeacherShell allow={["teacher"]}><MyChats role="teacher" /></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
+          <Route path="teacher/activities" element={<TeacherShell allow={["teacher"]}><Activities /></TeacherShell>} />
+          <Route path="teacher/visitors" element={<TeacherShell allow={["teacher"]}><TeacherVisitors /></TeacherShell>} />
+          <Route path="teacher/bloom" element={<TeacherShell allow={["teacher"]}><BloomChat console="teacher" /></TeacherShell>} />
 
           <Route path="parent" element={<ParentShell><ParentHome /></ParentShell>} />
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
@@ -230,7 +259,10 @@ function TenantRoutes() {
           <Route path="parent/materials" element={<ParentShell><K12Gate><ParentMaterials /></K12Gate></ParentShell>} />
           <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
+          <Route path="parent/chats" element={<ParentShell><MyChats role="parent" /></ParentShell>} />
+          <Route path="parent/items" element={<ParentShell><ParentItems /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
+          <Route path="parent/activities" element={<ParentShell><ParentActivities /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
@@ -240,11 +272,17 @@ function TenantRoutes() {
           <Route path="student/results" element={<StudentShell><StudentResults /></StudentShell>} />
           <Route path="student/study-helper" element={<StudentShell><StudyHelper /></StudentShell>} />
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
+          <Route path="student/chats" element={<StudentShell><MyChats role="student" /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
+          <Route path="student/activities" element={<StudentShell><StudentActivities /></StudentShell>} />
+          <Route path="student/items" element={<StudentShell><StudentItems /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
           <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverProfile /></RoleGate>} />
+
+          <Route path="gate" element={<FrontDeskShell role="guard"><Gate /></FrontDeskShell>} />
+          <Route path="reception" element={<FrontDeskShell role="receptionist"><Reception /></FrontDeskShell>} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -357,8 +395,10 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
     if (org) await logOrganizationAccess(org.id, session.profile.id, "exited_school_console", session.tenant.id).catch(() => {});
     nav(org ? `/org/${org.slug}/schools/${session.tenant.id}` : "/signin");
   }
+  const chatUnread = useChatUnread(session.tenant.id);
   return (
     <RoleGate allow={allow}>
+      <VisitAlertsListener />
       <ConsoleShell
         role="school_admin"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? "Principal" }}
@@ -367,6 +407,23 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
           schoolName: session.tenant.name,
           onExit: () => void exitToOrganization(),
         } : undefined}
+        badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
+      >
+        {children}
+        <BloomFab console="admin" />
+      </ConsoleShell>
+    </RoleGate>
+  );
+};
+
+/** The gate and reception: one page each, in the console frame. */
+const FrontDeskShell = ({ role, children }: { role: "guard" | "receptionist"; children: ReactNode }) => {
+  const session = useTenantSession();
+  return (
+    <RoleGate allow={[role]}>
+      <ConsoleShell
+        role={role}
+        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? (role === "guard" ? "Gate" : "Reception") }}
       >
         {children}
       </ConsoleShell>
@@ -396,17 +453,23 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     const unsubscribe = subscribeAnnouncements(session.tenant.id, load);
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
+  const chatUnread = useChatUnread(session.tenant.id);
 
   return (
     <RoleGate allow={allow}>
+      <VisitAlertsListener />
       <TeacherNoticesProvider value={() => setUnread((n) => (n ? n - 1 : n))}>
         <ConsoleShell
           role="teacher"
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
-          badges={unread ? { "teacher/notices": String(unread) } : {}}
+          badges={{
+            ...(unread ? { "teacher/notices": String(unread) } : {}),
+            ...(chatUnread ? { "teacher/chats": String(chatUnread) } : {}),
+          }}
         >
           <QueueNotice />
           {children}
+          <BloomFab console="teacher" />
         </ConsoleShell>
       </TeacherNoticesProvider>
     </RoleGate>
@@ -437,6 +500,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
     const unsubscribe = subscribeAnnouncements(session.tenant.id, load);
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
+  const chatUnread = useChatUnread(session.tenant.id);
 
   return (
     <RoleGate allow={["parent"]}>
@@ -445,7 +509,10 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
         <ConsoleShell
           role="parent"
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "parent") }}
-          badges={unread ? { "parent/inbox": String(unread) } : {}}
+          badges={{
+            ...(unread ? { "parent/inbox": String(unread) } : {}),
+            ...(chatUnread ? { "parent/chats": String(chatUnread) } : {}),
+          }}
         >
           {children}
         </ConsoleShell>
@@ -456,10 +523,15 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
 
 const StudentShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
+  const chatUnread = useChatUnread(session.tenant.id);
   return (
     <RoleGate allow={["student"]}>
       <StudentDataProvider>
-        <ConsoleShell role="student" user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "student") }}>
+        <ConsoleShell
+          role="student"
+          user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "student") }}
+          badges={chatUnread ? { "student/chats": String(chatUnread) } : {}}
+        >
           {children}
         </ConsoleShell>
       </StudentDataProvider>

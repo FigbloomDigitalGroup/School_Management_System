@@ -13,7 +13,7 @@ describe("formatLoginId", () => {
 
 describe("ROLE_ID_PREFIX", () => {
   it("has one prefix per non-org-owner role, and no entry for org_admin/super_admin", () => {
-    expect(ROLE_ID_PREFIX).toEqual({ school_admin: "AD", teacher: "TC", parent: "PT", student: "ST", driver: "BD" });
+    expect(ROLE_ID_PREFIX).toEqual({ school_admin: "AD", teacher: "TC", parent: "PT", student: "ST", driver: "BD", guard: "GD", receptionist: "RC" });
   });
 });
 
@@ -34,6 +34,8 @@ describe("homeRouteFor", () => {
     expect(homeRouteFor("parent", "alliance")).toBe("/s/alliance/parent");
     expect(homeRouteFor("student", "alliance")).toBe("/s/alliance/student");
     expect(homeRouteFor("driver", "alliance")).toBe("/s/alliance/driver");
+    expect(homeRouteFor("guard", "alliance")).toBe("/s/alliance/gate");
+    expect(homeRouteFor("receptionist", "alliance")).toBe("/s/alliance/reception");
   });
   it("sends org_admin to their organization's own console, not /s/<slug> or /platform", () => {
     expect(homeRouteFor("org_admin", "nakuru-county")).toBe("/org/nakuru-county/dashboard");

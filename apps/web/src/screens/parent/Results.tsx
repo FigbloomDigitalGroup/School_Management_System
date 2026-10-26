@@ -12,6 +12,7 @@ import type { ChildSubject } from "@figbloom/shared";
 import { ChildSwitcher } from "./ChildSwitcher";
 import { ChildExamPapers } from "./ExamPapers";
 import { ReportCardDownloads } from "../../components/ReportCardDownloads";
+import { LearnerProgress } from "../../components/analytics/LearnerProgress";
 
 /**
  * An exam for the selected child, the newest one with results out unless the
@@ -124,6 +125,12 @@ export function ParentResults() {
             </div>
             </>)}
           </>
+        )}
+        {child && data && !error && (child.exams.length > 0 || cbe.length > 0) && (
+          <section className="mt-6">
+            <h2 className="mb-3 text-lead font-semibold">{child.first}'s progress over time</h2>
+            <LearnerProgress key={child.id} studentId={child.id} meanLabel={`${child.first}'s mean`} />
+          </section>
         )}
         {child && child.classId && data && !error && (
           <div className="mt-6"><ChildExamPapers child={child} /></div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { audienceIncludes, audienceLabel, type AudienceViewer } from "./audience";
+import { audienceIncludes, audienceLabel, STAFF_ROLES, type AudienceViewer } from "./audience";
 import { reachOf, searchRoster, teacherPickablePeople, type RosterPerson } from "./messageRoster";
 import type { Audience } from "./types";
 
@@ -9,7 +9,7 @@ const teacher: AudienceViewer = { profileId: "t1", role: "teacher", classIds: []
 const admin: AudienceViewer = { profileId: "a1", role: "school_admin", classIds: [], years: [] };
 const driver: AudienceViewer = { profileId: "d1", role: "driver", classIds: [], years: [] };
 
-const allStaff: Audience = { kind: "roles", roles: ["school_admin", "teacher", "driver"] };
+const allStaff: Audience = { kind: "roles", roles: STAFF_ROLES };
 
 describe("audienceIncludes", () => {
   it("whole_school reaches everyone", () => {
@@ -23,10 +23,11 @@ describe("audienceIncludes", () => {
     expect(audienceIncludes({ kind: "role", role: "student" }, parent)).toBe(false);
   });
 
-  it("roles: all staff reaches admins, teachers and drivers, never parents or students", () => {
+  it("roles: all staff reaches admins, teachers, drivers and the front desk, never parents or students", () => {
     expect(audienceIncludes(allStaff, teacher)).toBe(true);
     expect(audienceIncludes(allStaff, admin)).toBe(true);
     expect(audienceIncludes(allStaff, driver)).toBe(true);
+    expect(audienceIncludes(allStaff, { profileId: "g1", role: "guard", classIds: [], years: [] })).toBe(true);
     expect(audienceIncludes(allStaff, parent)).toBe(false);
     expect(audienceIncludes(allStaff, student)).toBe(false);
   });
@@ -81,6 +82,8 @@ describe("audienceLabel", () => {
   it("names role groups in plain words", () => {
     expect(audienceLabel({ kind: "role", role: "teacher" })).toBe("All teachers");
     expect(audienceLabel(allStaff)).toBe("All staff");
+    // sent before the front desk had accounts
+    expect(audienceLabel({ kind: "roles", roles: ["school_admin", "teacher", "driver"] })).toBe("All staff");
     expect(audienceLabel({ kind: "roles", roles: ["school_admin", "teacher"] })).toBe("All admins and teachers");
   });
 
