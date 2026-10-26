@@ -52,6 +52,7 @@ export * from "./chat";
 export * from "./reportCards";
 export * from "./competencies";
 export * from "./ai";
+export * from "./visitors";
 export * from "./signatures";
 export * from "./aiChat";
 export * from "./markdown";
