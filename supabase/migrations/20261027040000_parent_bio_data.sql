@@ -109,7 +109,7 @@ begin
   elsif p_field in ('birth_cert_no', 'upi_no') then
     -- "123 456" and "123456" are the same certificate
     v := nullif(upper(regexp_replace(coalesce(v, ''), '\s+', '', 'g')), '');
-    if v is not null and char_length(v) > case when p_field = 'upi_no' then 20 else 30 end then
+    if v is not null and char_length(v) > (case when p_field = 'upi_no' then 20 else 30 end) then
       raise exception '% is too long', case when p_field = 'upi_no' then 'The UPI number' else 'The birth certificate number' end using errcode = '22023';
     end if;
   else
