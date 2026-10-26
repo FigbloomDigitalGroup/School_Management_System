@@ -115,6 +115,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/fees", label: "Fees", icon: "receipt" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
     { to: "admin/leave", label: "Leave requests", icon: "flag" },
+    { to: "admin/inventory", label: "Inventory", icon: "box" },
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },
     { to: "admin/reports", label: "Reports", icon: "chart" },
     { to: "admin/settings", label: "School settings", icon: "gear" },
@@ -134,6 +135,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/notices", label: "Notices", icon: "bell" },
     { to: "teacher/buses", label: "Buses", icon: "pulse" },
     { to: "teacher/leave", label: "Leave", icon: "flag" },
+    { to: "teacher/items", label: "My items", icon: "box" },
     { to: "teacher/account", label: "Account", icon: "pencil" },
   ],
   parent: [
@@ -144,6 +146,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "parent/materials", label: "Learning materials", icon: "book" },
     { to: "parent/bus", label: "Bus", icon: "pulse" },
     { to: "parent/inbox", label: "Inbox", icon: "chat" },
+    { to: "parent/items", label: "Issued items", icon: "box" },
     { to: "parent/settings", label: "Account", icon: "gear" },
   ],
   student: [
@@ -156,6 +159,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "student/study-helper", label: "Ask Bloom", icon: "chat" },
     { to: "student/fees", label: "Fees", icon: "receipt" },
     { to: "student/notices", label: "Notices", icon: "bell" },
+    { to: "student/items", label: "My items", icon: "box" },
   ],
   // A driver's screen is a single full-screen page (start/end trip), not a
   // console — this exists only so Record<Role, ...> stays exhaustive.
