@@ -125,10 +125,18 @@ export function parseStrokes(value: unknown): Stroke[] | null {
   return out;
 }
 
+// This file also compiles for the mobile apps (lib ES2022, no DOM), where
+// these web globals have no types. Browsers, Node 20 and Deno all have them.
+const web = globalThis as unknown as {
+  TextEncoder: new () => { encode(text: string): Uint8Array };
+  crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
+  navigator?: { userAgent?: string };
+};
+
 /** SHA-256 as lowercase hex, of bytes or of text (UTF-8). */
 export async function sha256Hex(input: Uint8Array | ArrayBuffer | string): Promise<string> {
-  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input instanceof Uint8Array ? input : new Uint8Array(input);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  const bytes = typeof input === "string" ? new web.TextEncoder().encode(input) : input instanceof Uint8Array ? input : new Uint8Array(input);
+  const digest = await web.crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -178,7 +186,7 @@ export interface SignatureStatusRow {
 
 /**
  * Signs documents of one kind with one mark. Files need their hashes, in the
- * same order as ids (fileHash() below); rows are hashed by the database.
+ * same order as ids (fileHash() in the web app); rows are hashed by the database.
  * Returns how many were newly signed (already signed and unchanged are skipped).
  */
 export async function signDocuments(kind: SignedDocKind, ids: string[], capacity: SignerCapacity, mark: SignatureMark, hashes?: string[]): Promise<number> {
@@ -192,17 +200,10 @@ export async function signDocuments(kind: SignedDocKind, ids: string[], capacity
     p_style: mark.style,
     p_strokes: mark.style === "drawn" ? mark.strokes : null,
     p_hashes: hashes ?? null,
-    p_user_agent: typeof navigator === "undefined" ? null : navigator.userAgent.slice(0, 400),
+    p_user_agent: web.navigator?.userAgent?.slice(0, 400) ?? null,
   });
   if (error) throw new Error(error.message);
   return (data as number | null) ?? 0;
-}
-
-/** The file's SHA-256 as the signer downloaded it: what their signature vouches for. */
-export async function fileHash(bucket: string, path: string): Promise<string> {
-  const { data, error } = await supabase().storage.from(bucket).download(path);
-  if (error || !data) throw new Error(error?.message ?? "Could not fetch the file to sign.");
-  return sha256Hex(await data.arrayBuffer());
 }
 
 export async function fetchDocumentSignatures(kind: SignedDocKind, ids: string[]): Promise<StoredSignature[]> {

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import {
-  CAPACITY_LABEL, fetchDocumentSignatures, fileHash, requestSignatures, signDocuments, supabase, voidSignature,
+  CAPACITY_LABEL, fetchDocumentSignatures, requestSignatures, signDocuments, supabase, voidSignature,
 } from "@figbloom/shared";
+import { fileHash } from "../../lib/signing";
 import { Button } from "../ui/Button";
 import { TextField } from "../ui/Field";
 import { Modal } from "../ui/Modal";

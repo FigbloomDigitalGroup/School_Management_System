@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { CAPACITY_LABEL, fetchMySignatureRequests, fileHash, signDocuments, supabase, type SignatureRequest } from "@figbloom/shared";
+import { CAPACITY_LABEL, fetchMySignatureRequests, signDocuments, supabase, type SignatureRequest } from "@figbloom/shared";
+import { fileHash } from "../../lib/signing";
 import { Button } from "../ui/Button";
 import { useToast } from "../ui/Toast";
 import { useAsync } from "../../lib/useAsync";
