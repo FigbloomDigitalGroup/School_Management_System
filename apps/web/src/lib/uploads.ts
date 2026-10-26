@@ -1,4 +1,4 @@
-import { examPaperFilePath, supabase } from "@figbloom/shared";
+import { examPaperFilePath, paperImportPath, supabase } from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -143,6 +143,30 @@ export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PaymentProof[];
+}
+
+/**
+ * A paper for Bloom to import, waiting in the importer's own folder. The
+ * ai-assist function deletes it once read; removePaperImportFiles() tidies
+ * up when the request never got that far.
+ */
+export async function uploadPaperImportFiles(input: { tenantId: string; profileId: string; files: File[] }): Promise<string[]> {
+  const paths: string[] = [];
+  try {
+    for (const file of input.files) {
+      const path = paperImportPath(input.tenantId, input.profileId, crypto.randomUUID(), file.name);
+      await uploadToBucket("private-documents", path, file);
+      paths.push(path);
+    }
+    return paths;
+  } catch (err) {
+    await removePaperImportFiles(paths);
+    throw err;
+  }
+}
+
+export async function removePaperImportFiles(paths: string[]): Promise<void> {
+  if (paths.length) await supabase().storage.from("private-documents").remove(paths);
 }
 
 /** An exam paper's PDF (or reference sheet). Staff write it; families can read it once the paper opens (private_docs_exam_papers_read). */

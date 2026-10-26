@@ -39,6 +39,7 @@ export * from "./mpesaPay";
 export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";
+export * from "./paperImport";
 export * from "./homework";
 export * from "./materials";
 export * from "./learners";

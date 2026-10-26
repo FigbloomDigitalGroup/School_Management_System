@@ -230,6 +230,22 @@ export class FakeSupabaseClient {
     },
   };
 
+  /** Storage objects, keyed "<bucket>/<path>". */
+  files = new Map<string, Uint8Array<ArrayBuffer>>();
+
+  storage = {
+    from: (bucket: string) => ({
+      download: async (path: string) => {
+        const bytes = this.files.get(`${bucket}/${path}`);
+        return bytes ? { data: new Blob([bytes]), error: null } : { data: null, error: { message: "Object not found" } };
+      },
+      remove: async (paths: string[]) => {
+        for (const path of paths) this.files.delete(`${bucket}/${path}`);
+        return { data: [], error: null };
+      },
+    }),
+  };
+
   seed(table: string, rows: Row[]) {
     this.tables.set(table, new FakeTable(rows));
   }
