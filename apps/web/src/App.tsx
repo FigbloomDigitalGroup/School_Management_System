@@ -44,6 +44,7 @@ import { AdminClasses } from "./screens/admin/Classes";
 import { AdminSubjects } from "./screens/admin/Subjects";
 import { AdminCourses } from "./screens/admin/Courses";
 import { AdminReports } from "./screens/admin/Reports";
+import { Performance } from "./screens/admin/Performance";
 import { AdminLeave } from "./screens/admin/Leave";
 import { AdminInventory } from "./screens/admin/Inventory";
 import { Exams as AdminExams } from "./screens/admin/Exams";
@@ -214,6 +215,7 @@ function TenantRoutes() {
           <Route path="admin/subjects" element={<AdminShell allow={["school_admin"]}><AdminSubjects /></AdminShell>} />
           <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
+          <Route path="admin/performance" element={<AdminShell allow={["school_admin"]}><K12Gate><Performance /></K12Gate></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
           <Route path="admin/inventory" element={<AdminShell allow={["school_admin"]}><AdminInventory /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
@@ -240,6 +242,7 @@ function TenantRoutes() {
           <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
           <Route path="teacher/materials" element={<TeacherShell allow={["teacher"]}><K12Gate><LearningMaterials /></K12Gate></TeacherShell>} />
           <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
+          <Route path="teacher/performance" element={<TeacherShell allow={["teacher"]}><K12Gate><Performance teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/chats" element={<TeacherShell allow={["teacher"]}><MyChats role="teacher" /></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
