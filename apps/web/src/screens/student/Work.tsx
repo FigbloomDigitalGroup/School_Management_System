@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
-import { formatDueLabel, markAssignmentHandedIn, type WorkItem } from "@figbloom/shared";
+import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
 import { PageHead } from "../../components/ConsoleShell";
+import { OwnerAttachments } from "../../components/Media";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -168,7 +169,26 @@ export function StudentWork() {
                   </div>
                 </div>
 
+                {(!!selected.needs?.length || !!minutesWords(selected.minutes)) && (
+                  <div className="mt-2 flex gap-4 rounded-lg border border-line-soft bg-page px-3.5 py-3">
+                    {!!selected.needs?.length && (
+                      <div className="flex-1">
+                        <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">YOU'LL NEED</div>
+                        <div className="mt-1 text-[13px] font-semibold">{selected.needs.join(", ")}</div>
+                      </div>
+                    )}
+                    {!!minutesWords(selected.minutes) && (
+                      <div className="flex-1">
+                        <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">TIME</div>
+                        <div className="mt-1 text-[13px] font-semibold">{minutesWords(selected.minutes)}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <p className="mt-4 whitespace-pre-line text-[13.5px] leading-relaxed text-ink">{selected.body}</p>
+
+                <div className="mt-4"><OwnerAttachments owner="homework" id={selected.id} heading="From your teacher" /></div>
 
                 {selected.state === "done" ? (
                   <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">

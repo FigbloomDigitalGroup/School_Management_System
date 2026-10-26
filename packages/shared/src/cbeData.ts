@@ -170,16 +170,20 @@ interface PublishedResultRow {
  * learning area, the most recent published assessment (by date assessed).
  * RLS limits a parent or student to their own learners' published rows.
  */
-export async function loadPublishedCbeResults(studentIds: string[], country: string): Promise<Map<string, CbeLearningAreaResult[]>> {
+export async function loadPublishedCbeResults(
+  studentIds: string[], country: string, { termId }: { termId?: string } = {},
+): Promise<Map<string, CbeLearningAreaResult[]>> {
   const out = new Map<string, CbeLearningAreaResult[]>();
   if (!studentIds.length) return out;
   const sb = supabase();
+  let results = sb.from("cbe_results")
+    .select("student_id, strand_id, level_code, strands(name, sort_order), cbe_assessments!inner(id, title, kind, assessed_on, published_at, term_id, subject_id, subjects(name), classes(level))")
+    .in("student_id", studentIds)
+    .not("cbe_assessments.published_at", "is", null);
+  // A report card is one term's: the latest assessment *in that term*, not the latest ever.
+  if (termId) results = results.eq("cbe_assessments.term_id", termId);
   const [{ data: rows, error: e1 }, { data: comments, error: e2 }] = await Promise.all([
-    sb.from("cbe_results")
-      .select("student_id, strand_id, level_code, strands(name, sort_order), cbe_assessments!inner(id, title, kind, assessed_on, published_at, subject_id, subjects(name), classes(level))")
-      .in("student_id", studentIds)
-      .not("cbe_assessments.published_at", "is", null)
-      .returns<PublishedResultRow[]>(),
+    results.returns<PublishedResultRow[]>(),
     sb.from("cbe_assessment_comments").select("assessment_id, student_id, comment").in("student_id", studentIds)
       .returns<{ assessment_id: string; student_id: string; comment: string }[]>(),
   ]);

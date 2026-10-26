@@ -1,5 +1,6 @@
 import { PageHead } from "../../components/ConsoleShell";
 import { MyAccountFields } from "../../components/MyAccountFields";
+import { ChildPasswordResets } from "../../components/PasswordReset";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -40,6 +41,7 @@ export function ParentSettings() {
                 child, the school office has to do it — that is deliberate.
               </p>
             )}
+            {!loading && !error && <ChildPasswordResets kids={children} schoolName={tenant.name} />}
           </div>
 
           <section className="overflow-hidden rounded-lg border border-line bg-white">

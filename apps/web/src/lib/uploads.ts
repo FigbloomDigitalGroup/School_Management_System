@@ -1,4 +1,4 @@
-import { supabase } from "@figbloom/shared";
+import { examPaperFilePath, supabase } from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -7,6 +7,9 @@ import { supabase } from "@figbloom/shared";
  * proof and assignment hand-ins — tenant-readable, staff-write plus two
  * narrow self-service carve-outs (a guardian for their own child's invoice,
  * a student for their own submission).
+ *
+ * Learning materials and files on announcements and homework go to a third
+ * bucket, `learning-media`, through lib/resumableUpload.ts (big videos).
  */
 
 function extOf(filename: string): string {
@@ -140,4 +143,11 @@ export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PaymentProof[];
+}
+
+/** An exam paper's PDF (or reference sheet). Staff write it; families can read it once the paper opens (private_docs_exam_papers_read). */
+export async function uploadExamPaperFile(input: { tenantId: string; paperId: string; file: File }): Promise<{ path: string; name: string }> {
+  const path = examPaperFilePath(input.tenantId, input.paperId, input.file.name);
+  await uploadToBucket("private-documents", path, input.file);
+  return { path, name: input.file.name };
 }

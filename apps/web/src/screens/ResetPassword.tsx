@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@figbloom/shared";
+import { recoveryLinkProblem, supabase } from "@figbloom/shared";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
@@ -11,6 +11,10 @@ type Status = "checking" | "ready" | "invalid" | "done";
  * parses the recovery token out of the URL itself (detectSessionInUrl) and
  * fires PASSWORD_RECOVERY — we just wait for either that or an existing
  * session before letting the new password through.
+ *
+ * A link that's expired or already used comes back with an error in the
+ * address instead (recoveryLinkProblem): say which, and let the person ask
+ * for a fresh link right here rather than sending them back to sign-in.
  */
 export function ResetPassword() {
   const nav = useNavigate();
@@ -19,8 +23,32 @@ export function ResetPassword() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [problem] = useState(() => recoveryLinkProblem(window.location.hash, window.location.search));
+  const [email, setEmail] = useState("");
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resent, setResent] = useState(false);
+  const [resendError, setResendError] = useState("");
+
+  async function resend(e: FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) { setResendError("Enter the email you sign in with."); return; }
+    setResendError("");
+    setResendBusy(true);
+    try {
+      const { error: err } = await supabase().auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (err) throw err;
+      setResent(true);
+    } catch (err) {
+      setResendError(err instanceof Error ? err.message : "Could not send the link. Try again in a minute.");
+    } finally {
+      setResendBusy(false);
+    }
+  }
 
   useEffect(() => {
+    if (problem) { setStatus("invalid"); return; }
     let alive = true;
     supabase().auth.getSession().then(({ data }) => {
       if (alive && data.session) setStatus("ready");
@@ -30,7 +58,7 @@ export function ResetPassword() {
       if (event === "PASSWORD_RECOVERY") setStatus("ready");
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
-  }, []);
+  }, [problem]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -61,9 +89,23 @@ export function ResetPassword() {
         {status === "invalid" && (
           <>
             <p className="mt-3 text-small leading-relaxed text-ink-muted">
-              This link is invalid or has expired. Request a new one from the sign-in screen.
+              {problem ?? "This reset link has expired or isn't complete. Ask for a new one below."}
             </p>
-            <Button variant="primary" block className="mt-4" onClick={() => nav("/signin")}>Back to sign in</Button>
+            {resent ? (
+              <p role="status" className="mt-4 text-[12.5px] leading-relaxed text-ok-ink">
+                If that email has an account, a new link is on its way. Open the newest one: earlier links stop working.
+              </p>
+            ) : (
+              <form onSubmit={resend} className="mt-4 grid gap-3">
+                <TextField id="resend-email" label="Your email" type="email" autoComplete="email" placeholder="you@school.sc.ke"
+                  value={email} error={resendError || undefined} onChange={(e) => setEmail(e.target.value)} />
+                <Button type="submit" variant="primary" block disabled={resendBusy}>{resendBusy ? "Sending…" : "Email me a new link"}</Button>
+              </form>
+            )}
+            <p className="mt-3 text-[12px] leading-relaxed text-ink-faint">
+              Sign in with a school ID instead of an email? Use "Forgot password?" on the sign-in screen, and the school will set you a new one.
+            </p>
+            <Button block className="mt-3" onClick={() => nav("/signin")}>Back to sign in</Button>
           </>
         )}
 

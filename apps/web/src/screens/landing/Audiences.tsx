@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import './Audiences.css';
 
 const audienceIcons: Record<string, ReactNode> = {
@@ -191,26 +191,44 @@ function PlatformIcon({ name }: { name: string }) {
   );
 }
 
+const HASH_PREFIX = '#who-its-for-';
+
 function Audiences() {
-  const [activeAudience, setActiveAudience] = useState(1);
-  const selectedAudience = audiences[activeAudience] ?? audiences[0]!;
+  const [activeAudience, setActiveAudience] = useState(0);
+
+  // Links like "#who-its-for-teacher" open that role's tab and scroll to the section.
+  useEffect(() => {
+    const openFromHash = () => {
+      const hash = window.location.hash;
+      if (!hash.startsWith(HASH_PREFIX)) return;
+      const index = audiences.findIndex((audience) => audience.key === hash.slice(HASH_PREFIX.length));
+      if (index === -1) return;
+      setActiveAudience(index);
+      document.getElementById('who-its-for')?.scrollIntoView();
+      // Settle on the plain section anchor so clicking the same link again is a hash change again.
+      window.history.replaceState(null, '', '#who-its-for');
+    };
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
+    return () => window.removeEventListener('hashchange', openFromHash);
+  }, []);
 
   return (
     <section className="audiences" id="who-its-for">
       <div className="audiences-inner">
         <div className="audiences-header">
-          <h1 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl' >Who it's for</h1>
-          <h2>One platform. Every role.</h2>
+          <h2 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl' >Who it's for</h2>
+          <h3>One platform. Every role.</h3>
           <p>
-            Give administrators, teachers, parents, students and drivers the
-            tools they need.
+            Give school administrators, teachers, parents, students and drivers
+            the tools they need.
           </p>
         </div>
 
         <div className="audience-tabs" role="tablist" aria-label="Who it's for">
           {audiences.map((audience, index) => (
             <button
-              aria-controls="audience-panel"
+              aria-controls={`audience-panel-${audience.key}`}
               aria-selected={activeAudience === index}
               className={`audience-tab${activeAudience === index ? ' is-active' : ''}`}
               id={`audience-tab-${audience.key}`}
@@ -227,45 +245,50 @@ function Audiences() {
           ))}
         </div>
 
-        <div
-          aria-labelledby={`audience-tab-${selectedAudience.key}`}
-          className="audience-panel"
-          id="audience-panel"
-          key={selectedAudience.key}
-          role="tabpanel"
-        >
-          <div className="audience-panel-heading">
-            <span className="audience-panel-icon">
-              <AudienceIcon name={selectedAudience.icon} />
-            </span>
-            <span>{selectedAudience.heading}</span>
-          </div>
-          <p className="audience-panel-intro">{selectedAudience.intro}</p>
+        {/* Every role's panel is in the page (inactive ones are `hidden`) so search engines
+            can read all of them, not just whichever tab happens to be open. */}
+        {audiences.map((audience, index) => (
+          <div
+            aria-labelledby={`audience-tab-${audience.key}`}
+            className="audience-panel"
+            hidden={activeAudience !== index}
+            id={`audience-panel-${audience.key}`}
+            key={audience.key}
+            role="tabpanel"
+          >
+            <div className="audience-panel-heading">
+              <span className="audience-panel-icon">
+                <AudienceIcon name={audience.icon} />
+              </span>
+              <span>{audience.heading}</span>
+            </div>
+            <p className="audience-panel-intro">{audience.intro}</p>
 
-          <ul className="audience-features">
-            {selectedAudience.features.map((feature) => (
-              <li className="audience-feature" key={feature.title}>
-                <h3>
-                  <span aria-hidden="true">✓</span>
-                  {feature.title}
-                </h3>
-                <p>{feature.text}</p>
-              </li>
-            ))}
-          </ul>
-
-          <div className="audience-platforms">
-            <span>Available on</span>
-            <div>
-              {selectedAudience.platforms.map((platform) => (
-                <span className="audience-platform" key={platform}>
-                  <PlatformIcon name={platform} />
-                  {platform}
-                </span>
+            <ul className="audience-features">
+              {audience.features.map((feature) => (
+                <li className="audience-feature" key={feature.title}>
+                  <h3>
+                    <span aria-hidden="true">✓</span>
+                    {feature.title}
+                  </h3>
+                  <p>{feature.text}</p>
+                </li>
               ))}
+            </ul>
+
+            <div className="audience-platforms">
+              <span>Available on</span>
+              <div>
+                {audience.platforms.map((platform) => (
+                  <span className="audience-platform" key={platform}>
+                    <PlatformIcon name={platform} />
+                    {platform}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        ))}
       </div>
     </section>
   );

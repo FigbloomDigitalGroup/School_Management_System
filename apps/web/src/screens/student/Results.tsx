@@ -5,6 +5,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useExamView } from "../../lib/useExamView";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
+import { ReportCardDownloads } from "../../components/ReportCardDownloads";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
@@ -149,6 +150,7 @@ export function StudentResults() {
             </p>
           </>
         )}
+        {data && <div className="mt-6"><ReportCardDownloads studentId={data.studentId} logoUrl={tenant.logo_url} /></div>}
       </div>
     </>
   );

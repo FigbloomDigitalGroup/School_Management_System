@@ -87,7 +87,7 @@ describe("signup-organization handle", () => {
     assertEquals(res.status, 409);
   });
 
-  it("creates the organization pending, the org_admin account, the link, and an audit event", async () => {
+  it("creates the organization active (no approval step for now), the org_admin account, the link, and an audit event", async () => {
     const admin = makeClient();
     const res = await handle(request(validBody), { admin });
     assertEquals(res.status, 200);
@@ -97,7 +97,7 @@ describe("signup-organization handle", () => {
 
     const orgs = admin.rowsIn("organizations");
     assertEquals(orgs.length, 1);
-    assertEquals(orgs[0].status, "pending");
+    assertEquals(orgs[0].status, "active");
     assertEquals(orgs[0].created_by, null);
 
     const profiles = admin.rowsIn("profiles");
@@ -113,7 +113,7 @@ describe("signup-organization handle", () => {
 
     const audit = admin.rowsIn("audit_events")[0];
     assertMatch(audit.event, /Nakuru County Schools/);
-    assertMatch(audit.event, /pending/);
+    assertEquals(/pending/.test(audit.event), false);
   });
 
   it("reports a 409 when the email is already registered", async () => {

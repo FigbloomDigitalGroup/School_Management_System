@@ -8,3 +8,9 @@
         margin-top: 0;
     }
 }
+
+/* Panels are all rendered for search engines; only the active one is shown.
+   Needed because .feature-panel sets its own display, which would beat the [hidden] default. */
+.feature-panel[hidden] {
+    display: none;
+}

@@ -1,7 +1,11 @@
 /**
  * Public, unauthenticated self-service signup (FIG-370) -- an organization
- * registers itself, starting in a 'pending' state until a super_admin
- * approves it with one click (FIG-375). This is the ONE genuinely public
+ * registers itself and is live straight away. It used to start 'pending'
+ * until a super_admin approved it (FIG-375); approval is paused for now, so
+ * new organizations are created 'active' and can add schools at once. To
+ * switch approval back on, insert 'pending' here and in
+ * create-organization: the Approve button and holding screen still exist.
+ * This is the ONE genuinely public
  * privileged surface in the whole app: every other creation flow requires an
  * already-authenticated staff caller (invite-admin, invite-org-admin), this
  * one has no caller to check at all -- the person signing up has no account
@@ -86,7 +90,7 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
     name,
     slug,
     kind,
-    status: "pending",
+    status: "active", // no approval step for now: see the header
     county: body.county?.trim() || null,
     contact_name: adminFullName,
     contact_email: body.contact_email?.trim() || adminEmail,
@@ -126,7 +130,7 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
   await admin.from("audit_events").insert({
     tenant_id: null,
     actor_label: `${adminFullName} · self-service signup`,
-    event: `Organization "${organization.name}" self-registered, pending approval`,
+    event: `Organization "${organization.name}" self-registered`,
     category: "provisioning",
   });
 

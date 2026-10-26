@@ -32,6 +32,7 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { TripHistory } from "./TripHistory";
+import { RouteRiders } from "../../components/fleet/RouteRiders";
 
 interface FleetData {
   vehicles: Vehicle[];
@@ -58,6 +59,9 @@ function fmtLastSeen(iso: string | null): string {
   if (!iso) return "Not reporting yet";
   return `Last seen ${new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`;
 }
+
+/** How each alert kind reads. Alerts sit under the live map, so a busy morning never pushes the map down the page. */
+const ALERT_LABEL: Record<string, string> = { speed: "Speeding", geofence: "Off route", rider: "Children still on the bus" };
 
 function fmtAlertTime(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -86,7 +90,7 @@ export function Fleet() {
 
   useEffect(() => {
     return subscribeVehicleAlerts(tenant.id, (alert) => {
-      toast(alert.kind === "speed" ? `Speed alert: ${alert.detail}` : `Off-route alert: ${alert.detail}`);
+      toast(`${ALERT_LABEL[alert.kind] ?? "Alert"}: ${alert.detail}`);
       refresh();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +152,11 @@ export function Fleet() {
               ]}
             />
 
+            <section>
+              <h2 className="mb-3 text-[14px] font-semibold">Live map</h2>
+              <FleetLiveMap tenantId={tenant.id} buses={data.buses} className="h-[560px] rounded-xl border border-line" />
+            </section>
+
             {data.alerts.length > 0 && (
               <section>
                 <h2 className="mb-3 text-[14px] font-semibold">Alerts</h2>
@@ -159,7 +168,7 @@ export function Fleet() {
                     >
                       <div className="min-w-0">
                         <div className="text-[13px] font-semibold text-warn-ink">
-                          <Mono>{a.vehicle?.plate_number ?? "Vehicle"}</Mono> · {a.kind === "speed" ? "Speeding" : "Off route"}
+                          <Mono>{a.vehicle?.plate_number ?? "Vehicle"}</Mono> · {ALERT_LABEL[a.kind] ?? "Alert"}
                         </div>
                         <div className="mt-0.5 text-[12.5px] text-warn-ink/90">{a.detail}</div>
                         <div className="mt-0.5 text-[11px] text-ink-faint">{fmtAlertTime(a.created_at)}</div>
@@ -172,11 +181,6 @@ export function Fleet() {
                 </div>
               </section>
             )}
-
-            <section>
-              <h2 className="mb-3 text-[14px] font-semibold">Live map</h2>
-              <FleetLiveMap tenantId={tenant.id} buses={data.buses} className="h-[560px] rounded-xl border border-line" />
-            </section>
 
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Vehicles</h2>
@@ -287,6 +291,9 @@ export function Fleet() {
 function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
   route: Route; tenantId: string; open: boolean; onToggle: () => void; onSaved: () => void; toast: ToastFn;
 }) {
+  // Bumped on every save, so both panels reload what the other one changed.
+  const [version, setVersion] = useState(0);
+  const saved = () => { setVersion((v) => v + 1); onSaved(); };
   return (
     <li className="overflow-hidden rounded-xl border" style={{ borderColor: open ? "var(--accent)" : "#E2E6E2" }}>
       <button onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left">
@@ -299,14 +306,18 @@ function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
 
       {open && (
         <div className="border-t border-line-soft bg-page px-4 py-3.5">
-          <StopsEditor routeId={route.id} tenantId={tenantId} toast={toast} onSaved={onSaved} />
+          <StopsEditor key={`stops-${version}`} routeId={route.id} tenantId={tenantId} toast={toast} onSaved={saved} />
+          <div className="mt-4 border-t border-line-soft pt-3.5">
+            <RouteRiders key={`riders-${version}`} routeId={route.id} toast={toast} onSaved={saved} />
+          </div>
         </div>
       )}
     </li>
   );
 }
 
-interface StopRow { name: string; lat: string; lng: string }
+/** id: the saved stop this row is, so saving keeps its riders on it. */
+interface StopRow { id?: string; name: string; lat: string; lng: string }
 
 function StopsEditor({ routeId, tenantId, toast, onSaved }: {
   routeId: string; tenantId: string; toast: ToastFn; onSaved: () => void;
@@ -316,7 +327,7 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (stops && rows === null) setRows(stops.map((s) => ({ name: s.name, lat: String(s.lat), lng: String(s.lng) })));
+    if (stops && rows === null) setRows(stops.map((s) => ({ id: s.id, name: s.name, lat: String(s.lat), lng: String(s.lng) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stops]);
 
@@ -332,7 +343,7 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
 
   async function save() {
     const parsed = (rows ?? [])
-      .map((r) => ({ name: r.name.trim(), lat: Number(r.lat), lng: Number(r.lng) }))
+      .map((r) => ({ id: r.id, name: r.name.trim(), lat: Number(r.lat), lng: Number(r.lng) }))
       .filter((r) => r.name && Number.isFinite(r.lat) && Number.isFinite(r.lng));
     setSaving(true);
     try {

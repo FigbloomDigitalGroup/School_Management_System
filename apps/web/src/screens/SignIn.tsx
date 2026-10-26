@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  DEMO_LOGINS, homeRouteFor, resolveLoginId, searchSchools, supabase,
+  DEMO_LOGINS, homeRouteFor, passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, searchSchools, supabase,
   type ResolvedLogin, type Role, type SchoolSearchResult, type Tenant,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
@@ -78,12 +78,17 @@ export function SignIn() {
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  // "Forgot password?" for a school ID: there's no mailbox, so it asks the school instead.
+  const [forgot, setForgot] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   function choosePortal(p: Portal | null) {
     setPortal(p);
     setMode("id");
     setError("");
     setResetSent(false);
+    setForgot(false);
+    setForgotSent(false);
     setPassword("");
     setResolved(null);
     setLoginId("");
@@ -94,6 +99,15 @@ export function SignIn() {
     setMode(m);
     setError("");
     setResetSent(false);
+    setForgot(false);
+    setForgotSent(false);
+  }
+
+  function toggleForgot(on: boolean) {
+    setForgot(on);
+    setForgotSent(false);
+    setError("");
+    setPassword("");
   }
 
   function selectSchool(s: SchoolSearchResult) {
@@ -137,6 +151,20 @@ export function SignIn() {
       setResetSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the reset link.");
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  async function askSchoolForReset() {
+    if (!school || !loginId.trim()) { setError("Pick your school and enter your ID first."); return; }
+    setError("");
+    setResetBusy(true);
+    try {
+      await requestPasswordReset(school.id, loginId.trim());
+      setForgotSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the request. Try again, or ask the school office.");
     } finally {
       setResetBusy(false);
     }
@@ -243,7 +271,38 @@ export function SignIn() {
           <h2 className="text-[22px] font-semibold tracking-tight">{activePortal.label} sign in</h2>
           <p className="mt-1 text-body text-ink-muted">{activePortal.tagline}</p>
         <div className="mt-5 rounded-xl border border-line bg-white p-5">
-          {mode === "id" ? (
+          {mode === "id" && forgot ? (
+            <div className="grid gap-3.5">
+              <div>
+                <p className="text-body font-semibold">Forgot your password?</p>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
+                  Your account has no email to send a link to, so we'll ask your school to set you a new temporary password.
+                </p>
+              </div>
+              {forgotSent ? (
+                <p role="status" className="rounded-lg border border-ok-ink/30 bg-ok-ink/5 px-3 py-2.5 text-[12.5px] leading-relaxed text-ok-ink">
+                  {passwordResetRequestedMessage(activePortal.roles[0])}
+                </p>
+              ) : (
+                <>
+                  <SchoolPicker selected={school} onSelect={selectSchool} onClear={clearSchool} />
+                  {school && (
+                    <TextField
+                      id="forgot-login-id" label="Your ID" mono placeholder={activePortal.idHint}
+                      value={loginId} error={error || undefined}
+                      onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); }}
+                    />
+                  )}
+                  <Button variant="primary" block disabled={resetBusy || !school || !loginId.trim()} onClick={() => void askSchoolForReset()}>
+                    {resetBusy ? "Sending…" : "Ask for a new password"}
+                  </Button>
+                </>
+              )}
+              <button type="button" onClick={() => toggleForgot(false)} className="text-left text-[12px] font-medium text-forest hover:underline">
+                ← Back to sign in
+              </button>
+            </div>
+          ) : mode === "id" ? (
             <div className="grid gap-3.5">
               <SchoolPicker selected={school} onSelect={selectSchool} onClear={clearSchool} />
               {school && (
@@ -262,6 +321,9 @@ export function SignIn() {
                   value={password} error={error} onChange={(e) => setPassword(e.target.value)}
                 />
               )}
+              <button type="button" onClick={() => toggleForgot(true)} className="text-left text-[12px] font-medium text-forest hover:underline">
+                Forgot password?
+              </button>
             </div>
           ) : (
             <div className="grid gap-3.5">
@@ -278,15 +340,17 @@ export function SignIn() {
                   disabled={resetBusy}
                   className="text-left text-[12px] font-medium text-forest hover:underline disabled:opacity-50"
                 >
-                  {resetBusy ? "Sending…" : "Forgot password?"}
+                  {resetBusy ? "Sending…" : "Forgot password? We'll email you a link"}
                 </button>
               )}
             </div>
           )}
 
-          <Button variant="primary" block disabled={busy || !canSubmit} onClick={submit} className="mt-3.5">
-            {busy ? "One moment…" : "Sign in"}
-          </Button>
+          {!(mode === "id" && forgot) && (
+            <Button variant="primary" block disabled={busy || !canSubmit} onClick={submit} className="mt-3.5">
+              {busy ? "One moment…" : "Sign in"}
+            </Button>
+          )}
 
           {activePortal.id === "admin" && (
             <button
@@ -294,7 +358,7 @@ export function SignIn() {
               onClick={() => switchMode(mode === "id" ? "email" : "id")}
               className="mt-3 w-full text-center text-[12px] font-medium text-forest hover:underline"
             >
-              {mode === "id" ? "Sign in with email instead" : "Sign in with your school and ID instead"}
+              {mode === "id" ? (forgot ? "Signed in with an email? Get a reset link by email instead" : "Sign in with email instead") : "Sign in with your school and ID instead"}
             </button>
           )}
         </div>

@@ -9,6 +9,8 @@ import { useStudentData } from "./studentData";
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
 import { ParentPay } from "./screens/parent/Pay";
+import { ParentHomework } from "./screens/parent/Homework";
+import { ParentMaterials } from "./screens/parent/Materials";
 import { ParentResults } from "./screens/parent/Results";
 import { ParentInbox } from "./screens/parent/Inbox";
 import { ParentBus } from "./screens/parent/Bus";
@@ -16,6 +18,7 @@ import { ParentAccount } from "./screens/parent/Account";
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
 import { StudentWork } from "./screens/student/Work";
+import { StudentMaterials } from "./screens/student/Materials";
 import { StudentResults } from "./screens/student/Results";
 import { StudentNotices } from "./screens/student/Notices";
 import { StudentAccount } from "./screens/student/Account";
@@ -37,8 +40,6 @@ interface NavigationProps {
 
 /** Which app opens is decided by the signed-in role, not by a picker. */
 export function Navigation({ role, accent, driver }: NavigationProps) {
-  const a = accentFor(accent);
-
   if (role === "driver" && driver) {
     // A driver's screen is a single full-screen page (start/end trip), not a
     // console — no tabs, nothing else to navigate to.
@@ -57,9 +58,19 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="ParentTabs" component={ParentTabs} />
           {/* Payment is a stack screen, not a tab — it must not be swiped away mid-prompt. */}
           <Stack.Screen name="Pay" component={ParentPay} options={{ presentation: "modal" }} />
+          {/* Homework is opened from the Home card, not a seventh tab — six is already a full bar. */}
+          <Stack.Screen name="Homework" component={ParentHomework} />
+          {/* Learning materials, likewise, opens from Home. */}
+          <Stack.Screen name="Materials" component={ParentMaterials} />
         </Stack.Navigator>
       ) : (
-        <StudentTabs a={a} />
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {/* The accent travels as a route param so StudentTabs stays a real
+              named component (see the note on ParentTabs above). */}
+          <Stack.Screen name="StudentTabs" component={StudentTabsScreen} initialParams={{ accent }} />
+          {/* Opened from the Work tab, not a seventh tab. */}
+          <Stack.Screen name="Materials" component={StudentMaterials} />
+        </Stack.Navigator>
       )}
     </NavigationContainer>
   );
@@ -92,6 +103,10 @@ function ParentTabs() {
       <Tab.Screen name="Account" component={ParentAccount} options={tabIcon(User)} />
     </Tab.Navigator>
   );
+}
+
+function StudentTabsScreen({ route }: { route: { params?: { accent?: string } } }) {
+  return <StudentTabs a={accentFor(route.params?.accent ?? "")} />;
 }
 
 /** Its own component (not inlined above) so useStudentData() is only ever

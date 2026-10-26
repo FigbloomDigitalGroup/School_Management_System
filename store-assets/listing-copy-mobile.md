@@ -44,7 +44,7 @@ Everyone / 3+ — the app itself has no mature content; it is only usable by
 people with a school-issued account.
 
 ## Privacy policy URL
-https://figbloom.co.ke/privacy.html
+https://schoolmanagement.figbloom.org/privacy.html
 (placeholder — confirm the production domain before submitting, see FIG-780)
 
 ## Contact email
