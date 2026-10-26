@@ -23,6 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { loginIdEmail } from "../_shared/loginId.ts";
 import { maskName } from "../_shared/maskName.ts";
+import { canSignIn } from "../_shared/signInStatuses.ts";
 
 /** Lookups one caller may make in the window. A person fixing a typo makes a handful. */
 const LOOKUP_LIMIT = 30;
@@ -71,7 +72,7 @@ export async function handle(req: Request, { admin, withinLimit }: Deps): Promis
   const loginId = rawLoginId.toUpperCase();
 
   const { data: tenant } = await admin.from("tenants").select("slug, status").eq("id", tenantId).maybeSingle();
-  if (!tenant || tenant.status !== "active") return json({ error: NOT_FOUND_MESSAGE }, 404);
+  if (!tenant || !canSignIn(tenant.status)) return json({ error: NOT_FOUND_MESSAGE }, 404);
 
   const { data: profile } = await admin.from("profiles")
     .select("full_name").eq("tenant_id", tenantId).eq("login_id", loginId).maybeSingle();

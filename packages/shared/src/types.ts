@@ -1,6 +1,6 @@
 /** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
 
-export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin";
+export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "guard" | "receptionist";
 
 export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
 
@@ -317,7 +317,7 @@ export interface Payment {
 export type Audience =
   | { kind: "whole_school" }
   | { kind: "role"; role: Role }
-  /** Several roles at once -- "All staff" is school_admin + teacher + driver. */
+  /** Several roles at once -- "All staff" is STAFF_ROLES (audience.ts). */
   | { kind: "roles"; roles: Role[] }
   /** recipients omitted -- e.g. an admin's whole-class broadcast --
    *  reaches both a class's parents and its students, same as before this
@@ -547,7 +547,7 @@ export interface CourseGrade {
 }
 
 /** rider: a trip ended with children still marked on the bus (20261025020000_bus_riders_and_homes.sql) */
-export type AlertKind = "speed" | "geofence" | "rider";
+export type AlertKind = "speed" | "geofence" | "rider" | "breakdown";
 
 export interface VehicleAlert {
   id: string;

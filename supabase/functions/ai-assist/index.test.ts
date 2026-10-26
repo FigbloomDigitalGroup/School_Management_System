@@ -4,7 +4,7 @@ import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
 import { fakePdf } from "./documents.test.ts";
 import { DAILY_LIMIT, handle, type AiSetup } from "./index.ts";
 import type { AiReply, AiRequest } from "./providers.ts";
-import { BadInput, MAX_LEARNERS, prepare, tutorMessages } from "./tasks.ts";
+import { BadInput, CHAT_MAX_TOTAL_CHARS, chatMessages, MAX_LEARNERS, prepare, tutorMessages } from "./tasks.ts";
 
 const TENANT_ID = "tenant-1";
 
@@ -242,5 +242,78 @@ describe("tasks", () => {
     assertEquals(kept[0]!.role, "user");
     assertEquals(kept[kept.length - 1]!.content, "last");
     assertThrows(() => tutorMessages({ messages: [{ role: "assistant", content: "hello" }] }), BadInput);
+  });
+});
+
+describe("ai-assist chat", () => {
+  const ask = (messages: unknown, extra: Record<string, unknown> = {}) =>
+    new Request("https://example.com/ai-assist", { method: "POST", headers: { Authorization: "Bearer x" }, body: JSON.stringify({ task: "chat", payload: { messages }, ...extra }) });
+
+  it("answers a teacher in plain text with the whole conversation, and logs only the tokens", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    const { ai, calls } = fakeAi("**Photosynthesis** is how plants make food.");
+    const turns = [
+      { role: "user", content: "Plan a Grade 7 lesson on plants" },
+      { role: "assistant", content: "Here is a plan..." },
+      { role: "user", content: "Now explain photosynthesis simply" },
+    ];
+    const res = await handle(ask(turns), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).result.text, "**Photosynthesis** is how plants make food.");
+    assertEquals(calls[0]!.schema, null);
+    assertEquals(calls[0]!.messages.length, 3);
+    assertStringIncludes(calls[0]!.system, "Kijani Ridge");
+    const usage = admin.rowsIn("ai_usage");
+    assertEquals([usage[0]!.task, usage[0]!.outcome], ["chat", "ok"]);
+    assert(!JSON.stringify(usage[0]).includes("photosynthesis"), "the chat is never stored here");
+  });
+
+  it("is refused to learners and parents", async () => {
+    for (const role of ["student", "parent"]) {
+      const { admin, asUser } = makeClients(role);
+      const res = await handle(ask([{ role: "user", content: "hi" }]), { admin, asUser, ai: fakeAi("hi").ai });
+      assertEquals(res.status, 403);
+    }
+  });
+
+  it("is off when the school has turned Bloom off, and when the allowance is used", async () => {
+    const off = makeClients("school_admin", { ai_enabled: false });
+    assertEquals((await handle(ask([{ role: "user", content: "hi" }]), { ...off, ai: fakeAi("hi").ai })).status, 403);
+    const spent = makeClients("school_admin", { ai_monthly_tokens: 10 });
+    spent.admin.seed("ai_usage", [{ tenant_id: TENANT_ID, profile_id: "someone", input_tokens: 10, output_tokens: 0 }]);
+    assertEquals((await handle(ask([{ role: "user", content: "hi" }]), { ...spent, ai: fakeAi("hi").ai })).status, 429);
+  });
+
+  it("lets an org admin use it inside a member school, against that school's allowance", async () => {
+    const { admin, asUser } = makeClients("org_admin");
+    admin.seed("profiles", [{ id: "me", role: "org_admin", tenant_id: null }]);
+    admin.seed("tenants", [{ id: TENANT_ID, organization_id: "org-1", name: "Kijani Ridge", ai_enabled: true, ai_monthly_tokens: 1_000_000 }]);
+    admin.seed("organization_admins", [{ id: "oa-1", profile_id: "me", organization_id: "org-1" }]);
+    const res = await handle(ask([{ role: "user", content: "hi" }], { tenantId: TENANT_ID }), { admin, asUser, ai: fakeAi("hello").ai });
+    assertEquals(res.status, 200);
+    assertEquals(admin.rowsIn("ai_usage")[0]!.tenant_id, TENANT_ID);
+  });
+
+  it("refuses an org admin naming a school outside their organization", async () => {
+    const { admin, asUser } = makeClients("org_admin");
+    admin.seed("profiles", [{ id: "me", role: "org_admin", tenant_id: null }]);
+    admin.seed("tenants", [{ id: TENANT_ID, organization_id: "org-2", name: "Kijani Ridge", ai_enabled: true, ai_monthly_tokens: 1_000_000 }]);
+    admin.seed("organization_admins", [{ id: "oa-1", profile_id: "me", organization_id: "org-1" }]);
+    const res = await handle(ask([{ role: "user", content: "hi" }], { tenantId: TENANT_ID }), { admin, asUser, ai: fakeAi("hello").ai });
+    assertEquals(res.status, 403);
+  });
+
+  it("keeps the newest turns within the size cap and always ends on the question", () => {
+    const big = "x".repeat(10_000);
+    const turns = Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: big }));
+    const kept = chatMessages({ messages: [...turns, { role: "user", content: "last" }] });
+    assert(kept.reduce((n, m) => n + m.content.length, 0) <= CHAT_MAX_TOTAL_CHARS);
+    assertEquals(kept[0]!.role, "user");
+    assertEquals(kept[kept.length - 1]!.content, "last");
+    assertThrows(() => chatMessages({ messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] }), BadInput);
+    // a long earlier answer is cut, not refused; a long question is refused
+    const withLongAnswer = chatMessages({ messages: [{ role: "user", content: "q" }, { role: "assistant", content: "y".repeat(50_000) }, { role: "user", content: "more" }] });
+    assertEquals(withLongAnswer[1]!.content.length, 12_000);
+    assertThrows(() => chatMessages({ messages: [{ role: "user", content: "z".repeat(12_001) }] }), BadInput);
   });
 });
