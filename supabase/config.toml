@@ -51,6 +51,9 @@ verify_jwt = true
 [functions.bus-tick]
 verify_jwt = true              # the driver's own session (or the service role, for simulate-trip.ts)
 
+[functions.rider-update]
+verify_jwt = true              # the driver's own session: pushes "got on / got off" and breakdowns to families
+
 [functions.mpesa-stk-push]
 verify_jwt = true
 
