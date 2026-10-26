@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { markMessageRead, type MessageInfo } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { OwnerAttachments } from "../../components/Media";
+import { MessageToSign } from "../../components/signatures/PendingSignatures";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useParentData } from "../../lib/parentContext";
@@ -111,6 +112,7 @@ export function ParentInbox() {
                 <div className="mt-1.5 text-[12.5px] text-ink-muted">{selected.from} · {selected.when}</div>
                 <p className="mt-4 whitespace-pre-line text-[14px] leading-relaxed">{selected.body}</p>
                 <div className="mt-5"><OwnerAttachments owner="announcement" id={selected.id} /></div>
+                <div className="mt-4"><MessageToSign announcementId={selected.id} /></div>
               </div>
             ) : (
               <EmptyState title="Nothing here yet." body="Announcements from the school and your child's class teacher will appear here." />

@@ -17,6 +17,8 @@ export const ROLE_ID_PREFIX: Partial<Record<Role, string>> = {
   parent: "PT",
   student: "ST",
   driver: "BD",
+  guard: "GD",
+  receptionist: "RC",
 };
 
 /** Zero-pads to 4 digits, e.g. formatLoginId("TC", 1) -> "TC-0001". */
@@ -81,6 +83,8 @@ export function homeRouteFor(role: Role, slug: string | null, institutionType?: 
     case "parent": return `/s/${slug}/parent`;
     case "student": return `/s/${slug}/student`;
     case "driver": return `/s/${slug}/driver`;
+    case "guard": return `/s/${slug}/gate`;
+    case "receptionist": return `/s/${slug}/reception`;
     // Not tenant-scoped at all — `slug` here is actually the org's own slug
     // (SignIn.tsx resolves it from organization_admins, not tenants, for
     // this role). Not /platform/*: that's staff-only and would just bounce
@@ -115,7 +119,10 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/fees", label: "Fees", icon: "receipt" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
     { to: "admin/activities", label: "Sports & activities", icon: "trophy" },
+    { to: "admin/chats", label: "Chats", icon: "chat" },
     { to: "admin/leave", label: "Leave requests", icon: "flag" },
+    { to: "admin/visitors", label: "Visitors", icon: "people" },
+    { to: "admin/inventory", label: "Inventory", icon: "box" },
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },
     { to: "admin/reports", label: "Reports", icon: "chart" },
     { to: "admin/settings", label: "School settings", icon: "gear" },
@@ -132,10 +139,13 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/classes", label: "My classes", icon: "people" },
     { to: "teacher/sections", label: "My sections", icon: "people" },
     { to: "teacher/messages", label: "Messages", icon: "chat" },
+    { to: "teacher/chats", label: "Chats", icon: "chat" },
     { to: "teacher/notices", label: "Notices", icon: "bell" },
     { to: "teacher/activities", label: "Sports & activities", icon: "trophy" },
     { to: "teacher/buses", label: "Buses", icon: "pulse" },
     { to: "teacher/leave", label: "Leave", icon: "flag" },
+    { to: "teacher/visitors", label: "Visitors", icon: "people" },
+    { to: "teacher/items", label: "My items", icon: "box" },
     { to: "teacher/account", label: "Account", icon: "pencil" },
   ],
   parent: [
@@ -147,6 +157,8 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "parent/activities", label: "Sports & activities", icon: "trophy" },
     { to: "parent/bus", label: "Bus", icon: "pulse" },
     { to: "parent/inbox", label: "Inbox", icon: "chat" },
+    { to: "parent/chats", label: "Chats", icon: "chat" },
+    { to: "parent/items", label: "Issued items", icon: "box" },
     { to: "parent/settings", label: "Account", icon: "gear" },
   ],
   student: [
@@ -160,11 +172,19 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "student/study-helper", label: "Ask Bloom", icon: "chat" },
     { to: "student/fees", label: "Fees", icon: "receipt" },
     { to: "student/notices", label: "Notices", icon: "bell" },
+    { to: "student/chats", label: "Chats", icon: "chat" },
+    { to: "student/items", label: "My items", icon: "box" },
   ],
   // A driver's screen is a single full-screen page (start/end trip), not a
   // console — this exists only so Record<Role, ...> stays exhaustive.
   driver: [
     { to: "driver", label: "Trip", icon: "pulse" },
+  ],
+  guard: [
+    { to: "gate", label: "Gate", icon: "people" },
+  ],
+  receptionist: [
+    { to: "reception", label: "Reception", icon: "people" },
   ],
   // Relative, same as every tenant-scoped role's items — NavLink resolves
   // them against the current /org/<slug>/ location, so no manual slug

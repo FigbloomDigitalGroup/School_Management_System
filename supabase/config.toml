@@ -51,6 +51,9 @@ verify_jwt = true
 [functions.bus-tick]
 verify_jwt = true              # the driver's own session (or the service role, for simulate-trip.ts)
 
+[functions.rider-update]
+verify_jwt = true              # the driver's own session: pushes "got on / got off" and breakdowns to families
+
 [functions.mpesa-stk-push]
 verify_jwt = true
 
@@ -71,6 +74,9 @@ verify_jwt = false             # "Forgot password?" from the sign-in screen — 
 
 [functions.reset-user-password]
 verify_jwt = true              # the school admin / org admin / parent setting the new temporary password
+
+[functions.visit-notify]
+verify_jwt = true              # the gate, reception or office that just recorded or escalated a visit; secret FCM_SERVICE_ACCOUNT_JSON_B64
 
 [functions.ai-assist]
 verify_jwt = true              # staff drafting, or a learner asking Bloom; secrets AI_PROVIDER (openai|anthropic), OPENAI_API_KEY or ANTHROPIC_API_KEY, optional AI_MODEL

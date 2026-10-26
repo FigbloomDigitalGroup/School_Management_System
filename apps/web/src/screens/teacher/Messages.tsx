@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  fetchSentByMe, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, sendClassMessage, supabase,
+  fetchSentByMe, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, sendClassMessage, supabase,
   type ClassMessageRecipients,
 } from "@figbloom/shared";
 import { AiWriteHelper } from "../../components/AiWriteHelper";
 import { AttachmentPicker } from "../../components/AttachmentPicker";
+import { MessageSignatureStatus, NeedsSignatureToggle } from "../../components/signatures/SignatureStatus";
 import { PageHead } from "../../components/ConsoleShell";
 import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
 import { Button } from "../../components/ui/Button";
@@ -42,6 +43,7 @@ export function TeacherMessages() {
   const [recipients, setRecipients] = useState<ClassMessageRecipients>("guardians");
   const [sending, setSending] = useState(false);
   const [drafts, setDrafts] = useState<WebMediaDraft[]>([]);
+  const [needsSignature, setNeedsSignature] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
   const batch = useRef<AttachmentBatch | null>(null);
 
@@ -60,6 +62,8 @@ export function TeacherMessages() {
         pendingId = id;
         batch.current = saveAttachments(tenant.id, "announcement", id, drafts, setProgress);
         await batch.current.done;
+        // before it goes out: sending is what asks the families to sign
+        if (needsSignature) await requireAttachmentSignatures(id);
         await publishAnnouncement(id);
         pendingId = null;
       }
@@ -68,6 +72,7 @@ export function TeacherMessages() {
       setSubject("");
       setBody("");
       setDrafts([]);
+      setNeedsSignature(false);
       setReloadKey((k) => k + 1);
     } catch (err) {
       // Nothing half-sent: the unsent message and any files already up are taken back out.
@@ -138,6 +143,7 @@ export function TeacherMessages() {
                 hint={`This goes to this class's ${recipientsLabel(recipients)}, in-app only.`} />
 
               <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
+              {drafts.some((d) => d.type === "file") && <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />}
 
               <Button variant="accent" disabled={!subject.trim() || !body.trim() || sending} onClick={() => void send()}>
                 {sending ? "Sending…" : "Send"}
@@ -169,6 +175,7 @@ export function TeacherMessages() {
                       </span>
                     </div>
                     <div className="mt-0.5 text-[11.5px] text-ink-faint">To {who} of {className}</div>
+                    <MessageSignatureStatus announcementId={a.id} />
                   </div>
                 );
               })

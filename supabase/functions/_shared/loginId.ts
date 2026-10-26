@@ -11,6 +11,8 @@ export const ROLE_ID_PREFIX: Record<string, string> = {
   parent: "PT",
   student: "ST",
   driver: "BD",
+  guard: "GD",
+  receptionist: "RC",
 };
 
 export function formatLoginId(prefix: string, n: number): string {
