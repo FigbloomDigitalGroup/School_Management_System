@@ -114,6 +114,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/report-cards", label: "Report cards", icon: "receipt" },
     { to: "admin/fees", label: "Fees", icon: "receipt" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
+    { to: "admin/chats", label: "Chats", icon: "chat" },
     { to: "admin/leave", label: "Leave requests", icon: "flag" },
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },
     { to: "admin/reports", label: "Reports", icon: "chart" },
@@ -131,6 +132,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/classes", label: "My classes", icon: "people" },
     { to: "teacher/sections", label: "My sections", icon: "people" },
     { to: "teacher/messages", label: "Messages", icon: "chat" },
+    { to: "teacher/chats", label: "Chats", icon: "chat" },
     { to: "teacher/notices", label: "Notices", icon: "bell" },
     { to: "teacher/buses", label: "Buses", icon: "pulse" },
     { to: "teacher/leave", label: "Leave", icon: "flag" },
@@ -144,6 +146,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "parent/materials", label: "Learning materials", icon: "book" },
     { to: "parent/bus", label: "Bus", icon: "pulse" },
     { to: "parent/inbox", label: "Inbox", icon: "chat" },
+    { to: "parent/chats", label: "Chats", icon: "chat" },
     { to: "parent/settings", label: "Account", icon: "gear" },
   ],
   student: [
@@ -156,6 +159,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "student/study-helper", label: "Ask Bloom", icon: "chat" },
     { to: "student/fees", label: "Fees", icon: "receipt" },
     { to: "student/notices", label: "Notices", icon: "bell" },
+    { to: "student/chats", label: "Chats", icon: "chat" },
   ],
   // A driver's screen is a single full-screen page (start/end trip), not a
   // console — this exists only so Record<Role, ...> stays exhaustive.
