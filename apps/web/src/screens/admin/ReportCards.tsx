@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  AI_COMMENT_BATCH, chunk, draftReportComments, learnerForAi,
   defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, gradingSchemeFor, rubricFor,
   prepareClassReportCards, reportCardFileName, saveReportCardComments, saveReportCards, saveTeacherComment,
   setReportCardsPublished, suggestComment, type ReportCardOptions, type StoredReportCard,
@@ -15,6 +16,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { AI_DRAFT_NOTE, useAiStatus } from "../../lib/useAi";
 
 /**
  * Report cards for a class and term. The office picks which exams count,
@@ -87,6 +89,36 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
     toast(skippedPublished
       ? `${saved} report cards prepared. ${skippedPublished} already sent to families were left as issued.`
       : `${saved} report cards prepared.`);
+    setReloadKey((k) => k + 1);
+  });
+
+  const ai = useAiStatus();
+
+  // Bloom (AI) drafts the empty comment boxes on cards not yet sent. They stay drafts
+  // until someone reads them and sends the class.
+  const aiComments = () => run("ai", async () => {
+    const targets = teacher
+      ? rows.filter((c) => !c.publishedAt && !c.teacherComment)
+      : drafts.filter((c) => !c.teacherComment || !c.principalComment);
+    if (!targets.length) { toast("Every report card not yet sent already has its comments."); return; }
+    let n = 0;
+    for (const batch of chunk(targets, AI_COMMENT_BATCH)) {
+      const out = await draftReportComments(teacher ? "teacher" : "both", batch.map((c) => learnerForAi(c.id, c.data)));
+      const byRef = new Map(out.map((o) => [o.ref, o]));
+      for (const c of batch) {
+        const o = byRef.get(c.id);
+        if (!o) continue;
+        if (teacher) {
+          if (o.teacher.trim()) { await saveTeacherComment(c.id, o.teacher); n++; }
+          continue;
+        }
+        const patch: { teacher?: string; principal?: string } = {};
+        if (!c.teacherComment && o.teacher.trim()) patch.teacher = o.teacher;
+        if (!c.principalComment && o.principal.trim()) patch.principal = o.principal;
+        if (patch.teacher || patch.principal) { await saveReportCardComments(c.id, patch); n++; }
+      }
+    }
+    toast(n ? `Bloom drafted comments for ${n} learner${n === 1 ? "" : "s"}. Read and edit them before the cards are sent.` : "Bloom didn't return any comments. Try again.");
     setReloadKey((k) => k + 1);
   });
 
@@ -217,11 +249,16 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
             ) : (
               <DataTable
                 title={`${cls?.name ?? "Class"} · ${rows.length} report card${rows.length === 1 ? "" : "s"}`}
-                filters={!teacher && rows.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button disabled={!!busy || !drafts.length} onClick={fillComments}>{busy === "fill" ? "Filling…" : "Suggest missing comments"}</Button>
-                    {drafts.length > 0 && <Button variant="accent" disabled={!!busy} onClick={() => publish(drafts.map((c) => c.id), true)}>Send {drafts.length} to families</Button>}
-                    {published.length > 0 && <Button disabled={!!busy} onClick={() => publish(published.map((c) => c.id), false)}>Withdraw all</Button>}
+                filters={rows.length && (!teacher || ai?.aiEnabled) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {ai?.aiEnabled && (
+                      <Button disabled={!!busy || !drafts.length} onClick={aiComments} title={AI_DRAFT_NOTE}>
+                        {busy === "ai" ? "Drafting…" : "Draft comments with Bloom"}
+                      </Button>
+                    )}
+                    {!teacher && <Button disabled={!!busy || !drafts.length} onClick={fillComments}>{busy === "fill" ? "Filling…" : "Suggest missing comments"}</Button>}
+                    {!teacher && drafts.length > 0 && <Button variant="accent" disabled={!!busy} onClick={() => publish(drafts.map((c) => c.id), true)}>Send {drafts.length} to families</Button>}
+                    {!teacher && published.length > 0 && <Button disabled={!!busy} onClick={() => publish(published.map((c) => c.id), false)}>Withdraw all</Button>}
                   </div>
                 ) : undefined}
                 columns={[
@@ -270,9 +307,30 @@ function CommentsModal({ card, teacher, onClose, onSaved }: { card: StoredReport
   const [teacherText, setTeacherText] = useState(card.teacherComment ?? "");
   const [principalText, setPrincipalText] = useState(card.principalComment ?? "");
   const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState<"teacher" | "principal" | null>(null);
+  const ai = useAiStatus();
   const d = card.data;
   const first = d.learner.name.split(" ")[0] ?? "";
   const locked = teacher && !!card.publishedAt;
+
+  /** Fills one box with an AI draft (improving what's there, if anything). Nothing is saved until Save. */
+  async function aiDraft(who: "teacher" | "principal") {
+    setDrafting(who);
+    try {
+      const current = who === "teacher" ? teacherText : principalText;
+      const [o] = await draftReportComments(who, [learnerForAi(card.id, d, current)]);
+      const text = (who === "teacher" ? o?.teacher : o?.principal)?.trim();
+      if (!text) throw new Error("Bloom didn't return a comment. Try again.");
+      if (who === "teacher") setTeacherText(text); else setPrincipalText(text);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not draft a comment.", "error");
+    } finally { setDrafting(null); }
+  }
+  const aiLink = (who: "teacher" | "principal", has: boolean) => ai?.aiEnabled && !locked && (
+    <button type="button" disabled={!!drafting} className="mt-1 ml-3 text-[12px] font-medium text-accent underline disabled:opacity-50" title={AI_DRAFT_NOTE} onClick={() => aiDraft(who)}>
+      {drafting === who ? "Drafting…" : has ? "Improve with Bloom" : "Draft with Bloom"}
+    </button>
+  );
 
   async function save() {
     setSaving(true);
@@ -300,6 +358,7 @@ function CommentsModal({ card, teacher, onClose, onSaved }: { card: StoredReport
       }
     >
       <div className="space-y-4">
+        {ai?.aiEnabled && !locked && <p className="text-[11.5px] text-ink-faint">{AI_DRAFT_NOTE}</p>}
         {locked && <p className="text-[12.5px] text-warn-ink">This report card has gone out to the family. Ask the office to withdraw it to change your comment.</p>}
         <div>
           <TextArea id="rc-teacher-comment" label="Class teacher's comment" value={teacherText} maxLength={600} disabled={locked}
@@ -307,6 +366,7 @@ function CommentsModal({ card, teacher, onClose, onSaved }: { card: StoredReport
           {!teacherText && d.summary.grade && !locked && (
             <button type="button" className="mt-1 text-[12px] font-medium text-accent underline" onClick={() => setTeacherText(suggestComment(d.summary.grade, first, "teacher"))}>Use a suggested comment</button>
           )}
+          {aiLink("teacher", !!teacherText.trim())}
         </div>
         {!teacher && (
           <div>
@@ -315,6 +375,7 @@ function CommentsModal({ card, teacher, onClose, onSaved }: { card: StoredReport
             {!principalText && d.summary.grade && (
               <button type="button" className="mt-1 text-[12px] font-medium text-accent underline" onClick={() => setPrincipalText(suggestComment(d.summary.grade, first, "principal"))}>Use a suggested comment</button>
             )}
+            {aiLink("principal", !!principalText.trim())}
           </div>
         )}
       </div>

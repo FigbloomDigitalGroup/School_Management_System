@@ -37,6 +37,10 @@ export interface Tenant {
   status: TenantStatus;
   accent: string;            // hex, school-chosen
   logo_url: string | null;
+  /** AI drafting for staff (20261026040000); optional so rows read before it existed still type-check. */
+  ai_enabled?: boolean;
+  /** The study helper for learners; off unless the school turns it on. */
+  ai_tutor_enabled?: boolean;
   licensed_seats: number;
   payment_paybill: string | null;
   payment_till: string | null;

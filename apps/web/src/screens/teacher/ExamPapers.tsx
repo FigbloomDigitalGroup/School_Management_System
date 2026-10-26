@@ -7,6 +7,8 @@ import {
   validateQuestions, windowLabel,
   type ExamPaperRow, type PaperKind, type PaperMode, type QuestionDraft, type QuestionKind,
 } from "@figbloom/shared";
+import { AiQuestionsModal } from "../../components/AiQuestions";
+import { useAiStatus } from "../../lib/useAi";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -380,7 +382,18 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
         </div>
 
         {mode === "online" && (
-          contentLoading ? <TableSkeleton rows={2} /> : <QuestionBuilder questions={questions} onChange={setQuestions} locked={locked} />
+          contentLoading ? <TableSkeleton rows={2} /> : (
+            <QuestionBuilder
+              questions={questions}
+              onChange={setQuestions}
+              locked={locked}
+              ai={{
+                subject: subjects?.find((s) => s.id === subjectId)?.name ?? "",
+                className: classes.find((c) => c.id === classId)?.name ?? "",
+                kind,
+              }}
+            />
+          )
         )}
 
         {error && (
@@ -391,7 +404,15 @@ function PaperEditor({ paper, classes, scope, onClose, onSaved }: {
   );
 }
 
-function QuestionBuilder({ questions, onChange, locked }: { questions: QuestionDraft[]; onChange: (q: QuestionDraft[]) => void; locked: boolean }) {
+function QuestionBuilder({ questions, onChange, locked, ai }: {
+  questions: QuestionDraft[];
+  onChange: (q: QuestionDraft[]) => void;
+  locked: boolean;
+  /** What the AI needs to draft questions for this paper. */
+  ai: { subject: string; className: string; kind: PaperKind };
+}) {
+  const aiStatus = useAiStatus();
+  const [drafting, setDrafting] = useState(false);
   const set = (i: number, patch: Partial<QuestionDraft>) => onChange(questions.map((q, j) => (j === i ? { ...q, ...patch } : q)));
   const move = (i: number, by: number) => {
     const next = [...questions];
@@ -499,7 +520,20 @@ function QuestionBuilder({ questions, onChange, locked }: { questions: QuestionD
           {(Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]).map((k) => (
             <Button key={k} onClick={() => onChange([...questions, blankQuestion(k)])}>+ {QUESTION_KIND_LABEL[k]}</Button>
           ))}
+          {aiStatus?.aiEnabled && (
+            <Button disabled={!ai.subject || !ai.className} onClick={() => setDrafting(true)}
+              title={!ai.subject ? "Pick the class and subject first." : undefined}>Draft questions with Bloom</Button>
+          )}
         </div>
+      )}
+      {drafting && (
+        <AiQuestionsModal
+          subject={ai.subject}
+          className={ai.className}
+          kind={ai.kind}
+          onClose={() => setDrafting(false)}
+          onAdd={(drafts) => { onChange([...questions, ...drafts]); setDrafting(false); }}
+        />
       )}
     </div>
   );

@@ -71,3 +71,6 @@ verify_jwt = false             # "Forgot password?" from the sign-in screen — 
 
 [functions.reset-user-password]
 verify_jwt = true              # the school admin / org admin / parent setting the new temporary password
+
+[functions.ai-assist]
+verify_jwt = true              # staff drafting, or a learner asking Bloom; secrets AI_PROVIDER (openai|anthropic), OPENAI_API_KEY or ANTHROPIC_API_KEY, optional AI_MODEL

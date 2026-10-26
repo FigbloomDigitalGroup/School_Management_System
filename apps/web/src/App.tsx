@@ -64,6 +64,7 @@ import { TeacherBuses } from "./screens/teacher/Buses";
 import { ExamPapers } from "./screens/teacher/ExamPapers";
 import { LearningMaterials } from "./screens/teacher/LearningMaterials";
 import { StudentExams } from "./screens/student/Exams";
+import { StudyHelper } from "./screens/student/StudyHelper";
 
 import { ParentHome } from "./screens/parent/Home";
 import { ParentFees } from "./screens/parent/Fees";
@@ -235,6 +236,7 @@ function TenantRoutes() {
           <Route path="student/materials" element={<StudentShell><K12Gate><StudentMaterials /></K12Gate></StudentShell>} />
           <Route path="student/exams" element={<StudentShell><K12Gate><StudentExams /></K12Gate></StudentShell>} />
           <Route path="student/results" element={<StudentShell><StudentResults /></StudentShell>} />
+          <Route path="student/study-helper" element={<StudentShell><StudyHelper /></StudentShell>} />
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
 
