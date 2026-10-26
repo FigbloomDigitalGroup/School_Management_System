@@ -48,3 +48,4 @@ export * from "./messageRoster";
 // the web app loads it only when someone downloads (apps/web/src/lib/reportCardPdf.ts).
 export * from "./reportCards";
 export * from "./competencies";
+export * from "./ai";
