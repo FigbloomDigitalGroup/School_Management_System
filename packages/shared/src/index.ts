@@ -46,6 +46,7 @@ export * from "./learners";
 export * from "./learnerBio";
 export * from "./audience";
 export * from "./messageRoster";
+export * from "./chat";
 // reportCardPdf.ts is deliberately not exported here: it pulls in pdf-lib, and
 // the web app loads it only when someone downloads (apps/web/src/lib/reportCardPdf.ts).
 export * from "./reportCards";

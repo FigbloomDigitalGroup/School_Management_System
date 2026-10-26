@@ -11,6 +11,8 @@ export interface NotificationPreferences {
   absenceToday: boolean;
   resultsPublished: boolean;
   generalNotices: boolean;
+  /** Push for a new chat message (chat-push); on unless turned off. */
+  chatMessages: boolean;
 }
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
@@ -18,6 +20,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   absenceToday: true,
   resultsPublished: true,
   generalNotices: false,
+  chatMessages: true,
 };
 
 interface Row {
@@ -25,6 +28,7 @@ interface Row {
   absence_today: boolean;
   results_published: boolean;
   general_notices: boolean;
+  chat_messages: boolean;
 }
 
 function fromRow(row: Row): NotificationPreferences {
@@ -33,13 +37,14 @@ function fromRow(row: Row): NotificationPreferences {
     absenceToday: row.absence_today,
     resultsPublished: row.results_published,
     generalNotices: row.general_notices,
+    chatMessages: row.chat_messages,
   };
 }
 
 export async function fetchMyNotificationPreferences(profileId: string): Promise<NotificationPreferences> {
   const { data, error } = await supabase()
     .from("notification_preferences")
-    .select("fee_reminders, absence_today, results_published, general_notices")
+    .select("fee_reminders, absence_today, results_published, general_notices, chat_messages")
     .eq("profile_id", profileId)
     .maybeSingle<Row>();
   if (error) throw error;
@@ -56,6 +61,7 @@ export async function setMyNotificationPreference(
     absenceToday: "absence_today",
     resultsPublished: "results_published",
     generalNotices: "general_notices",
+    chatMessages: "chat_messages",
   };
   const row: Record<string, boolean | string> = { profile_id: profileId, updated_at: new Date().toISOString() };
   for (const [key, value] of Object.entries(patch) as [keyof NotificationPreferences, boolean | undefined][]) {

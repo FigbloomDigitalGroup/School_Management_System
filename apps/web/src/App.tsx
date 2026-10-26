@@ -49,6 +49,9 @@ import { AdminInventory } from "./screens/admin/Inventory";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
+import { AdminChats } from "./screens/admin/Chats";
+import { MyChats } from "./screens/chat/MyChats";
+import { useChatUnread } from "./lib/useChatUnread";
 
 import { Attendance } from "./screens/teacher/Attendance";
 import { K12Gradebook } from "./screens/teacher/K12Gradebook";
@@ -210,6 +213,7 @@ function TenantRoutes() {
           <Route path="admin/papers" element={<AdminShell allow={["school_admin"]}><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
           <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
+          <Route path="admin/chats" element={<AdminShell allow={["school_admin"]}><AdminChats /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
           <Route path="admin/bloom" element={<AdminShell allow={["school_admin"]}><BloomChat console="admin" /></AdminShell>} />
 
@@ -228,6 +232,7 @@ function TenantRoutes() {
           <Route path="teacher/materials" element={<TeacherShell allow={["teacher"]}><K12Gate><LearningMaterials /></K12Gate></TeacherShell>} />
           <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
+          <Route path="teacher/chats" element={<TeacherShell allow={["teacher"]}><MyChats role="teacher" /></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
           <Route path="teacher/bloom" element={<TeacherShell allow={["teacher"]}><BloomChat console="teacher" /></TeacherShell>} />
 
@@ -238,6 +243,7 @@ function TenantRoutes() {
           <Route path="parent/materials" element={<ParentShell><K12Gate><ParentMaterials /></K12Gate></ParentShell>} />
           <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
+          <Route path="parent/chats" element={<ParentShell><MyChats role="parent" /></ParentShell>} />
           <Route path="parent/items" element={<ParentShell><ParentItems /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
 
@@ -249,6 +255,7 @@ function TenantRoutes() {
           <Route path="student/results" element={<StudentShell><StudentResults /></StudentShell>} />
           <Route path="student/study-helper" element={<StudentShell><StudyHelper /></StudentShell>} />
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
+          <Route path="student/chats" element={<StudentShell><MyChats role="student" /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
           <Route path="student/items" element={<StudentShell><StudentItems /></StudentShell>} />
 
@@ -366,6 +373,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
     if (org) await logOrganizationAccess(org.id, session.profile.id, "exited_school_console", session.tenant.id).catch(() => {});
     nav(org ? `/org/${org.slug}/schools/${session.tenant.id}` : "/signin");
   }
+  const chatUnread = useChatUnread(session.tenant.id);
   return (
     <RoleGate allow={allow}>
       <ConsoleShell
@@ -376,6 +384,7 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
           schoolName: session.tenant.name,
           onExit: () => void exitToOrganization(),
         } : undefined}
+        badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
       >
         {children}
         <BloomFab console="admin" />
@@ -406,6 +415,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     const unsubscribe = subscribeAnnouncements(session.tenant.id, load);
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
+  const chatUnread = useChatUnread(session.tenant.id);
 
   return (
     <RoleGate allow={allow}>
@@ -413,7 +423,10 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
         <ConsoleShell
           role="teacher"
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
-          badges={unread ? { "teacher/notices": String(unread) } : {}}
+          badges={{
+            ...(unread ? { "teacher/notices": String(unread) } : {}),
+            ...(chatUnread ? { "teacher/chats": String(chatUnread) } : {}),
+          }}
         >
           <QueueNotice />
           {children}
@@ -448,6 +461,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
     const unsubscribe = subscribeAnnouncements(session.tenant.id, load);
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
+  const chatUnread = useChatUnread(session.tenant.id);
 
   return (
     <RoleGate allow={["parent"]}>
@@ -456,7 +470,10 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
         <ConsoleShell
           role="parent"
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "parent") }}
-          badges={unread ? { "parent/inbox": String(unread) } : {}}
+          badges={{
+            ...(unread ? { "parent/inbox": String(unread) } : {}),
+            ...(chatUnread ? { "parent/chats": String(chatUnread) } : {}),
+          }}
         >
           {children}
         </ConsoleShell>
@@ -467,10 +484,15 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
 
 const StudentShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
+  const chatUnread = useChatUnread(session.tenant.id);
   return (
     <RoleGate allow={["student"]}>
       <StudentDataProvider>
-        <ConsoleShell role="student" user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "student") }}>
+        <ConsoleShell
+          role="student"
+          user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: roleLabel(session.tenant, "student") }}
+          badges={chatUnread ? { "student/chats": String(chatUnread) } : {}}
+        >
           {children}
         </ConsoleShell>
       </StudentDataProvider>
