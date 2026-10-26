@@ -49,6 +49,7 @@ import { AdminInventory } from "./screens/admin/Inventory";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
+import { Activities } from "./screens/admin/Activities";
 import { AdminChats } from "./screens/admin/Chats";
 import { MyChats } from "./screens/chat/MyChats";
 import { useChatUnread } from "./lib/useChatUnread";
@@ -80,6 +81,7 @@ import { ParentBus } from "./screens/parent/Bus";
 import { ParentInbox } from "./screens/parent/Inbox";
 import { ParentItems } from "./screens/parent/Items";
 import { ParentSettings } from "./screens/parent/Settings";
+import { ParentActivities } from "./screens/parent/Activities";
 
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
@@ -88,6 +90,7 @@ import { StudentMaterials } from "./screens/student/Materials";
 import { StudentResults } from "./screens/student/Results";
 import { StudentFees } from "./screens/student/Fees";
 import { StudentNotices } from "./screens/student/Notices";
+import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
 
 import { DriverTrip } from "./screens/driver/Trip";
@@ -219,6 +222,7 @@ function TenantRoutes() {
           <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/chats" element={<AdminShell allow={["school_admin"]}><AdminChats /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
+          <Route path="admin/activities" element={<AdminShell allow={["school_admin"]}><Activities admin /></AdminShell>} />
           <Route path="admin/visitors" element={<AdminShell allow={["school_admin"]}><AdminVisitors /></AdminShell>} />
           <Route path="admin/bloom" element={<AdminShell allow={["school_admin"]}><BloomChat console="admin" /></AdminShell>} />
 
@@ -239,6 +243,7 @@ function TenantRoutes() {
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/chats" element={<TeacherShell allow={["teacher"]}><MyChats role="teacher" /></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
+          <Route path="teacher/activities" element={<TeacherShell allow={["teacher"]}><Activities /></TeacherShell>} />
           <Route path="teacher/visitors" element={<TeacherShell allow={["teacher"]}><TeacherVisitors /></TeacherShell>} />
           <Route path="teacher/bloom" element={<TeacherShell allow={["teacher"]}><BloomChat console="teacher" /></TeacherShell>} />
 
@@ -252,6 +257,7 @@ function TenantRoutes() {
           <Route path="parent/chats" element={<ParentShell><MyChats role="parent" /></ParentShell>} />
           <Route path="parent/items" element={<ParentShell><ParentItems /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
+          <Route path="parent/activities" element={<ParentShell><ParentActivities /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
@@ -263,6 +269,7 @@ function TenantRoutes() {
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
           <Route path="student/chats" element={<StudentShell><MyChats role="student" /></StudentShell>} />
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
+          <Route path="student/activities" element={<StudentShell><StudentActivities /></StudentShell>} />
           <Route path="student/items" element={<StudentShell><StudentItems /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}

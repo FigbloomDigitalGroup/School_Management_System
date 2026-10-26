@@ -20,6 +20,7 @@ import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } 
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
 import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
 
@@ -477,6 +478,12 @@ export function People() {
           )}
           {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
+          )}
+          {manage.kind === "students" && (
+            <section className="mt-5">
+              <h3 className="mb-2 text-small font-semibold">Sports & activities</h3>
+              <LearnerActivitiesView tenantId={tenant.id} studentId={manageRow.id} first={manageRow.full_name.split(" ")[0] ?? null} compact />
+            </section>
           )}
           {manage.kind === "staff" && (manageRow as StaffRow).role === "teacher" && data && (
             <TeacherSubjectsEditor
