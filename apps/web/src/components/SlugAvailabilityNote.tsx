@@ -4,7 +4,7 @@ import type { SlugAvailability } from "../lib/slugAvailability";
  * The line under a web-address field: checking / free / taken, and when it's
  * taken, free alternatives to pick with one click instead of guessing.
  */
-export function SlugAvailabilityNote({ slug, noun, base = "figbloom.co.ke/s/", availability, onPick }: {
+export function SlugAvailabilityNote({ slug, noun, base = "schoolmanagement.figbloom.org/s/", availability, onPick }: {
   slug: string;
   /** The URL the address sits under: schools at /s/, organizations at /org/. */
   base?: string;

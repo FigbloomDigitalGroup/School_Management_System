@@ -24,7 +24,7 @@ This covers the school bus feature: the live map for drivers, parents, teachers 
 
 **Who uses what**
 - `screens/admin/Fleet.tsx`, `screens/teacher/Buses.tsx`: `FleetLiveMap`.
-- `screens/parent/Bus.tsx`: `LiveRouteMap` with the family's rides, plus today's bus-update feed.
+- `screens/parent/Bus.tsx`: `LiveRouteMap` with the family's rides at a fixed height, and under it (via the `below` prop, so `<Eta>` still works) a card per child with their status, today's bus updates and the driver. Nothing covers the map.
 - `screens/driver/Trip.tsx`: `LiveRouteMap` with the driver's own fix (`selfPos`).
 - `components/TripReplayMap.tsx`: replays a trip's recorded path on the same `LiveRouteMap`. Opened from a trip row in `screens/admin/TripHistory.tsx`.
 
@@ -43,7 +43,7 @@ This covers the school bus feature: the live map for drivers, parents, teachers 
 
 | Key | Where it lives | Used for | Restrict it to |
 |---|---|---|---|
-| `VITE_GOOGLE_MAPS_API_KEY` | `.env` / the web host's env (public: it ships in the web bundle) | Maps JavaScript API + Directions on web | HTTP referrers (our domains), Maps JavaScript API and Directions only |
+| `VITE_GOOGLE_MAPS_API_KEY` | `.env` / the web host's env (public: it ships in the web bundle) | Maps JavaScript API + Directions on web, plus Geocoding for "Find on map" when placing a learner's home | HTTP referrers (our domains), Maps JavaScript API, Directions and Geocoding only |
 | `GOOGLE_MAPS_SERVER_KEY` | Supabase edge-function secret: `supabase secrets set GOOGLE_MAPS_SERVER_KEY=...` | `bus-tick`'s Routes API calls | The Routes API only |
 | `MAPS_API_KEY` | `apps/mobile/android/local.properties` (gitignored) and the `MAPS_API_KEY` GitHub secret | Maps SDK for Android in the parent app | The app's package name + signing SHA-1s |
 
@@ -60,6 +60,15 @@ MAPS_API_KEY=your-android-key
 **Mobile iOS** needs no key: `react-native-maps` defaults to Apple Maps there.
 
 `bus-tick`'s push uses a separate secret, `FCM_SERVICE_ACCOUNT_JSON_B64`; without it updates still reach the in-app feed.
+
+**Learner homes and "Find on map"** (`components/learners/HomePinPicker.tsx`): the home pin is placed by clicking the map or dragging the pin, which needs nothing beyond the Maps JavaScript API. "Find on map" looks a typed address up with the Maps JavaScript `Geocoder`, which needs the **Geocoding API** enabled in the Google Cloud project and added to the browser key's API restrictions. Until it is, the search says "Address search isn't switched on for this school's map key" and clicking the map still works. No Places API (autocomplete) is used.
+
+## Planning routes from homes
+
+- `students.home_lat/home_lng/home_landmark/home_address` hold where a learner lives (`20261025020000_bus_riders_and_homes.sql`, `20261025050000_learner_address_health.sql`). Admins set them from People (Add a learner, Manage learner > Home and bus); guardians from the parent Home page, through `set_child_home()`. A CSV import can bring the address as text (or `home_lat`/`home_lng`); rows without a pin are flagged "No map pin".
+- `packages/shared/src/routePlanning.ts` (pure, tested): `suggestRouteForHome` joins the nearest existing stop within 400 m, otherwise adds a stop to the route where it adds the least distance (cheapest insertion, never before stop 1, the school end). `rebuildStopsFromHomes` clusters a route's riders' homes within 300 m into stops, orders them from stop 1 by nearest neighbour plus 2-opt, and reuses existing stops within 150 m so their riders and names carry over. Distances are straight-line; the office always sees a preview.
+- Writes go through two RPCs: `assign_learner_bus()` (student_transport, plus a new stop slotted in at a position) and `save_route_stops()`, which updates stops in place by id. The old save deleted and re-inserted every stop, which set every child's `stop_id` to null; `replaceRouteStops()` now calls `save_route_stops()`.
+- Admin Fleet > a route: its riders, and "Rebuild stops from riders' homes" with a preview before saving.
 
 ## Data flow
 

@@ -15,57 +15,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { fcmAccessToken, sendToToken, type ServiceAccount } from "../_shared/fcm.ts";
 
-interface Audience {
-  kind: "whole_school" | "role" | "class" | "form_level";
-  role?: string;
-  class_id?: string;
-  form_level?: number;
-  /** Omitted on announcements sent before levels were recorded: every class with that form_level. */
-  level?: string;
-}
-
 // deno-lint-ignore no-explicit-any
 export interface Deps { admin: any; asUser: any }
 
-/** Mirrors the audience filtering packages/shared/src/{parentData,studentData}.ts
- *  do client-side, but resolved to profile ids for the send side. */
+/** Everyone the announcement reaches, decided by the database
+ *  (announcement_recipients(), the same rule that decides who may read it),
+ *  so push never reaches someone the inbox would hide it from. */
 // deno-lint-ignore no-explicit-any
-async function resolveAudienceProfileIds(admin: any, tenantId: string, audience: Audience): Promise<string[]> {
-  if (audience.kind === "whole_school") {
-    const { data } = await admin.from("profiles").select("id").eq("tenant_id", tenantId);
-    // deno-lint-ignore no-explicit-any
-    return (data ?? []).map((r: any) => r.id as string);
-  }
-  if (audience.kind === "role") {
-    const { data } = await admin.from("profiles").select("id").eq("tenant_id", tenantId).eq("role", audience.role);
-    // deno-lint-ignore no-explicit-any
-    return (data ?? []).map((r: any) => r.id as string);
-  }
-
-  const { data: students } = await admin
-    .from("students")
-    .select("id, profile_id, class_id, classes(form_level, level)")
-    .eq("tenant_id", tenantId)
-    .eq("active", true);
-  // deno-lint-ignore no-explicit-any
-  const matched = (students ?? []).filter((s: any) =>
-    audience.kind === "class"
-      ? s.class_id === audience.class_id
-      // Grade 1 and Form 1 are both form_level 1 — the level tells them apart.
-      : s.classes?.form_level === audience.form_level && (!audience.level || s.classes?.level === audience.level)
-  );
-  // deno-lint-ignore no-explicit-any
-  const studentIds = matched.map((s: any) => s.id as string);
-  // deno-lint-ignore no-explicit-any
-  const studentProfileIds = matched.filter((s: any) => s.profile_id).map((s: any) => s.profile_id as string);
-
-  const { data: guardianRows } = studentIds.length
-    ? await admin.from("guardians").select("profile_id").in("student_id", studentIds)
-    : { data: [] };
-  // deno-lint-ignore no-explicit-any
-  const parentProfileIds = (guardianRows ?? []).map((g: any) => g.profile_id as string);
-
-  return [...new Set([...studentProfileIds, ...parentProfileIds])];
+async function recipientProfileIds(admin: any, announcementId: string): Promise<string[]> {
+  const { data, error } = await admin.rpc("announcement_recipients", { p_announcement_id: announcementId });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as string[];
 }
 
 export async function handle(req: Request, { admin, asUser }: Deps, fetchImpl: typeof fetch = fetch): Promise<Response> {
@@ -104,7 +64,7 @@ export async function handle(req: Request, { admin, asUser }: Deps, fetchImpl: t
   try {
     const serviceAccount = JSON.parse(atob(serviceAccountB64)) as ServiceAccount;
 
-    const profileIds = await resolveAudienceProfileIds(admin, announcement.tenant_id, announcement.audience as Audience);
+    const profileIds = await recipientProfileIds(admin, announcement.id);
     if (profileIds.length === 0) return json({ sent: 0, failed: 0 });
 
     const { data: tokenRows } = await admin.from("device_tokens").select("id, token").in("profile_id", profileIds);

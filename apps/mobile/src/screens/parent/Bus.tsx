@@ -9,7 +9,7 @@ import { BusMap } from "../../components/BusMap";
 /** A child and the bus they ride, if any. */
 interface Ride { childId: string; first: string; bus: BusOnRoute | null; routeName: string | null; stopName: string | null }
 
-const ICON: Record<BusUpdate["kind"], string> = { trip_started: "🚌", distance: "📍", arrived: "✅", delay: "⏱" };
+const ICON: Record<BusUpdate["kind"], string> = { trip_started: "🚌", distance: "📍", arrived: "✅", delay: "⏱", boarded: "🟢", alighted: "🏠", absent: "⚠️" };
 /** Bus position and "on the road" state refresh this often while the tab is open. */
 const REFRESH_MS = 30_000;
 
@@ -147,7 +147,7 @@ function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint:
             <View key={u.id} style={{ flexDirection: "row", gap: 8 }}>
               <Text style={{ width: 18, textAlign: "center" }}>{ICON[u.kind]}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: u.kind === "delay" ? "#B4472B" : undefined }}>{u.title}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: u.kind === "delay" || u.kind === "absent" ? "#B4472B" : undefined }}>{u.title}</Text>
                 <Text style={s.small}>{u.body}</Text>
               </View>
               <Text style={s.faint}>{new Date(u.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>

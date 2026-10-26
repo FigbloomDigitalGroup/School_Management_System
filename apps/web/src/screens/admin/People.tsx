@@ -12,10 +12,14 @@ import { Pagination } from "../../components/ui/Pagination";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
+import { PasswordResetRequests, ResetPasswordSection } from "../../components/PasswordReset";
 import { useAsync } from "../../lib/useAsync";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
+import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
+import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at"> & { avatar_url: string | null };
@@ -230,6 +234,8 @@ export function People() {
           )
         }
       />
+
+      <PasswordResetRequests tenantId={tenant.id} schoolName={tenant.name} />
 
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-page px-7 py-3">
         <div className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
@@ -457,6 +463,12 @@ export function People() {
             />
           )}
           {manage.kind === "students" && (
+            <div className="mt-5">
+              <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
+              <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
+            </div>
+          )}
+          {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
           )}
           {manage.kind === "staff" && (manageRow as StaffRow).role === "teacher" && data && (
@@ -467,6 +479,15 @@ export function People() {
               selectedIds={new Set(data.subjectIdsByTeacher.get(manageRow.id) ?? [])}
               onChange={() => setReloadKey((k) => k + 1)}
               toast={toast}
+            />
+          )}
+          {/* forgotten passwords: learners with a login, and every staff member but yourself */}
+          {(manage.kind === "students" ? (manageRow as StudentRow).profile_id : manageRow.id !== profile.id ? manageRow.id : null) && (
+            <ResetPasswordSection
+              profileId={manage.kind === "students" ? (manageRow as StudentRow).profile_id! : manageRow.id}
+              name={manageRow.full_name}
+              email={manage.kind === "staff" ? (manageRow as StaffRow).email : null}
+              schoolName={tenant.name}
             />
           )}
         </Modal>
@@ -548,6 +569,9 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
   const [classId, setClassId] = useState(classes[0]?.id ?? "");
   const [boarding, setBoarding] = useState(false);
   const [dob, setDob] = useState("");
+  const [homeBus, setHomeBus] = useState<HomeBusValue>(EMPTY_HOME_BUS);
+  const [health, setHealth] = useState<StudentHealthInput>(emptyHealth);
+  const { data: routes } = useSchoolRoutes(tenantId);
   const [saving, setSaving] = useState(false);
 
   async function handleAdd() {
@@ -561,7 +585,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
     }
     setSaving(true);
     try {
-      const { error } = await supabase().from("students").insert({
+      const { data: created, error } = await supabase().from("students").insert({
         tenant_id: tenantId,
         admission_no: admissionNo.trim(),
         full_name: fullName.trim(),
@@ -570,8 +594,20 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
         boarding,
         date_of_birth: dob || null,
         active: true,
-      });
+        home_address: homeBus.address.trim() || null,
+        home_landmark: homeBus.landmark.trim() || null,
+        home_lat: homeBus.pin?.lat ?? null,
+        home_lng: homeBus.pin?.lng ?? null,
+      }).select("id").single<{ id: string }>();
       if (error) throw error;
+      // The learner exists now; a bus or health hiccup shouldn't read as "not added".
+      const later: string[] = [];
+      if (!boarding && routes) {
+        const plan = planBus(homeBus, routes, fullName.trim());
+        if (plan) await saveBus(created.id, plan).catch(() => later.push("bus route"));
+      }
+      if (!isHealthEmpty(health)) await saveStudentHealth(tenantId, created.id, health).catch(() => later.push("health details"));
+      if (later.length) toast(`${fullName.trim()} was added, but the ${later.join(" and ")} didn't save. Open Manage to try again.`, "error");
       onAdded(fullName.trim());
     } catch (err) {
       toast(err instanceof Error ? `Could not add the learner: ${err.message}` : "Could not add the learner.", "error");
@@ -586,6 +622,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
       onClose={onClose}
       eyebrow="Students"
       title="Add a learner"
+      width={720}
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -657,6 +694,11 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
             <span className="text-[13px]">Boarder</span>
           </label>
         </div>
+        <div className="border-t border-line-soft pt-3">
+          <h3 className="mb-2 text-[13px] font-semibold">Home and bus</h3>
+          <HomeAndBusFields value={homeBus} onChange={setHomeBus} routes={routes ?? []} boarding={boarding} childName={fullName} />
+        </div>
+        <OptionalHealthSection value={health} onChange={setHealth} />
       </div>
     </Modal>
   );
@@ -696,6 +738,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
   const errorCount = (rows?.length ?? 0) - validCount;
   const maleCount = validRows.filter((r) => r.gender === "male").length;
   const femaleCount = validRows.filter((r) => r.gender === "female").length;
+  const unpinned = validRows.filter((r) => (r.home_address || r.home_landmark) && r.home_lat == null).length;
 
   async function handleImport() {
     if (!rows) return;
@@ -716,7 +759,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
       onClose={onClose}
       eyebrow="Students"
       title="Import from CSV"
-      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth. Class must match one of this school's existing classes."
+      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -743,6 +786,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
               {validCount} of {rows.length} row{rows.length === 1 ? "" : "s"} ready to import
               {validCount > 0 ? ` — ${maleCount} male, ${femaleCount} female` : ""}
               {errorCount > 0 ? ` · ${errorCount} need fixing (fix the file and re-upload)` : ""}.
+              {unpinned > 0 ? ` ${unpinned} ha${unpinned === 1 ? "s" : "ve"} an address but no map pin: pin ${unpinned === 1 ? "it" : "them"} from Manage so the bus can be planned.` : ""}
             </p>
             <div className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
               {rows.map((r) => (
@@ -751,6 +795,8 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
                   <div className="min-w-0 flex-1">
                     <div className="text-[12.5px] font-medium">
                       {r.full_name || "—"} <span className="text-ink-faint">· ADM {r.admission_no || "—"} · {r.gender ?? "—"} · {r.className || "—"}</span>
+                      {(r.home_address || r.home_landmark) && r.home_lat == null && <span className="ml-1.5"><Badge tone="info">No map pin</Badge></span>}
+                      {r.allergies.length > 0 && <span className="ml-1.5"><Badge tone="warn">Allergy</Badge></span>}
                     </div>
                     {r.errors.length > 0 && (
                       <ul className="mt-0.5 text-[11.5px] leading-relaxed text-warn-ink">

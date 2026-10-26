@@ -74,18 +74,22 @@ export async function listRouteStops(routeId: string): Promise<RouteStop[]> {
   return (data ?? []) as RouteStop[];
 }
 
-/** Replaces every stop on a route with this new ordered list — simplest correct model for a short stop list. */
+/**
+ * Saves a route's whole ordered stop list. A stop passed with its `id` is
+ * updated in place, so the children on it stay on it; one without is added;
+ * the route's stops left out are removed (their riders lose their stop). Goes
+ * through save_route_stops (20261025050000_learner_address_health.sql): it
+ * used to delete and re-insert every stop, which took every child off theirs.
+ */
 export async function replaceRouteStops(
-  tenantId: string,
+  _tenantId: string,
   routeId: string,
-  stops: { name: string; lat: number; lng: number }[],
+  stops: { id?: string | null; name: string; lat: number; lng: number }[],
 ): Promise<void> {
-  const { error: delErr } = await supabase().from("route_stops").delete().eq("route_id", routeId);
-  if (delErr) throw delErr;
-  if (!stops.length) return;
-  const { error } = await supabase().from("route_stops").insert(
-    stops.map((s, i) => ({ tenant_id: tenantId, route_id: routeId, name: s.name, lat: s.lat, lng: s.lng, sequence: i + 1 })),
-  );
+  const { error } = await supabase().rpc("save_route_stops", {
+    p_route_id: routeId,
+    p_stops: stops.map((s) => ({ ...(s.id ? { id: s.id } : {}), name: s.name, lat: s.lat, lng: s.lng })),
+  });
   if (error) throw error;
 }
 
@@ -201,9 +205,11 @@ export interface BusUpdate {
   id: string;
   trip_id: string;
   vehicle_id: string;
-  stop_id: string;
+  /** null for a rider update about a child with no stop (see 20261025020000_bus_riders_and_homes.sql) */
+  stop_id: string | null;
   student_ids: string[];
-  kind: "trip_started" | "distance" | "arrived" | "delay";
+  /** boarded / alighted / absent: the driver marked the child on, off, or not there. */
+  kind: "trip_started" | "distance" | "arrived" | "delay" | "boarded" | "alighted" | "absent";
   /** Starts "Bus ...", so it reads as "Amani's bus ..." with personaliseBusTitle. */
   title: string;
   body: string;

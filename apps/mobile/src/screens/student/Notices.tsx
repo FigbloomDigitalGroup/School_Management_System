@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { accentFor, s } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { OwnerAttachments } from "../../components/MediaLinks";
 
 export function StudentNotices() {
   const { data, accent, markNoticeRead } = useStudentData();
@@ -23,6 +24,7 @@ export function StudentNotices() {
           </TouchableOpacity>
           <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8, lineHeight: 26 }}>{open.subject}</Text>
           <Text style={[s.body, { marginTop: 16 }]}>{open.body}</Text>
+          <OwnerAttachments owner="announcement" id={open.id} tint={a.deep} />
         </ScrollView>
       </View>
     );

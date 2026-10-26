@@ -1,11 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, type OrganizationTenantSummary } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { useToast } from "../../components/ui/Toast";
 import { StatRow } from "../../components/ui/StatCard";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
+import { AddSchoolModal } from "./OrgSchools";
 
 /**
  * The org-admin's landing page. Stat cards segment by institution type
@@ -16,7 +19,10 @@ import { useOrgSessionCtx } from "../../lib/orgSessionContext";
  */
 export function OrgDashboard() {
   const { profile, organization } = useOrgSessionCtx();
-  const { data, loading, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [adding, setAdding] = useState(false);
+  const toast = useToast();
+  const { data, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
 
   useEffect(() => {
     void logOrganizationAccess(organization.id, profile.id, "viewed_dashboard");
@@ -35,13 +41,46 @@ export function OrgDashboard() {
     );
   }
 
-  if (loading || !data) {
+  if (!data) {
     return (
       <>
         <PageHead eyebrow={organization.name} title="Dashboard" />
         <div className="grid gap-3 px-7 py-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
         </div>
+      </>
+    );
+  }
+
+  const addSchool = adding && (
+    <AddSchoolModal
+      organizationId={organization.id}
+      organizationCounty={organization.county}
+      existingNames={data.map((s) => s.name)}
+      ownEmail={profile.email}
+      onClose={(saved) => { setAdding(false); if (saved) setReloadKey((k) => k + 1); }}
+      onCreated={(name) => { setAdding(false); setReloadKey((k) => k + 1); toast(`${name} created. It's ready to use.`); }}
+      toast={toast}
+    />
+  );
+
+  // A brand-new organization: one obvious next step instead of a page of zeros.
+  if (data.length === 0) {
+    return (
+      <>
+        <PageHead eyebrow={organization.name} title="Dashboard" />
+        <div className="px-7 py-10">
+          <section className="mx-auto max-w-[560px] rounded-xl border border-line bg-white px-8 py-10 text-center">
+            <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-sunken text-xl text-forest" aria-hidden>+</div>
+            <h2 className="text-[19px] font-semibold tracking-tight">Add your first school</h2>
+            <p className="mx-auto mt-2 max-w-[420px] text-[13px] leading-relaxed text-ink-muted">
+              All it needs is a name. It gets its own web address and is ready to use straight away: add learners,
+              staff and classes from inside it, and invite its head teacher whenever you like.
+            </p>
+            <Button variant="accent" className="mt-5" onClick={() => setAdding(true)}>Add your first school</Button>
+          </section>
+        </div>
+        {addSchool}
       </>
     );
   }
@@ -86,6 +125,7 @@ export function OrgDashboard() {
           )}
         </div>
       </div>
+      {addSchool}
     </>
   );
 }

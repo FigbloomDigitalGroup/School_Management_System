@@ -1,8 +1,10 @@
 import { supabase } from "./supabase";
 import { formatShortDate, formatWhen, type Receipt } from "./parentData";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
-import { classAudienceIncludes, type ClassLevel, type Payment } from "./types";
+import type { Audience, ClassLevel, Payment } from "./types";
 import { receiptRef } from "./fees";
+import { audienceIncludes, type AudienceViewer } from "./audience";
+import { normaliseGuide } from "./homework";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -25,6 +27,12 @@ export interface WorkItem {
   state: "open" | "late" | "done";
   how: string;
   body: string;
+  /** What the teacher said the learner needs (from the parent guide). Optional: a cache written by an older build won't carry it. */
+  needs?: string[];
+  /** Expected time in minutes, from the same guide. */
+  minutes?: number | null;
+  /** A file was uploaded with it — "undo" is not offered, the row is the only record of the file. */
+  hasFile?: boolean;
 }
 
 export interface ResultSubject {
@@ -151,9 +159,9 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
 export async function loadStudentData(profileId: string): Promise<StudentData | null> {
   const { data: studentRow } = await supabase()
     .from("students")
-    .select("id, class_id, classes(name, level)")
+    .select("id, class_id, classes(name, level, form_level)")
     .eq("profile_id", profileId)
-    .maybeSingle<{ id: string; class_id: string | null; classes: { name: string; level: ClassLevel } | null }>();
+    .maybeSingle<{ id: string; class_id: string | null; classes: { name: string; level: ClassLevel; form_level: number } | null }>();
   if (!studentRow) return null;
 
   // A higher-ed student (FIG-327) has class_id = null — class-scoped queries
@@ -163,11 +171,11 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
     studentRow.class_id
       ? supabase()
           .from("assignments")
-          .select("id, title, body, due_on, hand_in, subjects(name), profiles(full_name)")
+          .select("id, title, body, due_on, hand_in, parent_guide, subjects(name), profiles(full_name)")
           .eq("class_id", studentRow.class_id)
           .order("due_on", { ascending: true })
       : Promise.resolve({ data: [] as unknown[] }),
-    supabase().from("assignment_submissions").select("assignment_id, marked_done_at").eq("student_id", studentRow.id),
+    supabase().from("assignment_submissions").select("assignment_id, marked_done_at, file_path").eq("student_id", studentRow.id),
     fetchPublishedExams([studentRow.id]),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
   ]);
@@ -177,13 +185,14 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
   const exam = exams[0];
   const subjects: ResultSubject[] = exam ? await fetchExamSubjects(studentRow.id, studentRow.class_id, exam.id) : [];
 
-  const submittedAt = new Map(((subRows ?? []) as { assignment_id: string; marked_done_at: string }[]).map((s) => [s.assignment_id, s.marked_done_at]));
+  const submittedAt = new Map(((subRows ?? []) as { assignment_id: string; marked_done_at: string; file_path: string | null }[]).map((s) => [s.assignment_id, s]));
 
   const work: WorkItem[] = ((assignmentRows ?? []) as unknown as {
-    id: string; title: string; body: string; due_on: string; hand_in: string;
+    id: string; title: string; body: string; due_on: string; hand_in: string; parent_guide: unknown;
     subjects: { name: string } | null; profiles: { full_name: string } | null;
   }[]).map((a) => {
     const done = submittedAt.has(a.id);
+    const guide = normaliseGuide(a.parent_guide);
     const late = !done && daysUntil(a.due_on) < 0;
     return {
       id: a.id,
@@ -194,21 +203,26 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
       state: done ? "done" : late ? "late" : "open",
       how: HAND_IN_LABEL[a.hand_in] ?? "Exercise book",
       body: a.body,
+      needs: guide?.needs ?? [],
+      minutes: guide?.minutes ?? null,
+      hasFile: !!submittedAt.get(a.id)?.file_path,
     };
   });
 
+  // The same rule RLS (announcement_visible_to_me) applies -- so "All
+  // students", a year-group notice and a named-people message all land here.
+  const viewer: AudienceViewer = {
+    profileId,
+    role: "student",
+    classIds: studentRow.class_id ? [studentRow.class_id] : [],
+    years: studentRow.classes ? [{ level: studentRow.classes.level, year: studentRow.classes.form_level }] : [],
+  };
   const notices: NoticeInfo[] = ((announcementRows ?? []) as unknown as {
     id: string; subject: string; body: string; created_at: string;
-    audience: { kind: string; class_id?: string; user_id?: string; recipients?: "guardians" | "students" | "both" } | null;
+    audience: Audience | null;
     profiles: { full_name: string; role: string } | null;
   }[])
-    .filter((a) => {
-      const kind = a.audience?.kind;
-      if (kind === "whole_school") return true;
-      if (kind === "class") return a.audience?.class_id === studentRow.class_id && classAudienceIncludes(a.audience?.recipients, "students");
-      if (kind === "user") return a.audience?.user_id === profileId; // e.g. a promotion/repeat notice addressed to this student personally
-      return false;
-    })
+    .filter((a) => audienceIncludes(a.audience, viewer))
     .map((a) => ({
       id: a.id,
       subject: a.subject,
@@ -249,6 +263,7 @@ export async function markStudentNoticeRead(profileId: string, announcementId: s
 export async function markAssignmentHandedIn(assignmentId: string, studentId: string): Promise<void> {
   const { error } = await supabase()
     .from("assignment_submissions")
-    .upsert({ assignment_id: assignmentId, student_id: studentId, marked_done_at: new Date().toISOString() }, { onConflict: "assignment_id,student_id" });
+    // Already ticked (e.g. by a parent) stays as it is, so marked_by keeps saying who ticked it.
+    .upsert({ assignment_id: assignmentId, student_id: studentId, marked_done_at: new Date().toISOString() }, { onConflict: "assignment_id,student_id", ignoreDuplicates: true });
   if (error) throw new Error(error.message);
 }

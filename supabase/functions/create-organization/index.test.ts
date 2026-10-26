@@ -99,7 +99,7 @@ describe("create-organization handle", () => {
     assertEquals(res.status, 409);
   });
 
-  it("creates the organization pending, links the caller's own profile, and logs an audit event", async () => {
+  it("creates the organization active (no approval step for now), links the caller's own profile, and logs an audit event", async () => {
     const { admin, asUser } = makeClients();
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 200);
@@ -109,7 +109,7 @@ describe("create-organization handle", () => {
 
     const orgs = admin.rowsIn("organizations");
     assertEquals(orgs.length, 1);
-    assertEquals(orgs[0].status, "pending");
+    assertEquals(orgs[0].status, "active");
     assertEquals(orgs[0].created_by, ORG_ADMIN_ID);
     assertEquals(orgs[0].contact_name, "Grace Wambui");
     assertEquals(orgs[0].contact_email, "grace@nakuru.go.ke");
@@ -127,7 +127,7 @@ describe("create-organization handle", () => {
 
     const audit = admin.rowsIn("audit_events")[0];
     assertMatch(audit.event, /Rift Valley Academies/);
-    assertMatch(audit.event, /pending/);
+    assertEquals(/pending/.test(audit.event), false);
     assertMatch(audit.actor_label, /Grace Wambui/);
   });
 

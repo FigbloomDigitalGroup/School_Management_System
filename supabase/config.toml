@@ -65,3 +65,9 @@ verify_jwt = false             # pre-auth "choose your school" step of sign-in �
 
 [functions.resolve-login-id]
 verify_jwt = false             # pre-auth login_id -> email lookup, the other half of sign-in — no JWT yet
+
+[functions.request-password-reset]
+verify_jwt = false             # "Forgot password?" from the sign-in screen — the person can't sign in, so no JWT
+
+[functions.reset-user-password]
+verify_jwt = true              # the school admin / org admin / parent setting the new temporary password

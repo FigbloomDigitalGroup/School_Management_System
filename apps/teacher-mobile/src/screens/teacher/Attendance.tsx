@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
+  fetchHealthForStudents, healthFlags, type HealthFlags,
   MARK_LABEL, MARK_SHORT, MARK_STYLE, newRegister, nextMark, submitWarning, tally, toRecords,
   type AttendanceMark, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
@@ -33,6 +34,22 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   const [submitted, setSubmitted] = useState<boolean | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Allergies and conditions by learner, shown as a chip while marking. A failed read just shows none. */
+  const [health, setHealth] = useState<Map<string, HealthFlags>>(new Map());
+
+  useEffect(() => {
+    if (!roster?.length) { setHealth(new Map()); return; }
+    let alive = true;
+    fetchHealthForStudents(roster.map((r) => r.id))
+      .then((records) => {
+        if (!alive) return;
+        const m = new Map<string, HealthFlags>();
+        for (const [id, h] of records) { const f = healthFlags(h); if (f) m.set(id, f); }
+        setHealth(m);
+      })
+      .catch(() => { if (alive) setHealth(new Map()); });
+    return () => { alive = false; };
+  }, [roster]);
   /** The server refused the register (not a connection problem): shown instead of pretending it was saved. */
   const [saveError, setSaveError] = useState<string | null>(null);
   // Registers saved on this phone that haven't gone out yet. Re-read on a timer so it
@@ -233,7 +250,10 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
             <View key={student.id} style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
               <TouchableOpacity accessibilityRole="button" onPress={() => cycle(student.id)} style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
-                <Text style={s.faint}>ADM {student.admission_no}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={s.faint}>ADM {student.admission_no}</Text>
+                  <HealthChip flags={health.get(student.id)} name={student.full_name} />
+                </View>
               </TouchableOpacity>
               <View style={{ flexDirection: "row", gap: 6 }}>
                 {(["present", "absent", "late"] as AttendanceMark[]).map((k) => {
@@ -287,5 +307,25 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         )}
       </View>
     </View>
+  );
+}
+
+/** Red "Allergy" (amber "Medical") on a learner's row; tap for the details. */
+function HealthChip({ flags, name }: { flags: HealthFlags | undefined; name: string }) {
+  if (!flags) return null;
+  const allergy = flags.allergy;
+  return (
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityLabel={`${name}: ${flags.summary}`}
+      onPress={() => Alert.alert(name, flags.summary.replace(/ · /g, "\n"))}
+      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+      style={{ borderRadius: 999, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1,
+        backgroundColor: allergy ? "#FBE9E6" : "#FDF3E1", borderColor: allergy ? "#F1C7BF" : "#F0DDB8" }}
+    >
+      <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: allergy ? "#9B2C1C" : "#8A5A0B" }}>
+        {allergy ? "ALLERGY" : flags.medical ? "MEDICAL" : "DIET"}
+      </Text>
+    </TouchableOpacity>
   );
 }

@@ -1,8 +1,8 @@
 import { supabase } from "./supabase";
-import { classAudienceIncludes, type Audience, type ClassLevel, type Payment } from "./types";
-import { yearMatches } from "./levels";
+import type { Audience, ClassLevel, Payment } from "./types";
 import { receiptRef } from "./fees";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
+import { audienceIncludes, type AudienceViewer } from "./audience";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -97,15 +97,16 @@ export function formatShortDate(dateOnly: string): string {
  * second mount — calling .on() on an already-subscribed channel throws.
  * (Date.now()/Math.random() rather than crypto.randomUUID(): this file is
  * also type-checked for the React Native build, which has no DOM lib.)
+ * Updates count too: a notice with files attached is saved as a draft, its
+ * files go up, and only then is it published (an UPDATE), so families get
+ * the notice and its attachments together.
  */
 export function subscribeAnnouncements(tenantId: string, onInsert: () => void): () => void {
+  const filter = { schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` };
   const channel = supabase()
     .channel(`announcements-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` },
-      () => onInsert(),
-    )
+    .on("postgres_changes", { event: "INSERT", ...filter }, () => onInsert())
+    .on("postgres_changes", { event: "UPDATE", ...filter }, () => onInsert())
     .subscribe();
   return () => { void supabase().removeChannel(channel); };
 }
@@ -131,8 +132,12 @@ export async function fetchParentUnreadCount(profileId: string): Promise<number>
   const kids = ((guardianRows ?? []) as unknown as { students: { class_id: string; classes: { form_level: number; level: ClassLevel } | null } | null }[])
     .map((g) => g.students)
     .filter((s): s is NonNullable<typeof s> => s !== null);
-  const childClassIds = new Set(kids.map((k) => k.class_id));
-  const childYears = kids.filter((k) => k.classes).map((k) => ({ level: k.classes!.level, year: k.classes!.form_level }));
+  const viewer: AudienceViewer = {
+    profileId,
+    role: "parent",
+    classIds: [...new Set(kids.map((k) => k.class_id))],
+    years: kids.filter((k) => k.classes).map((k) => ({ level: k.classes!.level, year: k.classes!.form_level })),
+  };
 
   const [{ data: announcementRows, error: aErr }, { data: readRows, error: rErr }] = await Promise.all([
     supabase().from("announcements").select("id, audience"),
@@ -144,15 +149,7 @@ export async function fetchParentUnreadCount(profileId: string): Promise<number>
   const readIds = new Set((readRows ?? []).map((r) => r.announcement_id as string));
   return ((announcementRows ?? []) as { id: string; audience: Audience | null }[]).filter((a) => {
     if (readIds.has(a.id)) return false;
-    const audience = a.audience;
-    if (!audience) return false;
-    switch (audience.kind) {
-      case "whole_school": return true;
-      case "role": return audience.role === "parent";
-      case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
-      case "form_level": return childYears.some((y) => yearMatches({ level: audience.level, year: audience.form_level }, y));
-      case "user": return audience.user_id === profileId;
-    }
+    return audienceIncludes(a.audience, viewer);
   }).length;
 }
 
@@ -261,24 +258,21 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
     };
   });
 
-  const childClassIds = new Set(children.map((c) => c.classId));
-  const childYears = children.map((c) => ({ level: c.classLevel, year: c.formLevel }));
+  // RLS (announcement_visible_to_me) already drops anything not addressed to
+  // this parent; filtering again here keeps the inbox right for anything the
+  // database lets through for other reasons, and is the same shared rule.
+  const viewer: AudienceViewer = {
+    profileId,
+    role: "parent",
+    classIds: [...new Set(children.map((c) => c.classId))],
+    years: children.map((c) => ({ level: c.classLevel, year: c.formLevel })),
+  };
   const messages: MessageInfo[] = ((announcementRows ?? []) as unknown as {
     id: string; subject: string; body: string; created_at: string;
     audience: Audience | null;
     profiles: { full_name: string; role: string } | null;
   }[])
-    .filter((a) => {
-      const audience = a.audience;
-      if (!audience) return false;
-      switch (audience.kind) {
-        case "whole_school": return true;
-        case "role": return audience.role === "parent";
-        case "class": return childClassIds.has(audience.class_id) && classAudienceIncludes(audience.recipients, "guardians");
-        case "form_level": return childYears.some((y) => yearMatches({ level: audience.level, year: audience.form_level }, y));
-        case "user": return audience.user_id === profileId; // e.g. a promotion/repeat notice addressed to this guardian personally
-      }
-    })
+    .filter((a) => audienceIncludes(a.audience, viewer))
     .map((a) => {
       const isTeacher = a.profiles?.role === "teacher";
       return {

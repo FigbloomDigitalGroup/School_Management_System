@@ -242,12 +242,12 @@ export function OnboardSchool({
           <div>
             <label htmlFor="slug" className="mb-1.5 block text-small font-semibold">Workspace address</label>
             <div className="flex items-center overflow-hidden rounded-md border border-[#D3DAD5]">
-              <span className="border-r border-line bg-page px-3 py-2.5 font-mono text-[13px] text-ink-faint">figbloom.co.ke/s/</span>
+              <span className="border-r border-line bg-page px-3 py-2.5 font-mono text-[13px] text-ink-faint">schoolmanagement.figbloom.org/s/</span>
               <input id="slug" value={slugValue} onChange={(e) => set("slug", e.target.value)} className="flex-1 px-3 py-2.5 font-mono text-body outline-none" />
             </div>
             <p className="mt-2 flex items-center gap-1.5 text-small" style={{ color: takenBy || !slugCheck.ok ? "#B8460A" : "#2E7D4F" }}>
               <span aria-hidden>{takenBy || !slugCheck.ok ? "✕" : "✓"}</span>
-              {takenBy ? "That address is already taken by another school." : slugCheck.ok ? `figbloom.co.ke/s/${slugValue} is free. ${slugCheck.message}` : slugCheck.message}
+              {takenBy ? "That address is already taken by another school." : slugCheck.ok ? `schoolmanagement.figbloom.org/s/${slugValue} is free. ${slugCheck.message}` : slugCheck.message}
             </p>
             {alternatives.length > 0 && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11.5px]">
@@ -375,7 +375,7 @@ export function OnboardSchool({
           <dl className="mb-4 overflow-hidden rounded-lg border border-line">
             {[
               ["School", form.name || "—"],
-              ["Web address", `figbloom.co.ke/s/${slugValue || "—"}`],
+              ["Web address", `schoolmanagement.figbloom.org/s/${slugValue || "—"}`],
               ...(form.organizationId ? [["Organization", organizations?.find((o) => o.id === form.organizationId)?.name ?? "—"]] : []),
               ["Plan", `${form.plan} · ${form.cycle === "term" ? "per term" : "annual"}`],
               ["Trial", form.trial === "0" ? "No trial" : `${form.trial} days`],
