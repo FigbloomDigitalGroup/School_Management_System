@@ -82,7 +82,7 @@ function HomeEditor({ childId, toast }: { childId: string; toast: ToastFn }) {
               <input value={landmark} onChange={(e) => setLandmark(e.target.value)} maxLength={200} placeholder="e.g. Opposite Naivas" className={field} />
             </label>
           </div>
-          <HomePinPicker pin={pin} onPin={setPin} address={[address, landmark].filter(Boolean).join(", ")} />
+          <HomePinPicker pin={pin} onPin={setPin} address={address} landmark={landmark} />
           <div><Button variant="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save home"}</Button></div>
         </div>
       )}
