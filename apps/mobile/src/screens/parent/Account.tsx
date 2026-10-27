@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import { ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
+  fetchChildLogins,
   fetchMyNotificationPreferences,
   formatPhone,
+  resetUserPassword,
   setMyNotificationPreference,
   supabase,
   type NotificationPreferences,
+  type PasswordResetResult,
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren } from "../../data";
@@ -113,6 +116,8 @@ export function ParentAccount() {
           </Text>
         </View>
 
+        <ChildLogins kids={kids} schoolName={profile?.tenantName ?? null} tint={a.deep} />
+
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>How we reach you</Text>
         <View style={s.card}>
           {CHANNELS.map((c, i) => (
@@ -155,5 +160,84 @@ export function ParentAccount() {
         </TouchableOpacity>
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * "Reset <child>'s app password" for each child with a login of their own:
+ * learners sign in with a school ID and have no email for a reset link, so
+ * a parent can set a new temporary password (reset-user-password allows a
+ * guardian this for their own children only). Shown once; the child picks
+ * their own at their next sign-in.
+ */
+function ChildLogins({ kids, schoolName, tint }: { kids: { id: string; name: string; first: string }[]; schoolName: string | null; tint: string }) {
+  const [logins, setLogins] = useState<Map<string, string>>(new Map());
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, PasswordResetResult>>({});
+  const [error, setError] = useState<string | null>(null);
+  const ids = kids.map((k) => k.id).join(",");
+
+  useEffect(() => {
+    let alive = true;
+    fetchChildLogins(ids ? ids.split(",") : [])
+      .then((m) => { if (alive) setLogins(m); })
+      .catch(() => { /* no section is better than a broken one: the school office can still reset */ });
+    return () => { alive = false; };
+  }, [ids]);
+
+  const withLogin = kids.filter((k) => logins.has(k.id));
+  if (withLogin.length === 0) return null;
+
+  function confirmReset(kid: { id: string; first: string }) {
+    Alert.alert(
+      `Reset ${kid.first}'s password?`,
+      "Their current password stops working straight away. You'll get a new temporary one to give them.",
+      [{ text: "Cancel", style: "cancel" }, { text: "Reset", onPress: () => void reset(kid) }],
+    );
+  }
+
+  async function reset(kid: { id: string; first: string }) {
+    setBusyId(kid.id);
+    setError(null);
+    try {
+      const r = await resetUserPassword(logins.get(kid.id)!);
+      setResults((m) => ({ ...m, [kid.id]: r }));
+    } catch (err) {
+      setError(err instanceof Error ? `Could not reset ${kid.first}'s password: ${err.message}` : `Could not reset ${kid.first}'s password.`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <>
+      <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>{withLogin.length === 1 ? "Your child's app login" : "Your children's app logins"}</Text>
+      <View style={s.card}>
+        {withLogin.map((k, i) => {
+          const r = results[k.id];
+          return (
+            <View key={k.id} style={{ paddingVertical: 11, borderBottomWidth: i === withLogin.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
+              <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{k.name}</Text>
+              {r ? (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={s.faint}>
+                    Give these to {k.first}{schoolName ? `: pick ${schoolName}, then the ID` : ""}. The password works once; they choose their own when they sign in.
+                  </Text>
+                  {r.login_id && <Text selectable style={[s.mono, { marginTop: 6 }]}>ID  {r.login_id}</Text>}
+                  <Text selectable style={[s.mono, { marginTop: 2, fontWeight: "700" }]}>Password  {r.password}</Text>
+                </View>
+              ) : (
+                <TouchableOpacity accessibilityRole="button" disabled={busyId === k.id} onPress={() => confirmReset(k)} style={{ marginTop: 6, minHeight: 36, justifyContent: "center" }}>
+                  {busyId === k.id
+                    ? <ActivityIndicator color={tint} />
+                    : <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Reset {k.first}'s app password</Text>}
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
+        {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{error}</Text>}
+      </View>
+    </>
   );
 }

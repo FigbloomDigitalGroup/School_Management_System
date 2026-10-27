@@ -18,10 +18,11 @@ export interface NewSchoolInput {
 }
 
 /**
- * Every school starts 'onboarding' (createTenant/createTenantSelfService
- * both set it) and search-schools/resolve-login-id both refuse to sign
- * anyone into a non-'active' school -- so nothing at that school works
- * until a super_admin explicitly reviews and activates it here.
+ * Schools created now start 'active' (createTenant/createTenantSelfService
+ * both set it), but older ones may still be 'onboarding', and
+ * search-schools/resolve-login-id both refuse to sign anyone into a
+ * non-'active' school -- so those stay closed until a super_admin (or the
+ * owning organization's admin, org_activate_school) activates them.
  */
 export async function activateTenant(tenantId: string): Promise<void> {
   const { error } = await supabase().from("tenants").update({ status: "active" }).eq("id", tenantId);
@@ -31,7 +32,8 @@ export async function activateTenant(tenantId: string): Promise<void> {
 export async function createTenant(input: NewSchoolInput): Promise<Tenant> {
   const { data, error } = await supabase()
     .from("tenants")
-    .insert({ ...input, status: "onboarding" })
+    // live straight away, the same as a school an organization adds itself
+    .insert({ ...input, status: "active" })
     .select("*")
     .single<Tenant>();
   if (error) throw error;
@@ -89,7 +91,7 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
 export interface InviteStaffInput {
   tenant_id: string;
   full_name: string;
-  role: "teacher" | "driver";
+  role: "teacher" | "driver" | "guard" | "receptionist";
   staff_title?: string;
   phone?: string;
 }

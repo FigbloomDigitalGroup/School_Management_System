@@ -33,7 +33,7 @@ export function BusUpdatesListener() {
       toast(`${title} · ${u.body}`);
       if (canNotify() && Notification.permission === "granted" && document.hidden) {
         // Same tag per child's stop: a newer update replaces the last, like the phone push.
-        new Notification(title, { body: u.body, tag: `bus-${u.trip_id}-${u.stop_id}`, icon: "/figbloom-mark.png" });
+        new Notification(title, { body: u.body, tag: `bus-${u.trip_id}-${u.stop_id ?? u.student_ids.join("-")}`, icon: "/figbloom-mark.png" });
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- children are keyed by id
@@ -85,7 +85,7 @@ export function NotifyButton() {
   );
 }
 
-const ICON: Record<BusUpdate["kind"], string> = { trip_started: "🚌", distance: "📍", arrived: "✅", delay: "⏱" };
+const ICON: Record<BusUpdate["kind"], string> = { trip_started: "🚌", distance: "📍", arrived: "✅", delay: "⏱", boarded: "🟢", alighted: "🏠", absent: "⚠️", breakdown: "🛠" };
 
 /** A child's updates today, newest first: the trail of what the family was told. */
 export function UpdateFeed({ updates, limit = 4, loading = false }: { updates: BusUpdate[]; limit?: number; loading?: boolean }) {
@@ -109,7 +109,7 @@ export function UpdateFeed({ updates, limit = 4, loading = false }: { updates: B
         <li key={u.id} className="flex gap-2 text-[12px] leading-snug">
           <span aria-hidden className="w-4 shrink-0 text-center">{ICON[u.kind]}</span>
           <span className="min-w-0 flex-1">
-            <span className={u.kind === "delay" ? "font-semibold text-warn-ink" : "font-semibold"}>{u.title}</span>
+            <span className={u.kind === "delay" || u.kind === "absent" || u.kind === "breakdown" ? "font-semibold text-warn-ink" : "font-semibold"}>{u.title}</span>
             <span className="text-ink-muted"> · {u.body}</span>
           </span>
           <time className="shrink-0 font-mono text-[11px] text-ink-faint" dateTime={u.created_at}>

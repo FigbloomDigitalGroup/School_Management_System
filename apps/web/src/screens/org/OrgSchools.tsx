@@ -14,10 +14,11 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
-import { createTenantSelfService } from "../../lib/orgSelfService";
+import { activateOrgSchool, createTenantSelfService } from "../../lib/orgSelfService";
 import { inviteAdmin } from "../../lib/platformAdmin";
 import { adminInviteError, schoolInsertError, useSlugAvailability } from "../../lib/slugAvailability";
-import { SlugAvailabilityNote } from "../../components/SlugAvailabilityNote";
+import { TempPasswordCard } from "../../components/TempPasswordCard";
+import { WebAddressField } from "../../components/WebAddressField";
 
 const STATUS_TONE: Record<OrganizationTenantSummary["status"], "ok" | "warn" | "info" | "muted"> = {
   active: "ok", trial: "muted", onboarding: "info", overdue: "warn", suspended: "warn", setup_stalled: "warn",
@@ -29,12 +30,27 @@ export function OrgSchools() {
   const nav = useNavigate();
   const [adding, setAdding] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [opening, setOpening] = useState<string | null>(null);
   const { data, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
   const toast = useToast();
 
   useEffect(() => {
     void logOrganizationAccess(organization.id, profile.id, "viewed_schools_list");
   }, [organization.id, profile.id]);
+
+  /** A school added before org-created schools went live straight away: let the org open it itself. */
+  async function openForSignIn(s: OrganizationTenantSummary) {
+    setOpening(s.tenant_id);
+    try {
+      await activateOrgSchool(s.tenant_id);
+      toast(`${s.name} is open: its people can sign in now.`);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(`Could not open ${s.name}: ${err instanceof Error ? err.message : (err as { message?: string })?.message ?? "something went wrong"}`, "error");
+    } finally {
+      setOpening(null);
+    }
+  }
 
   // First load only — a reload after adding a school keeps the list on screen.
   if (!data || error) {
@@ -71,7 +87,7 @@ export function OrgSchools() {
       { key: "students", header: "Students", align: "right", width: "1fr" },
       { key: "fees", header: "Fees collected", align: "right", width: "1.4fr" },
       { key: "status", header: "Status", width: "1fr" },
-      { key: "view", header: "", align: "right", width: "0.8fr" },
+      { key: "view", header: "", align: "right", width: "1.1fr" },
     ],
     chips: [
       { label: "All" },
@@ -79,7 +95,12 @@ export function OrgSchools() {
       { label: "Higher-ed", match: ["higher_ed"] },
       { label: "Needs attention", match: ["needs_attention"] },
     ],
-    minWidth: "920px",
+    minWidth: "960px",
+    empty: {
+      title: "No schools yet",
+      body: "Add your first school: it only needs a name, and it's ready to use straight away.",
+      action: <Button variant="accent" onClick={() => setAdding(true)}>Add your first school</Button>,
+    },
     rows: data.map((s) => ({
       id: s.tenant_id,
       tags: [s.institution_type, ...(s.status !== "active" ? ["needs_attention"] : [])],
@@ -89,9 +110,17 @@ export function OrgSchools() {
         <Mono>{s.active_students.toLocaleString()}</Mono>,
         <span className="text-[13px]">{formatMoney(s.fees_collected_cents, "KE")} / {formatMoney(s.fees_billed_cents, "KE")}</span>,
         <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge>,
-        <button type="button" onClick={() => nav(`../schools/${s.tenant_id}`)} className="text-[12px] font-semibold text-leaf hover:underline">
-          View
-        </button>,
+        <span className="flex items-center justify-end gap-3">
+          {s.status === "onboarding" && (
+            <button type="button" disabled={opening === s.tenant_id} onClick={() => void openForSignIn(s)}
+              className="text-[12px] font-semibold text-forest hover:underline disabled:opacity-50">
+              {opening === s.tenant_id ? "Opening…" : "Open for sign-in"}
+            </button>
+          )}
+          <button type="button" onClick={() => nav(`../schools/${s.tenant_id}`)} className="text-[12px] font-semibold text-leaf hover:underline">
+            View
+          </button>
+        </span>,
       ],
     })),
   };
@@ -102,6 +131,7 @@ export function OrgSchools() {
       {adding && (
         <AddSchoolModal
           organizationId={organization.id}
+          organizationCounty={organization.county}
           existingNames={data.map((s) => s.name)}
           ownEmail={profile.email}
           // a school saved before its administrator failed is real: show it in the list
@@ -114,8 +144,27 @@ export function OrgSchools() {
   );
 }
 
-function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCreated, toast }: {
+/** One question instead of three: K-12 level or higher-ed type, in a single list. */
+const SCHOOL_KIND_OPTIONS: { value: string; label: string }[] = [
+  ...SCHOOL_LEVEL_OPTIONS.map((o) => ({ value: `k12:${o.value}`, label: o.label })),
+  { value: "higher_ed:university", label: "University" },
+  { value: "higher_ed:college", label: "College" },
+  { value: "higher_ed:tvet", label: "TVET" },
+  { value: "higher_ed:short_course", label: "Short-course school" },
+];
+
+/**
+ * "Add a school", kept to what's actually needed: a name (the web address
+ * fills itself in from it, editable) and what kind of school it is.
+ * Country, county and delivery are under "More options" with sensible
+ * defaults. Inviting the school's own head teacher/administrator is
+ * optional: the org admin can already run the school from here
+ * (may_administer), so a school with no admin of its own yet is fine. The
+ * school is live as soon as it's saved (createTenantSelfService).
+ */
+export function AddSchoolModal({ organizationId, organizationCounty, existingNames, ownEmail, onClose, onCreated, toast }: {
   organizationId: string;
+  organizationCounty: string | null;
   existingNames: string[];
   ownEmail: string | null;
   onClose: (saved: boolean) => void;
@@ -124,12 +173,13 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
 }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [county, setCounty] = useState("Nairobi");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [schoolKind, setSchoolKind] = useState("k12:secondary");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [county, setCounty] = useState(organizationCounty ?? "");
   const [country, setCountry] = useState("KE");
-  const [institutionType, setInstitutionType] = useState<Tenant["institution_type"]>("k12");
-  const [level, setLevel] = useState<Tenant["level"]>("secondary");
-  const [higherEdSubtype, setHigherEdSubtype] = useState<NonNullable<Tenant["higher_ed_subtype"]>>("university");
   const [deliveryMode, setDeliveryMode] = useState<Tenant["delivery_mode"]>("in_person");
+  const [inviteNow, setInviteNow] = useState(false);
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminTitle, setAdminTitle] = useState("");
@@ -139,12 +189,14 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
   // Saved, but its administrator wasn't: a retry only re-tries the administrator,
   // instead of inserting the school again and colliding with its own address.
   const [saved, setSaved] = useState<Tenant | null>(null);
+  // The administrator's one-time password, shown once before closing.
+  const [credentials, setCredentials] = useState<{ name: string; email: string; password: string } | null>(null);
 
-  const slugValue = normalizeSlug(slug || (name ? suggestSlug(name) : ""));
+  const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
   const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
   const availability = useSlugAvailability("school", saved ? "" : slugValue, county);
   const lookalikes = name.trim() ? similarSchoolNames(name, existingNames) : [];
-  const close = () => onClose(saved !== null);
+  const close = () => (credentials && saved ? onCreated(saved.name) : onClose(saved !== null));
 
   async function create() {
     setError("");
@@ -152,15 +204,18 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
     if (!name.trim()) { setError("Give the school a name."); return; }
     if (!saved) {
       if (!slugCheck.ok) { setError(slugCheck.message || "Pick a valid web address."); return; }
-      if (availability.status === "taken") { setError(`schoolmanagement.figbloom.org/s/${slugValue} is already taken. Pick another web address: there are suggestions under the field.`); return; }
+      if (availability.status === "taken") { setError(`schoolmanagement.figbloom.org/s/${slugValue} is already taken. Pick another web address: there are suggestions under it.`); return; }
       if (availability.status === "checking") { setError("Still checking the web address. Give it a second and try again."); return; }
     }
-    if (!adminName.trim() || !adminEmail.trim()) { setError("The school's own administrator name and email are required."); return; }
-    if (ownEmail && adminEmail.trim().toLowerCase() === ownEmail.toLowerCase()) {
-      setEmailError("That's your own login. The school needs its own administrator with their own email; you can already manage it from this organization.");
-      return;
+    if (inviteNow) {
+      if (!adminName.trim() || !adminEmail.trim()) { setError("Add the head teacher's name and email, or untick \"Invite a head teacher/admin now\"."); return; }
+      if (ownEmail && adminEmail.trim().toLowerCase() === ownEmail.toLowerCase()) {
+        setEmailError("That's your own login, and you can already manage this school from your organization. Use the head teacher's own email, or leave the invite for later.");
+        return;
+      }
     }
 
+    const [institutionType, sub] = schoolKind.split(":") as [Tenant["institution_type"], string];
     setSaving(true);
     let tenant = saved;
     try {
@@ -169,9 +224,9 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
         slug: slugValue,
         county: county.trim(),
         country,
-        level,
+        level: institutionType === "k12" ? (sub as Tenant["level"]) : "secondary",
         institution_type: institutionType,
-        higher_ed_subtype: institutionType === "higher_ed" ? higherEdSubtype : null,
+        higher_ed_subtype: institutionType === "higher_ed" ? (sub as NonNullable<Tenant["higher_ed_subtype"]>) : null,
         delivery_mode: deliveryMode,
         organization_id: organizationId,
         moe_registration: null,
@@ -186,15 +241,20 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
       return;
     }
 
+    if (!inviteNow) {
+      setSaving(false);
+      onCreated(tenant.name);
+      return;
+    }
+
     try {
-      await inviteAdmin({
+      const r = await inviteAdmin({
         tenant_id: tenant.id,
         full_name: adminName.trim(),
-        staff_title: adminTitle.trim() || "Principal",
+        staff_title: adminTitle.trim() || "Head teacher",
         email: adminEmail.trim(),
       });
-
-      onCreated(tenant.name);
+      setCredentials({ name: adminName.trim(), email: r.email, password: r.password });
     } catch (err) {
       const reason = adminInviteError(err, adminEmail.trim());
       if (/already has a Figbloom login/.test(reason)) setEmailError(reason);
@@ -207,12 +267,27 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
 
   function handleSubmit(e: FormEvent) { e.preventDefault(); void create(); }
 
+  if (credentials && saved) {
+    return (
+      <Modal open onClose={close} eyebrow="Schools" title={`${saved.name} is ready`}
+        actions={<Button variant="accent" onClick={close}>Done</Button>}>
+        <div className="grid gap-3.5">
+          <p className="text-[13px] leading-relaxed text-ink-muted">
+            It's live at schoolmanagement.figbloom.org/s/{saved.slug}, and {credentials.name} can sign in through the Admin portal with their email.
+          </p>
+          <TempPasswordCard who={credentials.name} login={credentials.email} loginLabel="Email" password={credentials.password} />
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       open
       onClose={close}
       eyebrow="Schools"
       title="Add a school"
+      blurb="It's ready to use as soon as you add it. You can fill in the rest later."
       actions={
         <>
           <Button onClick={close}>{saved ? "Close" : "Cancel"}</Button>
@@ -234,65 +309,60 @@ function AddSchoolModal({ organizationId, existingNames, ownEmail, onClose, onCr
             <span aria-hidden>✕</span>{error}
           </p>
         )}
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <div>
-            <TextField id="school-name" label="School name" placeholder="e.g. Riverside Primary" value={name} disabled={!!saved} onChange={(e) => setName(e.target.value)} />
-            {!saved && lookalikes.length > 0 && (
-              <p className="mt-1.5 text-[11.5px] text-orange-ink">
-                This organization already has {lookalikes.length === 1 ? "a school" : "schools"} called {lookalikes.map((n) => `"${n}"`).join(", ")}.
-                If it's the same school, it doesn't need adding again; if it's another branch, give it a name parents can tell apart.
-              </p>
-            )}
-          </div>
-          <div>
-            <TextField
-              id="school-slug" label="Web address" mono placeholder={slugValue || "riverside-primary"}
-              value={saved ? saved.slug : slug} disabled={!!saved}
-              hint={slugCheck.ok && availability.status === "idle" ? `schoolmanagement.figbloom.org/s/${slugValue}` : undefined}
-              error={slug && !slugCheck.ok ? slugCheck.message : undefined}
-              onChange={(e) => setSlug(e.target.value)}
-            />
-            {!saved && <SlugAvailabilityNote slug={slugValue} noun="school" availability={availability} onPick={setSlug} />}
-          </div>
+        <div>
+          <TextField id="school-name" label="School name" placeholder="e.g. Riverside Primary" autoFocus value={name} disabled={!!saved} onChange={(e) => setName(e.target.value)} />
+          {!saved && lookalikes.length > 0 && (
+            <p className="mt-1.5 text-[11.5px] text-orange-ink">
+              This organization already has {lookalikes.length === 1 ? "a school" : "schools"} called {lookalikes.map((n) => `"${n}"`).join(", ")}.
+              If it's the same school, it doesn't need adding again; if it's another branch, give it a name parents can tell apart.
+            </p>
+          )}
         </div>
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <CountrySelect id="school-country" label="Country" value={country} onChange={setCountry} />
-          <TextField id="school-county" label="County" value={county} onChange={(e) => setCounty(e.target.value)} />
+        <WebAddressField
+          id="school-slug" base="schoolmanagement.figbloom.org/s/" noun="school"
+          slug={saved ? saved.slug : slugValue} editing={slugTouched} disabled={!!saved}
+          availability={availability}
+          onEdit={() => { setSlug(slugValue); setSlugTouched(true); }}
+          onChange={(s) => { setSlugTouched(true); setSlug(s); }}
+        />
+        <SelectField id="school-kind" label="What kind of school?" value={schoolKind} disabled={!!saved}
+          onChange={(e) => setSchoolKind(e.target.value)} options={SCHOOL_KIND_OPTIONS} />
+
+        <div className="border-t border-line-soft pt-3">
+          <button type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}
+            className="flex w-full items-center justify-between text-left text-[12.5px] font-semibold text-ink">
+            More options <span className="font-normal text-ink-faint">{moreOpen ? "Hide" : "Country, county, delivery"}</span>
+          </button>
+          {moreOpen && (
+            <div className="mt-3 grid gap-3.5 sm:grid-cols-2">
+              <CountrySelect id="school-country" label="Country" value={country} onChange={setCountry} />
+              <TextField id="school-county" label="County" placeholder="e.g. Nairobi" value={county} disabled={!!saved} onChange={(e) => setCounty(e.target.value)} />
+              <SelectField id="school-delivery-mode" label="Delivery" value={deliveryMode} disabled={!!saved} onChange={(e) => setDeliveryMode(e.target.value as Tenant["delivery_mode"])}
+                options={[{ value: "in_person", label: "In-person" }, { value: "online", label: "Online" }, { value: "hybrid", label: "Hybrid" }]} />
+            </div>
+          )}
         </div>
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <SelectField
-            id="school-institution-type" label="Institution type" value={institutionType}
-            onChange={(e) => setInstitutionType(e.target.value as Tenant["institution_type"])}
-            options={[{ value: "k12", label: "K-12 school" }, { value: "higher_ed", label: "Higher education" }]}
-          />
-          <SelectField id="school-delivery-mode" label="Delivery" value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value as Tenant["delivery_mode"])}
-            options={[{ value: "in_person", label: "In-person" }, { value: "online", label: "Online" }, { value: "hybrid", label: "Hybrid" }]} />
-        </div>
-        {institutionType === "k12" ? (
-          <SelectField id="school-level" label="Level" value={level} onChange={(e) => setLevel(e.target.value as Tenant["level"])}
-            options={SCHOOL_LEVEL_OPTIONS} />
-        ) : (
-          <SelectField id="school-higher-ed-subtype" label="Type" value={higherEdSubtype} onChange={(e) => setHigherEdSubtype(e.target.value as NonNullable<Tenant["higher_ed_subtype"]>)}
-            options={[
-              { value: "university", label: "University" },
-              { value: "college", label: "College" },
-              { value: "short_course", label: "Short-course school" },
-              { value: "tvet", label: "TVET" },
-            ]} />
-        )}
-        <div className="mt-1 border-t border-line-soft pt-3.5">
-          <p className="mb-3 text-[12.5px] font-semibold text-ink">This school's own administrator</p>
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            <TextField id="school-admin-name" label="Name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
-            <TextField id="school-admin-email" label="Email" type="email" error={emailError || undefined} value={adminEmail} onChange={(e) => { setAdminEmail(e.target.value); setEmailError(""); }} />
-          </div>
-          <div className="mt-3.5">
-            <TextField
-              id="school-admin-title" label="Their role at this school" placeholder="e.g. Principal, Director, Owner"
-              hint="Whatever they actually are — not every school's lead admin is a Principal."
-              value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)}
-            />
-          </div>
+
+        <div className="border-t border-line-soft pt-3">
+          <label className="flex items-start gap-2.5 text-[12.5px]">
+            <input type="checkbox" checked={inviteNow} onChange={(e) => setInviteNow(e.target.checked)} className="mt-0.5" style={{ accentColor: "#17402A" }} />
+            <span>
+              <span className="font-semibold text-ink">Invite a head teacher/admin now</span>
+              <span className="block text-ink-muted">Optional. You can already run this school from your organization, and add its own admin any time.</span>
+            </span>
+          </label>
+          {inviteNow && (
+            <div className="mt-3.5 grid gap-3.5 sm:grid-cols-2">
+              <TextField id="school-admin-name" label="Their name" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+              <TextField id="school-admin-email" label="Their email" type="email" error={emailError || undefined} value={adminEmail} onChange={(e) => { setAdminEmail(e.target.value); setEmailError(""); }} />
+              <div className="sm:col-span-2">
+                <TextField
+                  id="school-admin-title" label="Their role at this school" placeholder="e.g. Head teacher, Principal, Director"
+                  value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </form>
     </Modal>

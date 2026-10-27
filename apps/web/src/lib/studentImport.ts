@@ -1,4 +1,4 @@
-import { splitCsvLine, supabase } from "@figbloom/shared";
+import { splitCsvLine, splitList, supabase } from "@figbloom/shared";
 
 /**
  * Bulk/CSV student import. One admission per term intake, forty-plus rows at
@@ -8,6 +8,8 @@ import { splitCsvLine, supabase } from "@figbloom/shared";
  */
 
 export const IMPORT_COLUMNS = ["admission_no", "full_name", "gender", "class", "boarding", "date_of_birth"] as const;
+/** Optional extra columns: where the learner lives (text; a pin is placed later, or given as home_lat/home_lng) and health. */
+export const OPTIONAL_IMPORT_COLUMNS = ["home_address", "home_landmark", "home_lat", "home_lng", "allergies", "medical_conditions"] as const;
 
 export interface ImportRow {
   line: number;
@@ -17,6 +19,13 @@ export interface ImportRow {
   className: string;
   boarding: boolean;
   date_of_birth: string | null;
+  home_address: string | null;
+  home_landmark: string | null;
+  /** Both or neither. A row with an address but no pin needs pinning before the bus can be planned. */
+  home_lat: number | null;
+  home_lng: number | null;
+  allergies: string[];
+  medical_conditions: string[];
   errors: string[];
 }
 
@@ -66,7 +75,14 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
     class: col("class"),
     boarding: col("boarding"),
     date_of_birth: col("date_of_birth"),
+    home_address: col("home_address"),
+    home_landmark: col("home_landmark"),
+    home_lat: col("home_lat"),
+    home_lng: col("home_lng"),
+    allergies: col("allergies"),
+    medical_conditions: col("medical_conditions"),
   };
+  const cell = (cells: string[], i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
 
   const seenInFile = new Set<string>();
   const rows: ImportRow[] = [];
@@ -94,6 +110,23 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
     const date_of_birth = parseDate(dobRaw);
     if (date_of_birth === "invalid") errors.push("Date of birth must be YYYY-MM-DD.");
 
+    const home_address = cell(cells, idx.home_address).slice(0, 300) || null;
+    const home_landmark = cell(cells, idx.home_landmark).slice(0, 200) || null;
+    const latRaw = cell(cells, idx.home_lat);
+    const lngRaw = cell(cells, idx.home_lng);
+    let home_lat: number | null = null;
+    let home_lng: number | null = null;
+    if (latRaw || lngRaw) {
+      const lat = Number(latRaw);
+      const lng = Number(lngRaw);
+      if (!latRaw || !lngRaw || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        errors.push("home_lat and home_lng must both be numbers (e.g. -1.2186, 36.9258), or both blank.");
+      } else {
+        home_lat = lat;
+        home_lng = lng;
+      }
+    }
+
     if (admission_no) seenInFile.add(admission_no);
 
     rows.push({
@@ -104,6 +137,12 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
       className,
       boarding: parseBoarding(boardingRaw),
       date_of_birth: date_of_birth === "invalid" ? null : date_of_birth,
+      home_address,
+      home_landmark,
+      home_lat,
+      home_lng,
+      allergies: splitList(cell(cells, idx.allergies)),
+      medical_conditions: splitList(cell(cells, idx.medical_conditions)),
       errors,
     });
   }
@@ -113,9 +152,9 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
 
 export function csvTemplate(): string {
   return [
-    IMPORT_COLUMNS.join(","),
-    "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14",
-    "4502,Otieno Odhiambo,male,Form 2 East,no,",
+    [...IMPORT_COLUMNS, "home_address", "home_landmark", "allergies", "medical_conditions"].join(","),
+    "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14,,,,",
+    '4502,Otieno Odhiambo,male,Form 2 East,no,,"Plot 12, Kahawa Sukari",Opposite Naivas,"Peanuts; Eggs",Asthma',
   ].join("\n");
 }
 
@@ -139,7 +178,7 @@ export async function importStudents(
 ): Promise<number> {
   const valid = rows.filter((r) => r.errors.length === 0);
   if (valid.length === 0) return 0;
-  const { error } = await supabase().from("students").insert(
+  const { data: created, error } = await supabase().from("students").insert(
     valid.map((r) => ({
       tenant_id: tenantId,
       admission_no: r.admission_no,
@@ -149,8 +188,23 @@ export async function importStudents(
       boarding: r.boarding,
       date_of_birth: r.date_of_birth,
       active: true,
+      home_address: r.home_address,
+      home_landmark: r.home_landmark,
+      home_lat: r.home_lat,
+      home_lng: r.home_lng,
     })),
-  );
+  ).select("id, admission_no").returns<{ id: string; admission_no: string }[]>();
   if (error) throw error;
+
+  // Allergies and conditions go to student_health (one row per learner who has any).
+  const idByAdmission = new Map((created ?? []).map((c) => [c.admission_no, c.id]));
+  const health = valid
+    .filter((r) => r.allergies.length || r.medical_conditions.length)
+    .map((r) => ({ tenant_id: tenantId, student_id: idByAdmission.get(r.admission_no), allergies: r.allergies, medical_conditions: r.medical_conditions }))
+    .filter((h): h is typeof h & { student_id: string } => !!h.student_id);
+  if (health.length) {
+    const { error: healthErr } = await supabase().from("student_health").upsert(health, { onConflict: "student_id" });
+    if (healthErr) throw new Error(`The learners were imported, but their allergies and conditions didn't save: ${healthErr.message}`);
+  }
   return valid.length;
 }

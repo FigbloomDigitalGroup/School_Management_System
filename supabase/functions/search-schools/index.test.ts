@@ -14,6 +14,10 @@ function makeClient() {
   return admin;
 }
 
+/** Lets every search through, unless a test says otherwise. */
+const open = async () => true;
+const deps = (admin: FakeSupabaseClient) => ({ admin, withinLimit: open });
+
 function request(body: unknown, opts: { method?: string } = {}) {
   const method = opts.method ?? "POST";
   return new Request("https://example.com/search-schools", {
@@ -25,48 +29,61 @@ function request(body: unknown, opts: { method?: string } = {}) {
 describe("search-schools handle", () => {
   it("answers an OPTIONS preflight with CORS headers, no auth required", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "alliance" }, { method: "OPTIONS" }), { admin });
+    const res = await handle(request({ query: "alliance" }, { method: "OPTIONS" }), deps(admin));
     assertEquals(res.status, 200);
     assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
   });
 
   it("rejects non-POST requests", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "alliance" }, { method: "GET" }), { admin });
+    const res = await handle(request({ query: "alliance" }, { method: "GET" }), deps(admin));
     assertEquals(res.status, 405);
   });
 
   it("requires no Authorization header -- this is the pre-auth school picker", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "alliance" }), { admin });
+    const res = await handle(request({ query: "alliance" }), deps(admin));
     assertEquals(res.status, 200);
   });
 
   it("returns an empty list for a too-short query, without erroring", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "a" }), { admin });
+    const res = await handle(request({ query: "a" }), deps(admin));
     const out = await res.json();
     assertEquals(out.schools, []);
   });
 
   it("matches by case-insensitive substring", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "GREEN" }), { admin });
+    const res = await handle(request({ query: "GREEN" }), deps(admin));
     const out = await res.json();
     assertEquals(out.schools.length, 1);
     assertEquals(out.schools[0].name, "Green Valley Academy");
   });
 
-  it("excludes a school that isn't active", async () => {
+  it("excludes a school that is still onboarding", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "pending" }), { admin });
+    const res = await handle(request({ query: "pending" }), deps(admin));
     const out = await res.json();
     assertEquals(out.schools, []);
   });
 
+  it("finds schools on trial or overdue, but not stalled or suspended ones", async () => {
+    const admin = makeClient();
+    admin.seed("tenants", [
+      { id: "s1", name: "Status Trial School", slug: "status-trial", county: "Nairobi", status: "trial" },
+      { id: "s2", name: "Status Overdue School", slug: "status-overdue", county: "Nairobi", status: "overdue" },
+      { id: "s3", name: "Status Stalled School", slug: "status-stalled", county: "Nairobi", status: "setup_stalled" },
+      { id: "s4", name: "Status Suspended School", slug: "status-suspended", county: "Nairobi", status: "suspended" },
+    ]);
+    const res = await handle(request({ query: "status " }), deps(admin));
+    const out = await res.json();
+    assertEquals(out.schools.map((s: { slug: string }) => s.slug).sort(), ["status-overdue", "status-trial"]);
+  });
+
   it("matches more than one school for a shared name fragment", async () => {
     const admin = makeClient();
-    const res = await handle(request({ query: "alliance" }), { admin });
+    const res = await handle(request({ query: "alliance" }), deps(admin));
     const out = await res.json();
     assertEquals(out.schools.length, 2);
   });
@@ -76,7 +93,7 @@ describe("search-schools handle", () => {
     admin.seed("tenants", Array.from({ length: 12 }, (_, i) => ({
       id: `many-${i}`, name: `Many School ${i}`, slug: `many-${i}`, county: "Nairobi", status: "active",
     })));
-    const res = await handle(request({ query: "many" }), { admin });
+    const res = await handle(request({ query: "many" }), deps(admin));
     const out = await res.json();
     assertEquals(out.schools.length, 8);
   });
@@ -87,9 +104,29 @@ describe("search-schools handle", () => {
       { id: "t5", name: "100% Academy", slug: "hundred-percent", county: "Nairobi", status: "active" },
       { id: "t6", name: "1000 Academy", slug: "thousand", county: "Nairobi", status: "active" },
     ]);
-    const res = await handle(request({ query: "100%" }), { admin });
+    const res = await handle(request({ query: "100%" }), deps(admin));
     const out = await res.json();
     assertEquals(out.schools.length, 1);
     assertEquals(out.schools[0].name, "100% Academy");
+  });
+  describe("abuse protection", () => {
+    it("answers 429 without searching once the caller is over its allowance", async () => {
+      const admin = makeClient();
+      const res = await handle(request({ query: "alliance" }), { admin, withinLimit: async () => false });
+      assertEquals(res.status, 429);
+      const out = await res.json();
+      assertEquals(out.error, "Too many searches. Wait a few minutes and try again.");
+      assertEquals(out.schools, undefined);
+    });
+
+    it("never hands the database's own error message to the caller", async () => {
+      const admin = makeClient();
+      admin.failNextRead("tenants", 'relation "tenants" does not exist');
+      const res = await handle(request({ query: "alliance" }), deps(admin));
+      assertEquals(res.status, 500);
+      const raw = await res.text();
+      assertEquals(raw.includes("tenants"), false);
+      assertEquals(JSON.parse(raw).error, "Could not search schools. Try again.");
+    });
   });
 });

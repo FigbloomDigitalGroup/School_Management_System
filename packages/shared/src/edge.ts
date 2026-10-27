@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 
 /** A failed edge-function call, carrying the HTTP status when there was one (undefined: never reached the function, or timed out). */
 export class EdgeError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(message: string, readonly status?: number, readonly cancelled = false) {
     super(message);
     this.name = "EdgeError";
   }
@@ -11,6 +11,8 @@ export class EdgeError extends Error {
 export interface InvokeOptions {
   /** Give up after this long (AbortController + setTimeout: the mobile apps' JS engine has no AbortSignal.timeout). */
   timeoutMs: number;
+  /** Lets the caller give up early (a Stop button); the call then throws an EdgeError with `cancelled` set. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -20,11 +22,14 @@ export interface InvokeOptions {
  * hides that behind a generic "non-2xx" message unless the response body is
  * read from `error.context`.
  */
-export async function invokeEdge<T>(fn: string, body: Record<string, unknown>, { timeoutMs }: InvokeOptions): Promise<T> {
+export async function invokeEdge<T>(fn: string, body: Record<string, unknown>, { timeoutMs, signal }: InvokeOptions): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const cancel = () => controller.abort();
+  signal?.addEventListener("abort", cancel);
   try {
     const { data, error } = await supabase().functions.invoke<T | { error: string }>(fn, { body, signal: controller.signal });
+    if (signal?.aborted) throw new EdgeError("Stopped.", undefined, true);
     if (error) {
       if (controller.signal.aborted) throw new EdgeError("That took too long. Check your connection and try again.");
       const ctx = (error as { context?: Response }).context;
@@ -41,5 +46,6 @@ export async function invokeEdge<T>(fn: string, body: Record<string, unknown>, {
     return data as T;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
   }
 }
