@@ -6,9 +6,10 @@ import { useAsync } from "../lib/useAsync";
 
 /**
  * The office's AI switches for its school: drafting for staff (report card
- * comments, questions, homework, messages, and Bloom chat) and the study helper for learners,
- * plus how much of the month's allowance is used. The allowance itself is set
- * by Figbloom with the school's plan.
+ * comments, questions, homework, messages, and Bloom chat), web search in
+ * Bloom chat, and the study helper for learners, plus how much of the month's
+ * allowance is used. The allowance itself is set by Figbloom with the
+ * school's plan.
  */
 export function AiSettings({ tenantId }: { tenantId: string }) {
   const toast = useToast();
@@ -16,24 +17,26 @@ export function AiSettings({ tenantId }: { tenantId: string }) {
   const { data: status, loading } = useAsync(() => fetchAiStatus(tenantId), [tenantId, reloadKey]);
   const [enabled, setEnabled] = useState(true);
   const [tutor, setTutor] = useState(false);
+  const [webSearch, setWebSearch] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!status) return;
     setEnabled(status.aiEnabled);
     setTutor(status.tutorEnabled);
+    setWebSearch(status.webSearchEnabled);
   }, [status]);
 
   if (loading && !status) return null;
   if (!status) return null;
 
-  const changed = enabled !== status.aiEnabled || tutor !== status.tutorEnabled;
+  const changed = enabled !== status.aiEnabled || tutor !== status.tutorEnabled || webSearch !== status.webSearchEnabled;
   const pct = status.monthlyTokens > 0 ? Math.min(100, Math.round((status.usedTokens / status.monthlyTokens) * 100)) : 100;
 
   async function save() {
     setSaving(true);
     try {
-      await saveAiSettings(tenantId, enabled, enabled && tutor);
+      await saveAiSettings(tenantId, enabled, enabled && tutor, webSearch);
       toast(tutor && enabled ? "Saved. Learners see Ask Bloom the next time they open the app." : "Saved.");
       setReloadKey((k) => k + 1);
     } catch (err) {
@@ -61,6 +64,9 @@ export function AiSettings({ tenantId }: { tenantId: string }) {
       <div className="divide-y divide-line-soft px-4">
         {row(enabled, setEnabled, "Bloom for staff",
           "Teachers and the office can draft report card comments, exam questions, homework and messages, and translate messages into Kiswahili. Every draft is read and edited by a person before it's saved or sent. They also get Bloom chat, a general AI assistant behind the Ask Bloom button on every page; each person's chats are saved for them alone.")}
+        {row(webSearch, setWebSearch, "Web search in Bloom chat",
+          "Bloom chat can search the web for current facts, such as KNEC, KICD, TSC and Ministry circulars, term dates and fees guidelines, and lists the sources it used. Staff can turn it off for any chat. Each search counts as 2,500 tokens of the allowance. Never used by the study helper.",
+          !enabled)}
         {row(tutor, setTutor, "Ask Bloom, the study helper for learners",
           "Bloom as an AI tutor learners can ask about their schoolwork. It guides them to the answer instead of giving it, keeps conversations age-appropriate, and is switched off while an exam is open. Conversations aren't stored.",
           !enabled)}
@@ -74,6 +80,7 @@ export function AiSettings({ tenantId }: { tenantId: string }) {
           <div className={`h-2 rounded ${pct >= 90 ? "bg-warn-ink" : "bg-ok-dot"}`} style={{ width: `${pct}%` }} />
         </div>
         <p className="mt-1.5 text-[11.5px] text-ink-faint">
+          {status.usedSearches > 0 && `Includes ${status.usedSearches.toLocaleString()} web ${status.usedSearches === 1 ? "search" : "searches"}. `}
           Resets on the 1st. To raise the allowance, contact Figbloom. Only what a task needs is sent: report card drafting gets a first name and results, never admission numbers.
         </p>
       </div>
