@@ -1,7 +1,9 @@
--- Other staff checks for 20261028100001_other_staff.
+-- Other staff checks for 20261028100001_other_staff (the visitor log is the
+-- visitors admin area since 20261030000000; supabase/rls-checks/permissions.sql
+-- checks the areas themselves).
 --
 -- Runs against a local database that has the migrations applied and
--- `npm run db:seed` data (SF-0001, other staff with the visitor log), inside
+-- `npm run db:seed` data (SF-0001, other staff with the visitors area), inside
 -- one transaction that is rolled back. Every check prints PASS or FAIL.
 --
 --   docker exec -i supabase_db_figbloom psql -U postgres -d postgres -q < supabase/rls-checks/other_staff.sql
@@ -46,7 +48,7 @@ grant execute on all functions in schema pg_temp to authenticated;
 
 select pg_temp.check('the fixture has other staff with the visitor log, a teacher and a school admin',
   current_setting('t.staff', true) <> '' and current_setting('t.teacher', true) <> '' and current_setting('t.admin', true) <> ''
-  and (select handles_visitors from profiles where id = current_setting('t.staff')::uuid));
+  and exists (select 1 from staff_permissions where profile_id = current_setting('t.staff')::uuid and area = 'visitors'));
 select pg_temp.expect_eq('no guard or receptionist accounts are left',
   (select count(*) from profiles where role in ('guard', 'receptionist')), 0);
 
@@ -60,7 +62,7 @@ select pg_temp.act_as(current_setting('t.staff'));
 set local role authenticated;
 
 select pg_temp.check('is_staff() stays school_admin or teacher: other staff are not in it', not is_staff());
-select pg_temp.check('is_front_desk() is other staff with the visitor log', is_front_desk());
+select pg_temp.check('is_front_desk() is holding the visitors area', is_front_desk());
 
 select pg_temp.expect_eq('other staff read no learners', (select count(*) from students), 0);
 select pg_temp.expect_eq('other staff read only their own profile', (select count(*) from profiles), 1);
@@ -79,7 +81,7 @@ select pg_temp.check('and pick a host from the school''s teachers and admins',
   (select count(*) from visit_hosts(current_setting('t.a')::uuid)) > 0);
 
 select pg_temp.expect_error('they cannot give up or grant themselves the visitor log',
-  format($q$update profiles set handles_visitors = false where id = %L$q$, current_setting('t.staff')), '42501');
+  format($q$select set_staff_areas(%L, array[]::text[])$q$, current_setting('t.staff')), '42501');
 select pg_temp.expect_error('they cannot change their own title',
   format($q$update profiles set staff_title = 'Principal' where id = %L$q$, current_setting('t.staff')), '42501');
 select pg_temp.expect_error('they cannot make themselves a teacher',
@@ -92,10 +94,8 @@ reset role;
 select pg_temp.act_as(current_setting('t.admin'));
 set local role authenticated;
 
-select pg_temp.expect_rows('the office can take the visitor log away',
-  format($q$update profiles set handles_visitors = false where id = %L$q$, current_setting('t.staff')), 1);
-select pg_temp.expect_error('the visitor log is for other staff only, not a teacher',
-  format($q$update profiles set handles_visitors = true where id = %L$q$, current_setting('t.teacher')), '23514');
+select pg_temp.expect_eq('the office can take the visitor log away',
+  (select cardinality(set_staff_areas(current_setting('t.staff')::uuid, array[]::text[]))), 0);
 
 -- ---------------------------------------------------------------- other staff without it
 reset role;

@@ -881,19 +881,6 @@ function StaffTitleSuggestions() {
   );
 }
 
-/** The visitor log checkbox: other staff only, and only the office sets it (guard_profile_self_edit). */
-function HandlesVisitorsField({ checked, onChange }: { checked: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <label className="flex items-start gap-2">
-      <input type="checkbox" className="mt-0.5" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "#17402A" }} />
-      <span className="text-[13px] leading-snug">
-        Keeps the visitor log
-        <span className="block text-[11.5px] text-ink-faint">Records visitors at the gate or the office, moves them along and escalates to the principal's office.</span>
-      </span>
-    </label>
-  );
-}
-
 /** Adds a teacher, driver or other staff member (FIG-398/400) — no email, an assigned login_id
  *  (e.g. "TC-0001") instead, shown once on success the same way every other
  *  credential-reveal modal in this app works. */
@@ -903,7 +890,6 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
-  const [handlesVisitors, setHandlesVisitors] = useState(false);
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<InviteStaffResult | null>(null);
@@ -917,7 +903,6 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
     try {
       const r = await inviteStaff({
         tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined,
-        ...(other ? { handles_visitors: handlesVisitors } : {}),
       });
       setResult(r);
       onAdded();
@@ -959,12 +944,16 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
             <>
               <TextField id="staff-title" label="Title" placeholder="e.g. Librarian" list="staff-title-suggestions" hint="Pick one or type their own." value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
               <StaffTitleSuggestions />
-              <HandlesVisitorsField checked={handlesVisitors} onChange={setHandlesVisitors} />
             </>
           ) : (
             <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          {role !== "driver" && (
+            <p className="text-[12px] leading-relaxed text-ink-faint">
+              A deputy, bursar, secretary or receptionist? Once they're added, open their card and give them admin access there.
+            </p>
+          )}
         </div>
       )}
     </Modal>
@@ -1203,7 +1192,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
   const [fullName, setFullName] = useState(staff.full_name);
   const [staffTitle, setStaffTitle] = useState(staff.staff_title ?? "");
   const [phone, setPhone] = useState(staff.phone ?? "");
-  const [handlesVisitors, setHandlesVisitors] = useState(!!staff.handles_visitors);
   const [saving, setSaving] = useState(false);
   const other = staff.role === "staff";
 
@@ -1216,7 +1204,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
         full_name: fullName.trim(),
         staff_title: staffTitle.trim() || null,
         phone: phone.trim() || null,
-        ...(other ? { handles_visitors: handlesVisitors } : {}),
       }).eq("id", staff.id);
       if (error) throw error;
       toast("Details saved.");
@@ -1250,7 +1237,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
             className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
         </label>
       </div>
-      {other && <div className="mt-3"><HandlesVisitorsField checked={handlesVisitors} onChange={setHandlesVisitors} /></div>}
       <Button variant="primary" className="mt-3" onClick={() => void save()} disabled={saving}>
         {saving ? "Saving…" : "Save details"}
       </Button>

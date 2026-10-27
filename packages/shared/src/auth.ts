@@ -183,8 +183,8 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   driver: [
     { to: "driver", label: "Trip", icon: "pulse" },
   ],
-  // Other staff. Visitors only for those the office has given the visitor
-  // log (profiles.handles_visitors); StaffShell hides it from the rest.
+  // Other staff. Visitors only for those holding the visitors admin area
+  // (adminAreas.ts); StaffShell hides it from the rest.
   staff: [
     { to: "staff/visitors", label: "Visitors", icon: "people" },
     { to: "staff/notices", label: "Notices", icon: "bell" },

@@ -64,3 +64,4 @@ export * from "./markdown";
 export * from "./inventory";
 export * from "./feeCharges";
 export * from "./otherStaff";
+export * from "./adminAreas";

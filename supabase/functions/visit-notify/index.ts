@@ -2,7 +2,7 @@
  * Pushes a visitor to the phones of whoever needs to know: the member of
  * staff they came to see, and every school admin once the visit is
  * escalated (20261027010001_gate_reception.sql). Called by the visitor log
- * (other staff with handles_visitors, 20261028100001) and the office right
+ * (whoever holds the visitors admin area, 20261030000000) and the office right
  * after they record a visit or escalate one, the same way the announcement
  * composer calls send-push.
  *
@@ -16,13 +16,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { fcmAccessToken, sendToToken, serviceAccountFromEnv, type ServiceAccount } from "../_shared/fcm.ts";
 import { plan, type VisitRow } from "./plan.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 
 // deno-lint-ignore no-explicit-any
 export interface Deps { admin: any; asUser: any; account?: ServiceAccount | null }
 
-/** Who may ask for a visit's pushes: the office, and whoever keeps the visitor log (is_front_desk()). */
-export const mayNotify = (p: { role: string; handles_visitors?: boolean | null }): boolean =>
-  p.role === "school_admin" || (p.role === "staff" && p.handles_visitors === true);
+/** Who may ask for a visit's pushes: the school's office, and whoever holds the visitors area (is_front_desk()). */
+// deno-lint-ignore no-explicit-any
+export async function mayNotify(admin: any, caller: { id: string; role: string; tenant_id: string | null }, tenantId: string): Promise<boolean> {
+  if (caller.tenant_id !== tenantId) return false;
+  return caller.role === "school_admin" || await holdsArea(admin, caller, tenantId, "visitors");
+}
 
 export async function handle(req: Request, { admin, asUser, account = serviceAccountFromEnv() }: Deps, fetchImpl: typeof fetch = fetch): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
@@ -43,8 +47,8 @@ export async function handle(req: Request, { admin, asUser, account = serviceAcc
     .eq("id", body.visit_id).maybeSingle();
   if (!visit) return json({ error: "That visit could not be found." }, 404);
 
-  const { data: caller } = await admin.from("profiles").select("role, tenant_id, handles_visitors").eq("id", user.id).maybeSingle();
-  if (!caller || caller.tenant_id !== visit.tenant_id || !mayNotify(caller)) {
+  const { data: caller } = await admin.from("profiles").select("id, role, tenant_id").eq("id", user.id).maybeSingle();
+  if (!caller || !(await mayNotify(admin, caller, visit.tenant_id))) {
     return json({ error: "Only whoever keeps the school's visitor log, or the office, can send this." }, 403);
   }
 

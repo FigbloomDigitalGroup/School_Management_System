@@ -167,23 +167,23 @@ describe("invite-admin handle", () => {
       assertEquals(out.login_id, "BD-0001");
     });
 
-    it("creates other staff with an SF-prefixed login_id, their title, and the visitor log when asked", async () => {
+    it("creates other staff with an SF-prefixed login_id and their title", async () => {
       const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
-      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Lucy Njeri", role: "staff", staff_title: "Receptionist", handles_visitors: true }), { admin, asUser });
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Lucy Njeri", role: "staff", staff_title: "Receptionist" }), { admin, asUser });
       assertEquals(res.status, 200);
       const out = await res.json();
       assertEquals(out.login_id, "SF-0001");
       const created = admin.rowsIn("profiles").find((p) => p.id === "new-admin-1");
       assertEquals(created?.role, "staff");
       assertEquals(created?.staff_title, "Receptionist");
-      assertEquals(created?.handles_visitors, true);
       assertMatch(admin.rowsIn("audit_events")[0].event, /Staff member Lucy Njeri \(Receptionist, SF-0001\)/);
     });
 
-    it("never gives the visitor log to anyone but other staff", async () => {
+    it("no longer sets the deprecated visitor-log flag: the visitor log is an admin area, given afterwards", async () => {
       const { admin, asUser } = makeClients();
-      await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher", handles_visitors: true }), { admin, asUser });
-      assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-admin-1")?.handles_visitors, false);
+      await handle(request({ tenant_id: TENANT_ID, full_name: "Lucy Njeri", role: "staff", handles_visitors: true }), { admin, asUser });
+      assertEquals("handles_visitors" in (admin.rowsIn("profiles").find((p) => p.id === "new-admin-1") ?? {}), false);
+      assertEquals(admin.rowsIn("staff_permissions").length, 0);
     });
 
     it("no longer creates the retired guard and receptionist roles", async () => {
@@ -234,6 +234,45 @@ describe("invite-admin handle", () => {
     it("still rejects a school_admin trying to add ANOTHER school_admin (the first-admin case stays super_admin/org_admin-only)", async () => {
       const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
       const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+  });
+
+  describe("a teacher or other staff member with the people area (20261030000000)", () => {
+    function withArea(role: string, areas: string[], tenantId = TENANT_ID) {
+      const clients = makeClients({ role, callerTenantId: tenantId });
+      clients.admin.seed("staff_permissions", areas.map((area) => ({ tenant_id: tenantId, profile_id: SUPER_ADMIN_ID, area })));
+      return clients;
+    }
+
+    it("adds a teacher", async () => {
+      const { admin, asUser } = withArea("staff", ["people"]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 200);
+      assertMatch(admin.rowsIn("audit_events")[0].actor_label, /Jane Figbloom · people/);
+    });
+
+    it("never adds an administrator", async () => {
+      const { admin, asUser } = withArea("teacher", ["people"]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("is refused with only other areas", async () => {
+      const { admin, asUser } = withArea("staff", ["fees", "visitors"]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("is refused at another school", async () => {
+      const { admin, asUser } = withArea("teacher", ["people"], "some-other-tenant");
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("counts only for teachers and other staff, whatever a stray row says", async () => {
+      const { admin, asUser } = withArea("parent", ["people"]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
       assertEquals(res.status, 403);
     });
   });

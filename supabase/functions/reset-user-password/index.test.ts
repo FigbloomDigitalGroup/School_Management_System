@@ -114,9 +114,58 @@ describe("reset-user-password handle", () => {
     assertEquals(res.status, 403);
   });
 
-  it("refuses a teacher outright", async () => {
+  it("refuses a teacher without the people area", async () => {
     const { res } = await reset("teacher", "student-login");
     assertEquals(res.status, 403);
+  });
+
+  describe("a teacher or other staff member with the people area (20261030000000)", () => {
+    function withSecretary() {
+      const clients = makeClients("secretary");
+      clients.admin.seed("profiles", [
+        ...clients.admin.rowsIn("profiles"),
+        { id: "secretary", role: "staff", full_name: "Sarah Secretary", tenant_id: TENANT_ID, login_id: "SF-0001" },
+        { id: "bursar", role: "staff", full_name: "Ben Bursar", tenant_id: TENANT_ID, login_id: "SF-0002" },
+      ]);
+      clients.admin.seed("staff_permissions", [
+        { tenant_id: TENANT_ID, profile_id: "secretary", area: "people" },
+        { tenant_id: TENANT_ID, profile_id: "bursar", area: "fees" },
+      ]);
+      return clients;
+    }
+
+    it("resets a learner's or a teacher's password", async () => {
+      for (const target of ["student-login", "teacher"]) {
+        const clients = withSecretary();
+        const res = await handle(request({ profile_id: target }), clients);
+        assertEquals(res.status, 200);
+        assertMatch(clients.admin.rowsIn("audit_events")[0].actor_label, /people/);
+      }
+    });
+
+    it("never resets a full admin's password", async () => {
+      const clients = withSecretary();
+      const res = await handle(request({ profile_id: "school-admin" }), clients);
+      assertEquals(res.status, 403);
+      assertEquals(clients.admin.updatedUsers.length, 0);
+    });
+
+    it("never resets someone who holds an admin area (the bursar has fees, which the secretary doesn't)", async () => {
+      const clients = withSecretary();
+      const res = await handle(request({ profile_id: "bursar" }), clients);
+      assertEquals(res.status, 403);
+      assertEquals(clients.admin.updatedUsers.length, 0);
+    });
+
+    it("is refused at another school", async () => {
+      const clients = withSecretary();
+      clients.admin.seed("profiles", [
+        ...clients.admin.rowsIn("profiles"),
+        { id: "riverside-teacher", role: "teacher", full_name: "Rita Riverside", tenant_id: OTHER_TENANT_ID },
+      ]);
+      const res = await handle(request({ profile_id: "riverside-teacher" }), clients);
+      assertEquals(res.status, 403);
+    });
   });
 
   it("won't reset accounts outside a school (they use the emailed link)", async () => {

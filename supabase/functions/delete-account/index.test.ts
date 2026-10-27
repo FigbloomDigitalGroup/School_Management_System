@@ -55,10 +55,46 @@ describe("delete-account handle", () => {
     assertEquals(res.status, 401);
   });
 
-  it("rejects a caller who is none of super_admin/org_admin/school_admin", async () => {
+  it("rejects a teacher without the people area", async () => {
     const { admin, asUser } = makeClients({ role: "teacher" });
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 403);
+  });
+
+  it("rejects a parent, whatever a stray grant row says", async () => {
+    const { admin, asUser } = makeClients({ role: "parent" });
+    admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "people" }]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 403);
+  });
+
+  describe("a teacher or other staff member with the people area (20261030000000)", () => {
+    function withPeople(targetRole = "teacher") {
+      const clients = makeClients({ role: "staff", targetRole });
+      clients.admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "people" }]);
+      return clients;
+    }
+
+    it("removes a teacher", async () => {
+      const { admin, asUser } = withPeople();
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 200);
+      assertEquals(admin.deletedUserIds, [TEACHER_ID]);
+    });
+
+    it("never removes an administrator", async () => {
+      const { admin, asUser } = withPeople("school_admin");
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.deletedUserIds, []);
+    });
+
+    it("is refused with only another area", async () => {
+      const { admin, asUser } = makeClients({ role: "staff" });
+      admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "fees" }]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
   });
 
   it("rejects a body missing required fields", async () => {
