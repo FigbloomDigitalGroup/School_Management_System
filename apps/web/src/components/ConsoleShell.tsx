@@ -37,6 +37,8 @@ interface Props {
    *  callback rather than a plain URL so the caller can log the exit before
    *  navigating away. */
   actingBanner?: { orgName: string; schoolName: string; onExit: () => void };
+  /** NAV entries this person doesn't get, e.g. Visitors for other staff without the visitor log. */
+  hiddenNav?: string[];
 }
 
 /**
@@ -44,7 +46,7 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav }: Props) {
   // Start collapsed when the labelled sidebar would eat too much of a narrow
   // (or heavily zoomed) window; the person can still expand it.
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
@@ -72,6 +74,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const online = tenant?.delivery_mode === "online";
   const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework", "teacher/exams", "admin/papers", "student/exams", "admin/report-cards", "teacher/report-cards", "teacher/materials", "admin/materials", "student/materials", "parent/materials", "admin/performance", "teacher/performance"]);
   const items = NAV[role].filter((item) => {
+    if (hiddenNav?.includes(item.to)) return false;
     if (item.to === "admin/classes" || item.to === "admin/subjects" || item.to === "admin/exams" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
@@ -89,7 +92,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // Only the three roles with a real self-service "My account" screen (FIG-
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
-  const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings" };
+  const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings", staff: "staff/account" };
   const accountTo = ACCOUNT_ROUTE[role];
   const accountHref = accountTo
     ? (tenantScoped ? `/s/${slug}/${accountTo}` : orgScoped ? `/org/${orgSlug}/${accountTo}` : accountTo)

@@ -37,14 +37,11 @@ describe("escalation and labels", () => {
 });
 
 describe("nextVisitSteps", () => {
-  it("lets the guard only sign visitors out", () => {
-    expect(nextVisitSteps("expected", "guard")).toEqual(["left"]);
-  });
-  it("moves reception's queue forward", () => {
-    expect(nextVisitSteps("expected", "receptionist")).toEqual(["at_reception", "left"]);
-    expect(nextVisitSteps("at_reception", "receptionist")).toEqual(["with_host", "left"]);
-    expect(nextVisitSteps("with_host", "receptionist")).toEqual(["left"]);
-    expect(nextVisitSteps("left", "receptionist")).toEqual([]);
+  it("moves the queue forward, and can sign a visitor out at any step", () => {
+    expect(nextVisitSteps("expected")).toEqual(["at_reception", "left"]);
+    expect(nextVisitSteps("at_reception")).toEqual(["with_host", "left"]);
+    expect(nextVisitSteps("with_host")).toEqual(["left"]);
+    expect(nextVisitSteps("left")).toEqual([]);
   });
 });
 

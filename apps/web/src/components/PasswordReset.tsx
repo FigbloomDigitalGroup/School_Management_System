@@ -14,7 +14,7 @@ import { useAsync } from "../lib/useAsync";
  */
 
 const ROLE_NOUN: Partial<Record<Role, string>> = {
-  student: "Learner", parent: "Parent", teacher: "Teacher", driver: "Driver", guard: "Guard", receptionist: "Receptionist", school_admin: "Admin",
+  student: "Learner", parent: "Parent", teacher: "Teacher", driver: "Driver", staff: "Staff member", school_admin: "Admin",
 };
 
 /** Runs a reset and holds its one-time result. */

@@ -167,6 +167,33 @@ describe("invite-admin handle", () => {
       assertEquals(out.login_id, "BD-0001");
     });
 
+    it("creates other staff with an SF-prefixed login_id, their title, and the visitor log when asked", async () => {
+      const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Lucy Njeri", role: "staff", staff_title: "Receptionist", handles_visitors: true }), { admin, asUser });
+      assertEquals(res.status, 200);
+      const out = await res.json();
+      assertEquals(out.login_id, "SF-0001");
+      const created = admin.rowsIn("profiles").find((p) => p.id === "new-admin-1");
+      assertEquals(created?.role, "staff");
+      assertEquals(created?.staff_title, "Receptionist");
+      assertEquals(created?.handles_visitors, true);
+      assertMatch(admin.rowsIn("audit_events")[0].event, /Staff member Lucy Njeri \(Receptionist, SF-0001\)/);
+    });
+
+    it("never gives the visitor log to anyone but other staff", async () => {
+      const { admin, asUser } = makeClients();
+      await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher", handles_visitors: true }), { admin, asUser });
+      assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-admin-1")?.handles_visitors, false);
+    });
+
+    it("no longer creates the retired guard and receptionist roles", async () => {
+      const { admin, asUser } = makeClients();
+      for (const role of ["guard", "receptionist"]) {
+        const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Samuel Kiprono", role }), { admin, asUser });
+        assertEquals(res.status, 400);
+      }
+    });
+
     it("increments the login_id per tenant+role, not globally", async () => {
       const { admin, asUser } = makeClients();
       admin.seed("profiles", [
