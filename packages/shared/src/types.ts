@@ -153,7 +153,7 @@ export interface Profile {
   must_change_password: boolean;
   /** A driver changed their own photo and no admin has looked at it yet. */
   photo_changed_at: string | null;
-  /** Other staff (role "staff") the office has given the visitor log (20261028100001); optional so rows read before it existed still type-check. */
+  /** Deprecated (20261031000000): the visitor log is now the visitors admin area (adminAreas.ts). Nothing reads it. */
   handles_visitors?: boolean;
   created_at: string;
 }

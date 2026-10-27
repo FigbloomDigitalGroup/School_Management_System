@@ -93,8 +93,6 @@ export interface InviteStaffInput {
   full_name: string;
   role: "teacher" | "driver" | "staff";
   staff_title?: string;
-  /** Other staff only: they keep the visitor log (profiles.handles_visitors). */
-  handles_visitors?: boolean;
   phone?: string;
 }
 

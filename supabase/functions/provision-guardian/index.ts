@@ -13,11 +13,13 @@
  * the school's own school_admin -- the same three-way check invite-admin's
  * teacher/driver path uses (mirrors guardian_write's RLS shape, which this
  * function's service-role writes bypass, so the same logic is re-checked
- * here by hand rather than relied on).
+ * here by hand rather than relied on). Since 20261031000000 a teacher or
+ * other staff member holding the people admin area passes too.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
@@ -52,8 +54,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: callerProfile } = await admin
     .from("profiles").select("role, full_name, tenant_id").eq("id", user.id).maybeSingle();
-  if (callerProfile?.role !== "super_admin" && callerProfile?.role !== "org_admin" && callerProfile?.role !== "school_admin") {
-    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's own admin, can add a guardian." }, 403);
+  if (!["super_admin", "org_admin", "school_admin", "teacher", "staff"].includes(callerProfile?.role)) {
+    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's office, can add a guardian." }, 403);
   }
 
   let body: Partial<Body>;
@@ -82,6 +84,9 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     authorized = !!link;
   }
   if (!authorized && callerProfile.role === "school_admin" && callerProfile.tenant_id === tenant_id) {
+    authorized = true;
+  }
+  if (!authorized && await holdsArea(admin, { id: user.id, ...callerProfile }, tenant_id, "people")) {
     authorized = true;
   }
   if (!authorized) {
@@ -154,7 +159,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: guardiansErr.message }, 500);
   }
 
-  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin" : "school admin";
+  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
+    : callerProfile.role === "school_admin" ? "school admin" : "people";
   await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
