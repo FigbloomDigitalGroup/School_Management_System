@@ -296,7 +296,8 @@ export class FakeSupabaseClient {
     }
     if (name === "ai_month_tokens") {
       const used = this.rowsIn("ai_usage").filter((r) => r.tenant_id === args.p_tenant_id)
-        .reduce((n, r) => n + Number(r.input_tokens ?? 0) + Number(r.output_tokens ?? 0), 0);
+        // a web search counts as ai_tokens_per_search() tokens (20261029100000_bloom_web_search.sql)
+        .reduce((n, r) => n + Number(r.input_tokens ?? 0) + Number(r.output_tokens ?? 0) + Number(r.searches ?? 0) * 2500, 0);
       return Promise.resolve({ data: used, error: null });
     }
     if (name === "ai_tutor_blocked") return Promise.resolve({ data: this.tutorBlocked, error: null });
