@@ -7,6 +7,7 @@ import { ChatsCard } from "../../components/ChatsCard";
 import { ChildBioCard } from "../../components/ChildBioCard";
 import { ChildHealthCard } from "../../components/ChildHealthCard";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
+import { LinkCard } from "../../components/LinkCard";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { Skeleton } from "../../components/Skeleton";
 import { useCbeResults } from "../../lib/useCbeResults";
@@ -129,6 +130,9 @@ export function ParentHome() {
           </View>
           <Text style={[s.small, { marginTop: 4 }]}>Notes, worksheets and videos {child.first}'s teachers have shared with the class.</Text>
         </TouchableOpacity>
+
+        <LinkCard label="Sports & activities" blurb={`Clubs, teams, fixtures and awards for ${child.first}.`} tint={tint} to="Activities" />
+        <LinkCard label="Issued items" blurb={`Textbooks and equipment ${child.first} has borrowed, and when they're due back.`} tint={tint} to="Items" />
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>From the school</Text>
         {messages.slice(0, 2).map((m) => (
