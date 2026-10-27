@@ -57,7 +57,7 @@ function Faq() {
         <div className="faq-header">
           <h2 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>Frequently asked questions</h2>
           <p>
-            Short answers about how BloomEd works for Kenyan schools. Can't find yours?{' '}
+            Short answers about how our School management works for Kenyan schools. Can't find yours?{' '}
             <a href="#contact">Contact us</a> and we'll help.
           </p>
         </div>
