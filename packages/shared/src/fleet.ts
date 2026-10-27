@@ -1,3 +1,4 @@
+import { writeErrorFrom } from "./queue";
 import { supabase } from "./supabase";
 import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, VehicleAssignment } from "./types";
 
@@ -339,10 +340,15 @@ export function pushRiderUpdates(tripId: string): void {
   void supabase().functions.invoke("rider-update", { body: { trip_id: tripId } }).catch(() => {});
 }
 
-/** Marks a child on, off, or not here. The family's update is written by a trigger; this pushes it. */
+/**
+ * Marks a child on, off, or not here. The family's update is written by a
+ * trigger; this pushes it. A failure is a WriteError (see queue.ts), so a
+ * screen can tell "no signal, hold it and send later" from "the server said
+ * no" (the child isn't on this route), which holding would never fix.
+ */
 export async function markRider(input: RiderMarkInput): Promise<void> {
-  const { error } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
-  if (error) throw error;
+  const { error, status } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
+  if (error) throw writeErrorFrom(error, status);
   pushRiderUpdates(input.tripId);
 }
 

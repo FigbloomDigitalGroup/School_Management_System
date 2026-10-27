@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import {
-  endTrip, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, supabase,
-  type AssignmentRow, type Trip, type TripDirection,
+  endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder, supabase,
+  type AssignmentRow, type RouteStop, type Trip, type TripDirection,
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { queue } from "../../storage";
 import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 import { ReportBreakdown } from "./ReportBreakdown";
+import { TripRiders } from "./TripRiders";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
 
@@ -35,6 +36,9 @@ interface DriverProps {
  */
 export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps) {
   const a = accentFor(accent);
+  // Marks and pings held on this phone belong to this driver. Set while rendering, so the
+  // flush on mount below already knows who is signed in.
+  queue.setUser(driverId);
   const [loading, setLoading] = useState(true);
   const [assignment, setAssignment] = useState<AssignmentRow | null>(null);
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -44,6 +48,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastPing, setLastPing] = useState<{ at: Date; lat: number; lng: number } | null>(null);
   const [held, setHeld] = useState(0);
+  const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const tripRef = useRef<Trip | null>(null);
 
@@ -62,6 +67,15 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
     })();
     return () => { alive = false; };
   }, [driverId]);
+
+  useEffect(() => {
+    let alive = true;
+    if (!assignment?.route_id) { setRouteStops([]); return; }
+    listRouteStops(assignment.route_id)
+      .then((r) => { if (alive) setRouteStops(r); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [assignment?.route_id]);
 
   useEffect(() => {
     if (!trip) return;
@@ -234,6 +248,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
                 {held} location update{held === 1 ? "" : "s"} saved on this phone, sending when you have signal
               </Text>
             )}
+
+            <TripRiders trip={trip} tenantId={tenantId} stops={stopsInTravelOrder(routeStops, trip.direction)} tint={a.deep} />
 
             <ReportBreakdown tripId={trip.id} lat={lastPing?.lat ?? null} lng={lastPing?.lng ?? null} />
 
