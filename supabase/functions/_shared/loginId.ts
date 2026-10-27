@@ -11,8 +11,9 @@ export const ROLE_ID_PREFIX: Record<string, string> = {
   parent: "PT",
   student: "ST",
   driver: "BD",
-  guard: "GD",
-  receptionist: "RC",
+  // "Other staff". Accounts that were guards or receptionists before
+  // 20261028100001 keep the GD-/RC- IDs they were issued.
+  staff: "SF",
 };
 
 export function formatLoginId(prefix: string, n: number): string {

@@ -81,7 +81,7 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
 }
 
 /**
- * Adds a teacher or driver at a school (FIG-398/400) — the invite-admin
+ * Adds a teacher, driver or other staff member at a school (FIG-398/400) — the invite-admin
  * edge function's other branch: no email, an auto-assigned login_id
  * instead (e.g. "TC-0001"). Kept as its own function/types rather than
  * folded into inviteAdmin()/InviteAdminResult above, since those two stay
@@ -91,8 +91,10 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
 export interface InviteStaffInput {
   tenant_id: string;
   full_name: string;
-  role: "teacher" | "driver" | "guard" | "receptionist";
+  role: "teacher" | "driver" | "staff";
   staff_title?: string;
+  /** Other staff only: they keep the visitor log (profiles.handles_visitors). */
+  handles_visitors?: boolean;
   phone?: string;
 }
 
