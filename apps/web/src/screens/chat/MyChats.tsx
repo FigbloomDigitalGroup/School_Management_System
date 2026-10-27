@@ -11,8 +11,8 @@ const COPY = {
     empty: "Start a chat with a parent or guardian.",
   },
   teacher: {
-    blurb: "One-to-one chats with the parents of learners you teach. For the whole class, use Messages.",
-    empty: "Start a chat with the parent of a learner you teach.",
+    blurb: "One-to-one chats with the parents of learners you teach and with colleagues. For the whole class, use Messages.",
+    empty: "Start a chat with the parent of a learner you teach, or a colleague.",
   },
 } as const;
 
