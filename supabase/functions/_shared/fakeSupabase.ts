@@ -230,6 +230,22 @@ export class FakeSupabaseClient {
     },
   };
 
+  /** Storage objects, keyed "<bucket>/<path>". */
+  files = new Map<string, Uint8Array<ArrayBuffer>>();
+
+  storage = {
+    from: (bucket: string) => ({
+      download: async (path: string) => {
+        const bytes = this.files.get(`${bucket}/${path}`);
+        return bytes ? { data: new Blob([bytes]), error: null } : { data: null, error: { message: "Object not found" } };
+      },
+      remove: async (paths: string[]) => {
+        for (const path of paths) this.files.delete(`${bucket}/${path}`);
+        return { data: [], error: null };
+      },
+    }),
+  };
+
   seed(table: string, rows: Row[]) {
     this.tables.set(table, new FakeTable(rows));
   }
@@ -291,8 +307,13 @@ export class FakeSupabaseClient {
         : [];
       return Promise.resolve({ data: ids, error: null });
     }
+    const answer = this.rpcAnswers[name];
+    if (answer) return Promise.resolve({ data: answer(args), error: null });
     return Promise.resolve({ data: null, error: { message: `rpc ${name} is not configured in the fake` } });
   }
+
+  /** A test's own stand-in for a database function this fake doesn't model. */
+  rpcAnswers: Record<string, (args: Row) => unknown> = {};
 
   /** audience_reaches() in 20261026030000_announcement_audiences.sql, for the fake. */
   private audienceReaches(a: Row, p: Row): boolean {

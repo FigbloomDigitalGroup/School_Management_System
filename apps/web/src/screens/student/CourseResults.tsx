@@ -5,6 +5,7 @@ import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useStudentData } from "../../lib/studentContext";
+import { GpaProgress } from "../../components/analytics/GpaProgress";
 
 /**
  * The higher-ed results screen — credit/GPA instead of K-12's class-mean
@@ -76,6 +77,8 @@ export function StudentCourseResults() {
                 { label: "Enrolled courses", value: String(courses.length) },
               ]}
             />
+
+            <div className="mt-5"><GpaProgress studentId={studentData.studentId} /></div>
 
             <div className="mt-5 grid gap-3.5">
               {courses.map((c) => (

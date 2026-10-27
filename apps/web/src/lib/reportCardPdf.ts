@@ -10,7 +10,7 @@
 import type { PdfLogo } from "../../../../packages/shared/src/reportCardPdf";
 
 export { renderReportCardsPdf, renderResultsSheetPdf } from "../../../../packages/shared/src/reportCardPdf";
-export type { PdfLogo, PrintableCard } from "../../../../packages/shared/src/reportCardPdf";
+export type { PdfLogo, PdfSignature, PrintableCard } from "../../../../packages/shared/src/reportCardPdf";
 
 /** The school's logo for the PDF header, or null when there isn't one the PDF can use (SVG, WebP, unreachable). */
 export async function fetchLogo(url: string | null | undefined): Promise<PdfLogo | null> {

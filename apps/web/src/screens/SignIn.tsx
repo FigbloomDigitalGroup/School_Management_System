@@ -9,13 +9,13 @@ import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
 type Mode = "id" | "email";
-type Portal = "admin" | "teacher" | "student" | "parent" | "driver";
+type Portal = "admin" | "teacher" | "student" | "parent" | "driver" | "front_desk";
 
 /** The illustrated side before a portal is picked. */
 const WELCOME: Scene = {
   art: "/portals/welcome.webp", tint: "#E3F0E8", accent: "#17402A", accentDeep: "#123420",
   headline: "One school, everyone in it.",
-  tagline: "Admins, teachers, learners, parents and drivers each have their own way in.",
+  tagline: "Admins, teachers, learners, parents, drivers and the front desk each have their own way in.",
 };
 
 /** The portals on the first step. A portal is a front door, not a permission:
@@ -47,12 +47,18 @@ const PORTALS: (Scene & { id: Portal; label: string; blurb: string; idHint: stri
     art: "/portals/driver.webp", tint: "#FFF0D4", accent: "#9A5A08", accentDeep: "#7D4806",
     headline: "Safe trips, on time.", tagline: "Start and end trips so parents can follow the bus live.",
   },
+  {
+    id: "front_desk", label: "Gate & reception", blurb: "Record and receive visitors", idHint: "e.g. GD-0001 or RC-0001", roles: ["guard", "receptionist"],
+    // no illustration of its own yet: the admin portal's, in the gate's own colours
+    art: "/portals/admin.webp", tint: "#E4EEF0", accent: "#2F6B73", accentDeep: "#24545B",
+    headline: "Every visitor, from the gate to the office.", tagline: "Record who comes in; reception and their host know before they reach the door.",
+  },
 ];
 const portalOfRole = (role: Role) => PORTALS.find((p) => p.roles.includes(role));
 
 /**
  * Sign-in starts with a portal choice (Admin, Teacher, Student, Parent,
- * Driver), then asks for credentials. Two entry modes, chosen by MECHANISM
+ * Driver, Gate & reception), then asks for credentials. Two entry modes, chosen by MECHANISM
  * (FIG-396/402): "email" (org owners, Figbloom staff, and school admins
  * provisioned by email -- offered under the Admin portal only) and "id" (pick
  * a school, then a school-assigned login_id like "TC-0001", no SMS OTP).

@@ -1,0 +1,90 @@
+/* Chart tokens for the performance charts (components/analytics).
+ *
+ * Series and grade-band colours are validated with the dataviz palette
+ * checker against the surface they sit on: the white console card in light,
+ * #1a1a19 in dark. Categorical: blue, orange, aqua, yellow, always in that
+ * order and following the series, never its rank. Grade bands: one blue hue,
+ * best band strongest. The web app has no dark theme yet; the dark set is
+ * keyed to data-theme="dark" so it takes effect when one lands, and is not
+ * tied to the OS setting, which would put a dark chart in a white card. */
+.viz-root {
+  --viz-surface: #ffffff;
+  --viz-ink: #16201a;
+  --viz-ink-2: #4a5a50;
+  --viz-muted: #6b7a70;
+  --viz-grid: #e7ece8;
+  --viz-axis: #c9d2cc;
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-band-1: #104281;
+  --viz-band-2: #1c5cab;
+  --viz-band-3: #2a78d6;
+  --viz-band-4: #5598e7;
+  --viz-band-5: #86b6ef;
+  --viz-up: #006300;
+  --viz-down: #b8460a;
+}
+:root[data-theme="dark"] .viz-root {
+  --viz-surface: #1a1a19;
+  --viz-ink: #f0efec;
+  --viz-ink-2: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-band-1: #b7d3f6;
+  --viz-band-2: #6da7ec;
+  --viz-band-3: #3987e5;
+  --viz-band-4: #256abf;
+  --viz-band-5: #184f95;
+  --viz-up: #0ca30c;
+  --viz-down: #ec835a;
+}
+/* Higher contrast (Accessibility settings): firmer gridlines and axes. */
+html[data-a11y-contrast] .viz-root {
+  --viz-grid: #c9d2cc;
+  --viz-axis: #6b7a70;
+  --viz-muted: #4a5a50;
+}
+
+.viz-root svg text { font-family: inherit; }
+
+.viz-tooltip {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  min-width: 150px;
+  max-width: 260px;
+  border-radius: 8px;
+  border: 1px solid var(--viz-axis);
+  background: var(--viz-surface);
+  color: var(--viz-ink);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 4px 16px rgba(11, 11, 11, 0.12);
+}
+
+.viz-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.viz-swatch-line {
+  height: 3px;
+  width: 14px;
+  border-radius: 2px;
+}
+
+/* Print, Windows high contrast: colour may be stripped, so the chart's own
+   table view is the reliable reading. */
+@media (forced-colors: active) {
+  .viz-root svg [data-mark] { forced-color-adjust: none; }
+}

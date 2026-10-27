@@ -18,6 +18,19 @@ describe("OpenAI", () => {
     assert(!("text" in openAiParams("gpt-6-astra", CHAT)), "the study helper answers in plain text");
   });
 
+  it("sends a paper's PDF and page photos as file and image inputs", () => {
+    const p = openAiParams("gpt-6-astra", { ...DRAFT, messages: [{ role: "user", content: [
+      { type: "pdf", name: "paper.pdf", data: "JVBERi0=" },
+      { type: "image", mediaType: "image/png", data: "iVBORw==" },
+      { type: "text", text: "Read it." },
+    ] }] });
+    assertEquals(p.input, [{ role: "user", content: [
+      { type: "input_file", filename: "paper.pdf", file_data: "data:application/pdf;base64,JVBERi0=" },
+      { type: "input_image", image_url: "data:image/png;base64,iVBORw==", detail: "high" },
+      { type: "input_text", text: "Read it." },
+    ] }]);
+  });
+
   it("reads the answer, a refusal, and a cut-off answer", () => {
     const ok = openAiReply({
       model: "gpt-6-astra", status: "completed",
@@ -42,6 +55,19 @@ describe("Anthropic", () => {
     // deno-lint-ignore no-explicit-any
     assertEquals((p.output_config as any).format, { type: "json_schema", schema: SCHEMA });
     assert(!("thinking" in p), "thinking can't be turned off on this model; leave it out");
+  });
+
+  it("sends a paper's PDF and page photos as document and image blocks", () => {
+    const p = anthropicParams("claude-opus-5-5", { ...DRAFT, messages: [{ role: "user", content: [
+      { type: "pdf", name: "paper.pdf", data: "JVBERi0=" },
+      { type: "image", mediaType: "image/jpeg", data: "/9j/" },
+      { type: "text", text: "Read it." },
+    ] }] });
+    assertEquals(p.messages, [{ role: "user", content: [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: "JVBERi0=" } },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "/9j/" } },
+      { type: "text", text: "Read it." },
+    ] }]);
   });
 
   it("reads the answer and counts cached input", () => {

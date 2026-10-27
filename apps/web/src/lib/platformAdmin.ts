@@ -91,7 +91,7 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
 export interface InviteStaffInput {
   tenant_id: string;
   full_name: string;
-  role: "teacher" | "driver";
+  role: "teacher" | "driver" | "guard" | "receptionist";
   staff_title?: string;
   phone?: string;
 }

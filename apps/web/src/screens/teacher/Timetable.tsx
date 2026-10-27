@@ -9,6 +9,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { currentWeekDates, fetchCoverageThisWeek } from "../../lib/coverage";
+import { LiveClassPanel } from "../../components/calls/LiveClasses";
 
 const ALL = "all" as const;
 const WEEK = "week" as const;
@@ -175,6 +176,7 @@ export function TeacherTimetable() {
         }
       />
       <div className="px-7 py-6">
+        <LiveClassPanel />
         {classesLoading ? (
           <TableSkeleton rows={6} />
         ) : classesData.length === 0 ? (

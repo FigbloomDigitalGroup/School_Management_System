@@ -3,11 +3,13 @@ import { supabase } from "./supabase";
 /**
  * "Edit my own name/phone/photo" — the one thing every role's Account
  * screen needs, web or mobile. login_id/email/role stay read-only callers'
- * side; this only ever touches full_name/phone/avatar_url.
+ * side; this only ever touches full_name/phone/alt_phone/avatar_url.
  */
 export interface MyProfile {
   full_name: string;
   phone: string | null;
+  /** A second number; parents set it (20261027040000). */
+  alt_phone: string | null;
   avatar_url: string | null;
   login_id: string | null;
   email: string | null;
@@ -15,7 +17,7 @@ export interface MyProfile {
 
 export async function fetchMyProfile(id: string): Promise<MyProfile> {
   const { data, error } = await supabase()
-    .from("profiles").select("full_name, phone, avatar_url, login_id, email").eq("id", id)
+    .from("profiles").select("full_name, phone, alt_phone, avatar_url, login_id, email").eq("id", id)
     .single<MyProfile>();
   if (error) throw new Error(error.message);
   return data;
@@ -23,7 +25,7 @@ export async function fetchMyProfile(id: string): Promise<MyProfile> {
 
 /** full_name is optional: a driver's name is the school's to change, not theirs
  *  (guard_profile_self_edit, 20261007010000_profile_self_edit.sql). */
-export async function updateMyProfile(id: string, fields: { full_name?: string; phone: string | null }): Promise<void> {
+export async function updateMyProfile(id: string, fields: { full_name?: string; phone: string | null; alt_phone?: string | null }): Promise<void> {
   const { error } = await supabase().from("profiles").update(fields).eq("id", id);
   if (error) throw new Error(error.message);
 }

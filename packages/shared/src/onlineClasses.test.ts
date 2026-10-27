@@ -124,6 +124,29 @@ describe("resolveOnlineDay", () => {
     expect(day.periods[0]).toMatchObject({ mode: "online", joinUrl: ZOOM, source: "subject_link" });
   });
 
+  it("joins a class's Figbloom live class in the app: no url, but no missing link either", () => {
+    const day = resolveOnlineDay({
+      date: "2026-10-12", slots, remoteDays: [strike], lessons: [],
+      links: [
+        { class_id: "c1", subject_id: "maths", url: null, room: "live" },
+        { class_id: "c1", subject_id: null, url: MEET, room: "link" },
+      ],
+    });
+    const [maths, english] = day.periods;
+    expect(maths).toMatchObject({ mode: "online", joinUrl: null, live: true, provider: "figbloom", source: "subject_link", needsLink: false });
+    expect(english).toMatchObject({ joinUrl: MEET, live: false, provider: "meet" });
+    expect(linkGaps(day.periods)).toEqual({ lessons: 3, missing: 0 });
+  });
+
+  it("lets one dated lesson be a live class even when the class's standing room is a link", () => {
+    const day = resolveOnlineDay({
+      date: "2026-10-19", slots, remoteDays: [],
+      links: [{ class_id: "c1", subject_id: "maths", url: ZOOM }],
+      lessons: [{ id: "l1", class_id: "c1", on_date: "2026-10-19", start_time: "08:00", subject_id: "maths", url: null, room: "live", note: null }],
+    });
+    expect(day.periods[0]).toMatchObject({ mode: "online", joinUrl: null, live: true, source: "lesson" });
+  });
+
   it("has no periods at the weekend", () => {
     expect(resolveOnlineDay({ date: "2026-10-17", slots, remoteDays: [strike], links: [], lessons: [] }).periods).toEqual([]);
   });

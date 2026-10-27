@@ -399,10 +399,11 @@ export function ParentApp({ accent = "#7A1F2B", deep = "#4E1520" }: { accent?: s
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => openProof(p.file_path)}
+                      disabled={!p.file_path}
+                      onClick={() => p.file_path && openProof(p.file_path)}
                       className="flex items-center justify-between gap-2 rounded-xl border border-app-line-soft px-3 py-2 text-left"
                     >
-                      <span className="min-w-0 truncate text-[12px] font-medium">{p.file_name}</span>
+                      <span className="min-w-0 truncate text-[12px] font-medium">{p.file_name ?? p.txn_code}</span>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${PROOF_STYLE[p.status]}`}>
                         {PROOF_LABEL[p.status]}
                       </span>
