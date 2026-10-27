@@ -188,6 +188,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   staff: [
     { to: "staff/visitors", label: "Visitors", icon: "people" },
     { to: "staff/notices", label: "Notices", icon: "bell" },
+    { to: "staff/chats", label: "Chats", icon: "chat" },
     { to: "staff/items", label: "My items", icon: "box" },
     { to: "staff/account", label: "Account", icon: "pencil" },
   ],
