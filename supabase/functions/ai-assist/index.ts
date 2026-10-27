@@ -4,9 +4,9 @@
  * every check live here, never in an app:
  *  - who: the task's roles (tasks.ts ALLOWED), at a school with AI switched
  *    on. An org admin acting inside a member school names it (tenantId) and
- *    counts as that school's office; the study helper also needs the school to have turned it on, and is
- *    off while the learner has an exam in progress or open
- *    (ai_tutor_blocked() in 20261026040000_ai_assist.sql)
+ *    counts as that school's office; the study helper also needs the school to have turned it on (for
+ *    every learner, or only those whose parent opted in), and is off while the learner has an exam in
+ *    progress or open (ai_helper_allowed() in 20261101100000_ai_helper_optin.sql)
  *  - how much: the school's monthly token allowance (tenants.ai_monthly_tokens,
  *    each web search counted as ai_tokens_per_search() tokens) and a daily
  *    request cap per person
@@ -101,8 +101,17 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   try {
     if (task === "tutor") {
       if (!tenant.ai_tutor_enabled) return json({ error: "Bloom isn't turned on for learners at your school." }, 403);
-      const { data: blocked } = await admin.rpc("ai_tutor_blocked", { p_profile_id: caller.id });
-      if (blocked) return json({ error: blocked, blocked: true }, 423);
+      // The school's switch, its access mode (every learner, or a parent's
+      // opt-in) and the exam block, in one place: ai_helper_allowed() in
+      // 20261101100000_ai_helper_optin.sql. If it can't answer, the helper stays shut.
+      const { data: refused, error: checkError } = await admin.rpc("ai_helper_allowed", { p_profile_id: caller.id });
+      if (checkError) {
+        console.error("ai-assist: ai_helper_allowed failed", checkError.message);
+        return json({ error: "Bloom couldn't check whether you can use the study helper. Please try again." }, 503);
+      }
+      const refusal = refused as { code?: string; message?: string } | null;
+      if (refusal?.code === "exam") return json({ error: refusal.message, blocked: true }, 423);
+      if (refusal) return json({ error: refusal.message, optIn: refusal.code === "needs_optin" }, 403);
       const { data: me } = await admin.from("students")
         .select("classes(level, form_level)").eq("profile_id", caller.id).eq("active", true).maybeSingle();
       const level: string = me?.classes?.level ?? "";
