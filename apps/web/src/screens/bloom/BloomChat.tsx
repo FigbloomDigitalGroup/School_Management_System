@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   askBloomChat, chatTitleFrom, createAiChat, deleteAiChat, deleteAiChatMessage, EdgeError, fetchAiChatMessages, fetchAiChats,
@@ -11,12 +11,13 @@ import { useToast } from "../../components/ui/Toast";
 import { useAiStatus } from "../../lib/useAi";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { replyTables } from "../../../../../packages/shared/src/bloomExport";
 
 /**
  * A turn on screen; saved ones carry their row id (Regenerate removes the
  * last answer by it). An answer from a web search carries its sources.
  */
-interface Turn extends AiChatTurn { id?: string; sources?: AiChatSource[] }
+interface Turn extends AiChatTurn { id?: string; created_at?: string; sources?: AiChatSource[] }
 
 const STARTERS = [
   "Draft a circular to parents about half term",
@@ -37,6 +38,9 @@ const STARTERS = [
  * web" toggle is on (the default, remembered per chat) and the school allows
  * it; the toggle is hidden when it doesn't. The sources show under the
  * answer, numbered to match the markers in its text.
+ *
+ * An answer, or the whole chat, downloads as PDF or Word, and an answer's
+ * tables as Excel or CSV (lib/bloomExport.ts, loaded only when asked for).
  */
 export function BloomChat({ console }: { console: BloomConsole }) {
   const toast = useToast();
@@ -56,6 +60,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [webSearch, setWebSearch] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -189,6 +194,47 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     }
   }
 
+  const activeTitle = chats?.find((c) => c.id === activeId)?.title ?? null;
+
+  /** Runs one download, with the export code fetched on first use. */
+  async function download(fn: (lib: typeof import("../../lib/bloomExport")) => Promise<void>) {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await fn(await import("../../lib/bloomExport"));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not prepare the download.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function exportChat(format: "pdf" | "docx") {
+    void download((lib) => lib.downloadBloomExport({ format, chatTitle: activeTitle, schoolName: tenant.name, turns, wholeChat: true }));
+  }
+
+  /** The download choices for answer i: the answer itself, then any tables in it. */
+  function replyItems(i: number): MenuItem[] {
+    const t = turns[i]!;
+    const common = { chatTitle: activeTitle, schoolName: tenant.name, context: turns };
+    const items: MenuItem[] = [
+      { label: "Download as PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
+      { label: "Download as Word", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "docx", turns: [t], wholeChat: false })) },
+    ];
+    const tables = replyTables(t.content);
+    tables.forEach((table, k) => {
+      const name = tables.length > 1 ? `${table.name}: ` : "Table: ";
+      items.push(
+        { label: `${name}Download as Excel (.xlsx)`, divider: k === 0, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content, index: k })) },
+        { label: `${name}Download as CSV`, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "csv", content: t.content, index: k })) },
+      );
+    });
+    if (tables.length > 1) {
+      items.push({ label: "All tables: Excel, a sheet each", divider: true, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content })) });
+    }
+    return items;
+  }
+
   async function saveRename() {
     if (!renaming) return;
     try {
@@ -272,9 +318,22 @@ export function BloomChat({ console }: { console: BloomConsole }) {
         <div className="min-w-0 flex-1">
           <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BLOOM</div>
           <h1 className="truncate text-[16px] font-semibold tracking-tight">
-            {chats?.find((c) => c.id === activeId)?.title ?? "New chat"}
+            {activeTitle ?? "New chat"}
           </h1>
         </div>
+        {turns.length > 0 && (
+          <ExportMenu
+            label={exporting ? "Preparing…" : "Export whole chat"}
+            menuLabel="Export whole chat"
+            disabled={busy || exporting}
+            align="right"
+            buttonClassName="rounded-md border border-[#D3DAD5] bg-white px-3.5 py-2 text-[12.5px] hover:bg-page disabled:cursor-not-allowed disabled:opacity-50"
+            items={() => [
+              { label: "Download as PDF", run: () => exportChat("pdf") },
+              { label: "Download as Word", run: () => exportChat("docx") },
+            ]}
+          />
+        )}
         <Button className="md:hidden" onClick={() => setSidebarOpen((o) => !o)} aria-expanded={sidebarOpen}>Chats</Button>
       </header>
 
@@ -327,6 +386,13 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                       {!!t.sources?.some((s) => s.url) && <Sources sources={t.sources ?? []} />}
                       <div className="mt-1.5 flex gap-1 text-[11.5px] text-ink-faint">
                         <button type="button" onClick={() => void copy(t.content)} className="rounded px-1.5 py-0.5 hover:bg-sunken hover:text-ink">Copy</button>
+                        <ExportMenu
+                          label="Export"
+                          menuLabel="Export this answer"
+                          disabled={exporting}
+                          buttonClassName="rounded px-1.5 py-0.5 hover:bg-sunken hover:text-ink disabled:opacity-50"
+                          items={() => replyItems(i)}
+                        />
                         {i === turns.length - 1 && lastIsAnswer && (
                           <button type="button" onClick={() => void regenerate()} disabled={busy} className="rounded px-1.5 py-0.5 hover:bg-sunken hover:text-ink">Regenerate</button>
                         )}
@@ -383,6 +449,86 @@ export function BloomChat({ console }: { console: BloomConsole }) {
           </form>
         </section>
       </div>
+    </div>
+  );
+}
+
+interface MenuItem { label: string; run: () => void; divider?: boolean }
+
+/**
+ * A button that opens a short menu of downloads. The items are worked out on
+ * opening, so an answer's tables are only looked for when someone asks.
+ */
+function ExportMenu({ label, menuLabel, items, disabled, align = "left", buttonClassName }: {
+  label: string; menuLabel: string; items: () => MenuItem[]; disabled?: boolean; align?: "left" | "right"; buttonClassName: string;
+}) {
+  const [open, setOpen] = useState<MenuItem[] | null>(null);
+  const anchor = useRef<HTMLButtonElement>(null);
+  return (
+    <div className="relative">
+      <button
+        ref={anchor}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={!!open}
+        disabled={disabled}
+        onClick={() => setOpen((o) => (o ? null : items()))}
+        className={buttonClassName}
+      >
+        {label} ▾
+      </button>
+      {open && <ExportMenuList items={open} label={menuLabel} anchor={anchor} align={align} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+function ExportMenuList({ items, label, anchor, align, onClose }: {
+  items: MenuItem[]; label: string; anchor: RefObject<HTMLButtonElement>; align: "left" | "right"; onClose: () => void;
+}) {
+  const menu = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const list = () => Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    list()[0]?.focus();
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node;
+      if (!menu.current?.contains(t) && !anchor.current?.contains(t)) onCloseRef.current();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); onCloseRef.current(); anchor.current?.focus(); return; }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const all = list();
+      const i = all.indexOf(document.activeElement as HTMLElement);
+      all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey, { capture: true }); };
+  }, [anchor]);
+
+  return (
+    <div
+      ref={menu}
+      role="menu"
+      aria-label={label}
+      className={`absolute top-full z-30 mt-1 w-64 overflow-hidden rounded-lg border border-line bg-white py-1 text-[12.5px] text-ink shadow-lg ${align === "right" ? "right-0" : "left-0"}`}
+    >
+      {items.map((it, i) => (
+        <div key={i}>
+          {it.divider && <div className="my-1 border-t border-line-soft" />}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { onClose(); it.run(); }}
+            className="block w-full px-3 py-2 text-left hover:bg-page focus:bg-page focus:outline-none"
+          >
+            {it.label}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
