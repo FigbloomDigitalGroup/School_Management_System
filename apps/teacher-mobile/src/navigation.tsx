@@ -50,7 +50,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="Account">{() => <TeacherAccount session={session} />}</Stack.Screen>
       {/* One-to-one chats with parents; the whole-class Messages tab stays as it is. */}
       <Stack.Screen name="Chats">
-        {() => <ChatList tint={tint} blurb="With the parents of learners you teach." empty="Start a chat with the parent of a learner you teach. For the whole class, use Messages." />}
+        {() => <ChatList tint={tint} blurb="With parents of learners you teach, and your colleagues." empty="Start a chat with the parent of a learner you teach, or a colleague at the school. For the whole class, use Messages." />}
       </Stack.Screen>
       <Stack.Screen name="ChatThread">{() => <ChatThread tint={tint} />}</Stack.Screen>
     </Stack.Navigator>
