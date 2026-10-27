@@ -1,7 +1,8 @@
 /**
  * Just enough Markdown for Bloom chat replies: headings, paragraphs, lists
  * (nested), fenced code, tables, quotes, rules, and inline bold, italics,
- * code and links. Parsed into a small tree that each app renders as its own
+ * code and links, plus [^n] markers where a web search answer cites its nth
+ * source (aiChat.ts). Parsed into a small tree that each app renders as its own
  * elements -- never as HTML, so nothing a model writes can become markup or
  * script. Our own rather than a library: the replies only need this much, and
  * every dependency is one more thing in the build (.agents/SECURITY.md).
@@ -13,6 +14,8 @@ export type Inline =
   | { kind: "strong"; children: Inline[] }
   | { kind: "em"; children: Inline[] }
   | { kind: "link"; href: string; children: Inline[] }
+  /** [^n]: the answer's nth source; the app links it if it has that source. */
+  | { kind: "cite"; n: number }
   | { kind: "break" };
 
 export type Align = "left" | "center" | "right" | null;
@@ -170,6 +173,8 @@ export function parseInline(text: string): Inline[] {
     }
 
     if (c === "[") {
+      const cite = /^\[\^(\d{1,2})\]/.exec(rest);
+      if (cite && Number(cite[1]) >= 1) { flush(); out.push({ kind: "cite", n: Number(cite[1]) }); i += cite[0].length; continue; }
       // one level of brackets inside the address, as Wikipedia links have
       const m = /^\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/.exec(rest);
       if (m) {
@@ -196,5 +201,5 @@ export function parseInline(text: string): Inline[] {
 
 /** The text of a reply without its formatting, e.g. for a screen reader summary or a plain copy. */
 export function inlineText(nodes: Inline[]): string {
-  return nodes.map((n) => n.kind === "text" || n.kind === "code" ? n.text : n.kind === "break" ? "\n" : inlineText(n.children)).join("");
+  return nodes.map((n) => n.kind === "text" || n.kind === "code" ? n.text : n.kind === "break" ? "\n" : n.kind === "cite" ? `[${n.n}]` : inlineText(n.children)).join("");
 }
