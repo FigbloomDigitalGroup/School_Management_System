@@ -43,6 +43,8 @@ export interface Tenant {
   ai_tutor_enabled?: boolean;
   /** Bloom chat may search the web (20261029100000); on unless the school turns it off. */
   ai_web_search_enabled?: boolean;
+  /** Every learner, or only those whose parent turned it on (20261101100000); "all" when missing. */
+  ai_tutor_access?: "all" | "opt_in";
   licensed_seats: number;
   payment_paybill: string | null;
   payment_till: string | null;
@@ -153,7 +155,7 @@ export interface Profile {
   must_change_password: boolean;
   /** A driver changed their own photo and no admin has looked at it yet. */
   photo_changed_at: string | null;
-  /** Other staff (role "staff") the office has given the visitor log (20261028100001); optional so rows read before it existed still type-check. */
+  /** Deprecated (20261031000000): the visitor log is now the visitors admin area (adminAreas.ts). Nothing reads it. */
   handles_visitors?: boolean;
   created_at: string;
 }

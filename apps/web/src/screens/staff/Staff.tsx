@@ -1,5 +1,5 @@
 import { Navigate } from "react-router-dom";
-import { fetchStaffNotices, handlesVisitors } from "@figbloom/shared";
+import { fetchStaffNotices } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { MyAccountFields } from "../../components/MyAccountFields";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -9,20 +9,26 @@ import { DeskVisitors } from "../frontdesk/Desk";
 /**
  * The other staff console (role "staff"): the librarian, the matron, the
  * nurse, the cook. Small on purpose -- notices, what the school has issued
- * them, their own account -- plus the visitor log for those the office has
- * given it (profiles.handles_visitors, 20261028100001).
+ * them, their own account -- plus the visitor log for those holding the
+ * visitors admin area (20261031000000; handles_visitors before it). Any other
+ * area they hold is in the admin console, behind the "Staff | Admin" switch.
  */
 
-/** staff/: straight to the visitor log for those who keep it, notices for everyone else. */
+/**
+ * staff/: straight to the visitor log for those who keep it, the sick bay
+ * (in the admin console) for the nurse or matron, notices for everyone else.
+ */
 export function StaffHome() {
-  const { profile } = useTenantSession();
-  return <Navigate to={handlesVisitors(profile) ? "visitors" : "notices"} replace />;
+  const { adminAreas, tenant } = useTenantSession();
+  if (adminAreas.includes("visitors")) return <Navigate to="visitors" replace />;
+  if (adminAreas.includes("medical")) return <Navigate to={`/s/${tenant.slug}/admin/medical`} replace />;
+  return <Navigate to="notices" replace />;
 }
 
-/** The visitor log, only for those the office gave it; the database refuses everyone else anyway (is_front_desk). */
+/** The visitor log, only for those holding the visitors area; the database refuses everyone else anyway (has_perm). */
 export function StaffVisitors() {
-  const { profile } = useTenantSession();
-  if (!handlesVisitors(profile)) return <Navigate to="../notices" relative="path" replace />;
+  const { adminAreas } = useTenantSession();
+  if (!adminAreas.includes("visitors")) return <Navigate to="../notices" relative="path" replace />;
   return <DeskVisitors />;
 }
 

@@ -132,6 +132,17 @@ describe("send-push handle", () => {
     assertEquals(res.status, 403);
   });
 
+  it("lets other staff with the communication area send, and refuses them without it", async () => {
+    for (const [areas, status] of [[["communication"], 200], [["fees"], 403], [[], 403]] as const) {
+      const { admin, asUser } = makeClients();
+      admin.seed("profiles", [{ id: SCHOOL_ADMIN_ID, role: "staff", tenant_id: TENANT_ID }]);
+      admin.seed("staff_permissions", areas.map((area) => ({ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area })));
+      seedAnnouncement(admin, { channels: ["in_app"] });
+      const res = await handle(request(), { admin, asUser });
+      assertEquals(res.status, status);
+    }
+  });
+
   it("skips sending when the announcement's channels don't include push", async () => {
     const { admin, asUser } = makeClients();
     seedAnnouncement(admin, { channels: ["in_app"] });

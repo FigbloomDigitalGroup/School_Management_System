@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
-  PAPER_KIND_LABEL, fetchClassPapers, fetchMyAttemptStatuses, fetchPaperText, fetchPaperTotals, fetchReleasedAttempts,
-  paperWindow, scoreLabel, windowLabel,
-  type AttemptRow, type ExamPaperRow, type MyAttemptStatus,
+  COUNTING_LABEL, PAPER_KIND_LABEL, canStartSitting, fetchClassPapers, fetchLearnerExamStates, fetchPaperText, fetchPaperTotals,
+  fetchReleasedAttempts, paperWindow, scoreLabel, windowLabel,
+  type AttemptRow, type ExamPaperRow, type LearnerExamState,
 } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useAsync } from "../../lib/useAsync";
@@ -19,21 +19,44 @@ type Tab = "Coming up" | "Done";
 
 interface PaperView {
   paper: ExamPaperRow;
-  status: MyAttemptStatus | undefined;
+  /** This learner's own terms (extensions, resits) and where they stand: online papers only. */
+  state: LearnerExamState | undefined;
   result: AttemptRow | undefined;
   total: number | undefined;
 }
 
-/** Where a paper stands for this learner, in one word. */
+/** The window this learner sits in: their own where their teacher gave them one, else the paper's. */
+const windowOf = (v: PaperView) => (v.state ? { opensAt: v.state.terms.opensAt, closesAt: v.state.terms.closesAt } : v.paper);
+
+/** Whether this learner can start a sitting now: their first, or a resit. */
+function canStart(v: PaperView, now: number): boolean {
+  const s = v.state;
+  if (!s) return false;
+  return canStartSitting({
+    terms: { ...s.terms, durationMinutes: v.paper.durationMinutes },
+    attemptsUsed: s.attemptsUsed, lastSubmitted: !!s.submittedAt, excused: s.status === "excused", nowMs: now,
+  });
+}
+
+/** A resit granted and not started yet. */
+const resitWaiting = (v: PaperView) => !!v.state && v.state.attemptsUsed > 0 && !!v.state.submittedAt && v.state.attemptsUsed < v.state.terms.attemptsAllowed;
+
+/** Where a paper stands for this learner, in one word. Missed and excused are never shown as a score. */
 function stateOf(v: PaperView, now: number): { label: string; tone: Tone; done: boolean } {
-  const w = paperWindow(v.paper, now);
+  const w = paperWindow(windowOf(v), now);
+  if (v.paper.mode === "read") {
+    if (v.result) return { label: "Results out", tone: "ok", done: true };
+    return w === "upcoming" ? { label: "Coming up", tone: "info", done: false } : w === "open" ? { label: "Open", tone: "warn", done: false } : { label: "Closed", tone: "muted", done: true };
+  }
+  const status = v.state?.status;
+  if (status === "in_progress") return { label: "In progress", tone: "warn", done: false };
+  if (resitWaiting(v) && w !== "closed") return canStart(v, now) ? { label: "Resit open", tone: "warn", done: false } : { label: "Resit coming up", tone: "info", done: false };
   if (v.result) return { label: "Results out", tone: "ok", done: true };
-  if (v.paper.mode === "read") return w === "upcoming" ? { label: "Coming up", tone: "info", done: false } : w === "open" ? { label: "Open", tone: "warn", done: false } : { label: "Closed", tone: "muted", done: true };
-  if (v.status?.submittedAt) return { label: "Handed in", tone: "muted", done: true };
-  if (v.status) return { label: "In progress", tone: "warn", done: false };
+  if (status === "excused") return { label: "Excused", tone: "muted", done: true };
+  if (status === "submitted" || status === "marked") return { label: "Handed in", tone: "muted", done: true };
+  if (status === "missed" || w === "closed") return { label: "Missed", tone: "muted", done: true };
   if (w === "upcoming") return { label: "Coming up", tone: "info", done: false };
-  if (w === "open") return { label: "Open now", tone: "warn", done: false };
-  return { label: "Missed", tone: "muted", done: true };
+  return { label: "Open now", tone: "warn", done: false };
 }
 
 /**
@@ -51,11 +74,11 @@ export function StudentExams() {
 
   const { data, loading, error } = useAsync(async () => {
     if (!student?.classId) return null;
-    const [papers, statuses, results] = await Promise.all([
-      fetchClassPapers(student.classId), fetchMyAttemptStatuses(), fetchReleasedAttempts(student.studentId),
+    const [papers, states, results] = await Promise.all([
+      fetchClassPapers(student.classId), fetchLearnerExamStates(student.studentId), fetchReleasedAttempts(student.studentId),
     ]);
     const totals = await fetchPaperTotals(papers.filter((p) => results.has(p.id)).map((p) => p.id));
-    return papers.map((paper): PaperView => ({ paper, status: statuses.get(paper.id), result: results.get(paper.id), total: totals.get(paper.id) }));
+    return papers.map((paper): PaperView => ({ paper, state: states.get(paper.id), result: results.get(paper.id), total: totals.get(paper.id) }));
   }, [student?.classId, student?.studentId, reloadKey]);
 
   const fail = studentError ?? error;
@@ -115,7 +138,7 @@ export function StudentExams() {
               }
               columns={[
                 { key: "title", header: "Paper", width: "1.8fr", render: (v: PaperView) => <Cell sub={`${PAPER_KIND_LABEL[v.paper.kind]} · ${v.paper.subjectName}`}>{v.paper.title}</Cell> },
-                { key: "when", header: "When", width: "1.4fr", render: (v: PaperView) => <span className="text-[12px] text-ink-muted">{windowLabel(v.paper, now)}</span> },
+                { key: "when", header: "When", width: "1.4fr", render: (v: PaperView) => <span className="text-[12px] text-ink-muted">{windowLabel(windowOf(v), now)}</span> },
                 { key: "state", header: "", align: "right", width: "0.8fr", render: (v: PaperView) => <Badge tone={states.get(v.paper.id)!.tone}>{states.get(v.paper.id)!.label}</Badge> },
               ]}
               rows={rows}
@@ -157,8 +180,14 @@ function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
   onSit: () => void;
   onReview: () => void;
 }) {
-  const { paper, status, result, total } = view;
-  const w = paperWindow(paper, now);
+  const { paper, state, result, total } = view;
+  const win = windowOf(view);
+  const w = paperWindow(win, now);
+  const ownWindow = win.opensAt !== paper.opensAt || win.closesAt !== paper.closesAt;
+  const extra = state?.terms.extraMinutes ?? 0;
+  const minutes = paper.durationMinutes ? paper.durationMinutes + extra : null;
+  const startable = canStart(view, now);
+  const resit = (state?.attemptsUsed ?? 0) > 0;
   const isOpen = w !== "upcoming";
   const { data: text } = useAsync(
     () => (paper.mode === "read" && isOpen ? fetchPaperText(paper.id) : Promise.resolve("")),
@@ -173,19 +202,22 @@ function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
       <div className="mt-4 flex gap-4 rounded-lg border border-line-soft bg-page px-3.5 py-3">
         <div className="flex-1">
           <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">WHEN</div>
-          <div className="mt-1 text-[12.5px] font-semibold">{windowLabel(paper, now)}</div>
+          <div className="mt-1 text-[12.5px] font-semibold">{windowLabel(win, now)}</div>
+          {ownWindow && <div className="mt-0.5 text-[11.5px] text-ink-faint">Your own time, set by your teacher</div>}
         </div>
         <div className="flex-1">
           <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">{paper.mode === "online" ? "TIME ALLOWED" : "HOW"}</div>
           <div className="mt-1 text-[12.5px] font-semibold">
-            {paper.mode === "online" ? (paper.durationMinutes ? `${paper.durationMinutes} minutes` : "No time limit") : "Read it, answer on paper"}
+            {paper.mode === "online"
+              ? (minutes ? `${minutes} minutes${extra ? ` (${extra} extra)` : ""}` : extra ? `No time limit, ${extra} extra minutes after closing` : "No time limit")
+              : "Read it, answer on paper"}
           </div>
         </div>
       </div>
 
       {paper.instructions && <p className="mt-4 whitespace-pre-line text-[13.5px] leading-relaxed text-ink">{paper.instructions}</p>}
 
-      {result ? (
+      {result && !startable && state?.status !== "in_progress" ? (
         <div className="mt-5 rounded-lg bg-ok-bg px-3.5 py-3">
           <div className="font-mono text-micro tracking-[0.1em] text-ok-ink">YOUR SCORE</div>
           <div className="mt-1 text-[18px] font-bold text-ok-ink">{scoreLabel(result.finalScore, total ?? 0)}</div>
@@ -201,31 +233,38 @@ function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
             {text && <div className="mt-4 max-h-[420px] overflow-auto whitespace-pre-line rounded-lg border border-line-soft px-3.5 py-3 text-[13.5px] leading-relaxed">{text}</div>}
           </>
         )
-      ) : status?.submittedAt ? (
-        <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">
-          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ok-ink text-[11px] text-white">✓</span>
-          <span className="text-small leading-relaxed text-ok-ink">Handed in. Your score appears here once your teacher releases the results.</span>
-        </div>
-      ) : status ? (
+      ) : state?.status === "in_progress" ? (
         <Button block variant="accent" className="mt-5" onClick={onSit}>Carry on</Button>
-      ) : w === "open" ? (
+      ) : startable ? (
         <>
           <p className="mt-4 text-small leading-relaxed text-ink-muted">
-            {paper.durationMinutes
-              ? `Once you start, you have ${paper.durationMinutes} minutes and the clock keeps running even if you leave. Your answers save as you go.`
+            {resit && state ? `This is a resit. Your earlier sitting stays on the record; ${COUNTING_LABEL[state.terms.counting].toLowerCase()}. ` : ""}
+            {minutes
+              ? `Once you start, you have ${minutes} minutes and the clock keeps running even if you leave. Your answers save as you go.`
               : "Your answers save as you go. Hand in when you're done."}
           </p>
           <Button
             block variant="accent" className="mt-3"
-            onClick={() => { if (!paper.durationMinutes || window.confirm(`Start now? You'll have ${paper.durationMinutes} minutes.`)) onSit(); }}
+            onClick={() => { if (!minutes || window.confirm(`Start now? You'll have ${minutes} minutes.`)) onSit(); }}
           >
-            Start
+            {resit ? "Start your resit" : "Start"}
           </Button>
         </>
+      ) : state?.status === "excused" ? (
+        <p className="mt-5 text-small leading-relaxed text-ink-muted">Your teacher has excused you from this paper. It has no mark, and it doesn't count against you.</p>
+      ) : state?.submittedAt ? (
+        <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ok-ink text-[11px] text-white">✓</span>
+          <span className="text-small leading-relaxed text-ok-ink">
+            Handed in. {resitWaiting(view) && w === "upcoming" ? "Your resit opens at the time above. " : ""}Your score appears here once your teacher releases the results.
+          </span>
+        </div>
       ) : w === "upcoming" ? (
         <p className="mt-5 text-small text-ink-faint">You can start at the time above.</p>
       ) : (
-        <p className="mt-5 text-small text-ink-faint">This paper has closed.</p>
+        <p className="mt-5 text-small leading-relaxed text-ink-muted">
+          You missed this paper. It's recorded as missed, not as a 0. If you were away for a reason, tell your teacher: they can give you a time to sit it.
+        </p>
       )}
 
       {paper.mode === "online" && paper.filePath && isOpen && !result && (

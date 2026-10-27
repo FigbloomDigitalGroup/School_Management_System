@@ -436,6 +436,8 @@ export async function deleteExamPaper(paperId: string): Promise<void> {
 export interface AttemptRow {
   id: string;
   studentId: string;
+  /** 1 for the first sitting; a resit is 2, 3, ... (20261030100000_exam_extensions). */
+  attemptNo: number;
   startedAt: string;
   submittedAt: string | null;
   answers: Answers;
@@ -447,15 +449,15 @@ export interface AttemptRow {
 }
 
 interface AttemptDbRow {
-  id: string; student_id: string; started_at: string; submitted_at: string | null; answers: Answers;
+  id: string; student_id: string; attempt_no: number; started_at: string; submitted_at: string | null; answers: Answers;
   question_marks: Record<string, number>; question_notes: Record<string, string>;
   auto_score: number | null; final_score: number | null; feedback: string | null;
 }
 
-const ATTEMPT_COLS = "id, student_id, started_at, submitted_at, answers, question_marks, question_notes, auto_score, final_score, feedback";
+const ATTEMPT_COLS = "id, student_id, attempt_no, started_at, submitted_at, answers, question_marks, question_notes, auto_score, final_score, feedback";
 
 const toAttempt = (a: AttemptDbRow): AttemptRow => ({
-  id: a.id, studentId: a.student_id, startedAt: a.started_at, submittedAt: a.submitted_at, answers: a.answers ?? {},
+  id: a.id, studentId: a.student_id, attemptNo: a.attempt_no ?? 1, startedAt: a.started_at, submittedAt: a.submitted_at, answers: a.answers ?? {},
   questionMarks: a.question_marks ?? {}, questionNotes: a.question_notes ?? {},
   autoScore: a.auto_score, finalScore: a.final_score, feedback: a.feedback,
 });
@@ -530,12 +532,19 @@ export async function fetchMyAttemptStatuses(): Promise<Map<string, MyAttemptSta
   return new Map(rows.map((r) => [r.paper_id, { paperId: r.paper_id, startedAt: r.started_at, submittedAt: r.submitted_at, deadline: r.deadline }]));
 }
 
-/** Released results for one learner (row-level security hides anything not yet released), by paper id. */
+/**
+ * Released results for one learner (row-level security hides anything not yet
+ * released), by paper id: the sitting that counts (is_counting, a computed
+ * column) where a resit means there is more than one.
+ */
 export async function fetchReleasedAttempts(studentId: string): Promise<Map<string, AttemptRow>> {
-  const { data, error } = await supabase().from("exam_attempts").select(`paper_id, ${ATTEMPT_COLS}`).eq("student_id", studentId)
-    .returns<(AttemptDbRow & { paper_id: string })[]>();
+  const { data, error } = await supabase().from("exam_attempts").select(`paper_id, ${ATTEMPT_COLS}, is_counting`).eq("student_id", studentId)
+    .order("attempt_no")
+    .returns<(AttemptDbRow & { paper_id: string; is_counting: boolean })[]>();
   if (error) throw new Error(error.message);
-  return new Map((data ?? []).map((a) => [a.paper_id, toAttempt(a)]));
+  const out = new Map<string, AttemptRow>();
+  for (const a of data ?? []) if (a.is_counting) out.set(a.paper_id, toAttempt(a));
+  return out;
 }
 
 /** A read-mode paper's typed text, once it has opened. */
@@ -574,6 +583,7 @@ export async function fetchSittingQuestions(paperId: string): Promise<SittingQue
 export interface AttemptSession {
   id: string;
   paperId: string;
+  attemptNo: number;
   startedAt: string;
   submittedAt: string | null;
   deadline: string | null;
@@ -585,9 +595,9 @@ export interface AttemptSession {
 }
 
 function toSession(raw: unknown): AttemptSession {
-  const r = raw as { id: string; paper_id: string; started_at: string; submitted_at: string | null; deadline: string | null; answers: Answers; server_now: string; timed_out?: boolean };
+  const r = raw as { id: string; paper_id: string; attempt_no?: number; started_at: string; submitted_at: string | null; deadline: string | null; answers: Answers; server_now: string; timed_out?: boolean };
   return {
-    id: r.id, paperId: r.paper_id, startedAt: r.started_at, submittedAt: r.submitted_at, deadline: r.deadline,
+    id: r.id, paperId: r.paper_id, attemptNo: r.attempt_no ?? 1, startedAt: r.started_at, submittedAt: r.submitted_at, deadline: r.deadline,
     answers: r.answers ?? {}, skewMs: Date.parse(r.server_now) - Date.now(), timedOut: !!r.timed_out,
   };
 }

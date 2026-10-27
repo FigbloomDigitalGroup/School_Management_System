@@ -68,9 +68,11 @@ async function main() {
       email: isEmailBased ? login.email : null,
       login_id: isEmailBased ? null : login.login_id,
       staff_title: login.role === "school_admin" ? "Principal" : login.role === "teacher" ? "Chemistry teacher" : login.role === "driver" ? "Bus driver" : login.role === "staff" ? "Receptionist" : null,
-      // the demo's other staff member keeps the visitor log: gate and reception in one
-      handles_visitors: login.role === "staff",
     });
+    // the demo's other staff member keeps the visitor log (the visitors admin area): gate and reception in one
+    if (login.role === "staff") {
+      await db.from("staff_permissions").insert({ tenant_id: alliance.id, profile_id: user.user.id, area: "visitors" });
+    }
     staff[login.role] = user.user.id;
   }
   console.log(`  ${Object.keys(staff).length} staff accounts`);

@@ -4,7 +4,9 @@
  * original version), OR — new as of FIG-398 — a teacher, driver or other
  * staff member (librarian, matron, guard, ...; 20261028100001), added by
  * the school's own admin as routine day-to-day staffing rather than a
- * platform/org-owner-only action.
+ * platform/org-owner-only action. Since 20261031000000 a teacher or other
+ * staff member holding the people admin area may add those too; only a full
+ * admin path (Figbloom, the organization) ever creates an administrator.
  *
  * Deploy: supabase functions deploy invite-admin
  *
@@ -30,6 +32,7 @@ import { CORS_HEADERS } from "../_shared/cors.ts";
 import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 
 const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "staff"]);
 
@@ -40,8 +43,6 @@ interface Body {
   full_name: string;
   role?: "school_admin" | "teacher" | "driver" | "staff";
   staff_title?: string;
-  /** Other staff only: they keep the visitor log. Ignored for every other role. */
-  handles_visitors?: boolean;
   /** Required when role is (the default) "school_admin" -- the login itself
    *  for that role. Optional contact info for teacher/driver, who sign in
    *  with an assigned login_id instead. */
@@ -77,13 +78,14 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   // the first school_admin -- there isn't one yet to have made the call),
   // the school's OWN school_admin may also call this -- routine staffing is
   // the school's own day-to-day task, not something that should need an org
-  // owner or Figbloom staff every time. Every other caller role is rejected
-  // immediately, before any tenant lookup.
+  // owner or Figbloom staff every time -- and so may a teacher or other staff
+  // member holding the people area (20261031000000). Every other caller role
+  // is rejected immediately, before any tenant lookup.
   const callerCouldQualify = callerProfile?.role === "super_admin"
     || callerProfile?.role === "org_admin"
-    || (role !== "school_admin" && callerProfile?.role === "school_admin");
+    || (role !== "school_admin" && ["school_admin", "teacher", "staff"].includes(callerProfile?.role));
   if (!callerCouldQualify) {
-    return json({ error: "Only Figbloom staff, an organization's own admin, or (for staff other than the school's first administrator) the school's own admin, can add this account." }, 403);
+    return json({ error: "Only Figbloom staff, an organization's own admin, or (for staff other than the school's first administrator) the school's office, can add this account." }, 403);
   }
 
   const { tenant_id, full_name } = body;
@@ -108,6 +110,9 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     authorized = !!link;
   }
   if (!authorized && role !== "school_admin" && callerProfile!.role === "school_admin" && callerProfile!.tenant_id === tenant_id) {
+    authorized = true;
+  }
+  if (!authorized && role !== "school_admin" && await holdsArea(admin, { id: user.id, ...callerProfile }, tenant_id, "people")) {
     authorized = true;
   }
   if (!authorized) {
@@ -152,7 +157,6 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     phone: phone ? normalisePhone(phone, tenant.country) : null,
     staff_title: role === "school_admin" ? (staffTitle || "Principal") : (staffTitle || null),
     login_id: loginId ?? null,
-    handles_visitors: role === "staff" && body.handles_visitors === true,
     // The handed-over password is only for getting in the first time (PasswordGate).
     must_change_password: true,
   });
@@ -162,7 +166,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     return json({ error: profileErr.message }, 500);
   }
 
-  const actorSuffix = callerProfile!.role === "super_admin" ? "Figbloom" : callerProfile!.role === "org_admin" ? "org admin" : "school admin";
+  const actorSuffix = callerProfile!.role === "super_admin" ? "Figbloom" : callerProfile!.role === "org_admin" ? "org admin"
+    : callerProfile!.role === "school_admin" ? "school admin" : "people";
   await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile!.full_name ? `${callerProfile!.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,

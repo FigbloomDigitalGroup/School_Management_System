@@ -274,6 +274,25 @@ export class FakeSupabaseClient {
   /** What ai_tutor_blocked() answers: a reason, or null when the study helper is open. */
   tutorBlocked: string | null = null;
 
+  /**
+   * ai_helper_allowed() (20261101100000_ai_helper_optin.sql): the school's
+   * switches, its access mode and the learner's opt-in (ai_helper_optins
+   * rows, by student_id), then tutorBlocked.
+   */
+  private helperAllowed(profileId: string): { code: string; message: string } | null {
+    const profile = this.rowsIn("profiles").find((p) => p.id === profileId);
+    const t = this.rowsIn("tenants").find((r) => r.id === profile?.tenant_id);
+    if (!t || !t.ai_enabled || !t.ai_tutor_enabled) return { code: "school_off", message: "Bloom isn't turned on for learners at your school." };
+    if (t.ai_tutor_access === "opt_in") {
+      const mine = this.rowsIn("students").filter((s) => s.profile_id === profileId && s.active !== false).map((s) => s.id);
+      const current = this.rowsIn("terms").find((r) => r.tenant_id === t.id && r.is_current)?.id ?? null;
+      const on = this.rowsIn("ai_helper_optins").some((o) => mine.includes(o.student_id) && o.status === "on"
+        && (!t.ai_helper_billing_enabled || (o.term_id != null && o.term_id === current)));
+      if (!on) return { code: "needs_optin", message: "Ask your parent or guardian to turn on the study helper for you (in their Figbloom app)." };
+    }
+    return this.tutorBlocked ? { code: "exam", message: this.tutorBlocked } : null;
+  }
+
   /** Makes the next rpc() resolve with this error. */
   failNextRpc(message: string) {
     this.pendingRpcError = message;
@@ -301,6 +320,7 @@ export class FakeSupabaseClient {
       return Promise.resolve({ data: used, error: null });
     }
     if (name === "ai_tutor_blocked") return Promise.resolve({ data: this.tutorBlocked, error: null });
+    if (name === "ai_helper_allowed") return Promise.resolve({ data: this.helperAllowed(String(args.p_profile_id)), error: null });
     if (name === "announcement_recipients") {
       const a = this.rowsIn("announcements").find((r) => r.id === args.p_announcement_id);
       const ids = a

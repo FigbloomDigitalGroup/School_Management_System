@@ -24,6 +24,8 @@ import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
 import { CallButton } from "../../components/calls/CallButton";
+import { AdminAccessEditor } from "../../components/AdminAccess";
+import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & { avatar_url: string | null };
@@ -97,7 +99,9 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
  */
 export function People() {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
+  // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
+  const fullAdmin = adminAccessFor(profile.role, adminAreas, actingForTenant) === "all";
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
@@ -126,6 +130,13 @@ export function People() {
     () => (view === "archived" ? fetchArchivedLearners(tenant.id) : Promise.resolve([] as ArchivedLearner[])),
     [tenant.id, view, reloadKey],
   );
+  const { data: access } = useAsync(
+    () => (fullAdmin
+      ? Promise.all([fetchSchoolRoles(tenant.id), fetchSchoolAdminAreas(tenant.id)]).then(([roles, direct]) => ({ roles, direct }))
+      : Promise.resolve({ roles: [] as SchoolRole[], direct: new Map<string, AdminArea[]>() })),
+    [tenant.id, reloadKey, fullAdmin],
+  );
+  const accessOf = (id: string) => access ? effectiveAreas(access.direct.get(id) ?? [], access.roles, rolesHeldBy(access.roles, id)) : [];
   const archivedRows = useMemo<StudentRow[]>(() => (archivedData ?? []).map((a) => ({ ...a, class_id: a.class_id as string, gender: a.gender as StudentRow["gender"], login_id: null })), [archivedData]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
   // data must not show the previous one's meanwhile — skeleton for those only.
@@ -376,7 +387,7 @@ export function People() {
               { key: "name", header: "Staff", width: "1.8fr", render: (s: StaffRow) => (
                 <div className="flex items-center gap-2.5">
                   <Avatar id={s.id} name={s.full_name} url={avatarOverrides[s.id] ?? s.avatar_url} />
-                  <Cell sub={[s.staff_title, s.handles_visitors ? "Visitor log" : null].filter(Boolean).join(" · ") || undefined}>{s.full_name}</Cell>
+                  <Cell sub={[s.staff_title, accessOf(s.id).length ? `Admin: ${describeAreas(accessOf(s.id))}` : null].filter(Boolean).join(" · ") || undefined}>{s.full_name}</Cell>
                   {s.photo_changed_at && (
                     <span className="shrink-0 rounded-full bg-warn-bg px-2 py-0.5 text-[11px] font-semibold text-warn-ink">New photo</span>
                   )}
@@ -434,7 +445,7 @@ export function People() {
                   )}
                 </>
               )}
-              {manage.kind === "staff" && manageRow.id !== profile.id && (
+              {manage.kind === "staff" && manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") && (
                 <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manageRow)}>
                   {deletingStaff ? "Removing…" : "Remove staff"}
                 </Button>
@@ -450,9 +461,23 @@ export function People() {
               onSaved={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
+          ) : !fullAdmin && (manageRow as StaffRow).role === "school_admin" ? (
+            <p className="mb-5 border-b border-line-soft pb-5 text-[12.5px] text-ink-muted">Only a full admin can change an administrator's record.</p>
           ) : (
             <StaffProfileEditor
               staff={manageRow as StaffRow}
+              onSaved={() => setReloadKey((k) => k + 1)}
+              toast={toast}
+            />
+          )}
+          {manage.kind === "staff" && fullAdmin && access && manageRow.id !== profile.id && mayHoldAdminAreas((manageRow as StaffRow).role) && (
+            <AdminAccessEditor
+              key={`${manageRow.id}:${(access.direct.get(manageRow.id) ?? []).join()}:${rolesHeldBy(access.roles, manageRow.id).join()}`}
+              profileId={manageRow.id}
+              name={manageRow.full_name}
+              roles={access.roles}
+              direct={access.direct.get(manageRow.id) ?? []}
+              heldRoleIds={rolesHeldBy(access.roles, manageRow.id)}
               onSaved={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
@@ -504,7 +529,8 @@ export function People() {
             />
           )}
           {/* forgotten passwords: learners with a login, and every staff member but yourself */}
-          {(manage.kind === "students" ? (manageRow as StudentRow).profile_id : manageRow.id !== profile.id ? manageRow.id : null) && (
+          {(manage.kind === "students" ? (manageRow as StudentRow).profile_id
+            : manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") ? manageRow.id : null) && (
             <ResetPasswordSection
               profileId={manage.kind === "students" ? (manageRow as StudentRow).profile_id! : manageRow.id}
               name={manageRow.full_name}
@@ -887,19 +913,6 @@ function StaffTitleSuggestions() {
   );
 }
 
-/** The visitor log checkbox: other staff only, and only the office sets it (guard_profile_self_edit). */
-function HandlesVisitorsField({ checked, onChange }: { checked: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <label className="flex items-start gap-2">
-      <input type="checkbox" className="mt-0.5" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "#17402A" }} />
-      <span className="text-[13px] leading-snug">
-        Keeps the visitor log
-        <span className="block text-[11.5px] text-ink-faint">Records visitors at the gate or the office, moves them along and escalates to the principal's office.</span>
-      </span>
-    </label>
-  );
-}
-
 /** Adds a teacher, driver or other staff member (FIG-398/400) — no email, an assigned login_id
  *  (e.g. "TC-0001") instead, shown once on success the same way every other
  *  credential-reveal modal in this app works. */
@@ -909,7 +922,6 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
-  const [handlesVisitors, setHandlesVisitors] = useState(false);
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<InviteStaffResult | null>(null);
@@ -923,7 +935,6 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
     try {
       const r = await inviteStaff({
         tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined,
-        ...(other ? { handles_visitors: handlesVisitors } : {}),
       });
       setResult(r);
       onAdded();
@@ -965,12 +976,16 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
             <>
               <TextField id="staff-title" label="Title" placeholder="e.g. Librarian" list="staff-title-suggestions" hint="Pick one or type their own." value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
               <StaffTitleSuggestions />
-              <HandlesVisitorsField checked={handlesVisitors} onChange={setHandlesVisitors} />
             </>
           ) : (
             <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          {role !== "driver" && (
+            <p className="text-[12px] leading-relaxed text-ink-faint">
+              A deputy, bursar, secretary or receptionist? Once they're added, open their card and give them admin access there.
+            </p>
+          )}
         </div>
       )}
     </Modal>
@@ -1209,7 +1224,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
   const [fullName, setFullName] = useState(staff.full_name);
   const [staffTitle, setStaffTitle] = useState(staff.staff_title ?? "");
   const [phone, setPhone] = useState(staff.phone ?? "");
-  const [handlesVisitors, setHandlesVisitors] = useState(!!staff.handles_visitors);
   const [saving, setSaving] = useState(false);
   const other = staff.role === "staff";
 
@@ -1222,7 +1236,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
         full_name: fullName.trim(),
         staff_title: staffTitle.trim() || null,
         phone: phone.trim() || null,
-        ...(other ? { handles_visitors: handlesVisitors } : {}),
       }).eq("id", staff.id);
       if (error) throw error;
       toast("Details saved.");
@@ -1256,7 +1269,6 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
             className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
         </label>
       </div>
-      {other && <div className="mt-3"><HandlesVisitorsField checked={handlesVisitors} onChange={setHandlesVisitors} /></div>}
       <Button variant="primary" className="mt-3" onClick={() => void save()} disabled={saving}>
         {saving ? "Saving…" : "Save details"}
       </Button>
