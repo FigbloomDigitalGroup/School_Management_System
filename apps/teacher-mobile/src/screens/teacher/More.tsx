@@ -1,9 +1,12 @@
 import { Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useChatSession } from "../../lib/chatSession";
+import { useChatUnread } from "../../lib/chatUnread";
 import { accentFor, HIT, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 
-const ITEMS: { to: "Timetable" | "Homework" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
+const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
+  { to: "Chats", label: "Chats with parents", glyph: "✉" },
   { to: "Timetable", label: "Timetable", glyph: "◷" },
   { to: "Homework", label: "Homework", glyph: "✎" },
   { to: "Classes", label: "My classes", glyph: "▨" },
@@ -17,6 +20,8 @@ const ITEMS: { to: "Timetable" | "Homework" | "Classes" | "Leave" | "Buses" | "A
 export function TeacherMore({ session }: { session: TeacherSession }) {
   const a = accentFor(session.accent);
   const navigation = useNavigation<{ navigate: (screen: string) => void }>();
+  const chat = useChatSession();
+  const unreadChats = useChatUnread(chat?.tenantId ?? null);
 
   return (
     <View style={s.screen}>
@@ -34,6 +39,11 @@ export function TeacherMore({ session }: { session: TeacherSession }) {
           >
             <Text style={{ fontSize: 17, width: 22, textAlign: "center" }}>{item.glyph}</Text>
             <Text style={{ flex: 1, fontSize: 14.5, fontWeight: "500" }}>{item.label}</Text>
+            {item.to === "Chats" && unreadChats > 0 && (
+              <View style={{ minWidth: 20, height: 20, borderRadius: 10, backgroundColor: t.brand.orange, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }}>
+                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{unreadChats}</Text>
+              </View>
+            )}
             <Text style={{ color: t.appSurface.inkFaint }}>›</Text>
           </TouchableOpacity>
         ))}

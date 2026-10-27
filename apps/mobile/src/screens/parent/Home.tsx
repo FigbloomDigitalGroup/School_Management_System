@@ -3,6 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { dueWords, formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote, splitHomework } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren, useMessages, useTenantId, useTermLabel } from "../../data";
+import { ChatsCard } from "../../components/ChatsCard";
 import { ChildBioCard } from "../../components/ChildBioCard";
 import { ChildHealthCard } from "../../components/ChildHealthCard";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
@@ -118,6 +119,8 @@ export function ParentHome() {
         )}
 
         <HomeworkCard childId={child.id} childFirst={child.first} tint={tint} onOpen={() => nav.navigate("Homework")} />
+
+        <ChatsCard tint={tint} blurb={`Message ${child.first}'s teachers or the school office, and hear back.`} />
 
         <TouchableOpacity accessibilityRole="button" onPress={() => nav.navigate("Materials")} style={[s.card, { marginTop: 10, padding: 14 }]}>
           <View style={[s.row, { justifyContent: "space-between" }]}>
