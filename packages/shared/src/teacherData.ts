@@ -283,17 +283,20 @@ export type ClassMessageRecipients = "guardians" | "students" | "both";
 export async function sendClassMessage(
   tenantId: string, teacherId: string, classId: string,
   recipients: ClassMessageRecipients, subject: string, body: string,
-): Promise<void> {
-  const { error, status } = await supabase().from("announcements").insert({
+  /** draft: saved unpublished, so files can be attached before publishAnnouncement() sends it. */
+  { draft = false }: { draft?: boolean } = {},
+): Promise<string> {
+  const { data, error, status } = await supabase().from("announcements").insert({
     tenant_id: tenantId,
     author_id: teacherId,
     subject: subject.trim(),
     body: body.trim(),
     audience: { kind: "class", class_id: classId, recipients } satisfies Audience,
     channels: ["in_app"],
-    published_at: new Date().toISOString(),
-  });
+    published_at: draft ? null : new Date().toISOString(),
+  }).select("id").single<{ id: string }>();
   if (error) throw writeErrorFrom(error, status);
+  return data.id;
 }
 
 /** Upserts one class's register for today — onConflict(student_id, taken_on) means

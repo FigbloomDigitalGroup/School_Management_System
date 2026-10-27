@@ -6,6 +6,7 @@ import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
+import { LiveClassBanner } from "../../components/calls/LiveClasses";
 
 /**
  * Desktop dashboard for a student. Mirrors the phone app's "Today" screen,
@@ -92,6 +93,7 @@ export function StudentToday() {
       />
 
       <div className="px-7 py-6">
+        {data.classId && <LiveClassBanner classIds={[data.classId]} />}
         <StatRow
           stats={[
             {

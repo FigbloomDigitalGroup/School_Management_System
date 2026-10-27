@@ -83,6 +83,8 @@ export const DEMO_LOGINS = [
   { role: "school_admin", who: "Peter Mwangi",  email: "principal@alliance.sc.ke",    password: "figbloom-dev" },
   { role: "teacher",      who: "Michael Kiruti", login_id: "TC-0002", school: "Alliance High School Girls", password: "figbloom-dev" },
   { role: "driver",       who: "James Kariuki",  login_id: "BD-0001", school: "Alliance High School Girls", password: "figbloom-dev" },
+  { role: "guard",        who: "Samuel Kiprono", login_id: "GD-0001", school: "Alliance High School Girls", password: "figbloom-dev" },
+  { role: "receptionist", who: "Lucy Njeri",     login_id: "RC-0001", school: "Alliance High School Girls", password: "figbloom-dev" },
   { role: "parent",       who: "Esther Hawi",    login_id: "PT-0002", school: "Alliance High School Girls", password: "figbloom-dev" },
   { role: "student",      who: "Alex Chebet",    login_id: "ST-0002", school: "Alliance High School Girls", password: "figbloom-dev" },
 ] as const;

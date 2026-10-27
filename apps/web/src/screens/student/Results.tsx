@@ -5,12 +5,14 @@ import { useAsync } from "../../lib/useAsync";
 import { useExamView } from "../../lib/useExamView";
 import type { ResultSubject } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
+import { ReportCardDownloads } from "../../components/ReportCardDownloads";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { StudentCourseResults } from "./CourseResults";
+import { LearnerProgress } from "../../components/analytics/LearnerProgress";
 
 /**
  * No class position anywhere — the same product decision StudentApp.tsx (the
@@ -149,6 +151,13 @@ export function StudentResults() {
             </p>
           </>
         )}
+        {(data.exams.length > 0 || cbe.length > 0) && (
+          <section className="mt-6">
+            <h2 className="mb-3 text-lead font-semibold">Progress over time</h2>
+            <LearnerProgress studentId={data.studentId} meanLabel="Your mean" />
+          </section>
+        )}
+        {data && <div className="mt-6"><ReportCardDownloads studentId={data.studentId} logoUrl={tenant.logo_url} /></div>}
       </div>
     </>
   );

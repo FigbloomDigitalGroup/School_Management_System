@@ -42,9 +42,10 @@ export function validateSlug(raw: string): { ok: boolean; message: string } {
   return { ok: true, message: "This can't be changed later, so check the spelling." };
 }
 
+/** Matches RESERVED_SLUGS in signup-organization/create-organization: one list for schools and organizations alike. */
 const RESERVED = new Set([
   "admin", "api", "app", "auth", "console", "figbloom", "help", "login",
-  "platform", "s", "signin", "status", "support", "www",
+  "platform", "s", "org", "signin", "signup", "status", "support", "www",
 ]);
 
 export function suggestSlug(schoolName: string): string {

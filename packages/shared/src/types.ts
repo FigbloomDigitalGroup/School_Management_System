@@ -1,6 +1,6 @@
 /** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
 
-export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin";
+export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "guard" | "receptionist";
 
 export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
 
@@ -37,6 +37,10 @@ export interface Tenant {
   status: TenantStatus;
   accent: string;            // hex, school-chosen
   logo_url: string | null;
+  /** AI drafting for staff (20261026040000); optional so rows read before it existed still type-check. */
+  ai_enabled?: boolean;
+  /** The study helper for learners; off unless the school turns it on. */
+  ai_tutor_enabled?: boolean;
   licensed_seats: number;
   payment_paybill: string | null;
   payment_till: string | null;
@@ -213,6 +217,11 @@ export interface Student {
   gender: "male" | "female" | null; // null only for a record predating this field
   boarding: boolean;
   active: boolean;
+  /** Where they live (20261025020000 / 20261025050000): the map pin plans bus routes, the address and landmark are for people. */
+  home_lat?: number | null;
+  home_lng?: number | null;
+  home_landmark?: string | null;
+  home_address?: string | null;
 }
 
 /** A parent may have several children; a child may have several guardians. */
@@ -308,19 +317,25 @@ export interface Payment {
 export type Audience =
   | { kind: "whole_school" }
   | { kind: "role"; role: Role }
+  /** Several roles at once -- "All staff" is STAFF_ROLES (audience.ts). */
+  | { kind: "roles"; roles: Role[] }
   /** recipients omitted -- e.g. an admin's whole-class broadcast --
    *  reaches both a class's parents and its students, same as before this
-   *  field existed. A teacher's per-class message (the only composer that
-   *  ever sets it) picks one explicitly, since "to parents" and "to
-   *  students" are genuinely different audiences reading the same inbox. */
+   *  field existed. A teacher's per-class message picks one explicitly,
+   *  since "to parents" and "to students" are genuinely different audiences
+   *  reading the same inbox. */
   | { kind: "class"; class_id: string; recipients?: "guardians" | "students" | "both" }
-  /** level omitted = every class with that form_level (announcements sent before levels were recorded). */
-  | { kind: "form_level"; form_level: number; level?: ClassLevel }
-  | { kind: "user"; user_id: string };
+  /** level omitted = every class with that form_level (announcements sent before levels were recorded).
+   *  recipients works exactly as on `class`. */
+  | { kind: "form_level"; form_level: number; level?: ClassLevel; recipients?: "guardians" | "students" | "both" }
+  /** One person -- the system notices (cover, leave, promotion) use this. */
+  | { kind: "user"; user_id: string }
+  /** Named people, any roles -- the composers' "Specific people". */
+  | { kind: "people"; profile_ids: string[] };
 
-/** Whether a `class`-kind Audience's `recipients` (undefined included)
- *  covers `side` -- shared by parentData.ts/studentData.ts so the two inbox
- *  filters can't drift apart on what "to parents" vs "to students" means. */
+/** Whether a `class`/`form_level` Audience's `recipients` (undefined included)
+ *  covers `side` -- used by audienceIncludes() (audience.ts) so every inbox
+ *  agrees on what "to parents" vs "to students" means. */
 export function classAudienceIncludes(
   recipients: "guardians" | "students" | "both" | undefined,
   side: "guardians" | "students",
@@ -531,7 +546,8 @@ export interface CourseGrade {
   finalized_at: string;
 }
 
-export type AlertKind = "speed" | "geofence";
+/** rider: a trip ended with children still marked on the bus (20261025020000_bus_riders_and_homes.sql) */
+export type AlertKind = "speed" | "geofence" | "rider" | "breakdown";
 
 export interface VehicleAlert {
   id: string;

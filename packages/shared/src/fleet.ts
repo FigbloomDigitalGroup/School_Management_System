@@ -74,18 +74,22 @@ export async function listRouteStops(routeId: string): Promise<RouteStop[]> {
   return (data ?? []) as RouteStop[];
 }
 
-/** Replaces every stop on a route with this new ordered list — simplest correct model for a short stop list. */
+/**
+ * Saves a route's whole ordered stop list. A stop passed with its `id` is
+ * updated in place, so the children on it stay on it; one without is added;
+ * the route's stops left out are removed (their riders lose their stop). Goes
+ * through save_route_stops (20261025050000_learner_address_health.sql): it
+ * used to delete and re-insert every stop, which took every child off theirs.
+ */
 export async function replaceRouteStops(
-  tenantId: string,
+  _tenantId: string,
   routeId: string,
-  stops: { name: string; lat: number; lng: number }[],
+  stops: { id?: string | null; name: string; lat: number; lng: number }[],
 ): Promise<void> {
-  const { error: delErr } = await supabase().from("route_stops").delete().eq("route_id", routeId);
-  if (delErr) throw delErr;
-  if (!stops.length) return;
-  const { error } = await supabase().from("route_stops").insert(
-    stops.map((s, i) => ({ tenant_id: tenantId, route_id: routeId, name: s.name, lat: s.lat, lng: s.lng, sequence: i + 1 })),
-  );
+  const { error } = await supabase().rpc("save_route_stops", {
+    p_route_id: routeId,
+    p_stops: stops.map((s) => ({ ...(s.id ? { id: s.id } : {}), name: s.name, lat: s.lat, lng: s.lng })),
+  });
   if (error) throw error;
 }
 
@@ -201,9 +205,12 @@ export interface BusUpdate {
   id: string;
   trip_id: string;
   vehicle_id: string;
-  stop_id: string;
+  /** null for a rider update about a child with no stop (see 20261025020000_bus_riders_and_homes.sql) */
+  stop_id: string | null;
   student_ids: string[];
-  kind: "trip_started" | "distance" | "arrived" | "delay";
+  /** boarded / alighted / absent: the driver marked the child on, off, or not there.
+   *  breakdown: the driver reported the bus broken down with the child on board or still to be picked up. */
+  kind: "trip_started" | "distance" | "arrived" | "delay" | "boarded" | "alighted" | "absent" | "breakdown";
   /** Starts "Bus ...", so it reads as "Amani's bus ..." with personaliseBusTitle. */
   title: string;
   body: string;
@@ -240,6 +247,113 @@ export function personaliseBusTitle(title: string, names: string[]): string {
   if (!names.length) return title;
   const who = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return title.replace(/^Bus\b/, `${who}'s bus`);
+}
+
+// ---------------------------------------------------------------- the driver's rider list
+
+export type RiderStatus = "expected" | "boarded" | "alighted" | "absent";
+
+/** One child on the driver's list (trip_rider_list, see 20261027000000_bus_rider_list_breakdowns.sql). */
+export interface TripRider {
+  student_id: string;
+  full_name: string;
+  stop_id: string | null;
+  status: RiderStatus;
+  boarded_at: string | null;
+  alighted_at: string | null;
+  /** Evening trips only: marked absent or excused in class today, so not expected at the bus. */
+  absent_from_class: boolean;
+}
+
+/** Everyone on, or assigned to, this trip's bus. */
+export async function listTripRiders(tripId: string): Promise<TripRider[]> {
+  const { data, error } = await supabase().rpc("trip_rider_list", { p_trip_id: tripId });
+  if (error) throw error;
+  return (data ?? []) as TripRider[];
+}
+
+/** Where a child stands on the driver's list. */
+export type RiderPlace = "on_bus" | "waiting" | "dropped" | "not_here" | "absent_from_class";
+
+export interface ArrangedRider extends TripRider {
+  place: RiderPlace;
+  /** Done with, or never coming: shown greyed out, below everyone the driver still has to think about. */
+  faded: boolean;
+  /** Absent from class: struck through as well, so the driver doesn't wait for them. */
+  struck: boolean;
+}
+
+export function riderPlace(r: Pick<TripRider, "status" | "absent_from_class">): RiderPlace {
+  if (r.status === "boarded") return "on_bus";
+  if (r.status === "alighted") return "dropped";
+  if (r.status === "absent") return "not_here";
+  // a child the register says went home, who turns up anyway, is marked on like anyone else
+  return r.absent_from_class ? "absent_from_class" : "waiting";
+}
+
+const PLACE_ORDER: Record<RiderPlace, number> = { on_bus: 0, waiting: 1, dropped: 2, not_here: 3, absent_from_class: 4 };
+
+/**
+ * The driver's list in the order they need it: on the bus, then still to be
+ * picked up (in the order the stops come), then the greyed-out rest: dropped
+ * off, not here, absent from class. `stopOrder` is the route's stop ids in
+ * travel order (stopsInTravelOrder); a child with no stop goes last in their group.
+ */
+export function arrangeRiders(riders: TripRider[], stopOrder: string[]): ArrangedRider[] {
+  const stopIndex = new Map(stopOrder.map((id, i) => [id, i]));
+  const at = (r: TripRider) => (r.stop_id != null ? stopIndex.get(r.stop_id) : undefined) ?? stopOrder.length;
+  return riders
+    .map((r) => {
+      const place = riderPlace(r);
+      return { ...r, place, faded: PLACE_ORDER[place] >= PLACE_ORDER.dropped, struck: place === "absent_from_class" };
+    })
+    .sort((a, b) => PLACE_ORDER[a.place] - PLACE_ORDER[b.place] || at(a) - at(b) || a.full_name.localeCompare(b.full_name));
+}
+
+/** Whose families a breakdown reaches: on the bus, or still waiting for it. Mirrors report_breakdown(). */
+export function breakdownAffected(riders: TripRider[]): TripRider[] {
+  return riders.filter((r) => {
+    const place = riderPlace(r);
+    return place === "on_bus" || place === "waiting";
+  });
+}
+
+export interface RiderMarkInput {
+  tenantId: string; tripId: string; studentId: string; stopId: string | null; status: RiderStatus;
+  /** When the driver tapped it, so a mark queued in a dead zone keeps its real time. */
+  markedAt: string;
+}
+
+/** The `trip_riders` row a mark upserts, live or from the offline queue (keyed trip_id,student_id). */
+export function riderMarkRow(input: RiderMarkInput): {
+  tenant_id: string; trip_id: string; student_id: string; stop_id: string | null; status: RiderStatus; boarded_at?: string; alighted_at?: string;
+} {
+  return {
+    tenant_id: input.tenantId, trip_id: input.tripId, student_id: input.studentId, stop_id: input.stopId, status: input.status,
+    ...(input.status === "boarded" ? { boarded_at: input.markedAt } : input.status === "alighted" ? { alighted_at: input.markedAt } : {}),
+  };
+}
+
+/** Pushes the trip's unsent rider and breakdown updates to families' phones. Fire and forget. */
+export function pushRiderUpdates(tripId: string): void {
+  void supabase().functions.invoke("rider-update", { body: { trip_id: tripId } }).catch(() => {});
+}
+
+/** Marks a child on, off, or not here. The family's update is written by a trigger; this pushes it. */
+export async function markRider(input: RiderMarkInput): Promise<void> {
+  const { error } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
+  if (error) throw error;
+  pushRiderUpdates(input.tripId);
+}
+
+/** Tells the office and the affected families the bus has broken down. Returns how many children's families were told. */
+export async function reportBreakdown(input: { tripId: string; note: string; lat: number | null; lng: number | null }): Promise<number> {
+  const { data, error } = await supabase().rpc("report_breakdown", {
+    p_trip_id: input.tripId, p_note: input.note, p_lat: input.lat, p_lng: input.lng,
+  });
+  if (error) throw error;
+  pushRiderUpdates(input.tripId);
+  return ((data ?? []) as { notified: number }[])[0]?.notified ?? 0;
 }
 
 // ---------------------------------------------------------------- live route maps

@@ -1,20 +1,38 @@
-import { useState } from "react";
-import { formatMoney, supabase, yearGroupKey, yearGroupsOf, yearLabel, type Audience, type ClassGroup, type YearGroup } from "@figbloom/shared";
+import { useRef, useState } from "react";
+import {
+  fetchAllPages, formatMoney, STAFF_ROLES, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, supabase, yearGroupKey, yearGroupsOf, yearLabel,
+  type Audience, type ClassGroup, type YearGroup,
+} from "@figbloom/shared";
+import { AiWriteHelper } from "../../components/AiWriteHelper";
+import { AttachmentPicker } from "../../components/AttachmentPicker";
+import { MessageSignatureStatus, NeedsSignatureToggle } from "../../components/signatures/SignatureStatus";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { TextArea, TextField } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
-type AudienceKind = Audience["kind"];
+/** The composer's choices. Each maps to one Audience; the database decides who it reaches (20261026030000). */
+type AudienceChoice = "whole_school" | "parents" | "students" | "teachers" | "staff" | "year" | "class";
+type Recipients = "both" | "guardians" | "students";
 
-const AUDIENCE_META: { id: AudienceKind; label: string }[] = [
-  { id: "whole_school", label: "Whole school" },
-  { id: "role", label: "All parents" },
-  { id: "form_level", label: "One year group" },
+const AUDIENCE_META: { id: AudienceChoice; label: string; hint?: string }[] = [
+  { id: "whole_school", label: "Whole school", hint: "Staff, parents and students" },
+  { id: "parents", label: "All parents" },
+  { id: "students", label: "All students", hint: "Learners with their own login" },
+  { id: "teachers", label: "All teachers" },
+  { id: "staff", label: "All staff", hint: "Office, teachers and drivers" },
+  { id: "year", label: "One year group" },
   { id: "class", label: "One class" },
+];
+
+const RECIPIENT_OPTIONS: { value: Recipients; label: string }[] = [
+  { value: "both", label: "Parents and students" },
+  { value: "guardians", label: "Parents only" },
+  { value: "students", label: "Students only" },
 ];
 
 interface RecentAnnouncement {
@@ -23,49 +41,72 @@ interface RecentAnnouncement {
   published_at: string | null;
 }
 
+/** How many people, per side, a class or year group reaches. */
+interface Reach { guardians: number; students: number; both: number }
+
 interface AnnouncementsData {
   classes: Pick<ClassGroup, "id" | "name" | "level" | "form_level">[];
-  wholeSchoolCount: number;
-  parentsCount: number;
+  /** Accounts at the school, by role. */
+  byRole: { everyone: number; parents: number; students: number; teachers: number; staff: number };
   /** Keyed by yearGroupKey(level, form_level) — Grade 1 and Form 1 are both form_level 1. */
-  countByForm: Map<string, number>;
+  reachByYear: Map<string, Reach>;
   /** Year groups that actually have classes, youngest first. */
   years: YearGroup[];
-  countByClass: Map<string, number>;
+  reachByClass: Map<string, Reach>;
   recent: RecentAnnouncement[];
+}
+
+/** Distinct parent and learner accounts behind a set of learners. */
+function reachOf(students: { id: string; profile_id: string | null }[], parentsOf: Map<string, string[]>): Reach {
+  const learners = new Set(students.map((s) => s.profile_id).filter((p): p is string => !!p));
+  const parents = new Set(students.flatMap((s) => parentsOf.get(s.id) ?? []));
+  return { guardians: parents.size, students: learners.size, both: parents.size + learners.size };
 }
 
 async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsData> {
   const sb = supabase();
+  const count = (roles: string[]) =>
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", roles);
 
-  const [{ data: classRows }, { data: studentRows }, { count: staffCount }, { data: guardianRows }, { data: recent }] = await Promise.all([
+  const [{ data: classRows }, students, guardians, everyone, parents, learners, teachers, staff, { data: recent }] = await Promise.all([
     sb.from("classes").select("id,name,level,form_level").eq("tenant_id", tenantId).order("form_level").order("name").returns<Pick<ClassGroup, "id" | "name" | "level" | "form_level">[]>(),
-    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
-    sb.from("guardians").select("profile_id").eq("tenant_id", tenantId).returns<{ profile_id: string }[]>(),
+    fetchAllPages<{ id: string; class_id: string; profile_id: string | null }>((from, to) =>
+      sb.from("students").select("id,class_id,profile_id").eq("tenant_id", tenantId).eq("active", true).order("id").range(from, to)
+        .returns<{ id: string; class_id: string; profile_id: string | null }[]>()),
+    fetchAllPages<{ profile_id: string; student_id: string }>((from, to) =>
+      sb.from("guardians").select("profile_id,student_id").eq("tenant_id", tenantId).order("id").range(from, to)
+        .returns<{ profile_id: string; student_id: string }[]>()),
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
+    count(["parent"]),
+    count(["student"]),
+    count(["teacher"]),
+    count(STAFF_ROLES),
     sb.from("announcements").select("id,subject,published_at").eq("tenant_id", tenantId).not("published_at", "is", null)
       .order("published_at", { ascending: false }).limit(5).returns<RecentAnnouncement[]>(),
   ]);
 
   const classes = classRows ?? [];
   const classById = new Map(classes.map((c) => [c.id, c]));
-  const students = studentRows ?? [];
+  const parentsOf = new Map<string, string[]>();
+  for (const g of guardians) parentsOf.set(g.student_id, [...(parentsOf.get(g.student_id) ?? []), g.profile_id]);
 
-  const countByClass = new Map<string, number>();
-  const countByForm = new Map<string, number>();
+  const byClass = new Map<string, typeof students>();
+  const byYear = new Map<string, typeof students>();
   for (const s of students) {
-    countByClass.set(s.class_id, (countByClass.get(s.class_id) ?? 0) + 1);
+    byClass.set(s.class_id, [...(byClass.get(s.class_id) ?? []), s]);
     const cls = classById.get(s.class_id);
-    if (cls) { const k = yearGroupKey(cls.level, cls.form_level); countByForm.set(k, (countByForm.get(k) ?? 0) + 1); }
+    if (cls) { const k = yearGroupKey(cls.level, cls.form_level); byYear.set(k, [...(byYear.get(k) ?? []), s]); }
   }
 
   return {
     classes,
-    wholeSchoolCount: students.length + (staffCount ?? 0),
-    parentsCount: new Set((guardianRows ?? []).map((g) => g.profile_id)).size,
-    countByForm,
+    byRole: {
+      everyone: everyone.count ?? 0, parents: parents.count ?? 0, students: learners.count ?? 0,
+      teachers: teachers.count ?? 0, staff: staff.count ?? 0,
+    },
+    reachByYear: new Map([...byYear.entries()].map(([k, list]) => [k, reachOf(list, parentsOf)])),
     years: yearGroupsOf(classRows ?? []),
-    countByClass,
+    reachByClass: new Map([...byClass.entries()].map(([k, list]) => [k, reachOf(list, parentsOf)])),
     recent: recent ?? [],
   };
 }
@@ -79,7 +120,8 @@ export function Announcements() {
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading } = useAsync(() => fetchAnnouncementsData(tenant.id), [tenant.id, reloadKey]);
-  const [audienceId, setAudienceId] = useState<AudienceKind>("whole_school");
+  const [audienceId, setAudienceId] = useState<AudienceChoice>("whole_school");
+  const [recipients, setRecipients] = useState<Recipients>("both");
   const [pickedYear, setPickedYear] = useState<string | null>(null);
   const yearGroup = data ? (data.years.find((y) => y.key === pickedYear) ?? data.years[0] ?? null) : null;
   const formLevel = yearGroup?.key ?? "";
@@ -88,25 +130,39 @@ export function Announcements() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [drafts, setDrafts] = useState<WebMediaDraft[]>([]);
+  const [needsSignature, setNeedsSignature] = useState(false);
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
+  const batch = useRef<AttachmentBatch | null>(null);
 
   const effectiveClassId = classId || data?.classes[0]?.id || "";
-  const reach = !data ? 0
-    : audienceId === "whole_school" ? data.wholeSchoolCount
-    : audienceId === "role" ? data.parentsCount
-    : audienceId === "form_level" ? data.countByForm.get(formLevel) ?? 0
-    : data.countByClass.get(effectiveClassId) ?? 0;
+  const reachFor = (id: AudienceChoice): number => {
+    if (!data) return 0;
+    switch (id) {
+      case "whole_school": return data.byRole.everyone;
+      case "parents": return data.byRole.parents;
+      case "students": return data.byRole.students;
+      case "teachers": return data.byRole.teachers;
+      case "staff": return data.byRole.staff;
+      case "year": return data.reachByYear.get(formLevel)?.[recipients] ?? 0;
+      case "class": return data.reachByClass.get(effectiveClassId)?.[recipients] ?? 0;
+    }
+  };
+  const reach = reachFor(audienceId);
 
   const smsCostCents = channels.sms ? Math.round(reach * 0.8 * 100) : 0;
 
   function audienceValue(): Audience {
     switch (audienceId) {
       case "whole_school": return { kind: "whole_school" };
-      case "role": return { kind: "role", role: "parent" };
-      case "form_level": return yearGroup
-        ? { kind: "form_level", form_level: yearGroup.year, level: yearGroup.level }
-        : { kind: "form_level", form_level: 1 };
-      case "class": return { kind: "class", class_id: effectiveClassId };
-      case "user": throw new Error("The composer never selects a per-person audience.");
+      case "parents": return { kind: "role", role: "parent" };
+      case "students": return { kind: "role", role: "student" };
+      case "teachers": return { kind: "role", role: "teacher" };
+      case "staff": return { kind: "roles", roles: STAFF_ROLES };
+      case "year": return yearGroup
+        ? { kind: "form_level", form_level: yearGroup.year, level: yearGroup.level, recipients }
+        : { kind: "form_level", form_level: 1, recipients };
+      case "class": return { kind: "class", class_id: effectiveClassId, recipients };
     }
   }
 
@@ -114,6 +170,10 @@ export function Announcements() {
     if (!subject.trim() || !body.trim()) return;
     if (audienceId === "class" && !effectiveClassId) { toast("Pick a class first.", "error"); return; }
     setSending(true);
+    // With files, the notice goes in as a draft, the files go up, and only
+    // then is it published: nobody gets a notice whose attachments are missing.
+    const withFiles = drafts.length > 0;
+    let createdId: string | null = null;
     try {
       const activeChannels = (Object.keys(channels) as (keyof typeof channels)[]).filter((k) => channels[k]);
       const { data: created, error } = await supabase().from("announcements").insert({
@@ -123,9 +183,18 @@ export function Announcements() {
         body: body.trim(),
         audience: audienceValue(),
         channels: activeChannels,
-        published_at: publish ? new Date().toISOString() : null,
-      }).select("id").single();
+        published_at: publish && !withFiles ? new Date().toISOString() : null,
+      }).select("id").single<{ id: string }>();
       if (error) throw error;
+      createdId = created.id;
+      if (withFiles) {
+        batch.current = saveAttachments(tenant.id, "announcement", created.id, drafts, setProgress);
+        await batch.current.done;
+        // before it goes out: sending is what asks the families to sign
+        if (needsSignature) await requireAttachmentSignatures(created.id);
+        if (publish) await publishAnnouncement(created.id);
+      }
+      createdId = null;
       toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
 
       if (publish && channels.push) {
@@ -135,10 +204,21 @@ export function Announcements() {
 
       setSubject("");
       setBody("");
+      setDrafts([]);
+      setNeedsSignature(false);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
+      // Half an announcement is worse than none: take it back out and keep the form as it was, to try again.
+      if (createdId) {
+        const id = createdId;
+        await removeAttachmentFilesFor("announcement", id).catch(() => {});
+        await supabase().from("announcements").delete().eq("id", id);
+      }
+      if (err instanceof UploadCancelled) toast("Upload cancelled. Nothing was sent; your message is still here.", "error");
+      else toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");
     } finally {
+      batch.current = null;
+      setProgress(null);
       setSending(false);
     }
   }
@@ -157,20 +237,31 @@ export function Announcements() {
             <legend className="mb-2 text-small font-semibold">Who should get this?</legend>
             <div className="grid gap-2">
               {AUDIENCE_META.map((a) => {
-                const count = !data ? null
-                  : a.id === "whole_school" ? data.wholeSchoolCount
-                  : a.id === "role" ? data.parentsCount
-                  : a.id === "form_level" ? data.countByForm.get(formLevel) ?? 0
-                  : data.countByClass.get(effectiveClassId) ?? 0;
+                const count = !data ? null : reachFor(a.id);
                 return (
                   <div key={a.id}>
                     <button onClick={() => setAudienceId(a.id)}
                       className="flex w-full items-center justify-between gap-3 rounded-xl border-[1.5px] px-4 py-3 text-left"
                       style={{ borderColor: audienceId === a.id ? "var(--accent)" : "#E2E6E2", background: audienceId === a.id ? "#FFF8F6" : "#fff" }}>
-                      <span className="text-[13.5px] font-medium">{a.label}</span>
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] font-medium">{a.label}</span>
+                        {a.hint && <span className="block text-[11.5px] text-ink-faint">{a.hint}</span>}
+                      </span>
                       {loading || count === null ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{count.toLocaleString()} people</span>}
                     </button>
-                    {audienceId === a.id && a.id === "form_level" && (
+                    {audienceId === a.id && (a.id === "year" || a.id === "class") && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Send to">
+                        {RECIPIENT_OPTIONS.map((r) => (
+                          <button key={r.value} type="button" role="radio" aria-checked={recipients === r.value}
+                            onClick={() => setRecipients(r.value)}
+                            className="rounded-full border px-3 py-1 text-[12px] font-medium"
+                            style={{ borderColor: recipients === r.value ? "var(--accent)" : "#D3DAD5", background: recipients === r.value ? "#FFF8F6" : "#fff" }}>
+                            {r.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {audienceId === a.id && a.id === "year" && (
                       <select value={formLevel} onChange={(e) => setPickedYear(e.target.value)}
                         aria-label="Year group" className="mt-1.5 w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small">
                         {(data?.years ?? []).map((y) => <option key={y.key} value={y.key}>{yearLabel(y.level, y.year)}</option>)}
@@ -188,6 +279,20 @@ export function Announcements() {
             </div>
           </fieldset>
 
+          <AiWriteHelper
+            audience={(() => {
+              const who = RECIPIENT_OPTIONS.find((r) => r.value === recipients)?.label.toLowerCase() ?? "parents and students";
+              if (audienceId === "class") return `${who} of ${data?.classes.find((c) => c.id === effectiveClassId)?.name ?? "one class"}`;
+              if (audienceId === "year") return `${who} of ${yearGroup ? yearLabel(yearGroup.level, yearGroup.year) : "one year group"}`;
+              return AUDIENCE_META.find((a) => a.id === audienceId)?.label.toLowerCase() ?? "the whole school";
+            })()}
+            schoolName={tenant.name}
+            subject={subject}
+            body={body}
+            disabled={sending}
+            onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
+          />
+
           <TextField id="subject" label="Subject" placeholder="e.g. Half-term closing Friday 12 September"
             hint="This is all a parent sees in the notification, so put the date in it."
             value={subject} onChange={(e) => setSubject(e.target.value)} />
@@ -195,6 +300,9 @@ export function Announcements() {
           <TextArea id="body" label="Message" value={body} onChange={(e) => setBody(e.target.value)}
             placeholder="School closes for half-term on Friday 12 September at 12:30pm. Boarders travelling upcountry should collect travel passes from the deputy's office on Thursday."
             hint="Plain language, one instruction per paragraph. Most parents read this on a phone in the sun." />
+
+          <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
+          {drafts.some((d) => d.type === "file") && <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />}
         </div>
 
         <aside className="grid content-start gap-4">
@@ -259,6 +367,7 @@ export function Announcements() {
                     <div className="mt-0.5 font-mono text-[10.5px] text-ink-faint">
                       {a.published_at ? new Date(a.published_at).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) : "Draft"}
                     </div>
+                    <MessageSignatureStatus announcementId={a.id} />
                   </li>
                 ))}
               </ul>

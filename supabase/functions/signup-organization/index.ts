@@ -1,7 +1,11 @@
 /**
  * Public, unauthenticated self-service signup (FIG-370) -- an organization
- * registers itself, starting in a 'pending' state until a super_admin
- * approves it with one click (FIG-375). This is the ONE genuinely public
+ * registers itself and is live straight away. It used to start 'pending'
+ * until a super_admin approved it (FIG-375); approval is paused for now, so
+ * new organizations are created 'active' and can add schools at once. To
+ * switch approval back on, insert 'pending' here and in
+ * create-organization: the Approve button and holding screen still exist.
+ * This is the ONE genuinely public
  * privileged surface in the whole app: every other creation flow requires an
  * already-authenticated staff caller (invite-admin, invite-org-admin), this
  * one has no caller to check at all -- the person signing up has no account
@@ -21,6 +25,16 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { callerKey, dbLimiter, type Limiter } from "../_shared/rateLimit.ts";
+
+/**
+ * Signups one caller may make in the window. Each one creates a real account and
+ * organization, so a script could fill the project with them; a person registering an
+ * organization, even after a typo or two, never gets near this.
+ */
+const SIGNUP_LIMIT = 5;
+const SIGNUP_WINDOW = "1 hour";
+const TOO_MANY_MESSAGE = "Too many sign-up attempts from here. Wait a while and try again.";
 
 const ORG_KINDS = new Set(["government", "county", "constituency", "group_owner"]);
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
@@ -42,11 +56,17 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any }
+export interface Deps {
+  admin: any;
+  /** Records an attempt by this caller and says whether it is still within its allowance. */
+  withinLimit: Limiter;
+}
 
-export async function handle(req: Request, { admin }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, withinLimit }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  if (!(await withinLimit(await callerKey(req, "signup-organization")))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -79,14 +99,15 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
     // between the two words, so a plain "already registered" substring never matches
     // (this exact bug was found and fixed in invite-admin/invite-org-admin earlier).
     const already = createErr?.message?.toLowerCase().includes("already been registered");
-    return json({ error: already ? "That email is already in use." : (createErr?.message ?? "Could not create the account.") }, already ? 409 : 500);
+    if (!already) console.error("signup-organization: could not create the account:", createErr?.message);
+    return json({ error: already ? "That email is already in use." : "Could not create the account. Try again." }, already ? 409 : 500);
   }
 
   const { data: organization, error: orgErr } = await admin.from("organizations").insert({
     name,
     slug,
     kind,
-    status: "pending",
+    status: "active", // no approval step for now: see the header
     county: body.county?.trim() || null,
     contact_name: adminFullName,
     contact_email: body.contact_email?.trim() || adminEmail,
@@ -95,7 +116,8 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
   }).select("id, name").single();
   if (orgErr || !organization) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: orgErr?.message ?? "Could not create the organization." }, 500);
+    console.error("signup-organization: could not create the organization:", orgErr?.message);
+    return json({ error: "Could not create the organization. Try again." }, 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -108,7 +130,8 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
   if (profileErr) {
     await admin.from("organizations").delete().eq("id", organization.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    console.error("signup-organization: could not create the profile:", profileErr.message);
+    return json({ error: "Could not finish creating the account. Try again." }, 500);
   }
 
   const { error: linkErr } = await admin.from("organization_admins").insert({
@@ -120,13 +143,14 @@ export async function handle(req: Request, { admin }: Deps): Promise<Response> {
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.from("organizations").delete().eq("id", organization.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: linkErr.message }, 500);
+    console.error("signup-organization: could not link the administrator:", linkErr.message);
+    return json({ error: "Could not finish creating the account. Try again." }, 500);
   }
 
   await admin.from("audit_events").insert({
     tenant_id: null,
     actor_label: `${adminFullName} · self-service signup`,
-    event: `Organization "${organization.name}" self-registered, pending approval`,
+    event: `Organization "${organization.name}" self-registered`,
     category: "provisioning",
   });
 
@@ -139,7 +163,7 @@ if (import.meta.main) {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    return handle(req, { admin });
+    return handle(req, { admin, withinLimit: dbLimiter(admin, "signup-organization", SIGNUP_LIMIT, SIGNUP_WINDOW) });
   });
 }
 
