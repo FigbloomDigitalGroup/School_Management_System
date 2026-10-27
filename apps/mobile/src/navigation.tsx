@@ -23,6 +23,8 @@ import { StudentResults } from "./screens/student/Results";
 import { StudentNotices } from "./screens/student/Notices";
 import { StudentAccount } from "./screens/student/Account";
 import { DriverTrip } from "./screens/driver/Trip";
+import { ChatList } from "./screens/chat/ChatList";
+import { ChatThread } from "./screens/chat/ChatThread";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -62,6 +64,9 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="Homework" component={ParentHomework} />
           {/* Learning materials, likewise, opens from Home. */}
           <Stack.Screen name="Materials" component={ParentMaterials} />
+          {/* Chats open from a Home card, with the thread one level down. */}
+          <Stack.Screen name="Chats" component={ParentChats} />
+          <Stack.Screen name="ChatThread" component={ParentChatThread} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -70,10 +75,39 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="StudentTabs" component={StudentTabsScreen} initialParams={{ accent }} />
           {/* Opened from the Work tab, not a seventh tab. */}
           <Stack.Screen name="Materials" component={StudentMaterials} />
+          {/* Chats open from a Today card, with the thread one level down. */}
+          <Stack.Screen name="Chats" component={StudentChats} />
+          <Stack.Screen name="ChatThread" component={StudentChatThread} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
   );
+}
+
+function ParentChats() {
+  const { accent } = useChild();
+  return (
+    <ChatList
+      tint={accentFor(accent).deep}
+      blurb="With your child, their teachers and the school office."
+      empty="Start a chat with your child's class teacher, a subject teacher, the school office, or your child."
+    />
+  );
+}
+
+function ParentChatThread() {
+  const { accent } = useChild();
+  return <ChatThread tint={accentFor(accent).deep} />;
+}
+
+function StudentChats() {
+  const { accent } = useStudentData();
+  return <ChatList tint={accentFor(accent).deep} blurb="With your parents and guardians." empty="Start a chat with a parent or guardian." />;
+}
+
+function StudentChatThread() {
+  const { accent } = useStudentData();
+  return <ChatThread tint={accentFor(accent).deep} />;
 }
 
 function ParentTabs() {

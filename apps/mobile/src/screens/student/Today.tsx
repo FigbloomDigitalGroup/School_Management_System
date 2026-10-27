@@ -1,6 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { currentPeriodIndex, todayWeekday } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
+import { ChatsCard } from "../../components/ChatsCard";
 import { useStudentData } from "../../studentData";
 
 /** Where am I meant to be, and what is late. Nothing else above the fold. */
@@ -64,6 +65,8 @@ export function StudentToday() {
             </View>
           </View>
         )}
+
+        <ChatsCard tint={a.deep} blurb="Message your parents or guardians." />
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Rest of today</Text>
         {restOfDay.length === 0 ? (

@@ -16,6 +16,8 @@ import { TeacherHomework } from "./screens/teacher/Homework";
 import { useQueueSync } from "./lib/useQueueSync";
 import { TeacherBuses } from "./screens/teacher/Buses";
 import { TeacherAccount } from "./screens/teacher/Account";
+import { ChatList } from "./screens/chat/ChatList";
+import { ChatThread } from "./screens/chat/ChatThread";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -36,6 +38,7 @@ export interface TeacherSession {
  *  their own tabs — 4 daily-use screens (Attendance/Gradebook/Messages/
  *  Notices) plus a catch-all fits a phone-width tab bar; 8 tabs wouldn't. */
 function MoreStack({ session }: { session: TeacherSession }) {
+  const tint = accentFor(session.accent).deep;
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MoreMenu">{() => <TeacherMore session={session} />}</Stack.Screen>
@@ -45,6 +48,11 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="Leave">{() => <TeacherLeave session={session} />}</Stack.Screen>
       <Stack.Screen name="Buses">{() => <TeacherBuses session={session} />}</Stack.Screen>
       <Stack.Screen name="Account">{() => <TeacherAccount session={session} />}</Stack.Screen>
+      {/* One-to-one chats with parents; the whole-class Messages tab stays as it is. */}
+      <Stack.Screen name="Chats">
+        {() => <ChatList tint={tint} blurb="With the parents of learners you teach." empty="Start a chat with the parent of a learner you teach. For the whole class, use Messages." />}
+      </Stack.Screen>
+      <Stack.Screen name="ChatThread">{() => <ChatThread tint={tint} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }
