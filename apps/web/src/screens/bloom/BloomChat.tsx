@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   askBloomChat, chatTitleFrom, createAiChat, deleteAiChat, deleteAiChatMessage, EdgeError, fetchAiChatMessages, fetchAiChats,
-  homeRouteFor, renameAiChat, saveAiChatTurns, CHAT_MESSAGE_MAX, type AiChat, type AiChatTurn,
+  homeRouteFor, renameAiChat, saveAiChatTurns, setAiChatWebSearch, sourceHost, CHAT_MESSAGE_MAX, type AiChat, type AiChatSource, type AiChatTurn,
 } from "@figbloom/shared";
 import type { BloomChatState, BloomConsole } from "../../components/BloomFab";
 import { Markdown } from "../../components/Markdown";
@@ -12,8 +12,11 @@ import { useAiStatus } from "../../lib/useAi";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
-/** A turn on screen; saved ones carry their row id (Regenerate removes the last answer by it). */
-interface Turn extends AiChatTurn { id?: string }
+/**
+ * A turn on screen; saved ones carry their row id (Regenerate removes the
+ * last answer by it). An answer from a web search carries its sources.
+ */
+interface Turn extends AiChatTurn { id?: string; sources?: AiChatSource[] }
 
 const STARTERS = [
   "Draft a circular to parents about half term",
@@ -29,6 +32,11 @@ const STARTERS = [
  * allowance like every Bloom task; the conversation is saved in the person's
  * own ai_chats, which nobody else can read. Back returns to the page the
  * button was pressed on.
+ *
+ * Bloom may search the web for an answer while the composer's "Search the
+ * web" toggle is on (the default, remembered per chat) and the school allows
+ * it; the toggle is hidden when it doesn't. The sources show under the
+ * answer, numbered to match the markers in its text.
  */
 export function BloomChat({ console }: { console: BloomConsole }) {
   const toast = useToast();
@@ -47,6 +55,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   const [error, setError] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [webSearch, setWebSearch] = useState(true);
   const abort = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +77,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     setTurns([]);
     setError("");
     setSidebarOpen(false);
+    setWebSearch(chat.web_search !== false);
     setLoadingTurns(true);
     try {
       setTurns(await fetchAiChatMessages(chat.id));
@@ -85,7 +95,17 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     setError("");
     setDraft("");
     setSidebarOpen(false);
+    setWebSearch(true);
     input.current?.focus();
+  }
+
+  /** Takes effect from the next question; remembered with the chat once there is one. */
+  function toggleWebSearch(on: boolean) {
+    setWebSearch(on);
+    if (!activeId) return;
+    setAiChatWebSearch(activeId, on)
+      .then(() => setChatsKey((k) => k + 1))
+      .catch((err) => toast(err instanceof Error ? err.message : "Could not save that setting.", "error"));
   }
 
   /**
@@ -103,7 +123,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     let created = false;
     try {
       if (!chatId) {
-        const chat = await createAiChat(tenant.id, chatTitleFrom(question?.content ?? ""));
+        const chat = await createAiChat(tenant.id, chatTitleFrom(question?.content ?? ""), webSearch);
         chatId = chat.id;
         created = true;
         setActiveId(chat.id);
@@ -112,8 +132,9 @@ export function BloomChat({ console }: { console: BloomConsole }) {
       const reply = await askBloomChat(history.map(({ role, content }) => ({ role, content })), {
         tenantId: actingForTenant ? tenant.id : undefined,
         signal: controller.signal,
+        webSearch,
       });
-      const answer: Turn = { role: "assistant", content: reply || "(Bloom gave an empty answer. Try again.)" };
+      const answer: Turn = { role: "assistant", content: reply.text || "(Bloom gave an empty answer. Try again.)", sources: reply.sources };
       setTurns([...history, answer]);
       try {
         const saved = await saveAiChatTurns(chatId, question ? [question, answer] : [answer]);
@@ -191,6 +212,8 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   }
 
   const off = ai !== null && !ai.aiEnabled;
+  // The school's switch; while it's loading the toggle stays hidden, and the edge function decides anyway.
+  const searchAllowed = ai?.webSearchEnabled === true;
   const lastIsAnswer = turns[turns.length - 1]?.role === "assistant";
 
   const sidebar = (
@@ -300,7 +323,8 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                     <span aria-hidden className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-forest text-[11px] text-white">✦</span>
                     <div className="min-w-0 flex-1">
                       <span className="sr-only">Bloom said:</span>
-                      <Markdown source={t.content} />
+                      <Markdown source={t.content} sources={t.sources} />
+                      {!!t.sources?.some((s) => s.url) && <Sources sources={t.sources ?? []} />}
                       <div className="mt-1.5 flex gap-1 text-[11.5px] text-ink-faint">
                         <button type="button" onClick={() => void copy(t.content)} className="rounded px-1.5 py-0.5 hover:bg-sunken hover:text-ink">Copy</button>
                         {i === turns.length - 1 && lastIsAnswer && (
@@ -345,12 +369,41 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                 ? <Button type="button" onClick={() => abort.current?.abort()}>Stop</Button>
                 : <Button variant="accent" disabled={!draft.trim() || off}>Send</Button>}
             </div>
-            <p className="mx-auto mt-1.5 max-w-[820px] text-[11px] text-ink-faint">
-              Bloom is an AI and can get things wrong. Check before you use it. Your chats are saved for you only.
-            </p>
+            <div className="mx-auto mt-1.5 flex max-w-[820px] flex-wrap items-center gap-x-4 gap-y-1">
+              {searchAllowed && (
+                <label className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-ink-muted" title="Bloom searches when an answer needs current facts, and lists its sources">
+                  <input type="checkbox" checked={webSearch} disabled={off} onChange={(e) => toggleWebSearch(e.target.checked)} style={{ accentColor: "#17402A" }} />
+                  Search the web
+                </label>
+              )}
+              <p className="min-w-0 flex-1 text-[11px] text-ink-faint">
+                Bloom is an AI and can get things wrong. Check before you use it. Your chats are saved for you only.
+              </p>
+            </div>
           </form>
         </section>
       </div>
+    </div>
+  );
+}
+
+/** An answer's sources as numbered chips, matching the [^n] markers in its text; each opens in a new tab. */
+function Sources({ sources }: { sources: AiChatSource[] }) {
+  return (
+    <div className="mt-2.5">
+      <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">SOURCES</div>
+      <ol className="mt-1 flex flex-wrap gap-1.5">
+        {sources.map((s, i) => !s.url ? null : (
+          <li key={i} className="min-w-0 max-w-full">
+            <a href={s.url} target="_blank" rel="noopener noreferrer" title={s.url}
+              className="flex max-w-[280px] items-center gap-1.5 rounded-full border border-line bg-white py-1 pl-1 pr-2.5 text-[11.5px] text-ink-soft hover:border-accent">
+              <span className="grid h-4 min-w-[16px] place-items-center rounded-full bg-sunken px-1 text-[10px] font-semibold text-ink-muted">{i + 1}</span>
+              <span className="truncate">{s.title}</span>
+              <span className="shrink-0 text-ink-faint">{sourceHost(s.url)}</span>
+            </a>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

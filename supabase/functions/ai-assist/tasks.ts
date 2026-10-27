@@ -392,7 +392,23 @@ export const CHAT_MAX_CHARS = 12000;
 /** Everything sent at once, so a long chat can't spend the school's month in a few questions. */
 export const CHAT_MAX_TOTAL_CHARS = 60000;
 
-export function chatSystem(schoolName: string, role: "school_admin" | "teacher", today: string): string {
+/** Web searches one chat message may run (the provider's max_uses / max_tool_calls). */
+export const CHAT_MAX_SEARCHES = 5;
+
+/** Said only when the chat can search; without the tool, the "not sure" rule above covers it. */
+const CHAT_SEARCH_RULES = `
+
+You can search the web.
+- Search when the answer depends on current or checkable facts: KNEC, KICD, TSC and Ministry of Education circulars and guidelines, exam and term dates, fees guidelines and capitation, policies, and news. Don't search for writing, explaining, maths or anything you can answer well without it.
+- Prefer official sources (knec.ac.ke, kicd.ac.ke, tsc.go.ke, education.go.ke, kenyalaw.org) and say how recent a source is when dates matter.
+- Base what you say on what you found and cite it. If a search finds nothing reliable, say you couldn't find it and suggest where to check, instead of guessing.
+- Never put a learner's name, admission number, marks, health, family or any other personal detail, or anything else that identifies a person at the school, into a search. Search for the general question only.`;
+
+export function chatSystem(schoolName: string, role: "school_admin" | "teacher", today: string, webSearch = false): string {
+  return chatSystemBase(schoolName, role, today) + (webSearch ? CHAT_SEARCH_RULES : "");
+}
+
+function chatSystemBase(schoolName: string, role: "school_admin" | "teacher", today: string): string {
   return `You are Bloom, the AI assistant in Figbloom, a school management app used in Kenya. You are talking with ${role === "teacher" ? "a teacher" : "a member of the school office"}${schoolName ? ` at ${schoolName}` : ""}. Today is ${today}.
 
 Help with anything they ask, as a capable general assistant would: writing and editing (letters, circulars, reports, speeches, minutes), explaining ideas, planning lessons and schemes of work, setting and marking questions, maths and science with working shown, translation (especially English and Kiswahili), summarising, brainstorming, spreadsheets and formulas, and code.
@@ -409,8 +425,9 @@ export function chatMessages(p: Json): { role: "user" | "assistant"; content: st
   const msgs = list(p.messages, "messages", 500).slice(-CHAT_MAX_TURNS).map((m: Json, i) => {
     const role = oneOf(m?.role, `messages[${i}].role`, ["user", "assistant"] as const);
     // Bloom's own earlier answers can be longer than a question may be; only their start is re-sent.
+    // Its [^n] source markers mean nothing without the sources, so they aren't re-sent either.
     const content = role === "assistant" && typeof m?.content === "string"
-      ? str(m.content.slice(0, CHAT_MAX_CHARS), `messages[${i}].content`, CHAT_MAX_CHARS)
+      ? str(m.content.replace(/\[\^\d{1,2}\]/g, "").slice(0, CHAT_MAX_CHARS), `messages[${i}].content`, CHAT_MAX_CHARS)
       : str(m?.content, `messages[${i}].content`, CHAT_MAX_CHARS);
     return { role, content };
   });
