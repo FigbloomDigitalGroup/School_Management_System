@@ -100,6 +100,9 @@ import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { AdminVisitors } from "./screens/admin/Visitors";
+import { AdminMedical } from "./screens/admin/Medical";
+import { ParentHealth } from "./screens/parent/Health";
+import { useMedicalUnread } from "./lib/useMedicalUnread";
 import { TeacherVisitors } from "./screens/teacher/Visitors";
 import { VisitAlertsListener } from "./components/visitors/Visits";
 import { PasswordGate } from "./components/PasswordGate";
@@ -230,6 +233,7 @@ function TenantRoutes() {
           <Route path="admin/account" element={<AdminShell page="admin/account"><AdminAccount /></AdminShell>} />
           <Route path="admin/activities" element={<AdminShell page="admin/activities"><Activities admin /></AdminShell>} />
           <Route path="admin/visitors" element={<AdminShell page="admin/visitors"><AdminVisitors /></AdminShell>} />
+          <Route path="admin/medical" element={<AdminShell page="admin/medical"><AdminMedical /></AdminShell>} />
           <Route path="admin/bloom" element={<AdminShell page="admin/bloom"><BloomChat console="admin" /></AdminShell>} />
           <Route path="admin/access" element={<AdminShell page="admin/access"><AccessRoles /></AdminShell>} />
 
@@ -266,6 +270,7 @@ function TenantRoutes() {
           <Route path="parent/items" element={<ParentShell><ParentItems /></ParentShell>} />
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
           <Route path="parent/activities" element={<ParentShell><ParentActivities /></ParentShell>} />
+          <Route path="parent/health" element={<ParentShell><ParentHealth /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
@@ -547,6 +552,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
   const chatUnread = useChatUnread(session.tenant.id);
+  const medicalUnread = useMedicalUnread(session.profile.id);
 
   return (
     <RoleGate allow={["parent"]}>
@@ -558,6 +564,7 @@ const ParentShell = ({ children }: { children: ReactNode }) => {
           badges={{
             ...(unread ? { "parent/inbox": String(unread) } : {}),
             ...(chatUnread ? { "parent/chats": String(chatUnread) } : {}),
+            ...(medicalUnread ? { "parent/health": String(medicalUnread) } : {}),
           }}
         >
           {children}
