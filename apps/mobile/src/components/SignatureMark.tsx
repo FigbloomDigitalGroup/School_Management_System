@@ -45,3 +45,16 @@ export function SignatureMark({ signature }: { signature: StoredSignature }) {
     </View>
   );
 }
+
+/** A receipt's signature under its row: the mark, then who and when. "Not signed" when it isn't. */
+export function ReceiptSignature({ signature }: { signature: StoredSignature | undefined }) {
+  if (!signature) return <Text style={[s.faint, { marginTop: 6 }]}>Not signed</Text>;
+  return (
+    <View style={{ marginTop: 6 }}>
+      <SignatureInk signature={signature} height={24} />
+      <Text style={s.faint}>
+        {signature.fullName}, {CAPACITY_LABEL[signature.capacity].toLowerCase()} · {signatureDate(signature.signedAt)}
+      </Text>
+    </View>
+  );
+}

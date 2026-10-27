@@ -6,6 +6,8 @@ import { useChild, useFeeItems, useParentProfileId, useTenantId, useTermLabel } 
 import { PaymentMethodsCard, usePaymentMethods } from "../../components/PaymentMethods";
 import { PaymentProofCard } from "../../components/PaymentProofCard";
 import { InvoiceSignature } from "../../components/PendingSignatures";
+import { ReceiptSignature } from "../../components/SignatureMark";
+import { useReceiptSignatures } from "../../lib/useReceiptSignatures";
 
 export function ParentFees() {
   const nav = useNavigation<any>();
@@ -18,6 +20,7 @@ export function ParentFees() {
   const items = itemsForStudent(feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel);
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
+  const receiptSigs = useReceiptSignatures(child.receipts.map((r) => r.id));
   const paid = child.billed - child.balance;
   const paidPct = child.billed > 0 ? (paid / child.billed) * 100 : 0;
 
@@ -55,6 +58,20 @@ export function ParentFees() {
               </View>
             ))
           )}
+          {child.charges.length > 0 && (
+            <View style={{ borderTopWidth: items.length ? 1 : 0, borderTopColor: t.appSurface.line, marginTop: items.length ? 4 : 0 }}>
+              <Text style={[s.eyebrow, { paddingTop: 12, paddingBottom: 2 }]}>CHARGES ADDED THIS TERM</Text>
+              {child.charges.map((c, idx) => (
+                <View key={c.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, paddingVertical: 10, borderBottomWidth: idx === child.charges.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
+                  <Text style={{ flex: 1, fontSize: 13 }}>
+                    {c.reason}
+                    <Text style={s.faint}>{"  "}{formatShortDate(c.createdAt.slice(0, 10))}</Text>
+                  </Text>
+                  <Text style={s.mono}>{formatMoney(c.amountCents, country)}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Receipts</Text>
@@ -63,14 +80,17 @@ export function ParentFees() {
             <Text style={[s.faint, { paddingVertical: 10 }]}>Payments appear here once the school has confirmed them.</Text>
           ) : (
             child.receipts.map((r, i) => (
-              <View key={r.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 11, borderBottomWidth: i === child.receipts.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
-                <View>
-                  <Text style={{ fontSize: 13, fontWeight: "500" }}>{formatMoney(r.amount, country)}</Text>
-                  <Text style={[s.mono, { color: t.appSurface.inkFaint, marginTop: 2 }]}>{r.when} · {r.ref}</Text>
+              <View key={r.id} style={{ paddingVertical: 11, borderBottomWidth: i === child.receipts.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View>
+                    <Text style={{ fontSize: 13, fontWeight: "500" }}>{formatMoney(r.amount, country)}</Text>
+                    <Text style={[s.mono, { color: t.appSurface.inkFaint, marginTop: 2 }]}>{r.when} · {r.ref}</Text>
+                  </View>
+                  <View style={[s.pill, { backgroundColor: t.status.okBg }]}>
+                    <Text style={[s.pillLabel, { color: t.status.okInk }]}>Received</Text>
+                  </View>
                 </View>
-                <View style={[s.pill, { backgroundColor: t.status.okBg }]}>
-                  <Text style={[s.pillLabel, { color: t.status.okInk }]}>Received</Text>
-                </View>
+                {receiptSigs && <ReceiptSignature signature={receiptSigs.get(r.id)} />}
               </View>
             ))
           )}

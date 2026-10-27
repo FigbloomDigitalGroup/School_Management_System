@@ -6,7 +6,7 @@ import { accentFor, HIT, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 
 const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
-  { to: "Chats", label: "Chats with parents", glyph: "✉" },
+  { to: "Chats", label: "Chats", glyph: "✉" },
   { to: "Timetable", label: "Timetable", glyph: "◷" },
   { to: "Homework", label: "Homework", glyph: "✎" },
   { to: "Classes", label: "My classes", glyph: "▨" },

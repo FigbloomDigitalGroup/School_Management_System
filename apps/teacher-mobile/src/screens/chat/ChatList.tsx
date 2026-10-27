@@ -141,7 +141,7 @@ function ContactPicker({ visible, tint, onClose, onPick }: { visible: boolean; t
         <View style={[s.header, { backgroundColor: tint }]}>
           <Text style={[s.eyebrow, { color: "rgba(255,255,255,0.75)" }]}>CHATS</Text>
           <Text style={s.headerTitle}>Start a chat</Text>
-          <Text style={s.headerSub}>Only people you're connected to through a learner are listed.</Text>
+          <Text style={s.headerSub}>Only people you can chat with are listed.</Text>
         </View>
         <View style={{ padding: 16, flex: 1 }}>
           <TextInput
