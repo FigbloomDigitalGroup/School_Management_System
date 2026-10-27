@@ -1,4 +1,5 @@
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Bell, Mail, Menu, SquareCheck, Table2, type LucideIcon } from "lucide-react-native";
@@ -18,9 +19,14 @@ import { TeacherBuses } from "./screens/teacher/Buses";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { ChatList } from "./screens/chat/ChatList";
 import { ChatThread } from "./screens/chat/ChatThread";
+import { TeacherVisitors } from "./screens/teacher/Visitors";
+import { TeacherPerformance } from "./screens/teacher/Performance";
+import { VisitAlerts } from "./components/VisitAlerts";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+/** Lets the visitor alert, which sits above the navigator, open a screen inside it. */
+const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
 
 const tabIcon = (Icon: LucideIcon) => ({
   tabBarIcon: ({ color, size }: { color: string; size: number }) => <Icon color={color} size={size} />,
@@ -53,6 +59,8 @@ function MoreStack({ session }: { session: TeacherSession }) {
         {() => <ChatList tint={tint} blurb="With parents of learners you teach, and your colleagues." empty="Start a chat with the parent of a learner you teach, or a colleague at the school. For the whole class, use Messages." />}
       </Stack.Screen>
       <Stack.Screen name="ChatThread">{() => <ChatThread tint={tint} />}</Stack.Screen>
+      <Stack.Screen name="Visitors">{() => <TeacherVisitors session={session} />}</Stack.Screen>
+      <Stack.Screen name="Performance">{() => <TeacherPerformance session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }
@@ -63,7 +71,8 @@ export function Navigation({ session }: { session: TeacherSession }) {
   useQueueSync(session.profileId);
 
   return (
-    <NavigationContainer>
+    <View style={{ flex: 1 }}>
+    <NavigationContainer ref={navRef}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
@@ -90,5 +99,12 @@ export function Navigation({ session }: { session: TeacherSession }) {
         </Tab.Screen>
       </Tab.Navigator>
     </NavigationContainer>
+    {/* Over whatever screen is open: someone has come to see this teacher. */}
+    <VisitAlerts
+      tenantId={session.tenantId}
+      profileId={session.profileId}
+      onOpen={() => { if (navRef.isReady()) navRef.navigate("More", { screen: "Visitors" }); }}
+    />
+    </View>
   );
 }
