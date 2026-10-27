@@ -43,7 +43,7 @@ This covers the school bus feature: the live map for drivers, parents, teachers 
 
 | Key | Where it lives | Used for | Restrict it to |
 |---|---|---|---|
-| `VITE_GOOGLE_MAPS_API_KEY` | `.env` / the web host's env (public: it ships in the web bundle) | Maps JavaScript API + Directions on web, plus Geocoding for "Find on map" when placing a learner's home | HTTP referrers (our domains), Maps JavaScript API, Directions and Geocoding only |
+| `VITE_GOOGLE_MAPS_API_KEY` | `.env` / the web host's env (public: it ships in the web bundle) | Maps JavaScript API + Directions on web, plus Places (New) and Geocoding for the place search and "Find on map" when placing a learner's home | HTTP referrers (our domains), Maps JavaScript API, Directions, Places API (New) and Geocoding only |
 | `GOOGLE_MAPS_SERVER_KEY` | Supabase edge-function secret: `supabase secrets set GOOGLE_MAPS_SERVER_KEY=...` | `bus-tick`'s Routes API calls | The Routes API only |
 | `MAPS_API_KEY` | `apps/mobile/android/local.properties` (gitignored) and the `MAPS_API_KEY` GitHub secret | Maps SDK for Android in the parent app | The app's package name + signing SHA-1s |
 
@@ -61,7 +61,7 @@ MAPS_API_KEY=your-android-key
 
 `bus-tick`'s push uses a separate secret, `FCM_SERVICE_ACCOUNT_JSON_B64`; without it updates still reach the in-app feed.
 
-**Learner homes and "Find on map"** (`components/learners/HomePinPicker.tsx`): the home pin is placed by clicking the map or dragging the pin, which needs nothing beyond the Maps JavaScript API. "Find on map" looks a typed address up with the Maps JavaScript `Geocoder`, which needs the **Geocoding API** enabled in the Google Cloud project and added to the browser key's API restrictions. Until it is, the search says "Address search isn't switched on for this school's map key" and clicking the map still works. No Places API (autocomplete) is used.
+**Learner homes, place search and "Find on map"** (`components/learners/HomePinPicker.tsx`): the home pin is placed by searching for a place, clicking the map or dragging the pin. Clicking and dragging need nothing beyond the Maps JavaScript API. The search box above the map suggests places as you type (Places Autocomplete), and "Find on map" tries the landmark and address as a place text search, then the `Geocoder` on the full address, then the address alone. These need the **Places API (New)** and the **Geocoding API** enabled in the Google Cloud project and added to the browser key's API restrictions. Until they are, the search says "isn't switched on for this school's map key" and clicking the map still works.
 
 ## Planning routes from homes
 

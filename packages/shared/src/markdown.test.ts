@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inlineText, parseInline, parseMarkdown, safeHref } from "./markdown";
-import { chatTitleFrom } from "./aiChat";
+import { chatTitleFrom, parseChatSources, sourceHost } from "./aiChat";
 
 describe("parseMarkdown", () => {
   it("reads headings, paragraphs and rules", () => {
@@ -78,5 +78,45 @@ describe("chatTitleFrom", () => {
     const long = chatTitleFrom("Write a circular to parents about the half term break and the fees deadline next week");
     expect(long.endsWith("…")).toBe(true);
     expect(long.length).toBeLessThanOrEqual(61);
+  });
+});
+
+describe("source markers", () => {
+  it("reads [^n] as a citation of the nth source, and keeps other brackets as they were", () => {
+    expect(parseInline("Opens 4 Jan[^1][^12].")).toEqual([
+      { kind: "text", text: "Opens 4 Jan" }, { kind: "cite", n: 1 }, { kind: "cite", n: 12 }, { kind: "text", text: "." },
+    ]);
+    expect(parseInline("[^0] [^x] [^123]")).toEqual([{ kind: "text", text: "[^0] [^x] [^123]" }]);
+    expect(parseInline("`[^1]`")).toEqual([{ kind: "code", text: "[^1]" }]);
+    expect(inlineText(parseInline("Opens 4 Jan[^2]."))).toBe("Opens 4 Jan[2].");
+  });
+});
+
+describe("parseChatSources", () => {
+  it("keeps http(s) sources in order, and leaves an unsafe one as a gap so the numbers still match", () => {
+    expect(parseChatSources([
+      { title: "  2027   term dates ", url: "https://www.education.go.ke/dates" },
+      { title: "x", url: "javascript:alert(1)" },
+      { title: "", url: "http://knec.ac.ke/kcse" },
+      { title: "x", url: "data:text/html,<script>" },
+      { title: "x", url: "https://" },
+    ])).toEqual([
+      { title: "2027 term dates", url: "https://www.education.go.ke/dates" },
+      { title: "", url: "" },
+      { title: "knec.ac.ke", url: "http://knec.ac.ke/kcse" },
+      { title: "", url: "" },
+      { title: "", url: "" },
+    ]);
+  });
+
+  it("reads anything else as no sources, and keeps at most 20", () => {
+    for (const raw of [null, undefined, "https://a.com", { url: "https://a.com" }, 3]) expect(parseChatSources(raw)).toEqual([]);
+    expect(parseChatSources([null, 5, { url: 7 }])).toEqual([{ title: "", url: "" }, { title: "", url: "" }, { title: "", url: "" }]);
+    expect(parseChatSources(Array.from({ length: 30 }, (_, i) => ({ title: `${i}`, url: `https://a.com/${i}` })))).toHaveLength(20);
+  });
+
+  it("names a source's site", () => {
+    expect(sourceHost("https://www.TSC.go.ke/circulars?x=1")).toBe("tsc.go.ke");
+    expect(sourceHost("http://user@kicd.ac.ke:8080/a")).toBe("kicd.ac.ke");
   });
 });

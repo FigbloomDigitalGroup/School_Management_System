@@ -223,7 +223,8 @@ export function parseEmbed(url: string): Embed | null {
     const start = youtubeSeconds(u.searchParams.get("t") ?? u.searchParams.get("start"));
     return {
       provider: "youtube",
-      embedUrl: `https://www.youtube-nocookie.com/embed/${id}${start ? `?start=${start}` : ""}`,
+      // rel=0: the videos suggested at the end come from the same channel, not anywhere on YouTube
+      embedUrl: `https://www.youtube-nocookie.com/embed/${id}?rel=0${start ? `&start=${start}` : ""}`,
       isVideo: true,
     };
   }
