@@ -284,6 +284,7 @@ function TenantRoutes() {
           <Route path="staff" element={<RoleGate allow={["staff"]}><StaffHome /></RoleGate>} />
           <Route path="staff/visitors" element={<StaffShell><StaffVisitors /></StaffShell>} />
           <Route path="staff/notices" element={<StaffShell><StaffNotices /></StaffShell>} />
+          <Route path="staff/chats" element={<StaffShell><MyChats role="staff" /></StaffShell>} />
           <Route path="staff/items" element={<StaffShell><TeacherItems /></StaffShell>} />
           <Route path="staff/account" element={<StaffShell><StaffAccount /></StaffShell>} />
           {/* the old gate and reception consoles (before 20261028100001), for a desk left open on one */}
@@ -422,15 +423,17 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
   );
 };
 
-/** Other staff: notices, issued items, their account, and Visitors for those given the visitor log. */
+/** Other staff: notices, chats with colleagues, issued items, their account, and Visitors for those given the visitor log. */
 const StaffShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
+  const chatUnread = useChatUnread(session.tenant.id);
   return (
     <RoleGate allow={["staff"]}>
       <ConsoleShell
         role="staff"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Staff" }}
         hiddenNav={handlesVisitors(session.profile) ? [] : ["staff/visitors"]}
+        badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
       >
         {children}
       </ConsoleShell>
