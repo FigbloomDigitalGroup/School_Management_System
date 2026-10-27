@@ -6,7 +6,7 @@ import type { Role } from "./types";
  * One-to-one chats between families and the school, and between staff
  * (supabase/migrations/20261027020000_chat.sql). Who may talk to whom is
  * decided by the database (may_talk, the same rule calls use;
- * 20261028000000): staff with staff, a parent with their own child, their
+ * 20261028200000): staff with staff, a parent with their own child, their
  * child's teachers, or the school office. These helpers only
  * call the functions and tables it exposes. The school's administrators can
  * read every chat, which the screens say on every thread (CHAT_OVERSIGHT_NOTICE).

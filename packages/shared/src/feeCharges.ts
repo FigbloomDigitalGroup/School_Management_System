@@ -3,7 +3,7 @@ import type { IssueStatus } from "./inventory";
 
 /**
  * One-off charges on a learner's term invoice: a lost textbook, a broken
- * microscope (supabase/migrations/20261028000001_fee_charges.sql).
+ * microscope (supabase/migrations/20261028200001_fee_charges.sql).
  *
  * A charge raises the invoice's total_cents, so every balance (total minus
  * paid) already includes it: the Fees screens, the M-Pesa prompt, the report
