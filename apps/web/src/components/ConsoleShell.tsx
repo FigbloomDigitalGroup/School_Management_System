@@ -70,11 +70,13 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // here, and the underlying routes are gated the same way in App.tsx, since
   // hiding a nav item alone never blocks the route itself.
   const online = tenant?.delivery_mode === "online";
-  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework"]);
+  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework", "teacher/exams", "admin/papers", "student/exams", "admin/report-cards", "teacher/report-cards", "teacher/materials", "admin/materials", "student/materials", "parent/materials", "admin/performance", "teacher/performance"]);
   const items = NAV[role].filter((item) => {
     if (item.to === "admin/classes" || item.to === "admin/subjects" || item.to === "admin/exams" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
+    // Only where the school has turned the study helper on (School settings -> AI).
+    if (item.to === "student/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
     return true;
   });
   // Three link-prefix regimes, not two: /platform/* (super_admin, absolute

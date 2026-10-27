@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "rea
 import { fetchTeacherNotices, markNoticeRead, subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
+import { OwnerAttachments } from "../../components/MediaLinks";
 
 const NOTICE_POLL_MS = 20_000;
 
@@ -65,6 +66,7 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
           </TouchableOpacity>
           <Text style={{ fontSize: 18, fontWeight: "600", marginTop: 8, lineHeight: 25 }}>{selected.subject}</Text>
           <Text style={[s.body, { marginTop: 14 }]}>{selected.body}</Text>
+          <OwnerAttachments owner="announcement" id={selected.id} tint={a.deep} />
         </ScrollView>
       </View>
     );

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { formatMoney, gradeFor, gradingSchemeFor, summarise, supabase, type GradingSchemeId } from "@figbloom/shared";
 import type { AttendanceMark, ClassGroup, Exam, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -249,6 +250,11 @@ export function AdminReports() {
                   body: "Once a teacher publishes marks in Gradebook, the class means appear here.",
                 }}
               />
+              {tenant.institution_type !== "higher_ed" && (
+                <p className="mt-2 text-[12.5px] text-ink-muted">
+                  How means, subjects and grades have moved from exam to exam: <Link to="../admin/performance" className="font-medium">Performance over time →</Link>
+                </p>
+              )}
             </div>
           </>
         )}

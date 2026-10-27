@@ -11,6 +11,11 @@ import { useAsync } from "../../lib/useAsync";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { ChildSwitcher } from "./ChildSwitcher";
+import { ParentChildProfile } from "../../components/learners/ParentChildProfile";
+import { useToast } from "../../components/ui/Toast";
+import { CallContacts } from "../../components/calls/CallContacts";
+import { LiveClassBanner } from "../../components/calls/LiveClasses";
+import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
 /**
  * Desktop dashboard for the selected child: the fee balance, how they are
@@ -24,6 +29,7 @@ export function ParentHome() {
   const { slug } = useParams();
   const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
+  const toast = useToast();
   // A CBE learner with no exam marks is summarised from their published strand
   // assessments instead; exam marks still win for anyone who has them.
   const rubric = child ? rubricFor(tenant.country, child.classLevel) : null;
@@ -68,6 +74,8 @@ export function ParentHome() {
       />
 
       <div className="px-7 py-6">
+        {data && <LiveClassBanner classIds={[...new Set(data.children.map((c) => c.classId))]} />}
+        <PendingSignatures />
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the dashboard: {error.message}
@@ -180,6 +188,11 @@ export function ParentHome() {
                 )}
               </div>
             </section>
+            <ParentChildProfile tenantId={tenant.id} childId={child.id} childFirst={child.first} toast={toast} />
+            <CallContacts
+              title="Call the school"
+              blurb="Voice or video, in the app: your children's teachers, the office, and your children."
+            />
           </>
         )}
       </div>

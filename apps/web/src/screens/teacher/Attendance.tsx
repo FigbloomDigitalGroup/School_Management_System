@@ -3,9 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
   isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
-  supabase,
+  supabase, fetchHealthForStudents,
   type AttendanceMark, type ClassGroup, type Register,
 } from "@figbloom/shared";
+import { HealthChip, flagsById } from "../../components/learners/Health";
 import { Badge } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -119,6 +120,11 @@ export function Attendance() {
     [classId],
   );
   const roster = rosterData ?? [];
+  // Allergies and conditions, so a teacher sees them while marking. A failed read just shows no chips.
+  const { data: healthFlags } = useAsync(
+    () => (rosterData?.length ? fetchHealthForStudents(rosterData.map((s) => s.id)).then(flagsById).catch(() => new Map()) : Promise.resolve(new Map())),
+    [rosterData],
+  );
 
   const [reg, setReg] = useState<Register | null>(null);
 
@@ -371,6 +377,7 @@ export function Attendance() {
                     <div className="truncate text-[14.5px] font-medium">{s.full_name}</div>
                     <div className="font-mono text-[10.5px] text-ink-faint">ADM {s.admission_no}</div>
                   </button>
+                  <HealthChip flags={healthFlags?.get(s.id) ?? null} name={s.full_name} />
                   <div role="group" aria-label={`Mark for ${s.full_name}`} className="flex shrink-0 gap-1.5">
                     {(["present", "absent", "late"] as AttendanceMark[]).map((k) => {
                       const on = mark === k;

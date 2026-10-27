@@ -11,6 +11,8 @@ export interface SignupOrganizationInput {
   slug: string;
   kind: "government" | "county" | "constituency" | "group_owner";
   county?: string;
+  contact_email?: string;
+  contact_phone?: string;
   admin_full_name: string;
   admin_email: string;
   admin_password: string;

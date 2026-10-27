@@ -11,6 +11,7 @@ import {
 } from "@figbloom/shared";
 import { Avatar } from "../../components/Avatar";
 import { Eta, LiveRouteMap, MapSheet, busPosition, fmtEta, useLiveBuses, type LatLng } from "../../components/fleet/LiveRouteMap";
+import { TripRiders } from "../../components/fleet/TripRiders";
 
 /** Don't write a location row on every watchPosition tick (it can fire many
  *  times a second) — only once this much time has passed since the last one. */
@@ -320,6 +321,14 @@ export function DriverTrip() {
                 <div className="mt-2 text-[11.5px] text-ink-faint">
                   {lastPing ? `${queuedPings > 0 ? "Last fix" : "Last sent"} ${lastPing.at.toLocaleTimeString()}` : "Sharing your location once the first fix arrives"}
                 </div>
+
+                <TripRiders
+                  trip={trip}
+                  tenantId={tenant.id}
+                  stops={data.bus ? stopsInTravelOrder(data.bus.stops, trip.direction) : []}
+                  online={online}
+                  pos={pos}
+                />
 
                 <button
                   onClick={() => void handleEnd()}

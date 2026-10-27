@@ -1,4 +1,4 @@
-import { supabase } from "@figbloom/shared";
+import { examPaperFilePath, paperImportPath, supabase, type ParsedPaymentSms } from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -7,6 +7,9 @@ import { supabase } from "@figbloom/shared";
  * proof and assignment hand-ins — tenant-readable, staff-write plus two
  * narrow self-service carve-outs (a guardian for their own child's invoice,
  * a student for their own submission).
+ *
+ * Learning materials and files on announcements and homework go to a third
+ * bucket, `learning-media`, through lib/resumableUpload.ts (big videos).
  */
 
 function extOf(filename: string): string {
@@ -108,36 +111,95 @@ export async function uploadAssignmentSubmission(input: {
 export interface PaymentProof {
   id: string;
   invoice_id: string;
-  file_path: string;
-  file_name: string;
+  /** Null for a proof that is only a pasted SMS. */
+  file_path: string | null;
+  file_name: string | null;
   note: string | null;
   status: "pending" | "confirmed" | "rejected";
   uploaded_at: string;
+  txn_code: string | null;
+  txn_amount_cents: number | null;
+  rejection_reason: string | null;
 }
 
-/** A bank-slip/receipt photo against one invoice — guardians upload their own child's, staff can too. */
+/**
+ * Proof against one invoice — guardians and learners send their own, staff
+ * can too. A bank-slip/receipt photo, the confirmation SMS pasted as text
+ * (parsed by parsePaymentSms), or both.
+ */
 export async function uploadPaymentProof(input: {
-  tenantId: string; invoiceId: string; uploadedBy: string; note?: string; file: File;
+  tenantId: string; invoiceId: string; uploadedBy: string; note?: string; file?: File;
+  sms?: { text: string; parsed: ParsedPaymentSms };
 }): Promise<void> {
-  const path = `${input.tenantId}/invoices/${input.invoiceId}/${Date.now()}-${input.file.name}`;
-  await uploadToBucket("private-documents", path, input.file);
+  if (!input.file && !input.sms) throw new Error("Add a file or paste the confirmation message.");
+  let path: string | null = null;
+  if (input.file) {
+    path = `${input.tenantId}/invoices/${input.invoiceId}/${Date.now()}-${input.file.name}`;
+    await uploadToBucket("private-documents", path, input.file);
+  }
+  const p = input.sms?.parsed;
   const { error } = await supabase().from("payment_proofs").insert({
     tenant_id: input.tenantId,
     invoice_id: input.invoiceId,
     uploaded_by: input.uploadedBy,
     file_path: path,
-    file_name: input.file.name,
+    file_name: input.file?.name ?? null,
     note: input.note ?? null,
+    sms_text: input.sms?.text.trim() ?? null,
+    txn_source: p?.source ?? null,
+    txn_code: p?.code ?? null,
+    txn_amount_cents: p?.amountCents ?? null,
+    txn_at: p?.paidAt ?? null,
+    txn_payee: p?.payee ?? null,
+    txn_payee_number: p?.payeeNumber ?? null,
+    txn_account: p?.account ?? null,
   });
-  if (error) throw error;
+  if (error) {
+    // The file went up but the proof was refused (most often a reused code). Staff
+    // can take the file back out; a family can't delete from the bucket, so theirs
+    // stays as an unlinked private file rather than a proof row with no evidence.
+    if (path) await supabase().storage.from("private-documents").remove([path]).catch(() => {});
+    throw error;
+  }
 }
 
 export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof[]> {
   const { data, error } = await supabase()
     .from("payment_proofs")
-    .select("id, invoice_id, file_path, file_name, note, status, uploaded_at")
+    .select("id, invoice_id, file_path, file_name, note, status, uploaded_at, txn_code, txn_amount_cents, rejection_reason")
     .eq("invoice_id", invoiceId)
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as PaymentProof[];
+}
+
+/**
+ * A paper for Bloom to import, waiting in the importer's own folder. The
+ * ai-assist function deletes it once read; removePaperImportFiles() tidies
+ * up when the request never got that far.
+ */
+export async function uploadPaperImportFiles(input: { tenantId: string; profileId: string; files: File[] }): Promise<string[]> {
+  const paths: string[] = [];
+  try {
+    for (const file of input.files) {
+      const path = paperImportPath(input.tenantId, input.profileId, crypto.randomUUID(), file.name);
+      await uploadToBucket("private-documents", path, file);
+      paths.push(path);
+    }
+    return paths;
+  } catch (err) {
+    await removePaperImportFiles(paths);
+    throw err;
+  }
+}
+
+export async function removePaperImportFiles(paths: string[]): Promise<void> {
+  if (paths.length) await supabase().storage.from("private-documents").remove(paths);
+}
+
+/** An exam paper's PDF (or reference sheet). Staff write it; families can read it once the paper opens (private_docs_exam_papers_read). */
+export async function uploadExamPaperFile(input: { tenantId: string; paperId: string; file: File }): Promise<{ path: string; name: string }> {
+  const path = examPaperFilePath(input.tenantId, input.paperId, input.file.name);
+  await uploadToBucket("private-documents", path, input.file);
+  return { path, name: input.file.name };
 }

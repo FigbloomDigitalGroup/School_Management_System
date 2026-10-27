@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { PageHead } from "../../components/ConsoleShell";
 import { DriverChip } from "../../components/fleet/DriverChip";
 import { NotifyButton, UpdateFeed, useTodaysBusUpdates } from "../../components/fleet/BusUpdates";
-import { Eta, LiveDot, LiveRouteMap, MapSheet, ROUTE_COLORS, busPosition, fmtAgo, fmtEta, useLiveBuses, useNow, type LatLng } from "../../components/fleet/LiveRouteMap";
+import { Eta, LiveDot, LiveRouteMap, ROUTE_COLORS, busPosition, fmtAgo, fmtEta, useLiveBuses, useNow, type LatLng } from "../../components/fleet/LiveRouteMap";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -23,7 +23,7 @@ async function loadRides(children: ChildInfo[]): Promise<Ride[]> {
 /**
  * The family view: every one of this parent's children's buses on one map,
  * each in its own colour with that child's stop pinned, and a card per child
- * saying how long until their bus gets there — no switching between children.
+ * under the map saying how long until their bus gets there — no switching between children.
  * Only their own children's buses: other buses' routes would show where other
  * families' children are picked up. RLS enforces that too, not just this page.
  */
@@ -52,7 +52,7 @@ export function ParentBus() {
             <span aria-hidden>✕</span>Could not load the buses: {error.message}
           </p>
         ) : loading || !data ? (
-          <Skeleton className="h-[560px] rounded-xl" />
+          <Skeleton className="h-[420px] rounded-xl md:h-[480px]" />
         ) : !data.some((r) => r.bus) ? (
           <EmptyState
             title={data.some((r) => r.routeName) ? "No bus assigned yet" : "Not on a bus route"}
@@ -80,6 +80,9 @@ function FamilyBusMap({ tenantId, rides }: { tenantId: string; rides: Ride[] }) 
   const now = useNow();
   const { updates, loading: updatesLoading } = useTodaysBusUpdates(rides.map((r) => r.child.id));
 
+  // The map stays a map: each child's status, today's updates and the driver
+  // sit underneath it, not over it, so the map isn't pushed down the page or
+  // half covered by cards.
   return (
     <LiveRouteMap
       buses={buses}
@@ -87,19 +90,20 @@ function FamilyBusMap({ tenantId, rides }: { tenantId: string; rides: Ride[] }) 
       colorFor={(id) => colors.get(id) ?? ROUTE_COLORS[0]!}
       showAllStops
       highlightStopIds={rides.map((r) => r.stopId).filter((id): id is string => !!id)}
-      className="h-[calc(100vh-210px)] min-h-[520px] rounded-xl border border-line"
-    >
-      <MapSheet>
-        <div className="mb-2.5 flex justify-end empty:hidden"><NotifyButton /></div>
-        <div className="grid gap-2.5">
-          {rides.map((r) => {
-            const bus = r.bus ? (buses.find((b) => b.vehicle.id === r.bus!.vehicle.id) ?? r.bus) : null;
-            const mine = updates.filter((u) => u.student_ids.includes(r.child.id));
-            return <ChildCard key={r.child.id} ride={r} bus={bus} color={bus ? colors.get(bus.vehicle.id)! : "#A3ABA5"} now={now} updates={mine} updatesLoading={updatesLoading} />;
-          })}
-        </div>
-      </MapSheet>
-    </LiveRouteMap>
+      className="h-[420px] rounded-xl border border-line md:h-[480px]"
+      below={
+        <section className="mt-4" aria-label="Your children's buses">
+          <div className="mb-2.5 flex justify-end empty:hidden"><NotifyButton /></div>
+          <div className={`grid gap-3 ${rides.length > 1 ? "md:grid-cols-2" : ""}`}>
+            {rides.map((r) => {
+              const bus = r.bus ? (buses.find((b) => b.vehicle.id === r.bus!.vehicle.id) ?? r.bus) : null;
+              const mine = updates.filter((u) => u.student_ids.includes(r.child.id));
+              return <ChildCard key={r.child.id} ride={r} bus={bus} color={bus ? colors.get(bus.vehicle.id)! : "#A3ABA5"} now={now} updates={mine} updatesLoading={updatesLoading} />;
+            })}
+          </div>
+        </section>
+      }
+    />
   );
 }
 
@@ -108,7 +112,7 @@ function ChildCard({ ride, bus, color, now, updates, updatesLoading }: { ride: R
   const { child, stopId } = ride;
   if (!bus) {
     return (
-      <div className="rounded-xl bg-page px-3.5 py-3">
+      <div className="rounded-xl border border-line-soft bg-white px-3.5 py-3">
         <div className="text-[13.5px] font-semibold">{child.first}</div>
         <div className="text-[12px] text-ink-muted">{ride.routeName ? `${ride.routeName} has no bus assigned yet.` : "Not on a bus route."}</div>
       </div>
@@ -124,7 +128,7 @@ function ChildCard({ ride, bus, color, now, updates, updatesLoading }: { ride: R
   const next = progress?.nextIndex != null ? ordered[progress.nextIndex]! : null;
 
   return (
-    <div className="rounded-xl border border-line-soft px-3.5 py-3" style={{ borderLeft: `4px solid ${color}` }}>
+    <div className="rounded-xl border border-line-soft bg-white px-3.5 py-3" style={{ borderLeft: `4px solid ${color}` }}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-[13.5px] font-semibold">{child.first}</div>
@@ -141,7 +145,7 @@ function ChildCard({ ride, bus, color, now, updates, updatesLoading }: { ride: R
       {(updatesLoading || updates.length > 0) && (
         <div className="mt-2.5 border-t border-line-soft pt-2">
           <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">Today</div>
-          <UpdateFeed updates={updates} limit={3} loading={updatesLoading} />
+          <UpdateFeed updates={updates} limit={5} loading={updatesLoading} />
         </div>
       )}
       <div className="mt-2.5 border-t border-line-soft pt-2">

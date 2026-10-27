@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { resolveLoginId, searchSchools, supabase, type ResolvedLogin, type SchoolSearchResult } from "@figbloom/shared";
+import {
+  passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, roleFromLoginId, searchSchools, supabase,
+  type ResolvedLogin, type SchoolSearchResult,
+} from "@figbloom/shared";
 import { HIT, s, t } from "../theme";
 
 /**
@@ -11,6 +14,11 @@ import { HIT, s, t } from "../theme";
  * login_id ("PT-0029"), see the real name come back as confirmation, then
  * a password. Replaces phone+SMS-OTP for parents and admission+PIN for
  * students with the exact same flow every role now uses.
+ *
+ * "Forgot password?" can't email anyone (login-ID accounts have no
+ * mailbox), so it asks the school instead: same school + ID, then
+ * request-password-reset, and the school office (or a learner's parent)
+ * sets a new temporary password.
  */
 export function SignIn() {
   const [school, setSchool] = useState<SchoolSearchResult | null>(null);
@@ -31,6 +39,8 @@ export function SignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   useEffect(() => {
     const q = schoolQuery.trim();
@@ -76,6 +86,27 @@ export function SignIn() {
       setIdHint(err instanceof Error ? err.message : "Could not find that ID.");
     } finally {
       setResolving(false);
+    }
+  }
+
+  function toggleForgot(on: boolean) {
+    setForgot(on);
+    setForgotSent(false);
+    setError("");
+    setPassword("");
+  }
+
+  async function askForReset() {
+    if (!school || !loginId.trim()) return;
+    setError("");
+    setBusy(true);
+    try {
+      await requestPasswordReset(school.id, loginId.trim());
+      setForgotSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the request. Try again, or ask the school office.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -158,10 +189,10 @@ export function SignIn() {
             autoCapitalize="characters"
             value={loginId}
             onChangeText={(v) => { setLoginId(v); setResolved(null); setIdHint(""); }}
-            onBlur={() => void resolveId()}
+            onBlur={() => { if (!forgot) void resolveId(); }}
             style={fieldStyle(!!idHint)}
           />
-          {resolving ? (
+          {forgot ? null : resolving ? (
             <Text style={[s.faint, { marginTop: 6 }]}>Checking…</Text>
           ) : resolved ? (
             <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.display_name}</Text>
@@ -171,7 +202,7 @@ export function SignIn() {
         </>
       )}
 
-      {resolved && (
+      {resolved && !forgot && (
         <>
           <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Password</Text>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -191,13 +222,39 @@ export function SignIn() {
 
       {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 8 }}>{error}</Text>}
 
-      <TouchableOpacity
-        accessibilityRole="button"
-        disabled={busy || !resolved || !password}
-        onPress={submit}
-        style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 20, opacity: busy || !resolved || !password ? 0.6 : 1 }]}
-      >
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Sign in</Text>}
+      {forgot ? (
+        forgotSent ? (
+          <Text style={[s.small, { marginTop: 20, color: t.status.okInk, lineHeight: 19 }]}>
+            {passwordResetRequestedMessage(roleFromLoginId(loginId))}
+          </Text>
+        ) : (
+          <>
+            <Text style={[s.faint, { marginTop: 14, lineHeight: 17 }]}>
+              {school ? "We'll ask your school to set you a new temporary password." : "Pick your school, then enter your ID, and we'll ask the school to set you a new temporary password."}
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={busy || !school || !loginId.trim()}
+              onPress={askForReset}
+              style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 14, opacity: busy || !school || !loginId.trim() ? 0.6 : 1 }]}
+            >
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Ask for a new password</Text>}
+            </TouchableOpacity>
+          </>
+        )
+      ) : (
+        <TouchableOpacity
+          accessibilityRole="button"
+          disabled={busy || !resolved || !password}
+          onPress={submit}
+          style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 20, opacity: busy || !resolved || !password ? 0.6 : 1 }]}
+        >
+          {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Sign in</Text>}
+        </TouchableOpacity>
+      )}
+
+      <TouchableOpacity accessibilityRole="button" onPress={() => toggleForgot(!forgot)} style={{ ...HIT, justifyContent: "center", alignSelf: "center", marginTop: 8 }}>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>{forgot ? "Back to sign in" : "Forgot password?"}</Text>
       </TouchableOpacity>
     </View>
   );
