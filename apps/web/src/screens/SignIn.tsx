@@ -9,13 +9,13 @@ import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
 type Mode = "id" | "email";
-type Portal = "admin" | "teacher" | "student" | "parent" | "driver" | "front_desk";
+type Portal = "admin" | "teacher" | "student" | "parent" | "driver" | "staff";
 
 /** The illustrated side before a portal is picked. */
 const WELCOME: Scene = {
   art: "/portals/welcome.webp", tint: "#E3F0E8", accent: "#17402A", accentDeep: "#123420",
   headline: "One school, everyone in it.",
-  tagline: "Admins, teachers, learners, parents, drivers and the front desk each have their own way in.",
+  tagline: "Admins, teachers, learners, parents, drivers and every other member of staff each have their own way in.",
 };
 
 /** The portals on the first step. A portal is a front door, not a permission:
@@ -48,17 +48,18 @@ const PORTALS: (Scene & { id: Portal; label: string; blurb: string; idHint: stri
     headline: "Safe trips, on time.", tagline: "Start and end trips so parents can follow the bus live.",
   },
   {
-    id: "front_desk", label: "Gate & reception", blurb: "Record and receive visitors", idHint: "e.g. GD-0001 or RC-0001", roles: ["guard", "receptionist"],
+    // the gate and reception sign in here too, with the GD-/RC- IDs they were first given
+    id: "staff", label: "Other staff", blurb: "Notices, issued items and the visitor log", idHint: "e.g. SF-0001", roles: ["staff"],
     // no illustration of its own yet: the admin portal's, in the gate's own colours
     art: "/portals/admin.webp", tint: "#E4EEF0", accent: "#2F6B73", accentDeep: "#24545B",
-    headline: "Every visitor, from the gate to the office.", tagline: "Record who comes in; reception and their host know before they reach the door.",
+    headline: "Everyone who keeps the school running.", tagline: "Notices from the office, what you've been issued, and the visitor log if you keep it.",
   },
 ];
 const portalOfRole = (role: Role) => PORTALS.find((p) => p.roles.includes(role));
 
 /**
  * Sign-in starts with a portal choice (Admin, Teacher, Student, Parent,
- * Driver, Gate & reception), then asks for credentials. Two entry modes, chosen by MECHANISM
+ * Driver, Other staff), then asks for credentials. Two entry modes, chosen by MECHANISM
  * (FIG-396/402): "email" (org owners, Figbloom staff, and school admins
  * provisioned by email -- offered under the Admin portal only) and "id" (pick
  * a school, then a school-assigned login_id like "TC-0001", no SMS OTP).

@@ -12,7 +12,8 @@ import { supabase } from "./supabase";
  * is the mark.
  */
 
-export type SignedDocKind = "student_document" | "attachment" | "report_card" | "fee_invoice";
+/** payment_receipt: a successful payments row, signed by the bursar (20261028200002_receipt_signatures.sql). */
+export type SignedDocKind = "student_document" | "attachment" | "report_card" | "fee_invoice" | "payment_receipt";
 export type SignerCapacity = "guardian" | "learner" | "staff" | "recipient" | "principal" | "class_teacher" | "bursar";
 export type SignatureStyle = "drawn" | "typed";
 export type Stroke = number[];

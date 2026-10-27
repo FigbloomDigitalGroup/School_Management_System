@@ -92,7 +92,7 @@ describe("validateLink", () => {
 });
 
 describe("parseEmbed", () => {
-  const yt = "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ";
+  const yt = "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0";
   it("reads every common YouTube link", () => {
     expect(parseEmbed("https://www.youtube.com/watch?v=dQw4w9WgXcQ")?.embedUrl).toBe(yt);
     expect(parseEmbed("https://m.youtube.com/watch?v=dQw4w9WgXcQ&feature=share")?.embedUrl).toBe(yt);
@@ -102,8 +102,8 @@ describe("parseEmbed", () => {
     expect(parseEmbed("https://www.youtube.com/live/dQw4w9WgXcQ")?.embedUrl).toBe(yt);
   });
   it("keeps a YouTube start time", () => {
-    expect(parseEmbed("https://youtu.be/dQw4w9WgXcQ?t=90")?.embedUrl).toBe(`${yt}?start=90`);
-    expect(parseEmbed("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s")?.embedUrl).toBe(`${yt}?start=90`);
+    expect(parseEmbed("https://youtu.be/dQw4w9WgXcQ?t=90")?.embedUrl).toBe(`${yt}&start=90`);
+    expect(parseEmbed("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s")?.embedUrl).toBe(`${yt}&start=90`);
   });
   it("reads Vimeo, including unlisted links", () => {
     expect(parseEmbed("https://vimeo.com/76979871")).toEqual({ provider: "vimeo", embedUrl: "https://player.vimeo.com/video/76979871", isVideo: true });

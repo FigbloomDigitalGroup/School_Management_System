@@ -1,9 +1,10 @@
 /**
  * Pushes a visitor to the phones of whoever needs to know: the member of
  * staff they came to see, and every school admin once the visit is
- * escalated (20261027010001_gate_reception.sql). Called by the gate and
- * reception screens right after they record a visit or escalate one, the
- * same way the announcement composer calls send-push.
+ * escalated (20261027010001_gate_reception.sql). Called by the visitor log
+ * (other staff with handles_visitors, 20261028100001) and the office right
+ * after they record a visit or escalate one, the same way the announcement
+ * composer calls send-push.
  *
  * Deploy: supabase functions deploy visit-notify
  * Needs the FCM_SERVICE_ACCOUNT_JSON_B64 secret, same as send-push. Without
@@ -19,7 +20,9 @@ import { plan, type VisitRow } from "./plan.ts";
 // deno-lint-ignore no-explicit-any
 export interface Deps { admin: any; asUser: any; account?: ServiceAccount | null }
 
-const FRONT_DESK = new Set(["guard", "receptionist", "school_admin"]);
+/** Who may ask for a visit's pushes: the office, and whoever keeps the visitor log (is_front_desk()). */
+export const mayNotify = (p: { role: string; handles_visitors?: boolean | null }): boolean =>
+  p.role === "school_admin" || (p.role === "staff" && p.handles_visitors === true);
 
 export async function handle(req: Request, { admin, asUser, account = serviceAccountFromEnv() }: Deps, fetchImpl: typeof fetch = fetch): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
@@ -40,9 +43,9 @@ export async function handle(req: Request, { admin, asUser, account = serviceAcc
     .eq("id", body.visit_id).maybeSingle();
   if (!visit) return json({ error: "That visit could not be found." }, 404);
 
-  const { data: caller } = await admin.from("profiles").select("role, tenant_id").eq("id", user.id).maybeSingle();
-  if (!caller || caller.tenant_id !== visit.tenant_id || !FRONT_DESK.has(caller.role)) {
-    return json({ error: "Only the school's gate, reception or office can send this." }, 403);
+  const { data: caller } = await admin.from("profiles").select("role, tenant_id, handles_visitors").eq("id", user.id).maybeSingle();
+  if (!caller || caller.tenant_id !== visit.tenant_id || !mayNotify(caller)) {
+    return json({ error: "Only whoever keeps the school's visitor log, or the office, can send this." }, 403);
   }
 
   if (!account) return json({ sent: 0, failed: 0, skipped: "push is not configured on this project" });

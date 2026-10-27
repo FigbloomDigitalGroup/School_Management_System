@@ -127,7 +127,7 @@ function Features () {
 
     return(
         <section className="feature-showcase" id="features">
-        <h2 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>School management features</h2>
+        <h2 className='pt-3 pb-4 text-center font-bold text-[#FF9400] text-3xl'>Features</h2>
         <div className="feature-showcase-inner">
           <div
             className={`feature-tabs${showAllTabs ? ' is-expanded' : ''}`}

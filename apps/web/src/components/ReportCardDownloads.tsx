@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { fetchDocumentSignatures, fetchMyReportCards, reportCardFileName, signatureFor, type StoredReportCard } from "@figbloom/shared";
+import {
+  clubsLine, fetchDocumentSignatures, fetchMyReportCards, reportCardFileName, signatureFor, type ReportCardData, type StoredReportCard,
+} from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { useToast } from "./ui/Toast";
 import { useAsync } from "../lib/useAsync";
@@ -50,11 +52,24 @@ export function ReportCardDownloads({ studentId, logoUrl }: { studentId: string;
                 {c.data.learner.className}
                 {c.data.summary.mean !== null && ` · mean ${c.data.summary.mean}%, ${c.data.summary.grade}`}
               </div>
+              <ActivitiesLine activities={c.data.activities} />
             </div>
             <Button disabled={busy === c.id} onClick={() => download(c)}>{busy === c.id ? "Preparing…" : "Download PDF"}</Button>
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+/** The card's clubs and achievements in a line or two; nothing when it has none. */
+function ActivitiesLine({ activities }: { activities: ReportCardData["activities"] }) {
+  if (!activities || (!activities.clubs.length && !activities.achievements.length)) return null;
+  const won = activities.achievements.map((a) => `${a.result} (${a.activity})`).join(" · ");
+  return (
+    <div className="mt-1 text-[12px] text-ink-muted">
+      {activities.clubs.length > 0 && <div>Clubs and teams: {clubsLine(activities.clubs)}</div>}
+      {won && <div>Achievements: {won}</div>}
+    </div>
   );
 }

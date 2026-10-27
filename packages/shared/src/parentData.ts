@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import type { Audience, ClassLevel, Payment } from "./types";
 import { receiptRef } from "./fees";
+import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharges";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
 import { audienceIncludes, type AudienceViewer } from "./audience";
 
@@ -35,8 +36,12 @@ export interface ChildInfo {
   boarding: boolean;
   /** This term's invoice, which a payment is made against; null until the school has billed. */
   invoiceId: string | null;
+  /** Fees still owed: the invoice total, charges included, less what has been paid. */
   balance: number;
+  /** The invoice total: fees billed plus any charges. */
   billed: number;
+  /** Charges on this invoice (a lost textbook), already inside `billed`, for the statement to list. */
+  charges: FeeCharge[];
   dueOn: string | null;
   attendancePct: number | null;
   absentDates: string[];
@@ -179,7 +184,9 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   const [{ data: term }, { data: invoiceRows }, { data: attendanceRows }, examsByStudent] = await Promise.all([
     supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle(),
     studentIds.length
-      ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on").in("student_id", studentIds)
+      // The current term's invoice only: invoices are keyed by child below, so
+      // once a second term is billed any term's balance could otherwise win.
+      ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on, terms!inner(is_current)").in("student_id", studentIds).eq("terms.is_current", true)
       : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
     studentIds.length
       ? supabase().from("attendance").select("student_id, mark, taken_on").in("student_id", studentIds)
@@ -206,6 +213,8 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   const readIds = new Set((readRows ?? []).map((r) => r.announcement_id as string));
 
   const invoices = new Map((invoiceRows ?? []).map((i) => [i.student_id, i]));
+  // Only the lines; the balance comes from the invoice, so a failed read here costs the statement its detail, not its total.
+  const charges = standingCharges(await fetchInvoiceCharges([...invoices.values()].map((i) => i.id)).catch(() => []));
   const attendanceByStudent = new Map<string, { student_id: string; mark: string; taken_on: string }[]>();
   for (const a of (attendanceRows ?? []) as { student_id: string; mark: string; taken_on: string }[]) {
     const arr = attendanceByStudent.get(a.student_id) ?? [];
@@ -246,6 +255,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       invoiceId: inv?.id ?? null,
       balance: inv ? Math.max(inv.total_cents - inv.paid_cents, 0) : 0,
       billed: inv ? inv.total_cents : 0,
+      charges: inv ? charges.filter((c) => c.invoiceId === inv.id) : [],
       dueOn: inv?.due_on ?? null,
       attendancePct: rows.length ? Math.round((present / rows.length) * 100) : null,
       absentDates,
