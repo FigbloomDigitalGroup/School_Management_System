@@ -1,3 +1,4 @@
+import { bytesToHex, sha256, utf8Bytes } from "./sha256";
 import { supabase } from "./supabase";
 
 /**
@@ -126,18 +127,18 @@ export function parseStrokes(value: unknown): Stroke[] | null {
 }
 
 // This file also compiles for the mobile apps (lib ES2022, no DOM), where
-// these web globals have no types. Browsers, Node 20 and Deno all have them.
+// these web globals have no types. Browsers, Node 20 and Deno have them all;
+// React Native's Hermes has no crypto.subtle, so it falls back to sha256.ts.
 const web = globalThis as unknown as {
-  TextEncoder: new () => { encode(text: string): Uint8Array };
-  crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
+  crypto?: { subtle?: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
   navigator?: { userAgent?: string };
 };
 
 /** SHA-256 as lowercase hex, of bytes or of text (UTF-8). */
 export async function sha256Hex(input: Uint8Array | ArrayBuffer | string): Promise<string> {
-  const bytes = typeof input === "string" ? new web.TextEncoder().encode(input) : input instanceof Uint8Array ? input : new Uint8Array(input);
-  const digest = await web.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  const bytes = typeof input === "string" ? utf8Bytes(input) : input instanceof Uint8Array ? input : new Uint8Array(input);
+  const subtle = web.crypto?.subtle;
+  return bytesToHex(subtle ? new Uint8Array(await subtle.digest("SHA-256", bytes)) : sha256(bytes));
 }
 
 /** "26 Oct 2026", the date written beside a signature. */
