@@ -12,7 +12,12 @@ interface Props {
   width?: number;
 }
 
-/** Escape closes, focus is trapped to the panel, and the backdrop is clickable. */
+/**
+ * Escape or ✕ closes; focus is trapped to the panel. Clicking the backdrop
+ * does nothing: most modals here are forms (a learner's home, a payment), and
+ * a stray click outside, or a map drag that ends past the edge, mustn't throw
+ * away what was typed.
+ */
 export function Modal({ open, onClose, eyebrow, title, blurb, footNote, children, actions, width = 620 }: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -37,7 +42,6 @@ export function Modal({ open, onClose, eyebrow, title, blurb, footNote, children
     <div
       className="fixed inset-0 z-50 grid place-items-center p-8"
       style={{ background: "rgba(12,26,18,0.5)" }}
-      onClick={onClose}
     >
       <div
         ref={panel}
