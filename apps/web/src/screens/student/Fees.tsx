@@ -12,6 +12,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listPaymentProofs, privateDocUrl, type PaymentProof } from "../../lib/uploads";
 import { PaymentProofForm, ProofLabel } from "../../components/PaymentProofForm";
+import { FeeChargeLines } from "../../components/FeeChargeLines";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
 const PROOF_LABEL: Record<PaymentProof["status"], string> = { pending: "Pending review", confirmed: "Confirmed", rejected: "Rejected" };
@@ -111,6 +112,7 @@ export function StudentFees() {
                       </div>
                     ))
                   )}
+                  <FeeChargeLines charges={data.charges} country={tenant.country} />
                 </div>
               </section>
 

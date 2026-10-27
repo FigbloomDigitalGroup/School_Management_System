@@ -16,6 +16,7 @@ import { useAsync } from "../../lib/useAsync";
 import { listPaymentProofs, privateDocUrl, type PaymentProof } from "../../lib/uploads";
 import { PaymentProofForm, ProofLabel } from "../../components/PaymentProofForm";
 import { InvoiceSignature } from "../../components/signatures/InvoiceSignatures";
+import { FeeChargeLines } from "../../components/FeeChargeLines";
 import { ChildSwitcher } from "./ChildSwitcher";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
@@ -154,6 +155,7 @@ export function ParentFees() {
                       </div>
                     ))
                   )}
+                  <FeeChargeLines charges={child.charges} country={tenant.country} />
                 </div>
               </section>
 
