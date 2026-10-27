@@ -157,6 +157,14 @@ describe("reset-user-password handle", () => {
       assertEquals(clients.admin.updatedUsers.length, 0);
     });
 
+    it("never resets someone whose access comes from a school role", async () => {
+      const clients = withSecretary();
+      clients.admin.seed("school_roles", [{ id: "role-1", tenant_id: TENANT_ID, name: "Exams officer", areas: ["academics"] }]);
+      clients.admin.seed("staff_role_assignments", [{ tenant_id: TENANT_ID, profile_id: "teacher", role_id: "role-1" }]);
+      const res = await handle(request({ profile_id: "teacher" }), clients);
+      assertEquals(res.status, 403);
+    });
+
     it("is refused at another school", async () => {
       const clients = withSecretary();
       clients.admin.seed("profiles", [

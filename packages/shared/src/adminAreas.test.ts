@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  ADMIN_AREAS, ADMIN_AREA_INFO, ADMIN_PAGE_AREA, ADMIN_PRESETS, adminAccessFor, areasOfPresets, describeAreas,
-  hasAdminConsole, isAdminArea, mayHoldAdminAreas, mayOpenAdminPage, presetsWithin, sortAreas, togglePreset,
+  ADMIN_AREAS, ADMIN_AREA_INFO, ADMIN_AREA_PAGES, ADMIN_PAGE_AREA, ADMIN_PRESETS, adminAccessFor, areasOfPresets, describeAreas,
+  hasAdminConsole, isAdminArea, mayHoldAdminAreas, mayOpenAdminPage, presetsWithin, rolesHeldBy, effectiveAreas, showsAdminSwitch, sortAreas, togglePreset, type AdminArea,
 } from "./adminAreas";
 import { NAV } from "./auth";
 
@@ -88,7 +88,48 @@ describe("who has the admin console", () => {
   });
 });
 
+describe("school roles", () => {
+  const roles = [
+    { id: "r1", name: "Exams officer", areas: ["academics", "attendance"] as AdminArea[], holderIds: ["p1"] },
+    { id: "r2", name: "Boarding master", areas: ["people", "medical"] as AdminArea[], holderIds: ["p1", "p2"] },
+  ];
+  it("know who holds them", () => {
+    expect(rolesHeldBy(roles, "p1")).toEqual(["r1", "r2"]);
+    expect(rolesHeldBy(roles, "p2")).toEqual(["r2"]);
+    expect(rolesHeldBy(roles, "p3")).toEqual([]);
+  });
+  it("add up with direct areas into what someone can do", () => {
+    expect(effectiveAreas(["fees"], roles, ["r1"])).toEqual(["fees", "academics", "attendance"]);
+    expect(effectiveAreas([], roles, ["r1", "r2"])).toEqual(["people", "academics", "attendance", "medical"]);
+    expect(effectiveAreas(["people"], roles, [])).toEqual(["people"]);
+  });
+  it("are managed on a full-admin-only page", () => {
+    expect(mayOpenAdminPage(adminAccessFor("teacher", ["people"]), "admin/access")).toBe(false);
+    expect(mayOpenAdminPage("all", "admin/access")).toBe(true);
+  });
+});
+
+describe("the Teacher | Admin switch", () => {
+  it("shows for a teacher with any area", () => {
+    expect(showsAdminSwitch("teacher", ["visitors"])).toBe(true);
+    expect(showsAdminSwitch("teacher", [])).toBe(false);
+  });
+  it("shows for other staff only beyond the visitor log, which their own console already has", () => {
+    expect(showsAdminSwitch("staff", ["visitors"])).toBe(false);
+    expect(showsAdminSwitch("staff", ["visitors", "fees"])).toBe(true);
+  });
+  it("never shows for full admins or families", () => {
+    expect(showsAdminSwitch("school_admin", ["fees"])).toBe(false);
+    expect(showsAdminSwitch("parent", ["fees"])).toBe(false);
+  });
+});
+
 describe("admin pages", () => {
+  it("each area's links go to pages that area opens", () => {
+    for (const area of ADMIN_AREAS) {
+      for (const page of ADMIN_AREA_PAGES[area]) expect(ADMIN_PAGE_AREA[page.to]).toBe(area);
+    }
+  });
   it("each have an area or are marked full-admin or open", () => {
     for (const item of NAV.school_admin) expect(item.to in ADMIN_PAGE_AREA).toBe(true);
   });

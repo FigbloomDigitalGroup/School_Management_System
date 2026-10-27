@@ -45,16 +45,26 @@
 --     their areas. Other roles (parents, learners, drivers) never hold any:
 --     the grant RPC refuses them and has_perm() ignores a grant whose holder
 --     has since become something else.
---   * grants are written only by full admins, through set_staff_areas(),
---     which validates the areas and that the person is a teacher or staff
---     at the same school, refuses anyone granting themselves anything, and
---     writes each change to the school's audit trail. The table has no
---     write policies, so the API can't do it any other way.
+--   * a school can also make its own named roles (school_roles: "Exams
+--     officer" = academics + attendance, "Boarding master" = people +
+--     medical) and give them to teachers and other staff
+--     (staff_role_assignments). Changing a role's areas changes the access
+--     of everyone holding it at once; deleting it takes those areas away.
+--     A person's areas are the union of their direct areas and every role
+--     they hold (my_areas()).
+--   * grants, roles and assignments are written only by full admins,
+--     through set_staff_areas(), save_school_role(), delete_school_role()
+--     and set_staff_roles(). They validate the areas, that the person is a
+--     teacher or staff at the same school and that a role belongs to it,
+--     refuse anyone giving themselves anything, and write each change to
+--     the school's audit trail. The tables have no write policies, so the
+--     API can't do it any other way.
 --
--- Presets (Deputy principal, Bursar, Secretary, ...) are named bundles of
--- areas in packages/shared/src/adminAreas.ts. A person can hold several;
--- their areas are the union. The database only ever sees areas, so a
--- preset can change without a migration.
+-- Presets (Deputy principal, Bursar, Secretary, ...) are ready-made bundles
+-- of areas kept in code (packages/shared/src/adminAreas.ts), not rows: the
+-- office ticks one on a person's card as a quick pick, or starts a school
+-- role from one and edits it. Keeping them out of the database means no
+-- per-school seeding to go wrong and nothing to migrate when one changes.
 --
 -- has_office_perm() answers "holds some admin area other than the visitor
 -- log alone": the screens of every area list learners and staff (a bursar
@@ -96,39 +106,89 @@ create policy staff_permissions_read on staff_permissions for select
   using (profile_id = auth.uid() or may_administer(tenant_id));
 -- no insert/update/delete policy: set_staff_areas() is the only way in
 
+-- ---------------------------------------------------------------- school roles
+create or replace function admin_areas_known(p_areas text[]) returns boolean
+language sql immutable as $$
+  select coalesce(bool_and(is_admin_area(a)), true) from unnest(p_areas) a
+$$;
+
+create table school_roles (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references tenants(id) on delete cascade,
+  name       text not null constraint school_roles_name_len check (char_length(trim(name)) between 2 and 60),
+  areas      text[] not null default '{}' constraint school_roles_areas_known check (admin_areas_known(areas)),
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index school_roles_name_unique on school_roles (tenant_id, lower(trim(name)));
+
+create table staff_role_assignments (
+  tenant_id   uuid not null references tenants(id) on delete cascade,
+  profile_id  uuid not null references profiles(id) on delete cascade,
+  role_id     uuid not null references school_roles(id) on delete cascade,
+  assigned_by uuid references profiles(id) on delete set null,
+  assigned_at timestamptz not null default now(),
+  primary key (profile_id, role_id)
+);
+create index on staff_role_assignments (role_id);
+create index on staff_role_assignments (tenant_id);
+
+alter table school_roles enable row level security;
+alter table staff_role_assignments enable row level security;
+-- the school's roles for its full admins; the roles you hold, for your own console
+create policy school_roles_read on school_roles for select
+  using (may_administer(tenant_id)
+         or exists (select 1 from staff_role_assignments a where a.role_id = school_roles.id and a.profile_id = auth.uid()));
+create policy staff_role_assignments_read on staff_role_assignments for select
+  using (profile_id = auth.uid() or may_administer(tenant_id));
+-- no write policies: save_school_role(), delete_school_role() and set_staff_roles() are the only way in
+
 -- ---------------------------------------------------------------- the checks
--- A full admin, or a teacher or other staff member at this school holding the
--- area. my_tenant() is a no-match id for a suspended school, so a suspended
--- school's grants answer false along with everything else. A null area (no
--- area covers it) is full admins only.
+-- The caller's areas at this school: their direct areas and every area of
+-- every role they hold, while they are a teacher or other staff member
+-- there. my_tenant() is a no-match id for a suspended school, so a
+-- suspended school's grants come back empty along with everything else.
+create or replace function my_areas(p_tenant uuid) returns setof text
+language sql stable security definer set search_path = public as $$
+  select sp.area
+    from staff_permissions sp
+    join profiles p on p.id = sp.profile_id
+   where sp.profile_id = auth.uid()
+     and sp.tenant_id = p_tenant
+     and p_tenant = my_tenant()
+     and p.role in ('teacher', 'staff')
+  union
+  select unnest(r.areas)
+    from staff_role_assignments a
+    join school_roles r on r.id = a.role_id
+    join profiles p on p.id = a.profile_id
+   where a.profile_id = auth.uid()
+     and r.tenant_id = p_tenant
+     and a.tenant_id = p_tenant
+     and p_tenant = my_tenant()
+     and p.role in ('teacher', 'staff')
+$$;
+
+-- A full admin, or holding the area. A null area (no area covers it) is full admins only.
 create or replace function has_perm(p_tenant uuid, p_area text) returns boolean
 language sql stable security definer set search_path = public as $$
   select may_administer(p_tenant)
-      or exists (
-        select 1
-          from staff_permissions sp
-          join profiles p on p.id = sp.profile_id
-         where sp.profile_id = auth.uid()
-           and sp.tenant_id = p_tenant
-           and p_tenant = my_tenant()
-           and sp.area = p_area
-           and p.role in ('teacher', 'staff'))
+      or exists (select 1 from my_areas(p_tenant) a where a = p_area)
 $$;
 
--- A full admin, or anyone holding an area other than the visitor log: what
--- opens the school's learner, staff and parent lists (see the header).
+-- A full admin, or holding an area other than the visitor log: what opens
+-- the school's learner, staff and parent lists (see the header).
 create or replace function has_office_perm(p_tenant uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select may_administer(p_tenant)
-      or exists (
-        select 1
-          from staff_permissions sp
-          join profiles p on p.id = sp.profile_id
-         where sp.profile_id = auth.uid()
-           and sp.tenant_id = p_tenant
-           and p_tenant = my_tenant()
-           and sp.area <> 'visitors'
-           and p.role in ('teacher', 'staff'))
+      or exists (select 1 from my_areas(p_tenant) a where a <> 'visitors')
+$$;
+
+-- What the consoles show: the signed-in person's areas at their own school.
+create or replace function my_admin_areas() returns text[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(distinct a order by a), '{}') from my_areas(my_tenant()) a
 $$;
 
 -- Which area a signed document belongs to (signature_requests/signatures.doc_kind).
@@ -216,6 +276,147 @@ end $$;
 
 revoke execute on function set_staff_areas(uuid, text[]) from public, anon;
 grant execute on function set_staff_areas(uuid, text[]) to authenticated;
+
+-- Creates a school role (p_id null) or changes one's name and areas, and
+-- returns its id. Changing the areas changes what everyone holding it can do
+-- straight away (has_perm reads the role each time); the audit event says
+-- how many people that was.
+create or replace function save_school_role(p_id uuid, p_tenant_id uuid, p_name text, p_areas text[]) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_role    school_roles%rowtype;
+  v_name    text := trim(coalesce(p_name, ''));
+  v_areas   text[] := coalesce((select array_agg(distinct a order by a) from unnest(p_areas) a where a is not null), '{}');
+  v_holders int;
+begin
+  if p_id is not null then
+    select * into v_role from school_roles where id = p_id;
+    if v_role.id is null or v_role.tenant_id is distinct from p_tenant_id then
+      raise exception 'That role could not be found.' using errcode = '42501';
+    end if;
+  end if;
+  if p_tenant_id is null or not may_administer(p_tenant_id) then
+    raise exception 'Only a full admin of this school can change its roles.' using errcode = '42501';
+  end if;
+  if char_length(v_name) not between 2 and 60 then
+    raise exception 'Give the role a name of 2 to 60 characters.' using errcode = '22023';
+  end if;
+  if not admin_areas_known(v_areas) then
+    raise exception 'Unknown admin area: %', (select string_agg(a, ', ') from unnest(v_areas) a where not is_admin_area(a))
+      using errcode = '22023';
+  end if;
+  if exists (select 1 from school_roles where tenant_id = p_tenant_id and lower(trim(name)) = lower(v_name) and id is distinct from p_id) then
+    raise exception 'This school already has a role called %.', v_name using errcode = '23505';
+  end if;
+
+  if p_id is null then
+    insert into school_roles (tenant_id, name, areas, created_by)
+    values (p_tenant_id, v_name, v_areas, auth.uid())
+    returning * into v_role;
+    insert into audit_events (tenant_id, actor_id, actor_label, event, category, metadata)
+    values (p_tenant_id, auth.uid(), my_actor_label(),
+            format('Role %s created: %s', v_name, coalesce(nullif(array_to_string(v_areas, ', '), ''), 'no areas')),
+            'access', jsonb_build_object('role_id', v_role.id, 'name', v_name, 'areas', to_jsonb(v_areas)));
+  else
+    select count(*) into v_holders from staff_role_assignments where role_id = p_id;
+    update school_roles set name = v_name, areas = v_areas, updated_at = now() where id = p_id;
+    insert into audit_events (tenant_id, actor_id, actor_label, event, category, metadata)
+    values (p_tenant_id, auth.uid(), my_actor_label(),
+            format('Role %s changed: %s (held by %s)', v_name, coalesce(nullif(array_to_string(v_areas, ', '), ''), 'no areas'), v_holders),
+            'access', jsonb_build_object('role_id', p_id, 'name', v_name, 'previous_name', v_role.name,
+                                         'areas', to_jsonb(v_areas), 'previous_areas', to_jsonb(v_role.areas), 'holders', v_holders));
+  end if;
+  return v_role.id;
+end $$;
+
+-- Deletes a school role, which takes its areas from everyone holding it, and
+-- returns how many people that was. The screen asks first and names them.
+create or replace function delete_school_role(p_id uuid) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  v_role    school_roles%rowtype;
+  v_holders jsonb;
+  v_count   int;
+begin
+  select * into v_role from school_roles where id = p_id;
+  if v_role.id is null or not may_administer(v_role.tenant_id) then
+    raise exception 'Only a full admin of this school can delete its roles.' using errcode = '42501';
+  end if;
+  select count(*), coalesce(jsonb_agg(a.profile_id), '[]') into v_count, v_holders
+    from staff_role_assignments a where a.role_id = p_id;
+  delete from school_roles where id = p_id;   -- its assignments go with it (on delete cascade)
+  insert into audit_events (tenant_id, actor_id, actor_label, event, category, metadata)
+  values (v_role.tenant_id, auth.uid(), my_actor_label(),
+          format('Role %s deleted, taking %s from %s %s', v_role.name,
+                 coalesce(nullif(array_to_string(v_role.areas, ', '), ''), 'no areas'), v_count,
+                 case when v_count = 1 then 'person' else 'people' end),
+          'access', jsonb_build_object('role_id', p_id, 'name', v_role.name, 'areas', to_jsonb(v_role.areas), 'holders', v_holders));
+  return v_count;
+end $$;
+
+-- Replaces the school roles a teacher or other staff member holds (an empty
+-- array removes them all) and returns the ids they hold now. Same rules as
+-- set_staff_areas: full admins only, never yourself, teachers and other
+-- staff only, and only this school's roles.
+create or replace function set_staff_roles(p_profile_id uuid, p_role_ids uuid[]) returns uuid[]
+language plpgsql security definer set search_path = public as $$
+declare
+  v_target  profiles%rowtype;
+  v_ids     uuid[] := coalesce((select array_agg(distinct r order by r) from unnest(p_role_ids) r where r is not null), '{}');
+  v_granted text[];
+  v_revoked text[];
+begin
+  select * into v_target from profiles where id = p_profile_id;
+  if v_target.id is null or v_target.tenant_id is null or not may_administer(v_target.tenant_id) then
+    raise exception 'Only a full admin of this school can change admin access.' using errcode = '42501';
+  end if;
+  if v_target.id = auth.uid() then
+    raise exception 'You can''t change your own admin access.' using errcode = '42501';
+  end if;
+  if v_target.role not in ('teacher', 'staff') then
+    raise exception 'Roles are for teachers and other staff. A principal or director should be a full admin instead.'
+      using errcode = '22023';
+  end if;
+  if exists (select 1 from unnest(v_ids) r where not exists (
+               select 1 from school_roles sr where sr.id = r and sr.tenant_id = v_target.tenant_id)) then
+    raise exception 'That role is not one of this school''s.' using errcode = '22023';
+  end if;
+
+  with gone as (
+    delete from staff_role_assignments
+     where profile_id = v_target.id and not (role_id = any (v_ids))
+    returning role_id
+  )
+  select coalesce(array_agg(sr.name order by sr.name), '{}') into v_revoked
+    from gone join school_roles sr on sr.id = gone.role_id;
+
+  with added as (
+    insert into staff_role_assignments (tenant_id, profile_id, role_id, assigned_by)
+    select v_target.tenant_id, v_target.id, r, auth.uid() from unnest(v_ids) r
+    on conflict (profile_id, role_id) do nothing
+    returning role_id
+  )
+  select coalesce(array_agg(sr.name order by sr.name), '{}') into v_granted
+    from added join school_roles sr on sr.id = added.role_id;
+
+  if cardinality(v_granted) > 0 or cardinality(v_revoked) > 0 then
+    insert into audit_events (tenant_id, actor_id, actor_label, event, category, metadata)
+    values (v_target.tenant_id, auth.uid(), my_actor_label(),
+            format('Roles for %s: %s', v_target.full_name,
+                   concat_ws('; ',
+                     case when cardinality(v_granted) > 0 then 'given ' || array_to_string(v_granted, ', ') end,
+                     case when cardinality(v_revoked) > 0 then 'removed ' || array_to_string(v_revoked, ', ') end)),
+            'access',
+            jsonb_build_object('profile_id', v_target.id, 'roles_granted', to_jsonb(v_granted), 'roles_revoked', to_jsonb(v_revoked),
+                               'role_ids', to_jsonb(v_ids)));
+  end if;
+  return v_ids;
+end $$;
+
+revoke execute on function save_school_role(uuid, uuid, text, text[]), delete_school_role(uuid),
+                           set_staff_roles(uuid, uuid[]), my_admin_areas() from public, anon;
+grant execute on function save_school_role(uuid, uuid, text, text[]), delete_school_role(uuid),
+                          set_staff_roles(uuid, uuid[]), my_admin_areas() to authenticated;
 
 -- ---------------------------------------------------------------- the visitor log
 -- Everyone the office gave the visitor log keeps it, now as a grant.

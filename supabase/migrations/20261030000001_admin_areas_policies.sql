@@ -32,7 +32,8 @@
 --   Visitors                                         visitors
 --   Leave                                            leave
 --   TermSetup (school settings), Reports, Bloom,     full admin
---     the audit trail, permissions themselves
+--     the audit trail, AccessRoles (admin/access:
+--     the school's roles) and everyone's access
 --   Account                                          everyone in the console (their own account)
 --
 -- ---------------------------------------------------------------- policies
@@ -120,7 +121,8 @@
 --   visitors       visit_hosts, visit_find_learners (is_front_desk() is in
 --                  20261030000000)
 --   full admin     set_school_details, set_school_accent, set_school_logo,
---   (unchanged)    set_school_payment_methods, set_ai_settings
+--   (unchanged)    set_school_payment_methods, set_ai_settings (both the
+--                  4-argument one from 20261029100000 and the older 3)
 --   unchanged      ai_status, activity_patron_names: anyone at the school
 --                  already passes; may_administer there is only the org
 --                  admin's way in

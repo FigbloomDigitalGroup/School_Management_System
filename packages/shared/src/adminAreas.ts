@@ -118,6 +118,36 @@ export function hasAdminConsole(access: AdminAccess): boolean {
 }
 
 /**
+ * Whether a teacher or other staff member gets the "Teacher | Admin" switch.
+ * Other staff already keep the visitor log in their own console, so the
+ * visitors area alone doesn't send them anywhere new.
+ */
+export function showsAdminSwitch(role: Role, areas: readonly AdminArea[]): boolean {
+  if (role === "teacher") return areas.length > 0;
+  if (role === "staff") return areas.some((a) => a !== "visitors");
+  return false;
+}
+
+/** Where each area's work is in the admin console, for the home page of someone holding only some areas. */
+export const ADMIN_AREA_PAGES: Record<AdminArea, { to: string; label: string }[]> = {
+  people: [{ to: "admin/people", label: "Students & staff" }],
+  fees: [{ to: "admin/fees", label: "Fees" }],
+  academics: [
+    { to: "admin/classes", label: "Classes" }, { to: "admin/subjects", label: "Subjects" }, { to: "admin/courses", label: "Courses" },
+    { to: "admin/exams", label: "Exams" }, { to: "admin/papers", label: "Exams & tests" }, { to: "admin/report-cards", label: "Report cards" },
+    { to: "admin/performance", label: "Performance" }, { to: "admin/materials", label: "Learning materials" },
+  ],
+  attendance: [],
+  transport: [{ to: "admin/fleet", label: "Fleet" }],
+  communication: [{ to: "admin/announcements", label: "Announcements" }, { to: "admin/chats", label: "Chats" }],
+  inventory: [{ to: "admin/inventory", label: "Inventory" }],
+  activities: [{ to: "admin/activities", label: "Sports & activities" }],
+  visitors: [{ to: "admin/visitors", label: "Visitors" }],
+  medical: [],
+  leave: [{ to: "admin/leave", label: "Leave requests" }],
+};
+
+/**
  * Which area each admin console page needs (NAV.school_admin's `to`).
  * "full": full admins only. null: anyone with the console (their own
  * account, and the home page, which is the overview for full admins and a
@@ -144,6 +174,7 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/fleet": "transport",
   "admin/reports": "full",
   "admin/settings": "full",
+  "admin/access": "full",
   "admin/bloom": "full",
   "admin/account": null,
 };
@@ -152,18 +183,19 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
 export function mayOpenAdminPage(access: AdminAccess, page: string): boolean {
   if (access === "all") return true;
   if (access.length === 0) return false;
-  const need = page in ADMIN_PAGE_AREA ? ADMIN_PAGE_AREA[page] : "full";
-  return need === null ? true : need === "full" ? false : access.includes(need);
+  const need = ADMIN_PAGE_AREA[page];
+  if (need === null) return true;
+  return need !== undefined && need !== "full" && access.includes(need);
 }
 
-/** The person's own areas at their school. */
-export async function fetchMyAdminAreas(profileId: string): Promise<AdminArea[]> {
-  const { data, error } = await supabase().from("staff_permissions").select("area").eq("profile_id", profileId);
+/** The signed-in person's areas at their school: their own and those of every school role they hold. */
+export async function fetchMyAdminAreas(): Promise<AdminArea[]> {
+  const { data, error } = await supabase().rpc("my_admin_areas");
   if (error) throw new Error(error.message);
-  return sortAreas((data ?? []).map((r) => r.area as string));
+  return sortAreas((data ?? []) as string[]);
 }
 
-/** Everyone's areas at a school, by profile (full admins only; RLS returns nothing to anyone else). */
+/** Everyone's direct areas at a school, by profile (full admins only; RLS returns nothing to anyone else). */
 export async function fetchSchoolAdminAreas(tenantId: string): Promise<Map<string, AdminArea[]>> {
   const { data, error } = await supabase().from("staff_permissions").select("profile_id, area").eq("tenant_id", tenantId);
   if (error) throw new Error(error.message);
@@ -179,4 +211,61 @@ export async function setStaffAreas(profileId: string, areas: readonly AdminArea
   const { data, error } = await supabase().rpc("set_staff_areas", { p_profile_id: profileId, p_areas: sortAreas(areas) });
   if (error) throw new Error(error.message);
   return sortAreas((data ?? []) as string[]);
+}
+
+// ---------------------------------------------------------------- school roles
+/** A role a school made for itself ("Exams officer"): a name and areas, given to teachers and other staff. */
+export interface SchoolRole {
+  id: string;
+  name: string;
+  areas: AdminArea[];
+  /** Who holds it, by profile id. */
+  holderIds: string[];
+}
+
+/** The school's roles with who holds each (full admins only; RLS returns nothing to anyone else). */
+export async function fetchSchoolRoles(tenantId: string): Promise<SchoolRole[]> {
+  const [{ data: roles, error }, { data: held, error: heldError }] = await Promise.all([
+    supabase().from("school_roles").select("id, name, areas").eq("tenant_id", tenantId).order("name"),
+    supabase().from("staff_role_assignments").select("role_id, profile_id").eq("tenant_id", tenantId),
+  ]);
+  if (error) throw new Error(error.message);
+  if (heldError) throw new Error(heldError.message);
+  const holders = new Map<string, string[]>();
+  for (const a of (held ?? []) as { role_id: string; profile_id: string }[]) {
+    holders.set(a.role_id, [...(holders.get(a.role_id) ?? []), a.profile_id]);
+  }
+  return ((roles ?? []) as { id: string; name: string; areas: string[] }[])
+    .map((r) => ({ id: r.id, name: r.name, areas: sortAreas(r.areas), holderIds: holders.get(r.id) ?? [] }));
+}
+
+/** The role ids a person holds, from fetchSchoolRoles' answer. */
+export function rolesHeldBy(roles: readonly SchoolRole[], profileId: string): string[] {
+  return roles.filter((r) => r.holderIds.includes(profileId)).map((r) => r.id);
+}
+
+/** Everything a person can do: their direct areas and their roles' areas. */
+export function effectiveAreas(direct: readonly AdminArea[], roles: readonly SchoolRole[], roleIds: readonly string[]): AdminArea[] {
+  return sortAreas([...direct, ...roles.filter((r) => roleIds.includes(r.id)).flatMap((r) => r.areas)]);
+}
+
+/** Creates a role (id null) or changes one; everyone holding it gets the new areas straight away. */
+export async function saveSchoolRole(tenantId: string, id: string | null, name: string, areas: readonly AdminArea[]): Promise<string> {
+  const { data, error } = await supabase().rpc("save_school_role", { p_id: id, p_tenant_id: tenantId, p_name: name, p_areas: sortAreas(areas) });
+  if (error) throw new Error(error.message);
+  return data as string;
+}
+
+/** Deletes a role, taking its areas from everyone who held it; answers how many people that was. */
+export async function deleteSchoolRole(id: string): Promise<number> {
+  const { data, error } = await supabase().rpc("delete_school_role", { p_id: id });
+  if (error) throw new Error(error.message);
+  return (data ?? 0) as number;
+}
+
+/** Replaces the school roles a teacher or other staff member holds (full admins only, never your own). */
+export async function setStaffRoles(profileId: string, roleIds: readonly string[]): Promise<string[]> {
+  const { data, error } = await supabase().rpc("set_staff_roles", { p_profile_id: profileId, p_role_ids: [...roleIds] });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as string[];
 }

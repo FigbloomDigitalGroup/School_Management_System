@@ -270,4 +270,72 @@ set local role authenticated;
 select pg_temp.expect_rows('the deputy is a plain teacher again',
   format($q$update marks set score = 2 where exam_id = %L$q$, current_setting('t.exam')), 0);
 
+-- ---------------------------------------------------------------- school roles
+-- a role at the other school, made directly, for the cross-school check below
+reset role;
+with x as (
+  insert into school_roles (tenant_id, name, areas) values (current_setting('t.b')::uuid, 'Check Other Role', array['fees']) returning id
+) select set_config('t.role_b', x.id::text, true) from x;
+
+select pg_temp.act_as(current_setting('t.nurse'));
+set local role authenticated;
+select pg_temp.expect_error('someone who isn''t a full admin can''t create a role',
+  format($q$select save_school_role(null, %L, 'Check Sneaky', array['fees'])$q$, current_setting('t.a')), '42501');
+
+reset role;
+select pg_temp.act_as(current_setting('t.admin'));
+set local role authenticated;
+select set_config('t.role', save_school_role(null, current_setting('t.a')::uuid, 'Check Exams officer', array['academics', 'attendance'])::text, true);
+select pg_temp.check('the principal makes an Exams officer role', current_setting('t.role', true) <> '');
+select pg_temp.expect_error('two roles can''t share a name',
+  format($q$select save_school_role(null, %L, ' check exams OFFICER ', array['fees'])$q$, current_setting('t.a')), '23505');
+select pg_temp.expect_error('a role holds only known areas',
+  format($q$select save_school_role(null, %L, 'Check Settings', array['settings'])$q$, current_setting('t.a')), '22023');
+select pg_temp.expect_ok('and gives it to the plain teacher',
+  format($q$select set_staff_roles(%L, array[%L]::uuid[])$q$, current_setting('t.teacher'), current_setting('t.role')));
+select pg_temp.expect_error('roles are for teachers and other staff, not parents',
+  format($q$select set_staff_roles(%L, array[%L]::uuid[])$q$, current_setting('t.parent'), current_setting('t.role')), '22023');
+select pg_temp.expect_error('nobody gives themselves a role',
+  format($q$select set_staff_roles(%L, array[%L]::uuid[])$q$, current_setting('t.admin'), current_setting('t.role')), '42501');
+select pg_temp.expect_error('only this school''s roles',
+  format($q$select set_staff_roles(%L, array[%L]::uuid[])$q$, current_setting('t.teacher'), current_setting('t.role_b')), '22023');
+select pg_temp.check('each role change is in the audit trail',
+  exists (select 1 from audit_events where metadata->>'role_id' = current_setting('t.role'))
+  and exists (select 1 from audit_events where metadata->>'profile_id' = current_setting('t.teacher') and metadata ? 'roles_granted'));
+
+reset role;
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+select pg_temp.check('the teacher now holds the role''s areas', my_admin_areas() = array['academics', 'attendance']);
+select pg_temp.expect_rows('and edits marks in a class they don''t teach',
+  format($q$update marks set score = 70 where exam_id = %L$q$, current_setting('t.exam')), 1);
+select pg_temp.expect_error('a role holder can''t change the role',
+  format($q$select save_school_role(%L, %L, 'Check Exams officer', array['academics', 'fees'])$q$, current_setting('t.role'), current_setting('t.a')), '42501');
+select pg_temp.expect_error('or hand it to anyone',
+  format($q$select set_staff_roles(%L, array[%L]::uuid[])$q$, current_setting('t.recep'), current_setting('t.role')), '42501');
+
+reset role;
+select pg_temp.act_as(current_setting('t.admin'));
+set local role authenticated;
+select pg_temp.expect_ok('the principal takes academics out of the role',
+  format($q$select save_school_role(%L, %L, 'Check Exams officer', array['attendance'])$q$, current_setting('t.role'), current_setting('t.a')));
+
+reset role;
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+select pg_temp.expect_rows('editing the role changes the holder''s access at once: no more marks',
+  format($q$update marks set score = 71 where exam_id = %L$q$, current_setting('t.exam')), 0);
+select pg_temp.check('but attendance is still theirs', has_perm(current_setting('t.a')::uuid, 'attendance'));
+
+reset role;
+select pg_temp.act_as(current_setting('t.admin'));
+set local role authenticated;
+select pg_temp.expect_eq('deleting the role says how many people held it',
+  (select delete_school_role(current_setting('t.role')::uuid)), 1);
+
+reset role;
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+select pg_temp.check('and takes its areas away from them', not has_perm(current_setting('t.a')::uuid, 'attendance'));
+
 rollback;

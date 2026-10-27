@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, handlesVisitors, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
+import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -52,6 +52,8 @@ import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
 import { Activities } from "./screens/admin/Activities";
 import { AdminChats } from "./screens/admin/Chats";
+import { AreasHome } from "./screens/admin/AreasHome";
+import { AccessRoles } from "./screens/admin/AccessRoles";
 import { MyChats } from "./screens/chat/MyChats";
 import { useChatUnread } from "./lib/useChatUnread";
 
@@ -207,28 +209,29 @@ function TenantRoutes() {
       <TenantTheme tenant={session.tenant}>
       <CallHost profileId={session.profile.id}>
         <Routes>
-          <Route path="admin" element={<AdminShell allow={["school_admin"]}><AdminDashboard /></AdminShell>} />
-          <Route path="admin/people" element={<AdminShell allow={["school_admin"]}><People /></AdminShell>} />
-          <Route path="admin/fees" element={<AdminShell allow={["school_admin"]}><Fees /></AdminShell>} />
-          <Route path="admin/announcements" element={<AdminShell allow={["school_admin"]}><Announcements /></AdminShell>} />
-          <Route path="admin/fleet" element={<AdminShell allow={["school_admin"]}><DeliveryModeGate><Fleet /></DeliveryModeGate></AdminShell>} />
-          <Route path="admin/settings" element={<AdminShell allow={["school_admin"]}><TermSetup /></AdminShell>} />
-          <Route path="admin/classes" element={<AdminShell allow={["school_admin"]}><AdminClasses /></AdminShell>} />
-          <Route path="admin/subjects" element={<AdminShell allow={["school_admin"]}><AdminSubjects /></AdminShell>} />
-          <Route path="admin/courses" element={<AdminShell allow={["school_admin"]}><AdminCourses /></AdminShell>} />
-          <Route path="admin/reports" element={<AdminShell allow={["school_admin"]}><AdminReports /></AdminShell>} />
-          <Route path="admin/performance" element={<AdminShell allow={["school_admin"]}><K12Gate><Performance /></K12Gate></AdminShell>} />
-          <Route path="admin/leave" element={<AdminShell allow={["school_admin"]}><AdminLeave /></AdminShell>} />
-          <Route path="admin/inventory" element={<AdminShell allow={["school_admin"]}><AdminInventory /></AdminShell>} />
-          <Route path="admin/exams" element={<AdminShell allow={["school_admin"]}><AdminExams /></AdminShell>} />
-          <Route path="admin/papers" element={<AdminShell allow={["school_admin"]}><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
-          <Route path="admin/materials" element={<AdminShell allow={["school_admin"]}><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
-          <Route path="admin/report-cards" element={<AdminShell allow={["school_admin"]}><K12Gate><ReportCards /></K12Gate></AdminShell>} />
-          <Route path="admin/chats" element={<AdminShell allow={["school_admin"]}><AdminChats /></AdminShell>} />
-          <Route path="admin/account" element={<AdminShell allow={["school_admin"]}><AdminAccount /></AdminShell>} />
-          <Route path="admin/activities" element={<AdminShell allow={["school_admin"]}><Activities admin /></AdminShell>} />
-          <Route path="admin/visitors" element={<AdminShell allow={["school_admin"]}><AdminVisitors /></AdminShell>} />
-          <Route path="admin/bloom" element={<AdminShell allow={["school_admin"]}><BloomChat console="admin" /></AdminShell>} />
+          <Route path="admin" element={<AdminShell page="admin"><AdminHome /></AdminShell>} />
+          <Route path="admin/people" element={<AdminShell page="admin/people"><People /></AdminShell>} />
+          <Route path="admin/fees" element={<AdminShell page="admin/fees"><Fees /></AdminShell>} />
+          <Route path="admin/announcements" element={<AdminShell page="admin/announcements"><Announcements /></AdminShell>} />
+          <Route path="admin/fleet" element={<AdminShell page="admin/fleet"><DeliveryModeGate><Fleet /></DeliveryModeGate></AdminShell>} />
+          <Route path="admin/settings" element={<AdminShell page="admin/settings"><TermSetup /></AdminShell>} />
+          <Route path="admin/classes" element={<AdminShell page="admin/classes"><AdminClasses /></AdminShell>} />
+          <Route path="admin/subjects" element={<AdminShell page="admin/subjects"><AdminSubjects /></AdminShell>} />
+          <Route path="admin/courses" element={<AdminShell page="admin/courses"><AdminCourses /></AdminShell>} />
+          <Route path="admin/reports" element={<AdminShell page="admin/reports"><AdminReports /></AdminShell>} />
+          <Route path="admin/performance" element={<AdminShell page="admin/performance"><K12Gate><Performance /></K12Gate></AdminShell>} />
+          <Route path="admin/leave" element={<AdminShell page="admin/leave"><AdminLeave /></AdminShell>} />
+          <Route path="admin/inventory" element={<AdminShell page="admin/inventory"><AdminInventory /></AdminShell>} />
+          <Route path="admin/exams" element={<AdminShell page="admin/exams"><AdminExams /></AdminShell>} />
+          <Route path="admin/papers" element={<AdminShell page="admin/papers"><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
+          <Route path="admin/materials" element={<AdminShell page="admin/materials"><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
+          <Route path="admin/report-cards" element={<AdminShell page="admin/report-cards"><K12Gate><ReportCards /></K12Gate></AdminShell>} />
+          <Route path="admin/chats" element={<AdminShell page="admin/chats"><AdminChats /></AdminShell>} />
+          <Route path="admin/account" element={<AdminShell page="admin/account"><AdminAccount /></AdminShell>} />
+          <Route path="admin/activities" element={<AdminShell page="admin/activities"><Activities admin /></AdminShell>} />
+          <Route path="admin/visitors" element={<AdminShell page="admin/visitors"><AdminVisitors /></AdminShell>} />
+          <Route path="admin/bloom" element={<AdminShell page="admin/bloom"><BloomChat console="admin" /></AdminShell>} />
+          <Route path="admin/access" element={<AdminShell page="admin/access"><AccessRoles /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -394,21 +397,50 @@ function K12Gate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode }) => {
+/** The overview for full admins; a page of their own areas for a teacher or other staff member who holds some. */
+function AdminHome() {
+  const session = useTenantSession();
+  return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant) === "all" ? <AdminDashboard /> : <AreasHome />;
+}
+
+/** A teacher's own console home, relative to /s/<slug>/ (what the console switch links back to). */
+const teacherHome = (tenant: Tenant) => homeRouteFor("teacher", tenant.slug, tenant.institution_type).replace(`/s/${tenant.slug}/`, "");
+
+/**
+ * The admin console. Full admins (and an org admin acting for the school)
+ * get every page; a teacher or other staff member holding admin areas
+ * (20261030000000) gets exactly the pages of those areas, with a switch back
+ * to their own console. Anyone else, or a page outside their areas, goes home.
+ */
+const AdminShell = ({ page, children }: { page: string; children: ReactNode }) => {
   const session = useTenantSession();
   const nav = useNavigate();
+  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const full = access === "all";
   async function exitToOrganization() {
     const org = session.actingOrganization;
     if (org) await logOrganizationAccess(org.id, session.profile.id, "exited_school_console", session.tenant.id).catch(() => {});
     nav(org ? `/org/${org.slug}/schools/${session.tenant.id}` : "/signin");
   }
   const chatUnread = useChatUnread(session.tenant.id);
+  if (!mayOpenAdminPage(access, page)) {
+    const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
+    return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
+  }
+  const teacher = session.profile.role === "teacher";
   return (
-    <RoleGate allow={allow}>
+    <>
       <VisitAlertsListener />
       <ConsoleShell
         role="school_admin"
-        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? "Principal" }}
+        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
+        hiddenNav={full ? undefined : NAV.school_admin.map((i) => i.to).filter((to) => !mayOpenAdminPage(access, to))}
+        consoleSwitch={full ? undefined : {
+          current: "admin",
+          ownLabel: teacher ? roleLabel(session.tenant, "teacher") : "Staff",
+          ownTo: teacher ? teacherHome(session.tenant) : "staff",
+          adminTo: "admin",
+        }}
         actingBanner={session.actingForTenant && session.actingOrganization ? {
           orgName: session.actingOrganization.name,
           schoolName: session.tenant.name,
@@ -417,13 +449,13 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
         badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
       >
         {children}
-        <BloomFab console="admin" />
+        {full && <BloomFab console="admin" />}
       </ConsoleShell>
-    </RoleGate>
+    </>
   );
 };
 
-/** Other staff: notices, chats with colleagues, issued items, their account, and Visitors for those given the visitor log. */
+/** Other staff: notices, chats with colleagues, issued items, their account, and Visitors for those holding the visitors area. */
 const StaffShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
   const chatUnread = useChatUnread(session.tenant.id);
@@ -432,7 +464,8 @@ const StaffShell = ({ children }: { children: ReactNode }) => {
       <ConsoleShell
         role="staff"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Staff" }}
-        hiddenNav={handlesVisitors(session.profile) ? [] : ["staff/visitors"]}
+        hiddenNav={session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]}
+        consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
         badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
       >
         {children}
@@ -472,6 +505,9 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
         <ConsoleShell
           role="teacher"
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
+          consoleSwitch={showsAdminSwitch("teacher", session.adminAreas)
+            ? { current: "own", ownLabel: roleLabel(session.tenant, "teacher"), ownTo: teacherHome(session.tenant), adminTo: "admin" }
+            : undefined}
           badges={{
             ...(unread ? { "teacher/notices": String(unread) } : {}),
             ...(chatUnread ? { "teacher/chats": String(chatUnread) } : {}),

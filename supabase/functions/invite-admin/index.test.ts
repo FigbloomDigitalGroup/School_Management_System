@@ -252,6 +252,22 @@ describe("invite-admin handle", () => {
       assertMatch(admin.rowsIn("audit_events")[0].actor_label, /Jane Figbloom · people/);
     });
 
+    it("adds a teacher when people comes from a school role", async () => {
+      const { admin, asUser } = makeClients({ role: "teacher", callerTenantId: TENANT_ID });
+      admin.seed("school_roles", [{ id: "role-1", tenant_id: TENANT_ID, name: "Admissions", areas: ["people"] }]);
+      admin.seed("staff_role_assignments", [{ tenant_id: TENANT_ID, profile_id: SUPER_ADMIN_ID, role_id: "role-1" }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 200);
+    });
+
+    it("is refused when their role holds other areas only", async () => {
+      const { admin, asUser } = makeClients({ role: "teacher", callerTenantId: TENANT_ID });
+      admin.seed("school_roles", [{ id: "role-1", tenant_id: TENANT_ID, name: "Exams officer", areas: ["academics"] }]);
+      admin.seed("staff_role_assignments", [{ tenant_id: TENANT_ID, profile_id: SUPER_ADMIN_ID, role_id: "role-1" }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
     it("never adds an administrator", async () => {
       const { admin, asUser } = withArea("teacher", ["people"]);
       const res = await handle(request(validBody), { admin, asUser });
