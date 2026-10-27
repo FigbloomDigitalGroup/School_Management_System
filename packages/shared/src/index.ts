@@ -57,6 +57,7 @@ export * from "./ai";
 export * from "./calls";
 export * from "./performance";
 export * from "./performanceData";
+export * from "./chartMath";
 export * from "./activities";
 export * from "./visitors";
 export * from "./signatures";
