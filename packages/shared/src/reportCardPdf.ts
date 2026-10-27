@@ -1,4 +1,5 @@
 import { LineCapStyle, PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
+import { EVENT_LEVEL_LABEL, clubsLine } from "./activities";
 import { formatMoney } from "./fees";
 import type { ReportCardData } from "./reportCards";
 import { signatureDate, strokeBounds, strokesToSvgPath, type Stroke } from "./signatures";
@@ -33,6 +34,8 @@ export interface PrintableCard {
 
 const A4: [number, number] = [595.28, 841.89];
 const MARGIN = 40;
+/** A report card is not a trophy cabinet: past this many, "and N more". */
+const MAX_ACHIEVEMENTS = 8;
 /** Lowest a line of content may sit; the footer goes below it. */
 const BOTTOM = MARGIN + 6;
 const INK = rgb(0.11, 0.13, 0.12);
@@ -328,6 +331,31 @@ function drawCard(doc: PDFDocument, fonts: Fonts, card: PrintableCard, logo: PDF
     sheet.need(key.length * 10 + 8);
     sheet.y -= 12;
     for (const l of key) { sheet.text(l, MARGIN, 7.5, { color: MUTED }); sheet.y -= 10; }
+  }
+
+  // clubs and what they won this term; nothing at all when there's neither
+  const act = d.activities;
+  if (act && (act.clubs.length || act.achievements.length)) {
+    const clubs = act.clubs.length ? wrap(`Clubs and teams: ${clubsLine(act.clubs)}`, fonts.regular, 9, sheet.inner) : [];
+    const shown = act.achievements.slice(0, MAX_ACHIEVEMENTS);
+    const more = act.achievements.length - shown.length;
+    sheet.need(30 + clubs.length * 12 + Math.min(shown.length, 3) * 13);
+    sheet.y -= 16;
+    sheet.text("Activities and achievements", MARGIN, 10, { bold: true });
+    sheet.y -= 14;
+    for (const l of clubs) { sheet.need(12); sheet.text(l, MARGIN, 9); sheet.y -= 12; }
+    if (shown.length) sheet.y -= 2;
+    const resultW = 150;
+    for (const a of shown) {
+      sheet.need(13);
+      const level = a.level && a.level !== "school" ? ` (${EVENT_LEVEL_LABEL[a.level]})` : "";
+      sheet.text(shortDate(a.date), MARGIN, 8.5, { color: MUTED });
+      sheet.text(`${a.activity}: ${a.event}${level}`, MARGIN + 70, 8.5, { width: sheet.inner - 70 - resultW - 8 });
+      sheet.text(a.result, sheet.width - MARGIN, 8.5, { bold: true, align: "right", width: resultW });
+      sheet.y -= 13;
+    }
+    if (more > 0) { sheet.need(12); sheet.text(`and ${more} more`, MARGIN + 70, 8, { color: MUTED }); sheet.y -= 12; }
+    sheet.rule(sheet.y + 4);
   }
 
   // attendance, fees, next term

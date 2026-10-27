@@ -1,6 +1,6 @@
 /** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
 
-export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "guard" | "receptionist";
+export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "staff";
 
 export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
 
@@ -151,6 +151,8 @@ export interface Profile {
   must_change_password: boolean;
   /** A driver changed their own photo and no admin has looked at it yet. */
   photo_changed_at: string | null;
+  /** Other staff (role "staff") the office has given the visitor log (20261028100001); optional so rows read before it existed still type-check. */
+  handles_visitors?: boolean;
   created_at: string;
 }
 
@@ -287,7 +289,10 @@ export interface FeeInvoice {
   tenant_id: string;
   student_id: string;
   term_id: string;
+  /** Fees billed plus any charges (fee_charges): what is owed in all. */
   total_cents: number;
+  /** The part of total_cents that is charges (a lost textbook). Optional: older selects leave it out. */
+  charges_cents?: number;
   paid_cents: number;
   due_on: string;
   status: InvoiceStatus;

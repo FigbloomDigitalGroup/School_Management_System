@@ -1,8 +1,8 @@
 /**
  * Creates a staff account for a school: the first administrator during
  * onboarding (role: "school_admin", unchanged since this function's
- * original version), OR — new as of FIG-398 — a teacher, driver, gate guard
- * or receptionist, added by
+ * original version), OR — new as of FIG-398 — a teacher, driver or other
+ * staff member (librarian, matron, guard, ...; 20261028100001), added by
  * the school's own admin as routine day-to-day staffing rather than a
  * platform/org-owner-only action.
  *
@@ -31,15 +31,17 @@ import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
-const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "guard", "receptionist"]);
+const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "staff"]);
 
-const STAFF_WORD: Record<string, string> = { teacher: "Teacher", driver: "Driver", guard: "Guard", receptionist: "Receptionist" };
+const STAFF_WORD: Record<string, string> = { teacher: "Teacher", driver: "Driver", staff: "Staff member" };
 
 interface Body {
   tenant_id: string;
   full_name: string;
-  role?: "school_admin" | "teacher" | "driver" | "guard" | "receptionist";
+  role?: "school_admin" | "teacher" | "driver" | "staff";
   staff_title?: string;
+  /** Other staff only: they keep the visitor log. Ignored for every other role. */
+  handles_visitors?: boolean;
   /** Required when role is (the default) "school_admin" -- the login itself
    *  for that role. Optional contact info for teacher/driver, who sign in
    *  with an assigned login_id instead. */
@@ -150,6 +152,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     phone: phone ? normalisePhone(phone, tenant.country) : null,
     staff_title: role === "school_admin" ? (staffTitle || "Principal") : (staffTitle || null),
     login_id: loginId ?? null,
+    handles_visitors: role === "staff" && body.handles_visitors === true,
     // The handed-over password is only for getting in the first time (PasswordGate).
     must_change_password: true,
   });
@@ -165,7 +168,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     actor_label: callerProfile!.full_name ? `${callerProfile!.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: role === "school_admin"
       ? `First administrator ${full_name.trim()} added for ${tenant.name}`
-      : `${STAFF_WORD[role]} ${full_name.trim()} (${loginId}) added for ${tenant.name}`,
+      : `${STAFF_WORD[role]} ${full_name.trim()} (${role === "staff" && staffTitle ? `${staffTitle}, ` : ""}${loginId}) added for ${tenant.name}`,
     category: "provisioning",
   });
 

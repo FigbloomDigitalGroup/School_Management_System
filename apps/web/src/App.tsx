@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
+import { fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, handlesVisitors, homeRouteFor, logOrganizationAccess, roleLabel, subscribeAnnouncements, supabase, type Role } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
@@ -96,7 +96,7 @@ import { StudentItems } from "./screens/student/Items";
 
 import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
-import { Gate, Reception } from "./screens/frontdesk/Desk";
+import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { TeacherVisitors } from "./screens/teacher/Visitors";
 import { VisitAlertsListener } from "./components/visitors/Visits";
@@ -281,8 +281,15 @@ function TenantRoutes() {
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
           <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverProfile /></RoleGate>} />
 
-          <Route path="gate" element={<FrontDeskShell role="guard"><Gate /></FrontDeskShell>} />
-          <Route path="reception" element={<FrontDeskShell role="receptionist"><Reception /></FrontDeskShell>} />
+          <Route path="staff" element={<RoleGate allow={["staff"]}><StaffHome /></RoleGate>} />
+          <Route path="staff/visitors" element={<StaffShell><StaffVisitors /></StaffShell>} />
+          <Route path="staff/notices" element={<StaffShell><StaffNotices /></StaffShell>} />
+          <Route path="staff/chats" element={<StaffShell><MyChats role="staff" /></StaffShell>} />
+          <Route path="staff/items" element={<StaffShell><TeacherItems /></StaffShell>} />
+          <Route path="staff/account" element={<StaffShell><StaffAccount /></StaffShell>} />
+          {/* the old gate and reception consoles (before 20261028100001), for a desk left open on one */}
+          <Route path="gate" element={<Navigate to="../staff" replace />} />
+          <Route path="reception" element={<Navigate to="../staff" replace />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -416,14 +423,17 @@ const AdminShell = ({ allow, children }: { allow: Role[]; children: ReactNode })
   );
 };
 
-/** The gate and reception: one page each, in the console frame. */
-const FrontDeskShell = ({ role, children }: { role: "guard" | "receptionist"; children: ReactNode }) => {
+/** Other staff: notices, chats with colleagues, issued items, their account, and Visitors for those given the visitor log. */
+const StaffShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
+  const chatUnread = useChatUnread(session.tenant.id);
   return (
-    <RoleGate allow={[role]}>
+    <RoleGate allow={["staff"]}>
       <ConsoleShell
-        role={role}
-        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? (role === "guard" ? "Gate" : "Reception") }}
+        role="staff"
+        user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Staff" }}
+        hiddenNav={handlesVisitors(session.profile) ? [] : ["staff/visitors"]}
+        badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
       >
         {children}
       </ConsoleShell>

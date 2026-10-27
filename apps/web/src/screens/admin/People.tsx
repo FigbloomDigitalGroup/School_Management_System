@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, supabase } from "@figbloom/shared";
+import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, STAFF_TITLE_SUGGESTIONS, supabase } from "@figbloom/shared";
 import type { ArchivedLearner, ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Avatar, AvatarEditor } from "../../components/Avatar";
@@ -26,7 +26,7 @@ import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput 
 import { CallButton } from "../../components/calls/CallButton";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
-type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at"> & { avatar_url: string | null };
+type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
   { value: "birth_certificate", label: "Birth certificate" },
@@ -49,17 +49,23 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
   const sb = supabase();
   const { data: term } = await sb.from("terms").select("id").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<{ id: string }>();
 
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
+  const results = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "guard", "receptionist"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at,handles_visitors").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "staff"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
-      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
+      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[], error: null }),
     sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
     sb.from("teacher_subjects").select("teacher_id, subject_id").eq("tenant_id", tenantId).returns<{ teacher_id: string; subject_id: string }[]>(),
     sb.from("profiles").select("id,login_id").eq("tenant_id", tenantId).eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
   ]);
+  // A failed read must say so, not show up as an empty list: a column the
+  // database doesn't have yet (a migration not pushed) otherwise looks like
+  // "no staff".
+  const failed = results.find((r) => r.error);
+  if (failed?.error) throw new Error(failed.error.message);
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = results;
 
   const feeByStudent = new Map<string, { total: number; paid: number }>();
   for (const inv of invoicesRes.data ?? []) feeByStudent.set(inv.student_id, { total: inv.total_cents, paid: inv.paid_cents });
@@ -370,7 +376,7 @@ export function People() {
               { key: "name", header: "Staff", width: "1.8fr", render: (s: StaffRow) => (
                 <div className="flex items-center gap-2.5">
                   <Avatar id={s.id} name={s.full_name} url={avatarOverrides[s.id] ?? s.avatar_url} />
-                  <Cell sub={s.staff_title ?? undefined}>{s.full_name}</Cell>
+                  <Cell sub={[s.staff_title, s.handles_visitors ? "Visitor log" : null].filter(Boolean).join(" · ") || undefined}>{s.full_name}</Cell>
                   {s.photo_changed_at && (
                     <span className="shrink-0 rounded-full bg-warn-bg px-2 py-0.5 text-[11px] font-semibold text-warn-ink">New photo</span>
                   )}
@@ -869,11 +875,32 @@ function PhotoReview({ staff, onDone, toast }: { staff: StaffRow; onDone: (remov
 const STAFF_ROLE_OPTIONS = [
   { value: "teacher", label: "Teacher" },
   { value: "driver", label: "Driver" },
-  { value: "guard", label: "Gate guard" },
-  { value: "receptionist", label: "Receptionist" },
+  { value: "staff", label: "Other staff (librarian, matron, guard, …)" },
 ];
 
-/** Adds a teacher, driver, guard or receptionist (FIG-398/400) — no email, an assigned login_id
+/** The titles offered for other staff; any other can be typed. One list, shared by every title input on this page. */
+function StaffTitleSuggestions() {
+  return (
+    <datalist id="staff-title-suggestions">
+      {STAFF_TITLE_SUGGESTIONS.map((t) => <option key={t} value={t} />)}
+    </datalist>
+  );
+}
+
+/** The visitor log checkbox: other staff only, and only the office sets it (guard_profile_self_edit). */
+function HandlesVisitorsField({ checked, onChange }: { checked: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex items-start gap-2">
+      <input type="checkbox" className="mt-0.5" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "#17402A" }} />
+      <span className="text-[13px] leading-snug">
+        Keeps the visitor log
+        <span className="block text-[11.5px] text-ink-faint">Records visitors at the gate or the office, moves them along and escalates to the principal's office.</span>
+      </span>
+    </label>
+  );
+}
+
+/** Adds a teacher, driver or other staff member (FIG-398/400) — no email, an assigned login_id
  *  (e.g. "TC-0001") instead, shown once on success the same way every other
  *  credential-reveal modal in this app works. */
 function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
@@ -882,15 +909,22 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
+  const [handlesVisitors, setHandlesVisitors] = useState(false);
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<InviteStaffResult | null>(null);
+  const other = role === "staff";
 
   async function add() {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
+    // for other staff the title is the job: it's all that says what they do
+    if (other && !staffTitle.trim()) { toast("Give them a title, e.g. Librarian.", "error"); return; }
     setSaving(true);
     try {
-      const r = await inviteStaff({ tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined });
+      const r = await inviteStaff({
+        tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined,
+        ...(other ? { handles_visitors: handlesVisitors } : {}),
+      });
       setResult(r);
       onAdded();
     } catch (err) {
@@ -927,7 +961,15 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
         <div className="grid gap-3.5">
           <TextField id="staff-name" label="Full name" placeholder="e.g. Otieno Ouma" value={fullName} onChange={(e) => setFullName(e.target.value)} />
           <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as InviteStaffInput["role"])} options={STAFF_ROLE_OPTIONS} />
-          <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+          {other ? (
+            <>
+              <TextField id="staff-title" label="Title" placeholder="e.g. Librarian" list="staff-title-suggestions" hint="Pick one or type their own." value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+              <StaffTitleSuggestions />
+              <HandlesVisitorsField checked={handlesVisitors} onChange={setHandlesVisitors} />
+            </>
+          ) : (
+            <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+          )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
       )}
@@ -1167,16 +1209,20 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
   const [fullName, setFullName] = useState(staff.full_name);
   const [staffTitle, setStaffTitle] = useState(staff.staff_title ?? "");
   const [phone, setPhone] = useState(staff.phone ?? "");
+  const [handlesVisitors, setHandlesVisitors] = useState(!!staff.handles_visitors);
   const [saving, setSaving] = useState(false);
+  const other = staff.role === "staff";
 
   async function save() {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
+    if (other && !staffTitle.trim()) { toast("Give them a title, e.g. Librarian.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("profiles").update({
         full_name: fullName.trim(),
         staff_title: staffTitle.trim() || null,
         phone: phone.trim() || null,
+        ...(other ? { handles_visitors: handlesVisitors } : {}),
       }).eq("id", staff.id);
       if (error) throw error;
       toast("Details saved.");
@@ -1199,8 +1245,10 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
         </label>
         <label className="block">
           <span className="mb-1 block text-[11.5px] font-semibold">Title</span>
-          <input value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} placeholder="e.g. Class teacher"
+          <input value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} placeholder={other ? "e.g. Librarian" : "e.g. Class teacher"}
+            list={other ? "staff-title-suggestions" : undefined}
             className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
+          {other && <StaffTitleSuggestions />}
         </label>
         <label className="block">
           <span className="mb-1 block text-[11.5px] font-semibold">Phone</span>
@@ -1208,6 +1256,7 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
             className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
         </label>
       </div>
+      {other && <div className="mt-3"><HandlesVisitorsField checked={handlesVisitors} onChange={setHandlesVisitors} /></div>}
       <Button variant="primary" className="mt-3" onClick={() => void save()} disabled={saving}>
         {saving ? "Saving…" : "Save details"}
       </Button>

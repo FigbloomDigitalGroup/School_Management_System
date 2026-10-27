@@ -111,6 +111,13 @@ describe("delete-account handle", () => {
     assertEquals(admin.deletedUserIds, [TEACHER_ID]);
   });
 
+  it("removes other staff (a librarian, a guard) the same way", async () => {
+    const { admin, asUser } = makeClients({ targetRole: "staff" });
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals(admin.deletedUserIds, [TEACHER_ID]);
+  });
+
   it("translates a foreign-key violation into a friendly, non-blocking-looking error and keeps the profile", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextWrite("profiles", "update or delete on table \"profiles\" violates foreign key constraint \"attendance_taken_by_fkey\"");
