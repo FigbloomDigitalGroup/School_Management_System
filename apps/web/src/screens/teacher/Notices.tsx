@@ -18,8 +18,9 @@ const NOTICE_POLL_MS = 20_000;
  * Streams new announcements in real time (subscribeAnnouncements), with a
  * poll as a fallback — a reminder sent while this screen is already open
  * just appears, no navigating away and back, no page refresh.
+ * Other staff use the same screen with their own list (fetchStaffNotices).
  */
-export function TeacherNotices() {
+export function TeacherNotices({ load: fetchNotices = fetchTeacherNotices }: { load?: (profileId: string) => Promise<NoticeInfo[]> } = {}) {
   const { profile, tenant } = useTenantSession();
   const notifyRead = useNoticeRead();
   const [notices, setNotices] = useState<NoticeInfo[] | null>(null);
@@ -32,7 +33,7 @@ export function TeacherNotices() {
   useEffect(() => {
     let alive = true;
     const load = () => {
-      fetchTeacherNotices(profile.id)
+      fetchNotices(profile.id)
         .then((fresh) => {
           if (!alive) return;
           loadedOnce.current = true;
@@ -45,7 +46,7 @@ export function TeacherNotices() {
     const id = window.setInterval(load, NOTICE_POLL_MS);
     const unsubscribe = subscribeAnnouncements(tenant.id, load);
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
-  }, [profile.id, tenant.id]);
+  }, [profile.id, tenant.id, fetchNotices]);
 
   function open(id: string) {
     setSelectedId(id);
