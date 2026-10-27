@@ -1,12 +1,33 @@
-import { useState, type ReactNode } from "react";
-import { parseMarkdown, type Block, type Inline } from "@figbloom/shared";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { parseMarkdown, type AiChatSource, type Block, type Inline } from "@figbloom/shared";
+
+/** The answer's sources, for its [^n] markers. */
+const SourcesContext = createContext<AiChatSource[]>([]);
 
 /**
  * A Bloom reply's Markdown as React elements. Built from parseMarkdown's tree,
- * never dangerouslySetInnerHTML: whatever a model writes stays text.
+ * never dangerouslySetInnerHTML: whatever a model writes stays text. A [^n]
+ * marker links to the nth of `sources` (already http(s) only, parseChatSources).
  */
-export function Markdown({ source }: { source: string }) {
-  return <div className="flex flex-col gap-3 text-[13.5px] leading-relaxed">{parseMarkdown(source).map((b, i) => <BlockView key={i} block={b} />)}</div>;
+export function Markdown({ source, sources = [] }: { source: string; sources?: AiChatSource[] }) {
+  return (
+    <SourcesContext.Provider value={sources}>
+      <div className="flex flex-col gap-3 text-[13.5px] leading-relaxed">{parseMarkdown(source).map((b, i) => <BlockView key={i} block={b} />)}</div>
+    </SourcesContext.Provider>
+  );
+}
+
+function Cite({ n }: { n: number }) {
+  const src = useContext(SourcesContext)[n - 1];
+  if (!src?.url) return <sup className="text-[10px] text-ink-faint">[{n}]</sup>;
+  return (
+    <sup>
+      <a href={src.url} target="_blank" rel="noopener noreferrer" title={src.title} aria-label={`Source ${n}: ${src.title}`}
+        className="ml-0.5 rounded bg-sunken px-1 text-[10px] font-semibold text-accent no-underline hover:bg-accent hover:text-white">
+        {n}
+      </a>
+    </sup>
+  );
 }
 
 const HEADING_CLASS = ["", "text-[18px] font-semibold", "text-[16px] font-semibold", "text-[14.5px] font-semibold", "text-[13.5px] font-semibold"];
@@ -66,6 +87,7 @@ function InlineNode({ node }: { node: Inline }): ReactNode {
     case "code": return <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[12px]">{node.text}</code>;
     case "strong": return <strong className="font-semibold"><InlineView nodes={node.children} /></strong>;
     case "em": return <em><InlineView nodes={node.children} /></em>;
+    case "cite": return <Cite n={node.n} />;
     case "link": return <a href={node.href} target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2"><InlineView nodes={node.children} /></a>;
   }
 }

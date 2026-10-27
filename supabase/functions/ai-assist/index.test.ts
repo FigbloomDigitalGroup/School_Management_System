@@ -2,9 +2,9 @@ import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertMatch, assertStringIncludes, assertThrows } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
 import { fakePdf } from "./documents.test.ts";
-import { DAILY_LIMIT, handle, type AiSetup } from "./index.ts";
+import { chatWebSearch, DAILY_LIMIT, handle, type AiSetup } from "./index.ts";
 import type { AiReply, AiRequest } from "./providers.ts";
-import { BadInput, CHAT_MAX_TOTAL_CHARS, chatMessages, MAX_LEARNERS, prepare, tutorMessages } from "./tasks.ts";
+import { BadInput, CHAT_MAX_SEARCHES, CHAT_MAX_TOTAL_CHARS, chatMessages, MAX_LEARNERS, prepare, tutorMessages } from "./tasks.ts";
 
 const TENANT_ID = "tenant-1";
 
@@ -19,13 +19,13 @@ function makeClients(role = "teacher", tenant: Record<string, unknown> = {}) {
 }
 
 /** A fake model that records what it was asked and answers with `text`. */
-function fakeAi(text: string, outcome: AiReply["outcome"] = "ok") {
+function fakeAi(text: string, outcome: AiReply["outcome"] = "ok", extra: Pick<AiReply, "sources" | "searches"> = { sources: [], searches: 0 }) {
   const calls: AiRequest[] = [];
   const ai: AiSetup = {
     model: "test-model",
     call: (r) => {
       calls.push(r);
-      return Promise.resolve({ model: "test-model", outcome, text, inputTokens: 1200, outputTokens: 300 });
+      return Promise.resolve({ model: "test-model", outcome, text, inputTokens: 1200, outputTokens: 300, ...extra });
     },
   };
   return { ai, calls };
@@ -315,5 +315,80 @@ describe("ai-assist chat", () => {
     const withLongAnswer = chatMessages({ messages: [{ role: "user", content: "q" }, { role: "assistant", content: "y".repeat(50_000) }, { role: "user", content: "more" }] });
     assertEquals(withLongAnswer[1]!.content.length, 12_000);
     assertThrows(() => chatMessages({ messages: [{ role: "user", content: "z".repeat(12_001) }] }), BadInput);
+  });
+
+  it("doesn't re-send an earlier answer's source markers", () => {
+    const kept = chatMessages({ messages: [{ role: "user", content: "q" }, { role: "assistant", content: "Opens 5 Jan[^1][^2]." }, { role: "user", content: "more" }] });
+    assertEquals(kept[1]!.content, "Opens 5 Jan.");
+  });
+});
+
+describe("ai-assist chat web search", () => {
+  const askChat = (payload: Record<string, unknown>) =>
+    new Request("https://example.com/ai-assist", { method: "POST", headers: { Authorization: "Bearer x" }, body: JSON.stringify({ task: "chat", payload: { messages: [{ role: "user", content: "When does Term 1 2027 open?" }], ...payload } }) });
+  const SOURCES = [{ title: "MoE term dates", url: "https://www.education.go.ke/term-dates" }];
+
+  it("offers search by default, localised to Kenya, and tells the model how to use it", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    const { ai, calls } = fakeAi("Term 1 opens on 4 January 2027.[^1]", "ok", { sources: SOURCES, searches: 2 });
+    const res = await handle(askChat({}), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).result, { text: "Term 1 opens on 4 January 2027.[^1]", sources: SOURCES });
+    assertEquals(calls[0]!.webSearch, { maxUses: CHAT_MAX_SEARCHES, country: "KE", timezone: "Africa/Nairobi" });
+    assertStringIncludes(calls[0]!.system, "You can search the web");
+    assertStringIncludes(calls[0]!.system, "KNEC");
+    assertMatch(calls[0]!.system, /Never put a learner's name/);
+  });
+
+  it("counts the searches in the usage log and against the allowance", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    await handle(askChat({}), { admin, asUser, ai: fakeAi("ok", "ok", { sources: [], searches: 3 }).ai });
+    const usage = admin.rowsIn("ai_usage");
+    assertEquals([usage[0]!.task, usage[0]!.searches], ["chat", 3]);
+    const { data: used } = await admin.rpc("ai_month_tokens", { p_tenant_id: TENANT_ID });
+    assertEquals(used, 1200 + 300 + 3 * 2500);
+  });
+
+  it("logs searches a refused answer still ran", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    const res = await handle(askChat({}), { admin, asUser, ai: fakeAi("", "refused", { sources: [], searches: 1 }).ai });
+    assertEquals(res.status, 422);
+    assertEquals([admin.rowsIn("ai_usage")[0]!.outcome, admin.rowsIn("ai_usage")[0]!.searches], ["refused", 1]);
+  });
+
+  it("sends no tool when the person turned search off for the chat", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    const { ai, calls } = fakeAi("hi");
+    await handle(askChat({ webSearch: false }), { admin, asUser, ai });
+    assertEquals(calls[0]!.webSearch, null);
+    assert(!calls[0]!.system.includes("search the web"));
+    assertEquals(admin.rowsIn("ai_usage")[0]!.searches, undefined, "no searches column when nothing was offered");
+  });
+
+  it("sends no tool when the school switched web search off, whatever the toggle says", async () => {
+    const { admin, asUser } = makeClients("school_admin", { ai_web_search_enabled: false });
+    const { ai, calls } = fakeAi("hi");
+    await handle(askChat({ webSearch: true }), { admin, asUser, ai });
+    assertEquals(calls[0]!.webSearch, null);
+  });
+
+  it("never offers search to the study helper or a drafting task", async () => {
+    const tutor = makeClients("student");
+    tutor.admin.seed("students", [{ id: "s1", profile_id: "me", active: true, classes: { level: "primary", form_level: 5 } }]);
+    const t = fakeAi("A fraction is part of a whole.");
+    await handle(req("tutor", { messages: [{ role: "user", content: "What is a fraction?" }], webSearch: true }), { ...tutor, ai: t.ai });
+    assertEquals(t.calls[0]!.webSearch, null);
+    assert(!JSON.stringify(t.calls[0]).includes("search the web"));
+    assertEquals(tutor.admin.rowsIn("ai_usage")[0]!.searches, undefined);
+
+    const staff = makeClients("teacher");
+    const d = fakeAi(JSON.stringify({ subject: "Half term", body: "..." }));
+    await handle(req("message", { ...MESSAGE, webSearch: true }), { ...staff, ai: d.ai });
+    assertEquals(d.calls[0]!.webSearch, null);
+  });
+
+  it("localises to the school's own country", () => {
+    assertEquals(chatWebSearch({}, { country: "UG", ai_web_search_enabled: true }), { maxUses: CHAT_MAX_SEARCHES, country: "UG" });
+    assertEquals(chatWebSearch({}, { country: null })?.country, "KE");
   });
 });
