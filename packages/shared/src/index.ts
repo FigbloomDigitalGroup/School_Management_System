@@ -67,3 +67,4 @@ export * from "./inventory";
 export * from "./feeCharges";
 export * from "./otherStaff";
 export * from "./adminAreas";
+export * from "./medical";

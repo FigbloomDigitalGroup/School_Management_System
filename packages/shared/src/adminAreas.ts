@@ -29,7 +29,7 @@ export const ADMIN_AREA_INFO: Record<AdminArea, { label: string; allows: string 
   inventory: { label: "Inventory", allows: "Stock, and issuing and collecting items." },
   activities: { label: "Activities", allows: "Sports, clubs and their events, members and patrons." },
   visitors: { label: "Visitors", allows: "The visitor log at the gate and reception." },
-  medical: { label: "Medical", allows: "Read learners' health records. The sick bay arrives in a coming update." },
+  medical: { label: "Medical", allows: "The sick bay: visits, medication rounds, parents' medication requests and health reports, and learners' health records." },
   leave: { label: "Leave", allows: "Approve or decline staff leave requests." },
 };
 
@@ -143,7 +143,7 @@ export const ADMIN_AREA_PAGES: Record<AdminArea, { to: string; label: string }[]
   inventory: [{ to: "admin/inventory", label: "Inventory" }],
   activities: [{ to: "admin/activities", label: "Sports & activities" }],
   visitors: [{ to: "admin/visitors", label: "Visitors" }],
-  medical: [],
+  medical: [{ to: "admin/medical", label: "Sick bay" }],
   leave: [{ to: "admin/leave", label: "Leave requests" }],
 };
 
@@ -172,6 +172,7 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/activities": "activities",
   "admin/leave": "leave",
   "admin/visitors": "visitors",
+  "admin/medical": "medical",
   "admin/inventory": "inventory",
   "admin/fleet": "transport",
   "admin/reports": "full",

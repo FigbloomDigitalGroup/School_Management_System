@@ -14,10 +14,15 @@ import { DeskVisitors } from "../frontdesk/Desk";
  * area they hold is in the admin console, behind the "Staff | Admin" switch.
  */
 
-/** staff/: straight to the visitor log for those who keep it, notices for everyone else. */
+/**
+ * staff/: straight to the visitor log for those who keep it, the sick bay
+ * (in the admin console) for the nurse or matron, notices for everyone else.
+ */
 export function StaffHome() {
-  const { adminAreas } = useTenantSession();
-  return <Navigate to={adminAreas.includes("visitors") ? "visitors" : "notices"} replace />;
+  const { adminAreas, tenant } = useTenantSession();
+  if (adminAreas.includes("visitors")) return <Navigate to="visitors" replace />;
+  if (adminAreas.includes("medical")) return <Navigate to={`/s/${tenant.slug}/admin/medical`} replace />;
+  return <Navigate to="notices" replace />;
 }
 
 /** The visitor log, only for those holding the visitors area; the database refuses everyone else anyway (has_perm). */

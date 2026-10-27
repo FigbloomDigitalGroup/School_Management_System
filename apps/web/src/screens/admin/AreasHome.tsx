@@ -7,6 +7,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AttendanceDetail } from "./AttendanceDetail";
+import { OverdueMedication } from "../../components/medical/common";
 
 // Pages that only exist for one kind of school (ConsoleShell hides the same ones from the nav).
 const K12_ONLY = new Set(["admin/classes", "admin/subjects", "admin/exams", "admin/papers", "admin/report-cards", "admin/performance", "admin/materials"]);
@@ -46,11 +47,11 @@ export function AreasHome() {
                   </Link>
                 ))}
                 {area === "attendance" && <span className="text-[12px] text-ink-faint">Registers are below.</span>}
-                {area === "medical" && <Badge tone="muted">Sick bay coming soon</Badge>}
               </div>
             </section>
           ))}
         </div>
+        {adminAreas.includes("medical") && <div className="mt-5"><OverdueMedication tenantId={tenant.id} slug={tenant.slug} compact /></div>}
         {adminAreas.includes("attendance") && <LatestRegisters tenantId={tenant.id} />}
       </div>
     </>
