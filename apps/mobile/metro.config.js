@@ -30,14 +30,22 @@ const config = {
     // fallback for names that fail to resolve, and this one already
     // resolves (just to the wrong copy) — resolveRequest is the one hook
     // that overrides resolution unconditionally.
+    //
+    // react-native-svg is the same story at runtime: this app pins 15.8.0 (the
+    // native side that gets built), but lucide-react-native, hoisted at the
+    // root, asks for ^15.15.5 and gets that copy. Two JS copies register the
+    // same native views, and the app dies with "Tried to register two views
+    // with the same name RNSVGCircle" as soon as our own code imports it too.
     resolveRequest: (context, moduleName, platform) => {
-      if (moduleName === 'react-native-screens' || moduleName.startsWith('react-native-screens/')) {
-        const rest = moduleName.slice('react-native-screens'.length);
-        return context.resolveRequest(
-          context,
-          path.resolve(__dirname, 'node_modules/react-native-screens' + rest),
-          platform,
-        );
+      for (const pinned of ['react-native-screens', 'react-native-svg']) {
+        if (moduleName === pinned || moduleName.startsWith(pinned + '/')) {
+          const rest = moduleName.slice(pinned.length);
+          return context.resolveRequest(
+            context,
+            path.resolve(__dirname, 'node_modules/' + pinned + rest),
+            platform,
+          );
+        }
       }
       return context.resolveRequest(context, moduleName, platform);
     },

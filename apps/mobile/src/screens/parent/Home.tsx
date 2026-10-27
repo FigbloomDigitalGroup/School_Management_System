@@ -3,8 +3,10 @@ import { useNavigation } from "@react-navigation/native";
 import { dueWords, formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote, splitHomework } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren, useMessages, useTenantId, useTermLabel } from "../../data";
+import { ChildBioCard } from "../../components/ChildBioCard";
 import { ChildHealthCard } from "../../components/ChildHealthCard";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
+import { PendingSignatures } from "../../components/PendingSignatures";
 import { Skeleton } from "../../components/Skeleton";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useParentHomework } from "../../lib/useParentHomework";
@@ -59,6 +61,8 @@ export function ParentHome() {
             </TouchableOpacity>
           )}
         </View>
+
+        <PendingSignatures tint={tint} />
 
         <View style={[s.row, { marginTop: 16, gap: 10 }]}>
           {[
@@ -141,6 +145,8 @@ export function ParentHome() {
             </View>
           </TouchableOpacity>
         ))}
+
+        <ChildBioCard childId={child.id} childFirst={child.first} tint={tint} />
 
         <ChildHealthCard tenantId={tenantId} childId={child.id} childFirst={child.first} tint={tint} />
       </ScrollView>

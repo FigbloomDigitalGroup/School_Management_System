@@ -2,15 +2,19 @@ import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatMoney, formatShortDate, itemsForStudent } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
-import { useChild, useFeeItems, useTenantId, useTermLabel } from "../../data";
+import { useChild, useFeeItems, useParentProfileId, useTenantId, useTermLabel } from "../../data";
 import { PaymentMethodsCard, usePaymentMethods } from "../../components/PaymentMethods";
+import { PaymentProofCard } from "../../components/PaymentProofCard";
+import { InvoiceSignature } from "../../components/PendingSignatures";
 
 export function ParentFees() {
   const nav = useNavigation<any>();
   const { child, index, accent, country } = useChild();
   const feeItems = useFeeItems();
   const termLabel = useTermLabel();
-  const methods = usePaymentMethods(useTenantId());
+  const tenantId = useTenantId();
+  const profileId = useParentProfileId();
+  const methods = usePaymentMethods(tenantId);
   const items = itemsForStudent(feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel);
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
@@ -36,6 +40,8 @@ export function ParentFees() {
           </View>
           <Text style={[s.faint, { marginTop: 8 }]}>{formatMoney(paid, country)} paid of {formatMoney(child.billed, country)}</Text>
         </View>
+
+        {!!child.invoiceId && <InvoiceSignature invoiceId={child.invoiceId} />}
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>What this term covers</Text>
         <View style={s.card}>
@@ -75,6 +81,19 @@ export function ParentFees() {
             <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>How to pay</Text>
             <PaymentMethodsCard methods={methods} />
           </>
+        )}
+
+        {!!child.invoiceId && (
+          <PaymentProofCard
+            tenantId={tenantId}
+            invoiceId={child.invoiceId}
+            uploadedBy={profileId}
+            balanceCents={child.balance}
+            country={country}
+            school={{ paybill: methods?.paybill ?? null, till: methods?.till ?? null }}
+            tint={tint}
+            canSend={child.balance > 0}
+          />
         )}
 
         {child.balance > 0 && (

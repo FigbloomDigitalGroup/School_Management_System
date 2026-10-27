@@ -3,6 +3,7 @@ import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { accentFor, s } from "../../theme";
 import { useChild, useMarkMessageRead, useMessages } from "../../data";
 import { OwnerAttachments } from "../../components/MediaLinks";
+import { MessageToSign } from "../../components/PendingSignatures";
 
 export function ParentInbox() {
   const { index, accent } = useChild();
@@ -27,6 +28,7 @@ export function ParentInbox() {
           <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8, lineHeight: 26 }}>{open.subject}</Text>
           <Text style={[s.body, { marginTop: 16 }]}>{open.body}</Text>
           <OwnerAttachments owner="announcement" id={open.id} tint={tint} />
+          <MessageToSign announcementId={open.id} tint={tint} />
         </ScrollView>
       </View>
     );
