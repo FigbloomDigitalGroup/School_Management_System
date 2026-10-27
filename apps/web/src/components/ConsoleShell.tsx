@@ -82,7 +82,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
     // Only where the school has turned the study helper on (School settings -> AI).
-    if (item.to === "student/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
+    if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
     return true;
   });
   // Three link-prefix regimes, not two: /platform/* (super_admin, absolute

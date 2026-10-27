@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { askTutor, EdgeError, type TutorTurn } from "@figbloom/shared";
+import { AI_HELPER_REFUSAL_TEXT, askTutor, EdgeError, fetchAiHelperStatus, helperRefusal, type TutorTurn } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { Skeleton } from "../../components/ui/Skeleton";
+import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
 const STARTERS = [
@@ -17,6 +19,9 @@ const STARTERS = [
  * and it's switched off while an exam is open (the edge function decides;
  * see supabase/functions/ai-assist). The conversation lives only on this
  * page: nothing is stored, and leaving the page starts afresh.
+ *
+ * At a school that asks for a parent's opt-in, a learner without one is
+ * told to ask at home instead (helperRefusal(); ai-assist checks again).
  */
 export function StudyHelper() {
   const { tenant } = useTenantSession();
@@ -25,16 +30,32 @@ export function StudyHelper() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [blocked, setBlocked] = useState("");
+  const [refused, setRefused] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  const optInMode = tenant.ai_tutor_access === "opt_in";
+  const { data: mine, loading: checking } = useAsync(
+    () => (optInMode ? fetchAiHelperStatus(null) : Promise.resolve(null)), [optInMode, tenant.id]);
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [turns, busy]);
 
-  if (!tenant.ai_enabled || !tenant.ai_tutor_enabled) {
+  const refusal = helperRefusal({
+    aiEnabled: !!tenant.ai_enabled, tutorEnabled: !!tenant.ai_tutor_enabled,
+    access: optInMode ? "opt_in" : "all", optInActive: !!mine?.optInActive,
+  });
+  if (optInMode && checking && refusal !== "school_off") {
     return (
       <>
-        <PageHead eyebrow="Ask Bloom" title="Ask Bloom" />
+        <PageHead eyebrow="Study helper" title="Ask Bloom" />
+        <div className="mx-7 my-6 max-w-[560px]"><Skeleton className="h-14 rounded-lg" /></div>
+      </>
+    );
+  }
+  if (refusal || refused) {
+    return (
+      <>
+        <PageHead eyebrow="Study helper" title="Ask Bloom" />
         <p className="mx-7 my-6 max-w-[560px] rounded-lg border border-line bg-white px-4 py-4 text-[13px] text-ink-muted">
-          Your school hasn't turned on Bloom yet.
+          {refused || (refusal ? AI_HELPER_REFUSAL_TEXT[refusal] : "")}
         </p>
       </>
     );
@@ -57,6 +78,8 @@ export function StudyHelper() {
       setTurns(turns);
       setDraft(question);
       if (err instanceof EdgeError && err.status === 423) setBlocked(err.message);
+      // switched off, or the opt-in withdrawn, since the page opened
+      else if (err instanceof EdgeError && err.status === 403) setRefused(err.message);
       else setError(err instanceof Error ? err.message : "Bloom didn't answer. Try again.");
     } finally {
       setBusy(false);

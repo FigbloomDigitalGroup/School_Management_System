@@ -165,6 +165,8 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/report-cards": "academics",
   "admin/performance": "academics",
   "admin/fees": "fees",
+  // who has the study helper on and how much they use it (the bursar answers families about its charge)
+  "admin/study-helper": "fees",
   "admin/announcements": "communication",
   "admin/chats": "communication",
   "admin/activities": "activities",
