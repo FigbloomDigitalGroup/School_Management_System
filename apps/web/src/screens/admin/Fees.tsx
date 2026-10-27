@@ -16,6 +16,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
+import { TermReceipts } from "../../components/signatures/ReceiptSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
 import { BillTermModal, RecordPaymentModal, type PayableInvoice, type ProofToConfirm } from "./FeeCollection";
 
@@ -411,6 +412,12 @@ export function Fees() {
             />
           )}
         </div>
+
+        {data?.term && (
+          <div className="mt-4">
+            <TermReceipts termId={data.term.id} reloadKey={reloadKey} />
+          </div>
+        )}
       </div>
 
       {editingItems && data?.term && (
