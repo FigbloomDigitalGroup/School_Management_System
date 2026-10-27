@@ -43,6 +43,8 @@ export interface Tenant {
   ai_tutor_enabled?: boolean;
   /** Bloom chat may search the web (20261029100000); on unless the school turns it off. */
   ai_web_search_enabled?: boolean;
+  /** Every learner, or only those whose parent turned it on (20261101100000); "all" when missing. */
+  ai_tutor_access?: "all" | "opt_in";
   licensed_seats: number;
   payment_paybill: string | null;
   payment_till: string | null;

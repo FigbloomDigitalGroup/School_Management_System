@@ -54,6 +54,7 @@ export * from "./chat";
 export * from "./reportCards";
 export * from "./competencies";
 export * from "./ai";
+export * from "./aiHelper";
 export * from "./calls";
 export * from "./performance";
 export * from "./performanceData";

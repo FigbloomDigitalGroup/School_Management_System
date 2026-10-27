@@ -111,6 +111,57 @@ describe("ai-assist", () => {
     assertEquals(calls.length, 0);
   });
 
+  describe("study helper by parent opt-in", () => {
+    const ASK = { messages: [{ role: "user", content: "What is a fraction?" }] };
+    const learner = (tenant: Record<string, unknown>, optins: Record<string, unknown>[] = []) => {
+      const c = makeClients("student", { ai_tutor_access: "opt_in", ...tenant });
+      c.admin.seed("students", [{ id: "s1", profile_id: "me", active: true, classes: { level: "primary", form_level: 5 } }]);
+      c.admin.seed("terms", [{ id: "term-3", tenant_id: TENANT_ID, is_current: true }]);
+      c.admin.seed("ai_helper_optins", optins);
+      return c;
+    };
+
+    it("asks for a parent's opt-in, without calling the model or logging anything", async () => {
+      const { admin, asUser } = learner({});
+      const { ai, calls } = fakeAi("hi");
+      const res = await handle(req("tutor", ASK), { admin, asUser, ai });
+      assertEquals(res.status, 403);
+      const body = await res.json();
+      assertEquals(body.optIn, true);
+      assertStringIncludes(body.error, "Ask your parent or guardian");
+      assertEquals(calls.length, 0);
+      assertEquals(admin.rowsIn("ai_usage").length, 0);
+    });
+
+    it("answers once a parent has turned it on, and not once they turn it off", async () => {
+      const on = learner({}, [{ student_id: "s1", status: "on", term_id: "term-3" }]);
+      assertEquals((await handle(req("tutor", ASK), { ...on, ai: fakeAi("A fraction is part of a whole.").ai })).status, 200);
+      const off = learner({}, [{ student_id: "s1", status: "off", term_id: "term-3" }]);
+      assertEquals((await handle(req("tutor", ASK), { ...off, ai: fakeAi("hi").ai })).status, 403);
+    });
+
+    it("still keeps an opted-in learner out during an exam", async () => {
+      const { admin, asUser } = learner({}, [{ student_id: "s1", status: "on", term_id: "term-3" }]);
+      admin.tutorBlocked = "An exam for your class is open.";
+      const res = await handle(req("tutor", ASK), { admin, asUser, ai: fakeAi("hi").ai });
+      assertEquals(res.status, 423);
+      assertEquals((await res.json()).blocked, true);
+    });
+
+    it("once billing is on, needs this term's opt-in", async () => {
+      const { admin, asUser } = learner({ ai_helper_billing_enabled: true }, [{ student_id: "s1", status: "on", term_id: "term-2" }]);
+      assertEquals((await handle(req("tutor", ASK), { admin, asUser, ai: fakeAi("hi").ai })).status, 403);
+    });
+
+    it("stays shut if the check itself fails", async () => {
+      const { admin, asUser } = learner({}, [{ student_id: "s1", status: "on", term_id: "term-3" }]);
+      admin.failNextRpc("function ai_helper_allowed(uuid) does not exist");
+      const { ai, calls } = fakeAi("hi");
+      assertEquals((await handle(req("tutor", ASK), { admin, asUser, ai })).status, 503);
+      assertEquals(calls.length, 0);
+    });
+  });
+
   it("answers a learner in plain text, with the safeguarding prompt and their class level", async () => {
     const { admin, asUser } = makeClients("student");
     admin.seed("students", [{ id: "s1", profile_id: "me", active: true, classes: { level: "primary", form_level: 5 } }]);

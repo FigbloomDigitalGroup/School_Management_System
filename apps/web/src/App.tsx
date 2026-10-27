@@ -85,6 +85,8 @@ import { ParentInbox } from "./screens/parent/Inbox";
 import { ParentItems } from "./screens/parent/Items";
 import { ParentSettings } from "./screens/parent/Settings";
 import { ParentActivities } from "./screens/parent/Activities";
+import { ParentStudyHelper } from "./screens/parent/StudyHelper";
+import { AdminStudyHelper } from "./screens/admin/StudyHelper";
 
 import { StudentToday } from "./screens/student/Today";
 import { StudentTimetable } from "./screens/student/Timetable";
@@ -215,6 +217,7 @@ function TenantRoutes() {
           <Route path="admin" element={<AdminShell page="admin"><AdminHome /></AdminShell>} />
           <Route path="admin/people" element={<AdminShell page="admin/people"><People /></AdminShell>} />
           <Route path="admin/fees" element={<AdminShell page="admin/fees"><Fees /></AdminShell>} />
+          <Route path="admin/study-helper" element={<AdminShell page="admin/study-helper"><AdminStudyHelper /></AdminShell>} />
           <Route path="admin/announcements" element={<AdminShell page="admin/announcements"><Announcements /></AdminShell>} />
           <Route path="admin/fleet" element={<AdminShell page="admin/fleet"><DeliveryModeGate><Fleet /></DeliveryModeGate></AdminShell>} />
           <Route path="admin/settings" element={<AdminShell page="admin/settings"><TermSetup /></AdminShell>} />
@@ -271,6 +274,7 @@ function TenantRoutes() {
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
           <Route path="parent/activities" element={<ParentShell><ParentActivities /></ParentShell>} />
           <Route path="parent/health" element={<ParentShell><ParentHealth /></ParentShell>} />
+          <Route path="parent/study-helper" element={<ParentShell><ParentStudyHelper /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
