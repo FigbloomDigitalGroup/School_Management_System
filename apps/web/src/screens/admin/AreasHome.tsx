@@ -13,7 +13,7 @@ const K12_ONLY = new Set(["admin/classes", "admin/subjects", "admin/exams", "adm
 
 /**
  * The admin console's home for a teacher or other staff member holding some
- * admin areas (20261030000000). The full overview (fees collected, every
+ * admin areas (20261031000000). The full overview (fees collected, every
  * class's attendance, what needs the principal) is for full admins; this
  * lists what their areas let them do and takes them straight there. The
  * attendance area has no page of its own, so its work is here: every

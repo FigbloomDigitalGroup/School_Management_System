@@ -1,4 +1,4 @@
--- Admin area checks for 20261030000000_admin_areas and 20261030000001_admin_areas_policies.
+-- Admin area checks for 20261031000000_admin_areas and 20261031000001_admin_areas_policies.
 --
 -- Runs against a local database that has the migrations applied, inside one
 -- transaction that is rolled back. It makes its own two schools and people

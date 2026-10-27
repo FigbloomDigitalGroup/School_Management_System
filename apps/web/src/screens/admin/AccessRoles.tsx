@@ -34,7 +34,7 @@ async function fetchAccess(tenantId: string): Promise<AccessData> {
 }
 
 /**
- * Access & roles (full admins only, 20261030000000): the school's own roles,
+ * Access & roles (full admins only, 20261031000000): the school's own roles,
  * each a name and a set of admin areas ("Exams officer" = academics and
  * attendance), and who has admin access of their own. Roles are given to
  * people on their card in Students & staff. Changing a role's areas changes

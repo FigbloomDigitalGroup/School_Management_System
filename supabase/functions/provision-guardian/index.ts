@@ -13,7 +13,7 @@
  * the school's own school_admin -- the same three-way check invite-admin's
  * teacher/driver path uses (mirrors guardian_write's RLS shape, which this
  * function's service-role writes bypass, so the same logic is re-checked
- * here by hand rather than relied on). Since 20261030000000 a teacher or
+ * here by hand rather than relied on). Since 20261031000000 a teacher or
  * other staff member holding the people admin area passes too.
  */
 

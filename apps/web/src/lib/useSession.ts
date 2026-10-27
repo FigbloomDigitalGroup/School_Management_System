@@ -21,7 +21,7 @@ export interface Session {
    *  membership is what actually grants this access, and the "Exit to
    *  organization" link's destination. */
   actingOrganization: { id: string; name: string; slug: string } | null;
-  /** A teacher's or other staff member's admin areas (20261030000000): their
+  /** A teacher's or other staff member's admin areas (20261031000000): their
    *  own and their school roles'. Empty for everyone else; full admins don't
    *  need any (adminAccessFor). The database checks every one itself. */
   adminAreas: AdminArea[];

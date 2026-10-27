@@ -4,7 +4,7 @@
  * original version), OR — new as of FIG-398 — a teacher, driver or other
  * staff member (librarian, matron, guard, ...; 20261028100001), added by
  * the school's own admin as routine day-to-day staffing rather than a
- * platform/org-owner-only action. Since 20261030000000 a teacher or other
+ * platform/org-owner-only action. Since 20261031000000 a teacher or other
  * staff member holding the people admin area may add those too; only a full
  * admin path (Figbloom, the organization) ever creates an administrator.
  *
@@ -79,7 +79,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   // the school's OWN school_admin may also call this -- routine staffing is
   // the school's own day-to-day task, not something that should need an org
   // owner or Figbloom staff every time -- and so may a teacher or other staff
-  // member holding the people area (20261030000000). Every other caller role
+  // member holding the people area (20261031000000). Every other caller role
   // is rejected immediately, before any tenant lookup.
   const callerCouldQualify = callerProfile?.role === "super_admin"
     || callerProfile?.role === "org_admin"

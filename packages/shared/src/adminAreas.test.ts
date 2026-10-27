@@ -6,7 +6,7 @@ import {
 import { NAV } from "./auth";
 
 describe("admin areas", () => {
-  it("are the eleven the database knows (is_admin_area in 20261030000000)", () => {
+  it("are the eleven the database knows (is_admin_area in 20261031000000)", () => {
     expect([...ADMIN_AREAS]).toEqual([
       "people", "fees", "academics", "attendance", "transport", "communication",
       "inventory", "activities", "visitors", "medical", "leave",

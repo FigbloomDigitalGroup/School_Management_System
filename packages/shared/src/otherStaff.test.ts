@@ -4,7 +4,7 @@ import { adminAccessFor } from "./adminAreas";
 import { STAFF_TITLE_SUGGESTIONS } from "./otherStaff";
 
 describe("the visitor log", () => {
-  it("is the visitors admin area now, not a flag on the profile (20261030000000)", () => {
+  it("is the visitors admin area now, not a flag on the profile (20261031000000)", () => {
     expect(adminAccessFor("staff", ["visitors"])).toEqual(["visitors"]);
     expect(adminAccessFor("staff", [])).toEqual([]);
     // a teacher can hold it too now; parents and drivers never can

@@ -12,7 +12,7 @@
  * Same login_id + synthetic-email scheme as every other non-email role
  * (FIG-396/397's "ST-0001"), same random one-time password that must be
  * changed at first sign-in, same caller check as
- * invite-admin/provision-guardian (a full admin, or since 20261030000000 a
+ * invite-admin/provision-guardian (a full admin, or since 20261031000000 a
  * teacher or other staff member holding the people admin area).
  */
 

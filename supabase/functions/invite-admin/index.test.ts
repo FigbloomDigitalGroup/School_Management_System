@@ -238,7 +238,7 @@ describe("invite-admin handle", () => {
     });
   });
 
-  describe("a teacher or other staff member with the people area (20261030000000)", () => {
+  describe("a teacher or other staff member with the people area (20261031000000)", () => {
     function withArea(role: string, areas: string[], tenantId = TENANT_ID) {
       const clients = makeClients({ role, callerTenantId: tenantId });
       clients.admin.seed("staff_permissions", areas.map((area) => ({ tenant_id: tenantId, profile_id: SUPER_ADMIN_ID, area })));

@@ -68,7 +68,7 @@ describe("delete-account handle", () => {
     assertEquals(res.status, 403);
   });
 
-  describe("a teacher or other staff member with the people area (20261030000000)", () => {
+  describe("a teacher or other staff member with the people area (20261031000000)", () => {
     function withPeople(targetRole = "teacher") {
       const clients = makeClients({ role: "staff", targetRole });
       clients.admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "people" }]);

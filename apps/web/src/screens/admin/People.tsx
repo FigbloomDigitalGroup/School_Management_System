@@ -100,7 +100,7 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
 export function People() {
   const toast = useToast();
   const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
-  // Admin access (20261030000000) is managed by full admins only; someone here through the people area manages records, not access.
+  // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
   const fullAdmin = adminAccessFor(profile.role, adminAreas, actingForTenant) === "all";
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [query, setQuery] = useState("");

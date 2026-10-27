@@ -1,5 +1,5 @@
 -- Other staff checks for 20261028100001_other_staff (the visitor log is the
--- visitors admin area since 20261030000000; supabase/rls-checks/permissions.sql
+-- visitors admin area since 20261031000000; supabase/rls-checks/permissions.sql
 -- checks the areas themselves).
 --
 -- Runs against a local database that has the migrations applied and

@@ -7,7 +7,7 @@ import { Button } from "./ui/Button";
 import type { ToastFn } from "./ui/Toast";
 
 /**
- * Admin areas (20261030000000), as the office sees them: a tick per area with
+ * Admin areas (20261031000000), as the office sees them: a tick per area with
  * what it allows in plain words. Areas that come from a role the person holds
  * show as ticked and locked, with the role named, so it's clear why.
  */

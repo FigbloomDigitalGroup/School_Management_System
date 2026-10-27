@@ -48,7 +48,7 @@ export async function handle(req: Request, { admin, asUser }: Deps, fetchImpl: t
   if (!announcement) return json({ error: "That announcement could not be found." }, 404);
 
   const { data: caller } = await admin.from("profiles").select("id, role, tenant_id").eq("id", user.id).maybeSingle();
-  // other staff send notices with the communication area (20261030000000)
+  // other staff send notices with the communication area (20261031000000)
   const allowed = caller?.role === "super_admin"
     || (caller?.tenant_id === announcement.tenant_id && (caller?.role === "school_admin" || caller?.role === "teacher"))
     || (!!caller && await holdsArea(admin, caller, announcement.tenant_id, "communication"));

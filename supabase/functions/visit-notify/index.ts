@@ -2,7 +2,7 @@
  * Pushes a visitor to the phones of whoever needs to know: the member of
  * staff they came to see, and every school admin once the visit is
  * escalated (20261027010001_gate_reception.sql). Called by the visitor log
- * (whoever holds the visitors admin area, 20261030000000) and the office right
+ * (whoever holds the visitors admin area, 20261031000000) and the office right
  * after they record a visit or escalate one, the same way the announcement
  * composer calls send-push.
  *

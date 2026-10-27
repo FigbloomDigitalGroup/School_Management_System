@@ -10,7 +10,7 @@ import { DeskVisitors } from "../frontdesk/Desk";
  * The other staff console (role "staff"): the librarian, the matron, the
  * nurse, the cook. Small on purpose -- notices, what the school has issued
  * them, their own account -- plus the visitor log for those holding the
- * visitors admin area (20261030000000; handles_visitors before it). Any other
+ * visitors admin area (20261031000000; handles_visitors before it). Any other
  * area they hold is in the admin console, behind the "Staff | Admin" switch.
  */
 

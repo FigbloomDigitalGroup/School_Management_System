@@ -16,7 +16,7 @@
  * is actually gone does the login itself get removed -- at that point
  * nothing references it, so it's a plain, unconditional delete.
  *
- * Since 20261030000000 a teacher or other staff member holding the people
+ * Since 20261031000000 a teacher or other staff member holding the people
  * admin area may remove teachers, drivers and other staff too; removing an
  * administrator stays with full admins.
  */

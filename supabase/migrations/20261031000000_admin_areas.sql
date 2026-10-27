@@ -80,7 +80,7 @@
 -- invite-admin still deployed from before this sets it on new staff); see
 -- the comment on it below.
 --
--- 20261030000001 moves each area's policies and functions from
+-- 20261031000001 moves each area's policies and functions from
 -- may_administer to has_perm, with the full mapping in its header.
 
 -- ---------------------------------------------------------------- areas
@@ -437,13 +437,13 @@ on conflict (profile_id, area) do nothing;
 
 -- Holds the visitor log at their own school. Kept (rather than dropped)
 -- because 20261027010001's policies and pickers were written against it;
--- 20261030000001 moves those to has_perm(..., 'visitors') directly.
+-- 20261031000001 moves those to has_perm(..., 'visitors') directly.
 create or replace function is_front_desk() returns boolean
 language sql stable security definer set search_path = public as $$
   select has_perm(my_tenant(), 'visitors')
 $$;
 
 comment on column profiles.handles_visitors is
-  'Deprecated (20261030000000): the visitor log is the visitors area in staff_permissions. '
+  'Deprecated (20261031000000): the visitor log is the visitors area in staff_permissions. '
   'Nothing reads this any more; it is kept only so an invite-admin deployed before that migration can still insert staff. '
-  'Drop it once every deployed function is past 20261030000000.';
+  'Drop it once every deployed function is past 20261031000000.';

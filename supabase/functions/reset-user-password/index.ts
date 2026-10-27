@@ -8,7 +8,7 @@
  *  - an org admin, for anyone at a school their organization owns
  *  - a parent, for their own child's learner login only
  *  - a teacher or other staff member holding the people admin area
- *    (20261030000000), for learners, parents, teachers, drivers and other
+ *    (20261031000000), for learners, parents, teachers, drivers and other
  *    staff at their school who hold no admin area themselves: taking over
  *    an account with more access than your own is never a password away
  *

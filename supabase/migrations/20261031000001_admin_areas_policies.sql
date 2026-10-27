@@ -1,5 +1,5 @@
 -- Each admin area's policies and functions move from may_administer to
--- has_perm(tenant, '<area>') (20261030000000).
+-- has_perm(tenant, '<area>') (20261031000000).
 --
 -- has_perm() is may_administer() OR a grant, so nothing a full admin (the
 -- school_admin role, an org admin, a super admin) could do changes; a
@@ -119,7 +119,7 @@
 --   activities     may_manage_activity, activities_consistent
 --   leave          guard_leave_review
 --   visitors       visit_hosts, visit_find_learners (is_front_desk() is in
---                  20261030000000)
+--                  20261031000000)
 --   full admin     set_school_details, set_school_accent, set_school_logo,
 --   (unchanged)    set_school_payment_methods, set_ai_settings (both the
 --                  4-argument one from 20261029100000 and the older 3)
@@ -816,7 +816,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   -- service role (edge functions, seeds) and anyone administering this school
   if auth.uid() is null or may_administer(old.tenant_id)
-     -- the people area (20261030000001): someone else's record, never a
+     -- the people area (20261031000001): someone else's record, never a
      -- full admin's, and never making anyone one
      or (old.id <> auth.uid() and has_perm(old.tenant_id, 'people')
          and old.role in ('teacher', 'staff', 'driver', 'parent', 'student')

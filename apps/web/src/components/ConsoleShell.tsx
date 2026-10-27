@@ -39,7 +39,7 @@ interface Props {
   actingBanner?: { orgName: string; schoolName: string; onExit: () => void };
   /** NAV entries this person doesn't get, e.g. Visitors for other staff without the visitor log. */
   hiddenNav?: string[];
-  /** A teacher or other staff member who also holds admin areas (20261030000000):
+  /** A teacher or other staff member who also holds admin areas (20261031000000):
    *  a "Teacher | Admin" switch between their own console and the admin one. */
   consoleSwitch?: { current: "own" | "admin"; ownLabel: string; ownTo: string; adminTo: string };
 }

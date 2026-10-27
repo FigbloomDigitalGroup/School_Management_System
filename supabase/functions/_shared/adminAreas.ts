@@ -1,5 +1,5 @@
 /**
- * Admin areas (20261030000000): a teacher or other staff member can hold
+ * Admin areas (20261031000000): a teacher or other staff member can hold
  * parts of the admin console (people, fees, ...), granted by a full admin.
  * The functions here run as the service role, where has_perm() has no
  * auth.uid() to answer for, so they read staff_permissions directly with

@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 import type { Role } from "./types";
 
 /**
- * Admin access by area (20261030000000). Full admins (the school_admin role,
+ * Admin access by area (20261031000000). Full admins (the school_admin role,
  * org admins, super admins) have the whole admin console. A teacher or other
  * staff member can additionally hold areas, each opening one part of it: the
  * deputy keeps their teacher login and gains the admin screens their areas

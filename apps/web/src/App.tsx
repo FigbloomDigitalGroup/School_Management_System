@@ -409,7 +409,7 @@ const teacherHome = (tenant: Tenant) => homeRouteFor("teacher", tenant.slug, ten
 /**
  * The admin console. Full admins (and an org admin acting for the school)
  * get every page; a teacher or other staff member holding admin areas
- * (20261030000000) gets exactly the pages of those areas, with a switch back
+ * (20261031000000) gets exactly the pages of those areas, with a switch back
  * to their own console. Anyone else, or a page outside their areas, goes home.
  */
 const AdminShell = ({ page, children }: { page: string; children: ReactNode }) => {

@@ -119,7 +119,7 @@ describe("reset-user-password handle", () => {
     assertEquals(res.status, 403);
   });
 
-  describe("a teacher or other staff member with the people area (20261030000000)", () => {
+  describe("a teacher or other staff member with the people area (20261031000000)", () => {
     function withSecretary() {
       const clients = makeClients("secretary");
       clients.admin.seed("profiles", [
