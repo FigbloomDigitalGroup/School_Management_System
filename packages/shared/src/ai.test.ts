@@ -11,7 +11,7 @@ const [card] = buildReportCards({
   marks: [{ studentId: "s1", examId: "end", subjectId: "m", subjectName: "Maths", subjectCode: "MAT", score: 72 }],
   attendance: new Map([["s1", { present: 50, days: 60 }]]),
   fees: new Map([["s1", { billedCents: 4_500_000, paidCents: 0 }]]),
-  options: { showPosition: true, showAttendance: true, showFees: true, nextTermBegins: null },
+  options: { showPosition: true, showAttendance: true, showFees: true, showActivities: true, nextTermBegins: null },
   today: "2026-08-08",
 });
 

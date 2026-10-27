@@ -490,6 +490,116 @@ export async function loadLearnerActivities(tenantId: string, studentId: string,
   };
 }
 
+// ---------------------------------------------------------------- one term, for report cards
+
+/** A learner's clubs and what they won in one term: the report card's activities section. */
+export interface TermActivities {
+  /** Clubs, teams and societies they were in by the end of the term, by name, with their role. */
+  clubs: { name: string; role: string | null }[];
+  /** Medals, places and awards at events held in the term, oldest first. */
+  achievements: { date: string; activity: string; event: string; level: EventLevel | null; result: string }[];
+}
+
+export interface TermActivityRows {
+  memberships: { studentId: string; activityName: string; activityActive: boolean; role: string | null; joinedOn: string }[];
+  events: (Pick<ActivityEventRow, "id" | "title" | "level" | "startsAt" | "status" | "score" | "outcome" | "position"> & { activityName: string })[];
+  participants: { studentId: string; eventId: string; award: Award | null; position: number | null; achievement: string | null }[];
+}
+
+/** The day an event falls on where the office is, as YYYY-MM-DD (term dates are local days). */
+const localDay = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+/**
+ * Each learner's term on the report card, keyed by learner. A learner with
+ * no club and nothing won has no entry at all, so their card has no section.
+ *
+ * A club counts if it is still running and they had joined by the term's
+ * last day. An achievement is their own medal, place or award at an event
+ * dated in the term (what their profile shows), or, when they took part
+ * without one, their team's win or podium place. Losses and cancelled events
+ * are left off: this is a record of what they achieved.
+ */
+export function termActivities(rows: TermActivityRows, term: { startsOn: string; endsOn: string }): Map<string, TermActivities> {
+  const out = new Map<string, TermActivities>();
+  const entry = (id: string) => {
+    let e = out.get(id);
+    if (!e) { e = { clubs: [], achievements: [] }; out.set(id, e); }
+    return e;
+  };
+
+  for (const m of rows.memberships) {
+    if (m.activityActive && m.joinedOn <= term.endsOn) entry(m.studentId).clubs.push({ name: m.activityName, role: m.role?.trim() || null });
+  }
+
+  const events = new Map(rows.events
+    .filter((e) => e.status !== "cancelled")
+    .map((e) => [e.id, { ...e, day: localDay(e.startsAt) }] as const)
+    .filter(([, e]) => e.day >= term.startsOn && e.day <= term.endsOn));
+  for (const p of rows.participants) {
+    const e = events.get(p.eventId);
+    if (!e) continue;
+    const teamPlaced = e.status === "completed" && (e.outcome === "won" || (e.position !== null && e.position <= 3));
+    const result = isAchievement(p) ? achievementLabel(p) : teamPlaced ? eventResultLabel(e) : "";
+    if (result) entry(p.studentId).achievements.push({ date: e.day, activity: e.activityName, event: e.title, level: e.level, result });
+  }
+
+  for (const e of out.values()) {
+    e.clubs.sort((a, b) => a.name.localeCompare(b.name));
+    e.achievements.sort((a, b) => a.date.localeCompare(b.date) || a.event.localeCompare(b.event));
+  }
+  return out;
+}
+
+/** "Football (Captain), Drama club": a card's clubs on one line. */
+export function clubsLine(clubs: TermActivities["clubs"]): string {
+  return clubs.map((c) => (c.role ? `${c.name} (${c.role})` : c.name)).join(", ");
+}
+
+/** Every learner's clubs and achievements for one term, for a class's report cards. Staff only (the rows are per learner). */
+export async function loadTermActivities(
+  tenantId: string, studentIds: string[], term: { startsOn: string; endsOn: string },
+): Promise<Map<string, TermActivities>> {
+  if (!studentIds.length) return new Map();
+  const sb = supabase();
+  // A day either side, since starts_at is a moment and the term's days are local; termActivities() trims to the days.
+  const from = new Date(`${term.startsOn}T00:00:00`);
+  from.setDate(from.getDate() - 1);
+  const to = new Date(`${term.endsOn}T00:00:00`);
+  to.setDate(to.getDate() + 2);
+  const [activities, members, { data: events, error: eErr }] = await Promise.all([
+    fetchActivities(tenantId),
+    fetchAllPages<{ student_id: string; activity_id: string; role: string | null; joined_on: string }>((f, t) =>
+      sb.from("activity_members").select("student_id, activity_id, role, joined_on").in("student_id", studentIds)
+        .order("student_id").order("activity_id").range(f, t)
+        .returns<{ student_id: string; activity_id: string; role: string | null; joined_on: string }[]>()),
+    sb.from("activity_events").select(EVENT_COLUMNS).eq("tenant_id", tenantId)
+      .gte("starts_at", from.toISOString()).lt("starts_at", to.toISOString()).neq("status", "cancelled")
+      .returns<EventDb[]>(),
+  ]);
+  if (eErr) throw new Error(eErr.message);
+  const eventIds = (events ?? []).map((e) => e.id);
+  type PartDb = { student_id: string; event_id: string; award: Award | null; position: number | null; achievement: string | null };
+  const parts = eventIds.length
+    ? await fetchAllPages<PartDb>((f, t) =>
+        sb.from("activity_event_participants").select("student_id, event_id, award, position, achievement")
+          .in("event_id", eventIds).in("student_id", studentIds).order("event_id").order("student_id").range(f, t)
+          .returns<PartDb[]>())
+    : [];
+
+  const byId = new Map(activities.map((a) => [a.id, a]));
+  return termActivities({
+    memberships: members.filter((m) => byId.has(m.activity_id)).map((m) => ({
+      studentId: m.student_id, activityName: byId.get(m.activity_id)!.name, activityActive: byId.get(m.activity_id)!.active,
+      role: m.role, joinedOn: m.joined_on,
+    })),
+    events: (events ?? []).map(toEvent).map((e) => ({ ...e, activityName: byId.get(e.activityId)?.name ?? "Activity" })),
+    participants: parts.map((p) => ({ studentId: p.student_id, eventId: p.event_id, award: p.award, position: p.position, achievement: p.achievement })),
+  }, term);
+}
+
 // ---------------------------------------------------------------- writing
 
 export async function createActivity(tenantId: string, input: ActivityInput): Promise<string> {
