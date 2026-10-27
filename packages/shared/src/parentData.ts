@@ -184,7 +184,9 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   const [{ data: term }, { data: invoiceRows }, { data: attendanceRows }, examsByStudent] = await Promise.all([
     supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle(),
     studentIds.length
-      ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on").in("student_id", studentIds)
+      // The current term's invoice only: invoices are keyed by child below, so
+      // once a second term is billed any term's balance could otherwise win.
+      ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on, terms!inner(is_current)").in("student_id", studentIds).eq("terms.is_current", true)
       : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
     studentIds.length
       ? supabase().from("attendance").select("student_id, mark, taken_on").in("student_id", studentIds)
