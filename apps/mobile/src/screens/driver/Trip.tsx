@@ -7,6 +7,7 @@ import {
 import { accentFor, s, t } from "../../theme";
 import { queue } from "../../storage";
 import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
+import { ReportBreakdown } from "./ReportBreakdown";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
 
@@ -233,6 +234,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
                 {held} location update{held === 1 ? "" : "s"} saved on this phone, sending when you have signal
               </Text>
             )}
+
+            <ReportBreakdown tripId={trip.id} lat={lastPing?.lat ?? null} lng={lastPing?.lng ?? null} />
 
             <TouchableOpacity
               disabled={ending}

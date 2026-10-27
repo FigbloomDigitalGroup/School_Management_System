@@ -24,6 +24,8 @@ interface Ctx {
   markNoticeRead: (id: string) => void;
   accent: string;
   country: string;
+  /** The learner's school, for the loaders that are scoped to it (their activities). */
+  tenantId: string;
 }
 
 type State =
@@ -101,7 +103,7 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
   }
 
   return (
-    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, markNoticeRead: markRead, accent, country }}>
+    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, markNoticeRead: markRead, accent, country, tenantId }}>
       {children}
     </StudentDataCtx.Provider>
   );

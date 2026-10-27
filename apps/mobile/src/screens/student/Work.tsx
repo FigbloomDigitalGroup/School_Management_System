@@ -4,6 +4,7 @@ import { useNavigation } from "@react-navigation/native";
 import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { LinkCard } from "../../components/LinkCard";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 
 const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
@@ -64,6 +65,10 @@ export function StudentWork() {
           </View>
           <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>Open ›</Text>
         </TouchableOpacity>
+
+        <LinkCard label="Sports & activities" blurb="Your clubs and teams, what's coming up, and what you've won." tint={a.deep} to="Activities" />
+        <LinkCard label="My items" blurb="Books and equipment the school has lent you, and when to bring them back." tint={a.deep} to="Items" />
+        <View style={{ height: 12 }} />
 
         {work.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>

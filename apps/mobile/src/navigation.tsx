@@ -25,6 +25,10 @@ import { StudentAccount } from "./screens/student/Account";
 import { DriverTrip } from "./screens/driver/Trip";
 import { ChatList } from "./screens/chat/ChatList";
 import { ChatThread } from "./screens/chat/ChatThread";
+import { ParentActivities } from "./screens/parent/Activities";
+import { ParentItems } from "./screens/parent/Items";
+import { StudentActivities } from "./screens/student/Activities";
+import { StudentItems } from "./screens/student/Items";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -67,6 +71,9 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           {/* Chats open from a Home card, with the thread one level down. */}
           <Stack.Screen name="Chats" component={ParentChats} />
           <Stack.Screen name="ChatThread" component={ParentChatThread} />
+          {/* Sports and issued items open from Home cards too. */}
+          <Stack.Screen name="Activities" component={ParentActivities} />
+          <Stack.Screen name="Items" component={ParentItems} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -78,6 +85,8 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           {/* Chats open from a Today card, with the thread one level down. */}
           <Stack.Screen name="Chats" component={StudentChats} />
           <Stack.Screen name="ChatThread" component={StudentChatThread} />
+          <Stack.Screen name="Activities" component={StudentActivities} />
+          <Stack.Screen name="Items" component={StudentItems} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
