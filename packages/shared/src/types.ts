@@ -289,7 +289,10 @@ export interface FeeInvoice {
   tenant_id: string;
   student_id: string;
   term_id: string;
+  /** Fees billed plus any charges (fee_charges): what is owed in all. */
   total_cents: number;
+  /** The part of total_cents that is charges (a lost textbook). Optional: older selects leave it out. */
+  charges_cents?: number;
   paid_cents: number;
   due_on: string;
   status: InvoiceStatus;

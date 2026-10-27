@@ -4,6 +4,7 @@ import { gradeFor, pointsFor, summarise } from "./grading";
 import { gradingSchemeFor, rubricFor, type GradingSchemeId } from "./gradingSchemes";
 import { loadPublishedCbeResults } from "./cbeData";
 import { fetchCompetencyRatings, ratedItems, type RatedItem } from "./competencies";
+import { loadTermActivities, type TermActivities } from "./activities";
 import type { ClassLevel } from "./types";
 
 /**
@@ -73,6 +74,11 @@ export interface ReportCardData {
   rubric?: { code: string; label: string }[] | null;
   attendance: { present: number; days: number } | null;
   fees: { billedCents: number; paidCents: number } | null;
+  /**
+   * Clubs and achievements in the term (activities.ts termActivities).
+   * Absent on older cards and null for a learner with neither: no section then.
+   */
+  activities?: TermActivities | null;
   classTeacher: string | null;
   nextTermBegins: string | null;
   preparedOn: string;
@@ -82,13 +88,15 @@ export interface ReportCardOptions {
   showPosition: boolean;
   showAttendance: boolean;
   showFees: boolean;
+  /** Clubs and achievements in the term; a learner with none gets no section either way. */
+  showActivities: boolean;
   /** YYYY-MM-DD, or null to leave it off. */
   nextTermBegins: string | null;
 }
 
 /** Position is common on 8-4-4 report cards and discouraged under CBC, so it starts off there. */
 export function defaultReportCardOptions(scheme: GradingSchemeId): ReportCardOptions {
-  return { showPosition: scheme === "kcse", showAttendance: true, showFees: false, nextTermBegins: null };
+  return { showPosition: scheme === "kcse", showAttendance: true, showFees: false, showActivities: true, nextTermBegins: null };
 }
 
 // ------------------------------------------------------------------ working it out (pure)
@@ -108,6 +116,7 @@ export interface ReportCardInput {
   rubric?: { code: string; label: string }[] | null;
   attendance?: Map<string, { present: number; days: number }>;
   fees?: Map<string, { billedCents: number; paidCents: number }>;
+  activities?: Map<string, TermActivities>;
   options: ReportCardOptions;
   today: string;
 }
@@ -203,6 +212,7 @@ export function buildReportCards(input: ReportCardInput): ReportCardData[] {
       rubric: input.rubric ?? null,
       attendance: input.options.showAttendance ? (input.attendance?.get(l.id) ?? null) : null,
       fees: input.options.showFees ? (input.fees?.get(l.id) ?? null) : null,
+      activities: input.options.showActivities ? (input.activities?.get(l.id) ?? null) : null,
       classTeacher: input.classTeacher,
       nextTermBegins: input.options.nextTermBegins,
       preparedOn: input.today,
@@ -269,7 +279,7 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
   // CBE classes are judged on a rubric (null for 8-4-4 Forms): their cards carry its key and the core competencies.
   const rubric = rubricFor(p.school.country, cls!.level);
 
-  const [marks, cbe, attendance, fees, ratings] = await Promise.all([
+  const [marks, cbe, attendance, fees, ratings, activities] = await Promise.all([
     p.examIds.length && ids.length
       ? fetchAllPages<{ student_id: string; exam_id: string; subject_id: string; score: number | null; subjects: { name: string; code: string } | null }>((from, to) =>
           sb.from("marks").select("student_id, exam_id, subject_id, score, subjects(name, code)")
@@ -281,6 +291,9 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
     p.options.showAttendance ? loadAttendance(ids, p.termId) : Promise.resolve(new Map()),
     p.options.showFees ? loadFees(ids, p.termId) : Promise.resolve(new Map()),
     rubric ? fetchCompetencyRatings(p.termId, ids) : Promise.resolve(new Map<string, Map<string, string>>()),
+    p.options.showActivities
+      ? loadTermActivities(p.tenantId, ids, { startsOn: term!.starts_on, endsOn: term!.ends_on })
+      : Promise.resolve(new Map<string, TermActivities>()),
   ]);
 
   // Columns in the order the exams went out, unpublished last, then by name.
@@ -304,6 +317,7 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
     rubric: rubric?.map((l) => ({ code: l.code, label: l.label })) ?? null,
     attendance,
     fees,
+    activities,
     options: p.options,
     today: new Date().toISOString().slice(0, 10),
   });

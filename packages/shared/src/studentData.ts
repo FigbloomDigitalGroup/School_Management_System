@@ -3,6 +3,7 @@ import { formatShortDate, formatWhen, type Receipt } from "./parentData";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
 import type { Audience, ClassLevel, Payment } from "./types";
 import { receiptRef } from "./fees";
+import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharges";
 import { audienceIncludes, type AudienceViewer } from "./audience";
 import { normaliseGuide } from "./homework";
 
@@ -98,7 +99,10 @@ export interface StudentFeeData {
   classLevel: ClassLevel | null;
   boarding: boolean;
   balance: number;
+  /** The invoice total: fees billed plus any charges. */
   billed: number;
+  /** Charges on this term's invoice (a lost textbook), already inside `billed`. */
+  charges: FeeCharge[];
   dueOn: string | null;
   termLabel: string | null;
   feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null; level: ClassLevel | null }[];
@@ -131,6 +135,9 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
       .returns<{ id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; completed_at: string | null; created_at: string }[]>(),
   ]);
 
+  // Only the lines (the balance is the invoice's), so a failed read costs the detail, not the total.
+  const charges = invoice ? standingCharges(await fetchInvoiceCharges([invoice.id]).catch(() => [])) : [];
+
   const receipts: Receipt[] = (paymentRows ?? []).map((p) => ({
     id: p.id,
     amount: p.amount_cents,
@@ -149,6 +156,7 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
     boarding: studentRow.boarding,
     balance: invoice ? Math.max(invoice.total_cents - invoice.paid_cents, 0) : 0,
     billed: invoice ? invoice.total_cents : 0,
+    charges,
     dueOn: invoice?.due_on ?? null,
     termLabel: term?.name ?? null,
     feeItems: (feeItemRows ?? []) as StudentFeeData["feeItems"],

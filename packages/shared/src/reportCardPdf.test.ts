@@ -17,7 +17,7 @@ const input = (learners: number, subjects = 8): ReportCardInput => ({
   ]).flat()).flat(),
   attendance: new Map([["s0", { present: 50, days: 60 }]]),
   fees: new Map([["s0", { billedCents: 4_500_000, paidCents: 1_000_000 }]]),
-  options: { showPosition: true, showAttendance: true, showFees: true, nextTermBegins: "2026-09-01" },
+  options: { showPosition: true, showAttendance: true, showFees: true, showActivities: true, nextTermBegins: "2026-09-01" },
   today: "2026-08-08",
 });
 
@@ -74,6 +74,41 @@ describe("CBE report cards", () => {
     const [card] = buildReportCards({ ...input(1), cbe: new Map([["s0", [{ area: "Maths", assessment: "CAT", level: "ME", label: null, comment: null }]]]) });
     const old = { ...card!, competencies: undefined, rubric: undefined };
     const doc = await PDFDocument.load(await renderReportCardsPdf([{ data: old, teacherComment: null, principalComment: null }]));
+    expect(doc.getPageCount()).toBe(1);
+  });
+});
+
+describe("activities on the report card", () => {
+  const activities = (achievements: number) => ({
+    clubs: [{ name: "Football", role: "Captain" }, { name: "Drama club", role: null }],
+    achievements: Array.from({ length: achievements }, (_, i) => ({
+      date: "2026-06-12", activity: "Athletics", event: `County championships heat ${i}`, level: "county" as const, result: "Gold · 400 m",
+    })),
+  });
+  const sizeOf = async (data: ReturnType<typeof buildReportCards>[number]) =>
+    (await renderReportCardsPdf([{ data, teacherComment: "Good work.", principalComment: null }])).length;
+
+  it("carries the term's clubs and achievements onto the card, and nothing for a learner with none", () => {
+    const cards = buildReportCards({ ...input(2), activities: new Map([["s0", activities(1)]]) });
+    expect(cards[0]!.activities?.clubs).toHaveLength(2);
+    expect(cards[1]!.activities).toBeNull();
+    const off = buildReportCards({ ...input(1), activities: new Map([["s0", activities(1)]]), options: { ...input(1).options, showActivities: false } });
+    expect(off[0]!.activities).toBeNull();
+  });
+
+  it("draws a section only when there is something in it", async () => {
+    const [card] = buildReportCards(input(1));
+    const without = await sizeOf({ ...card!, activities: undefined });
+    expect(await sizeOf({ ...card!, activities: null })).toBe(without);
+    expect(await sizeOf({ ...card!, activities: { clubs: [], achievements: [] } })).toBe(without);
+    expect(await sizeOf({ ...card!, activities: activities(2) })).toBeGreaterThan(without);
+  });
+
+  it("keeps a long list compact: eight achievements, then a count", async () => {
+    const [card] = buildReportCards({ ...input(1, 4), activities: new Map([["s0", activities(40)]]) });
+    const eight = await sizeOf({ ...card!, activities: activities(8) });
+    expect(await sizeOf(card!)).toBeLessThan(eight + 200);
+    const doc = await PDFDocument.load(await renderReportCardsPdf([{ data: card!, teacherComment: null, principalComment: null }]));
     expect(doc.getPageCount()).toBe(1);
   });
 });

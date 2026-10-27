@@ -233,6 +233,7 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                     ["showPosition", "Position in class"],
                     ["showAttendance", "Attendance"],
                     ["showFees", "Fee balance"],
+                    ["showActivities", "Clubs and achievements"],
                   ] as const).map(([key, label]) => (
                     <label key={key} className="flex items-center gap-2 text-[13px]">
                       <input type="checkbox" style={{ accentColor: "#17402A" }} checked={options[key]}
