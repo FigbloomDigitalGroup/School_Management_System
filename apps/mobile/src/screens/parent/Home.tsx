@@ -136,6 +136,7 @@ export function ParentHome() {
         <LinkCard label="Sports & activities" blurb={`Clubs, teams, fixtures and awards for ${child.first}.`} tint={tint} to="Activities" />
         <LinkCard label="Issued items" blurb={`Textbooks and equipment ${child.first} has borrowed, and when they're due back.`} tint={tint} to="Items" />
         <LinkCard label="Health" blurb={`Sick bay visits, the medicine the school gives ${child.first}, and notes from the nurse.`} tint={tint} to="Health" badge={unreadHealth} />
+        <LinkCard label="Bloom study helper" blurb={`An AI tutor ${child.first} can use for schoolwork. You turn it on or off.`} tint={tint} to="StudyHelper" />
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>From the school</Text>
         {messages.slice(0, 2).map((m) => (
