@@ -92,6 +92,9 @@ with x as (
 ) select set_config('t.student', x.id::text, true) from x;
 insert into guardians (tenant_id, profile_id, student_id)
 values (current_setting('t.a')::uuid, current_setting('t.parent')::uuid, current_setting('t.student')::uuid);
+-- health details need consent first (20261103100000_health_consent)
+insert into health_consents (student_id, tenant_id, status, method, signed_by)
+values (current_setting('t.student')::uuid, current_setting('t.a')::uuid, 'given', 'paper', 'Check guardian');
 insert into student_health (student_id, tenant_id, notes)
 values (current_setting('t.student')::uuid, current_setting('t.a')::uuid, 'perm-check');
 with x as (

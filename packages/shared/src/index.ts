@@ -29,6 +29,7 @@ export * from "./courseGrades";
 export * from "./fleet";
 export * from "./routePlanning";
 export * from "./studentHealth";
+export * from "./healthConsent";
 export * from "./notificationPreferences";
 export * from "./supabase";
 export * from "./demo";
