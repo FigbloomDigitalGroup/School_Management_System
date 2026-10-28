@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchChildLogins, fetchOpenPasswordResetRequests, resetUserPassword, type PasswordResetResult, type Role } from "@figbloom/shared";
+import { emailOutcomeLine, fetchChildLogins, fetchOpenPasswordResetRequests, resetUserPassword, sendSignInDetailsAgain, type PasswordResetResult, type Role } from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { useToast } from "./ui/Toast";
 import { TempPasswordCard } from "./TempPasswordCard";
@@ -10,7 +10,9 @@ import { useAsync } from "../lib/useAsync";
  * Login-ID accounts (learners, parents, teachers, drivers) have no mailbox
  * for a reset link, so the school office (or a parent, for their own child)
  * does it from here: reset-user-password sets a random one-time password,
- * shown once, and the person picks their own at their next sign-in.
+ * shown once, and the person picks their own at their next sign-in. When
+ * they have an email (never a learner) it's emailed to them too, and
+ * "Send sign-in details again" does the same without the hand-over.
  */
 
 const ROLE_NOUN: Partial<Record<Role, string>> = {
@@ -35,7 +37,48 @@ function useReset(onDone?: () => void) {
       setBusy(false);
     }
   }
-  return { busy, result, reset };
+
+  /** "Send sign-in details again": a new one-time password, emailed. Refused with nothing changed when it can't be emailed. */
+  async function resend(profileId: string, name: string, email: string) {
+    if (!window.confirm(`Email ${name} new sign-in details at ${email}? Their current password stops working straight away.`)) return;
+    setBusy(true);
+    try {
+      const r = await sendSignInDetailsAgain(profileId);
+      setResult(r);
+      toast(r.emailed?.status === "sent" ? `Sign-in details sent to ${r.emailed.to}.` : `${emailOutcomeLine(r.emailed)} The new password is on screen.`,
+        r.emailed?.status === "sent" ? undefined : "error");
+      onDone?.();
+    } catch (err) {
+      toast(`Could not send ${name}'s sign-in details: ${err instanceof Error ? err.message : "something went wrong"}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { busy, result, reset, resend };
+}
+
+/**
+ * "Send sign-in details again" for someone with an email on file (a guardian
+ * on a learner's card); the same permission as a reset. If the email doesn't
+ * go after all, the new password is shown here to hand over instead.
+ */
+export function SendSignInAgainButton({ profileId, name, email, schoolName }: {
+  profileId: string; name: string; email: string; schoolName?: string;
+}) {
+  const { busy, result, resend } = useReset();
+  if (result && result.emailed?.status !== "sent") {
+    return (
+      <div className="mt-1.5 basis-full">
+        <TempPasswordCard who={name} login={result.login_id} loginLabel="ID" password={result.password} schoolName={schoolName} emailed={result.emailed} />
+      </div>
+    );
+  }
+  return (
+    <button type="button" disabled={busy || !!result} onClick={() => void resend(profileId, name, email)}
+      className="text-[12px] font-semibold text-forest hover:underline disabled:opacity-50">
+      {busy ? "Sending…" : result ? "Sent ✓" : "Send sign-in details again"}
+    </button>
+  );
 }
 
 /**
@@ -50,7 +93,7 @@ export function ResetPasswordSection({ profileId, name, email, schoolName, onDon
   schoolName?: string;
   onDone?: () => void;
 }) {
-  const { busy, result, reset } = useReset(onDone);
+  const { busy, result, reset, resend } = useReset(onDone);
   return (
     <section className="mt-5 border-t border-line-soft pt-4">
       <h3 className="text-[12.5px] font-semibold text-ink">Password</h3>
@@ -62,14 +105,23 @@ export function ResetPasswordSection({ profileId, name, email, schoolName, onDon
             loginLabel={result.login_id ? "ID" : "Email"}
             password={result.password}
             schoolName={result.login_id ? schoolName : undefined}
+            emailed={result.emailed}
           />
         </div>
       ) : (
         <div className="mt-1.5 flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-[420px] text-[12.5px] leading-relaxed text-ink-muted">
-            Forgotten their password? Set a new temporary one to hand over. They choose their own when they next sign in.
+            Forgotten their password? Set a new temporary one to hand over{email ? `, also emailed to ${email}` : ""}. They choose their own when they next sign in.
           </p>
-          <Button disabled={busy} onClick={() => void reset(profileId, name)}>{busy ? "Resetting…" : "Reset password"}</Button>
+          <div className="flex flex-wrap items-center gap-3">
+            {email && (
+              <button type="button" disabled={busy} onClick={() => void resend(profileId, name, email)}
+                className="text-[12px] font-semibold text-forest hover:underline disabled:opacity-50">
+                Send sign-in details again
+              </button>
+            )}
+            <Button disabled={busy} onClick={() => void reset(profileId, name)}>{busy ? "Working…" : "Reset password"}</Button>
+          </div>
         </div>
       )}
     </section>
@@ -131,7 +183,7 @@ export function PasswordResetRequests({ tenantId, schoolName }: { tenantId: stri
       {handed.length > 0 && (
         <div className="mt-3 grid gap-2.5">
           {handed.map((h) => (
-            <TempPasswordCard key={h.result.password} who={h.name} login={h.result.login_id} loginLabel="ID" password={h.result.password} schoolName={schoolName} />
+            <TempPasswordCard key={h.result.password} who={h.name} login={h.result.login_id} loginLabel="ID" password={h.result.password} schoolName={schoolName} emailed={h.result.emailed} />
           ))}
           <button type="button" onClick={() => setHanded([])} className="justify-self-start text-[12px] font-semibold text-forest hover:underline">
             I've handed {handed.length === 1 ? "it" : "them"} over: hide

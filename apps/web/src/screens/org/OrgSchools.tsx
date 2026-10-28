@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   SCHOOL_LEVEL_OPTIONS, fetchOrganizationTenantSummaries, logOrganizationAccess, normalizeSlug, similarSchoolNames, suggestSlug, validateSlug, formatMoney,
-  type OrganizationTenantSummary, type Tenant,
+  type EmailOutcome, type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -190,7 +190,7 @@ export function AddSchoolModal({ organizationId, organizationCounty, existingNam
   // instead of inserting the school again and colliding with its own address.
   const [saved, setSaved] = useState<Tenant | null>(null);
   // The administrator's one-time password, shown once before closing.
-  const [credentials, setCredentials] = useState<{ name: string; email: string; password: string } | null>(null);
+  const [credentials, setCredentials] = useState<{ name: string; email: string; password: string; emailed?: EmailOutcome } | null>(null);
 
   const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
   const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
@@ -254,7 +254,7 @@ export function AddSchoolModal({ organizationId, organizationCounty, existingNam
         staff_title: adminTitle.trim() || "Head teacher",
         email: adminEmail.trim(),
       });
-      setCredentials({ name: adminName.trim(), email: r.email, password: r.password });
+      setCredentials({ name: adminName.trim(), email: r.email, password: r.password, emailed: r.emailed });
     } catch (err) {
       const reason = adminInviteError(err, adminEmail.trim());
       if (/already has a Figbloom login/.test(reason)) setEmailError(reason);
@@ -275,7 +275,7 @@ export function AddSchoolModal({ organizationId, organizationCounty, existingNam
           <p className="text-[13px] leading-relaxed text-ink-muted">
             It's live at schoolmanagement.figbloom.org/s/{saved.slug}, and {credentials.name} can sign in through the Admin portal with their email.
           </p>
-          <TempPasswordCard who={credentials.name} login={credentials.email} loginLabel="Email" password={credentials.password} />
+          <TempPasswordCard who={credentials.name} login={credentials.email} loginLabel="Email" password={credentials.password} emailed={credentials.emailed} />
         </div>
       </Modal>
     );

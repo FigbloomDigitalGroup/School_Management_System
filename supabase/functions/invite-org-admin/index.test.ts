@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle } from "./index.ts";
 
 const SUPER_ADMIN_ID = "super-admin-1";
@@ -221,5 +222,43 @@ describe("invite-org-admin handle", () => {
       assertEquals(res.status, 409);
       assertEquals(admin.rowsIn("organization_admins").length, 0);
     });
+  });
+});
+
+describe("invite-org-admin sign-in email", () => {
+  it("emails a new org admin their email login and one-time password", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("organizations", [{ id: ORG_ID, name: "Nakuru County", slug: "nakuru-county" }]);
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "grace@nakuru.go.ke" });
+    assertEquals(mailer.sent[0].subject, "Your Figbloom account at Nakuru County");
+    assertMatch(mailer.sent[0].text, /\/org\/nakuru-county\/dashboard/);
+    assertMatch(mailer.sent[0].text, new RegExp(out.password));
+  });
+
+  it("sends nothing when linking an existing org admin: there's no new password", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("profiles", [
+      { id: SUPER_ADMIN_ID, role: "super_admin", full_name: "Jane Figbloom" },
+      { id: "existing", role: "org_admin", full_name: "Grace Wambui", email: validBody.email },
+    ]);
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals((await res.json()).linkedExisting, true);
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("a failed email still creates the account", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    mailer.answer = { status: "failed", reason: "Resend answered 500" };
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed.status, "failed");
+    assertEquals(admin.rowsIn("organization_admins").length, 1);
   });
 });
