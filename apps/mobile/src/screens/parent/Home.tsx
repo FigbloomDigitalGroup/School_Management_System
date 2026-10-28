@@ -7,6 +7,7 @@ import { ChatsCard } from "../../components/ChatsCard";
 import { ChildBioCard } from "../../components/ChildBioCard";
 import { ChildHealthCard } from "../../components/ChildHealthCard";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
+import { LiveClassBanner } from "../../calls/LiveClassBanner";
 import { LinkCard } from "../../components/LinkCard";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { Skeleton } from "../../components/Skeleton";
@@ -65,6 +66,9 @@ export function ParentHome() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* A live class running in any child's class: Join. Nothing when there is none. */}
+        <LiveClassBanner tenantId={tenantId} classIds={kids.map((k) => k.classId).filter((id): id is string => !!id)} tint={tint} />
 
         <PendingSignatures tint={tint} />
 

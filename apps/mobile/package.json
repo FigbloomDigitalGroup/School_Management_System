@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@figbloom/shared": "*",
+    "@livekit/react-native": "^3.1.0",
+    "@livekit/react-native-webrtc": "^150.1.1",
     "@react-native-async-storage/async-storage": "^2.1.0",
     "@react-native-documents/picker": "^10.1.7",
     "@react-native-firebase/app": "^21.14.0",
@@ -17,6 +19,7 @@
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
     "@react-navigation/native-stack": "^5.0.5",
+    "livekit-client": "^2.22.4",
     "lucide-react-native": "^1.47.0",
     "react": "18.3.1",
     "react-native": "^0.76.9",

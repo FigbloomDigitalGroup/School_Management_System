@@ -56,6 +56,14 @@ A release build from CI needs nothing extra once the file is committed:
 `google-services.json`, which is how `apps/mobile`'s committed copy is picked up
 today.
 
+## Calls and live classes (FIG-1291)
+
+Call a parent or colleague from a chat (Call and Video in the thread header), take
+a call that rings while the app is open, and go live for a class (More, Live
+class). Same files and behaviour as `apps/mobile/src/calls/`, which also says what
+the server needs (`LIVEKIT_*`) and what is not done (lock-screen ringing,
+calls in the background).
+
 ## Structure
 
 ```

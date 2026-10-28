@@ -1,6 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { currentPeriodIndex, todayWeekday } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
+import { LiveClassBanner } from "../../calls/LiveClassBanner";
 import { ChatsCard } from "../../components/ChatsCard";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { StudyHelperCard } from "../../components/StudyHelperCard";
@@ -8,7 +9,7 @@ import { useStudentData } from "../../studentData";
 
 /** Where am I meant to be, and what is late. Nothing else above the fold. */
 export function StudentToday() {
-  const { data, timetable, accent } = useStudentData();
+  const { data, timetable, accent, tenantId } = useStudentData();
   const a = accentFor(accent);
 
   const day = todayWeekday();
@@ -49,6 +50,9 @@ export function StudentToday() {
             </View>
           )}
         </View>
+
+        {/* A live class running in this learner's class: Join. Nothing when there is none. */}
+        {!!data.classId && <LiveClassBanner tenantId={tenantId} classIds={[data.classId]} tint={a.deep} />}
 
         {overdue.length > 0 && (
           <View style={[s.banner, { marginTop: 16 }]}>

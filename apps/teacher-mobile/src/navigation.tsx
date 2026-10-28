@@ -17,6 +17,7 @@ import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherLeave } from "./screens/teacher/Leave";
 import { TeacherHomework } from "./screens/teacher/Homework";
 import { useQueueSync } from "./lib/useQueueSync";
+import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
 import { TeacherBuses } from "./screens/teacher/Buses";
 import { TeacherAccount } from "./screens/teacher/Account";
@@ -26,6 +27,7 @@ import { TeacherVisitors } from "./screens/teacher/Visitors";
 import { TeacherPerformance } from "./screens/teacher/Performance";
 import { TeacherReportCards } from "./screens/teacher/ReportCards";
 import { TeacherBloom } from "./screens/teacher/Bloom";
+import { TeacherLiveClass } from "./screens/teacher/LiveClass";
 import { VisitAlerts } from "./components/VisitAlerts";
 
 const Tab = createBottomTabNavigator();
@@ -47,7 +49,7 @@ async function openPushTarget(target: PushTarget) {
   // The thread wants the other person's name and role, which the push doesn't carry.
   const found = (await fetchMyConversations().catch(() => [])).find((c) => c.id === target.conversationId);
   whenReady(() => navRef.navigate("More", found
-    ? { screen: "ChatThread", initial: false, params: { conversationId: found.id, name: found.otherName, role: found.otherRole, canReply: found.canReply } }
+    ? { screen: "ChatThread", initial: false, params: { conversationId: found.id, otherId: found.otherId, name: found.otherName, role: found.otherRole, canReply: found.canReply } }
     : { screen: "Chats", initial: false }));
 }
 
@@ -86,6 +88,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="Performance">{() => <TeacherPerformance session={session} />}</Stack.Screen>
       <Stack.Screen name="ReportCards">{() => <TeacherReportCards session={session} />}</Stack.Screen>
       <Stack.Screen name="Bloom">{() => <TeacherBloom session={session} />}</Stack.Screen>
+      <Stack.Screen name="LiveClass">{() => <TeacherLiveClass session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }
@@ -98,6 +101,7 @@ export function Navigation({ session }: { session: TeacherSession }) {
   useEffect(() => listenForPushTaps((target) => { void openPushTarget(target); }), []);
 
   return (
+    <CallProvider profileId={session.profileId}>
     <View style={{ flex: 1 }}>
     <NavigationContainer ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       <Tab.Navigator
@@ -133,5 +137,6 @@ export function Navigation({ session }: { session: TeacherSession }) {
       onOpen={() => { if (navRef.isReady()) navRef.navigate("More", { screen: "Visitors" }); }}
     />
     </View>
+    </CallProvider>
   );
 }
