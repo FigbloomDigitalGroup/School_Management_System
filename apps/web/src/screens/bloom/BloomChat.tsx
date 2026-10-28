@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   askBloomChat, chatTitleFrom, createAiChat, deleteAiChat, deleteAiChatMessage, EdgeError, fetchAiChatMessages, fetchAiChats,
@@ -488,10 +488,29 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
   const menu = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // opens upwards when there isn't room below the button (the last answer, just above the composer)
+  const [up, setUp] = useState(false);
+
+  useLayoutEffect(() => {
+    const m = menu.current;
+    const a = anchor.current;
+    if (!m || !a) return;
+    const box = scrollParent(a)?.getBoundingClientRect();
+    const top = Math.max(box?.top ?? 0, 0);
+    const bottom = Math.min(box?.bottom ?? window.innerHeight, window.innerHeight);
+    const at = a.getBoundingClientRect();
+    const below = bottom - at.bottom;
+    const above = at.top - top;
+    const needed = m.offsetHeight + 8;
+    if (below >= needed) return;
+    if (above >= needed) setUp(true);
+    // fits neither way (a short window): it stays below, scrolled into view
+    else m.scrollIntoView({ block: "nearest" });
+  }, [anchor]);
 
   useEffect(() => {
     const list = () => Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-    list()[0]?.focus();
+    list()[0]?.focus({ preventScroll: true });
     function onDocClick(e: MouseEvent) {
       const t = e.target as Node;
       if (!menu.current?.contains(t) && !anchor.current?.contains(t)) onCloseRef.current();
@@ -514,7 +533,7 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
       ref={menu}
       role="menu"
       aria-label={label}
-      className={`absolute top-full z-30 mt-1 w-64 overflow-hidden rounded-lg border border-line bg-white py-1 text-[12.5px] text-ink shadow-lg ${align === "right" ? "right-0" : "left-0"}`}
+      className={`absolute z-30 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-line bg-white py-1 text-[12.5px] text-ink shadow-lg ${up ? "bottom-full mb-1" : "top-full mt-1"} ${align === "right" ? "right-0" : "left-0"}`}
     >
       {items.map((it, i) => (
         <div key={i}>
@@ -531,6 +550,14 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
       ))}
     </div>
   );
+}
+
+/** The nearest ancestor that scrolls (the chat's message list), whose edges clip a menu inside it. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
+  }
+  return null;
 }
 
 /** An answer's sources as numbered chips, matching the [^n] markers in its text; each opens in a new tab. */

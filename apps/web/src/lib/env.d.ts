@@ -9,3 +9,9 @@ interface ImportMetaEnv {
   readonly DEV: boolean;
 }
 interface ImportMeta { readonly env: ImportMetaEnv }
+
+/** A file Vite copies into the build, imported as its URL (`import url from "./font.ttf?url"`). */
+declare module "*?url" {
+  const url: string;
+  export default url;
+}

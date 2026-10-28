@@ -3,15 +3,16 @@
  *
  *   const { downloadBloomExport } = await import("../../lib/bloomExport");
  *
- * A reply or a whole chat as PDF (pdf-lib) or Word (docx), and a reply's
- * tables as Excel (exceljs) or CSV. Each renderer is a further chunk fetched
- * only for its own format, so none of them weighs on the chat page. The
+ * A reply or a whole chat as PDF (pdf-lib, with Noto Sans) or Word (docx),
+ * and a reply's tables as Excel (packages/shared xlsx.ts) or CSV. Each
+ * renderer is a further chunk fetched only for its own format, so none of
+ * them weighs on the chat page. The
  * Markdown-to-document work lives in packages/shared (bloomExport.ts), where
  * it's tested.
  */
 import { toSpreadsheetCsv } from "../../../../packages/shared/src/csv";
 import {
-  BLOOM_EXPORT_DISCLAIMER, bloomExportFileName, buildBloomExport, exportTitle, replyTables, type ExportTurn,
+  BLOOM_EXPORT_DISCLAIMER, bloomExportFileName, buildBloomExport, exportTitle, replyTables, type ExportDocument, type ExportTurn,
 } from "../../../../packages/shared/src/bloomExport";
 
 const TYPES = {
@@ -51,9 +52,15 @@ export async function downloadBloomExport(req: BloomExportRequest): Promise<void
   const title = exportTitle(req.chatTitle, req.context ?? req.turns);
   const doc = buildBloomExport({ title, schoolName: req.schoolName, turns: req.turns, labelTurns: req.wholeChat, now });
   const blob = req.format === "pdf"
-    ? new Blob([await (await import("./bloomExportPdf")).renderBloomPdf(doc) as BlobPart], { type: TYPES.pdf })
+    ? new Blob([await renderPdf(doc) as BlobPart], { type: TYPES.pdf })
     : await (await import("./bloomExportDocx")).renderBloomDocx(doc);
   saveBlob(blob, bloomExportFileName(title, now, req.format));
+}
+
+/** The PDF, in Noto Sans fetched on demand (bloomExportFonts.ts). */
+async function renderPdf(doc: ExportDocument): Promise<Uint8Array> {
+  const [{ renderBloomPdf }, { loadBloomFont }] = await Promise.all([import("./bloomExportPdf"), import("./bloomExportFonts")]);
+  return renderBloomPdf(doc, loadBloomFont);
 }
 
 export interface TableExportRequest {

@@ -77,6 +77,11 @@ describe("buildBloomExport", () => {
     ]);
   });
 
+  it("puts a citation against its word, without the space before it", () => {
+    const p = one("Clear fees by the reopening day [^1]. See **TSC** [^1].", [{ title: "TSC", url: "https://tsc.go.ke" }]).sections[0]!.blocks[0]!;
+    expect(p.kind === "paragraph" && p.runs.map((r) => r.text)).toEqual(["Clear fees by the reopening day", "1", ". See ", "TSC", "1", "."]);
+  });
+
   it("drops a citation with no usable source, and numbers the rest across the chat", () => {
     const turns: ExportTurn[] = [
       { role: "user", content: "When does term start?\nAnd fees?", created_at: "2026-10-27T11:00:00Z" },
@@ -138,6 +143,17 @@ describe("pdfSafeText", () => {
     expect(pdfSafeText("Great work 👏🏽 🇰🇪!\u200b")).toBe("Great work  !");
     expect(pdfSafeText("\tif x:\n        y")).toBe("    if x:\n        y");
     expect(pdfSafeText("مرحبا 你好")).toBe("????? ??");
+  });
+
+  it("keeps whatever an embedded font has, and falls back only for the rest", () => {
+    // a stand-in for Noto Sans: Latin with its accents, Greek, Cyrillic, the currency signs; no arrows, no emoji
+    const noto = (k: number) => /[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Sc}0-9 .,:;'"“”‘’–—·!?()<>[\]-]/u.test(String.fromCodePoint(k));
+    expect(pdfSafeText("Şükrü Łukasz Ōtieno Wanjikũ Nguyễn Αλέξανδρος Дмитрий", noto)).toBe("Şükrü Łukasz Ōtieno Wanjikũ Nguyễn Αλέξανδρος Дмитрий");
+    expect(pdfSafeText("KES 1,250 – ₦5,000 — €20 · £15 “ok”", noto)).toBe("KES 1,250 – ₦5,000 — €20 · £15 “ok”");
+    expect(pdfSafeText("x → y, done ✓, 👏🏽 1️⃣ 🇰🇪!", noto)).toBe("x -> y, done [x],  1 !");
+    expect(pdfSafeText("مرحبا", noto)).toBe("?????");
+    // a decomposed accent is joined to its letter first
+    expect(pdfSafeText("José", noto)).toBe("José");
   });
 
   it("makes any text encodable by the PDF's Helvetica and Courier", async () => {
