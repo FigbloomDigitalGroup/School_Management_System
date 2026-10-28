@@ -78,7 +78,11 @@ export async function handle(req: Request, { admin, asUser }: Deps, fetchImpl: t
     const staleIds: string[] = [];
     for (const t of tokens) {
       // One notification per conversation on the phone: the newest replaces the last.
-      const result = await sendToToken(fetchImpl, serviceAccount.project_id, accessToken, t.token, title, text, { tag: `chat-${message.conversation_id}` });
+      const result = await sendToToken(fetchImpl, serviceAccount.project_id, accessToken, t.token, title, text, {
+        tag: `chat-${message.conversation_id}`,
+        // a tap opens this conversation
+        data: { type: "chat", conversation_id: String(message.conversation_id) },
+      });
       if (result.ok) sent++;
       else {
         failed++;

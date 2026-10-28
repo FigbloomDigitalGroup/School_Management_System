@@ -4,6 +4,7 @@ import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
 import { Navigation, type TeacherSession } from "./src/navigation";
+import { registerPushToken } from "./src/pushNotifications";
 import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { SignIn } from "./src/screens/SignIn";
 import { accentFor } from "./src/theme";
@@ -53,6 +54,11 @@ export default function App() {
     const { data: sub } = supabase().auth.onAuthStateChange(() => { load().catch(() => {}); });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
+
+  // Pushes (a new chat, a visitor) reach this phone once it has told the server it exists.
+  useEffect(() => {
+    if (session) void registerPushToken();
+  }, [session]);
 
   const a = accentFor(session?.accent ?? "#7A1F2B");
 

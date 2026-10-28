@@ -73,7 +73,7 @@ function request(body: unknown = { message_id: "msg-1" }, opts: { method?: strin
 }
 
 /** Routes the mocked fetch and records the FCM messages sent. */
-function fakeFetch(sent: { token: string; title: string; body: string; tag?: string }[], status = 200): typeof fetch {
+function fakeFetch(sent: { token: string; title: string; body: string; tag?: string; data?: Record<string, string> }[], status = 200): typeof fetch {
   return (async (url: string | URL, init?: RequestInit) => {
     const href = url.toString();
     if (href.includes("oauth2.googleapis.com/token")) {
@@ -81,7 +81,7 @@ function fakeFetch(sent: { token: string; title: string; body: string; tag?: str
     }
     if (href.includes("fcm.googleapis.com")) {
       const { message } = JSON.parse(String(init?.body));
-      sent.push({ token: message.token, title: message.notification.title, body: message.notification.body, tag: message.android?.notification?.tag });
+      sent.push({ token: message.token, title: message.notification.title, body: message.notification.body, tag: message.android?.notification?.tag, data: message.data });
       return new Response(status === 200 ? "{}" : "UNREGISTERED", { status });
     }
     throw new Error(`Unexpected fetch to ${href}`);
@@ -134,13 +134,16 @@ describe("chat-push handle", () => {
     assertEquals(res.status, 500);
   });
 
-  it("pushes to the other person only, titled with the sender's name", async () => {
+  it("pushes to the other person only, titled with the sender's name, and a tap can open the conversation", async () => {
     const { admin, asUser } = makeClients();
-    const sent: { token: string; title: string; body: string; tag?: string }[] = [];
+    const sent: { token: string; title: string; body: string; tag?: string; data?: Record<string, string> }[] = [];
     const res = await handle(request(), { admin, asUser }, fakeFetch(sent));
     assertEquals(res.status, 200);
     assertEquals(await res.json(), { sent: 1, failed: 0 });
-    assertEquals(sent, [{ token: "teacher-phone", title: "Wanjiru Kamau", body: "Is the trip on Friday still on?", tag: "chat-conv-1" }]);
+    assertEquals(sent, [{
+      token: "teacher-phone", title: "Wanjiru Kamau", body: "Is the trip on Friday still on?", tag: "chat-conv-1",
+      data: { type: "chat", conversation_id: "conv-1" },
+    }]);
   });
 
   it("skips someone who turned chat pushes off", async () => {

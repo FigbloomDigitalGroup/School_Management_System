@@ -73,7 +73,10 @@ export async function handle(req: Request, { admin, asUser, account = serviceAcc
       if (!tokens.length) continue;
       accessToken ??= await fcmAccessToken(account, fetchImpl);
       for (const t of tokens) {
-        const r = await sendToToken(fetchImpl, account.project_id, accessToken, t.token, p.title, p.body, { tag: `visit-${visit.id}` });
+        // a tap opens the teacher's visitors list
+        const r = await sendToToken(fetchImpl, account.project_id, accessToken, t.token, p.title, p.body, {
+          tag: `visit-${visit.id}`, data: { type: "visit", visit_id: String(visit.id) },
+        });
         if (r.ok) sent++;
         else {
           failed++;

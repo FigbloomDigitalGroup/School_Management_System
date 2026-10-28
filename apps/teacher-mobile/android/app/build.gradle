@@ -13,9 +13,15 @@ def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
-// No com.google.gms.google-services plugin yet — push isn't in scope until
-// a teacher-messaging ticket needs it, and it would need this app's own
-// Firebase project registration, not apps/mobile's google-services.json.
+// Push notifications (FIG-1290). The google-services plugin reads
+// android/app/google-services.json: the Firebase config for THIS app (package
+// com.figbloom.teacher), registered as a second Android app in the same Firebase
+// project as apps/mobile, so the server's one FCM service account reaches both.
+// Applied only when the file is there, so a build without it (CI, a fresh clone)
+// still compiles; push then simply doesn't register. See README.md here.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -143,4 +149,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Push notifications (FIG-1290) — @react-native-firebase/messaging autolinks
+    // against these; the BoM keeps their versions in step with google-services.json.
+    implementation platform("com.google.firebase:firebase-bom:34.19.0")
+    implementation "com.google.firebase:firebase-messaging"
 }
