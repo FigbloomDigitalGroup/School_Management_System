@@ -8,7 +8,8 @@ import {
 } from "@figbloom/shared";
 import { notifyChatRead } from "../../lib/chatUnread";
 import { useChatSession } from "../../lib/chatSession";
-import { pickPhoto, readPhoto, type PickedPhoto } from "../../lib/pickPhoto";
+import { AttachChoices } from "../../components/AttachChoices";
+import { ANY_FILE, pickFile, readPickedFile, type FileSource, type PickedFile } from "../../lib/pickFile";
 import { s, t } from "../../theme";
 import { ChatAvatar } from "./ChatAvatar";
 
@@ -22,7 +23,7 @@ interface ThreadParams {
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** One conversation: header, the messages by day, and the composer. A photo can be sent from the gallery; files in a chat open in the phone's viewer, and other documents are still sent from the website. */
+/** One conversation: header, the messages by day, and the composer. A photo (taken now or from the gallery), a PDF or another document can be sent; files in a chat open in the phone's viewer. */
 export function ChatThread({ tint }: { tint: string }) {
   const nav = useNavigation<any>();
   const { conversationId, name, role, canReply } = useRoute<any>().params as ThreadParams;
@@ -33,7 +34,8 @@ export function ChatThread({ tint }: { tint: string }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [file, setFile] = useState<PickedFile | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
   const scroll = useRef<ScrollView>(null);
 
   // Marks the thread read, then lets the badges catch up.
@@ -57,36 +59,37 @@ export function ChatThread({ tint }: { tint: string }) {
     return () => { alive = false; unsubscribe(); };
   }, [conversationId, myId]);
 
-  async function choosePhoto() {
+  async function chooseFile(source: FileSource) {
+    setAttachOpen(false);
     setSendError(null);
     try {
-      const picked = await pickPhoto();
+      const picked = await pickFile(source, ANY_FILE);
       if (!picked) return;
       const problem = uploadProblem(picked) ?? (chatMimeForFile({ name: picked.name, type: picked.mimeType }) ? null : "That kind of file can not be sent in a chat.");
       if (problem) { setSendError(problem); return; }
-      setPhoto(picked);
+      setFile(picked);
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : "Could not open your photos.");
+      setSendError(err instanceof Error ? err.message : "Could not add that file.");
     }
   }
 
   async function send() {
     const body = chatDraftBody(draft);
-    if ((!body && !photo) || sending || !session) return;
+    if ((!body && !file) || sending || !session) return;
     setSending(true);
     setSendError(null);
     let uploaded: string | null = null;
     try {
-      const attached = photo ? await uploadChatBlob(session.tenantId, conversationId, await readPhoto(photo)) : undefined;
+      const attached = file ? await uploadChatBlob(session.tenantId, conversationId, await readPickedFile(file)) : undefined;
       uploaded = attached?.path ?? null;
       const sent = await sendChatMessage(conversationId, body, attached);
       uploaded = null;
       setMessages((ms) => mergeMessage(ms ?? [], sent));
       setDraft("");
-      setPhoto(null);
+      setFile(null);
       void pushChatMessage(sent.id);
     } catch (err) {
-      // Nothing half-sent: a photo that went up without its message comes back out.
+      // Nothing half-sent: a file that went up without its message comes back out.
       if (uploaded) await removeUnsentChatFile(uploaded).catch(() => {});
       setSendError(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.");
     } finally {
@@ -94,7 +97,7 @@ export function ChatThread({ tint }: { tint: string }) {
     }
   }
 
-  const canSend = !sending && (!!chatDraftBody(draft) || !!photo);
+  const canSend = !sending && (!!chatDraftBody(draft) || !!file);
 
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -151,20 +154,26 @@ export function ChatThread({ tint }: { tint: string }) {
       {canReply ? (
         <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 10 }}>
           {!!sendError && <Text style={{ fontSize: 12, color: t.status.warnInk, marginBottom: 6 }}>{sendError}</Text>}
-          {photo && (
+          {file && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {photo.name}{photo.sizeBytes ? ` · ${formatFileSize(photo.sizeBytes)}` : ""}</Text>
-              <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setPhoto(null)} style={{ minHeight: 36, justifyContent: "center" }}>
+              <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {file.name}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}</Text>
+              <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setFile(null)} style={{ minHeight: 36, justifyContent: "center" }}>
                 <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
               </TouchableOpacity>
+            </View>
+          )}
+          {attachOpen && !file && (
+            <View style={{ marginBottom: 8 }}>
+              <AttachChoices disabled={sending} onChoose={(source) => void chooseFile(source)} />
             </View>
           )}
           <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel="Attach a photo"
+              accessibilityLabel="Attach a file"
+              accessibilityState={{ expanded: attachOpen }}
               disabled={sending}
-              onPress={() => void choosePhoto()}
+              onPress={() => setAttachOpen((open) => !open)}
               style={{ width: 44, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: sending ? 0.5 : 1 }}
             >
               <Text style={{ fontSize: 18 }}>📎</Text>

@@ -4,8 +4,9 @@ import {
   formatFileSize, formatMoney, listPaymentProofs, parsePaymentSms, PAYMENT_PROOF_LABEL, PAYMENT_SMS_MAX, PAYMENT_SMS_SOURCE_LABEL,
   paymentSmsFlags, sendPaymentProof, uploadProblem, type PaymentProof, type PaymentSmsFlag,
 } from "@figbloom/shared";
-import { pickPhoto, readPhoto, type PickedPhoto } from "../lib/pickPhoto";
+import { pickFile, readPickedFile, type FileSource, type PickedFile } from "../lib/pickFile";
 import { s, t } from "../theme";
+import { AttachChoices } from "./AttachChoices";
 
 // What a family is told about a flag: gentler than the office's label, and
 // never a refusal -- a part payment is still a payment.
@@ -28,8 +29,8 @@ const formatPaidAt = (iso: string) => new Date(iso).toLocaleString("en-GB", { da
  * families pay (M-Pesa) and what they already have in their phone. What we
  * read from the message is shown before it is sent, so a family can see we
  * got the code and amount right; the bursar still checks it against the
- * school's statement. A photo of the slip or a screenshot can be added from
- * the gallery, with or without the message; PDFs are sent from the website.
+ * school's statement. A photo of the slip (taken now or from the gallery), a
+ * screenshot or a PDF can be added, with or without the message.
  */
 export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents, country, school, tint, canSend }: {
   tenantId: string;
@@ -46,7 +47,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
   const [reloadKey, setReloadKey] = useState(0);
   const [sms, setSms] = useState("");
   const [note, setNote] = useState("");
-  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [file, setFile] = useState<PickedFile | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
 
@@ -63,19 +64,19 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
   const flags = parsed ? paymentSmsFlags(parsed, { balanceCents, ...school }) : [];
   // A pasted message is only worth sending with its code: the code is what the bursar looks up.
   const usable = !!parsed?.code;
-  // A photo on its own is enough; a pasted message that has no code is not (it would only be a note).
-  const ready = (photo !== null || usable) && (!sms.trim() || usable);
+  // A photo or PDF on its own is enough; a pasted message that has no code is not (it would only be a note).
+  const ready = (file !== null || usable) && (!sms.trim() || usable);
 
-  async function choosePhoto() {
+  async function chooseFile(source: FileSource) {
     setMessage(null);
     try {
-      const picked = await pickPhoto();
+      const picked = await pickFile(source);
       if (!picked) return;
       const problem = uploadProblem(picked);
       if (problem) { setMessage({ text: problem, bad: true }); return; }
-      setPhoto(picked);
+      setFile(picked);
     } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : "Could not open your photos.", bad: true });
+      setMessage({ text: err instanceof Error ? err.message : "Could not add that file.", bad: true });
     }
   }
 
@@ -87,10 +88,10 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
       await sendPaymentProof({
         tenantId, invoiceId, uploadedBy, note: note.trim() || undefined,
         sms: parsed && usable ? { text: sms, parsed } : undefined,
-        file: photo ? await readPhoto(photo) : undefined,
+        file: file ? await readPickedFile(file) : undefined,
       });
       setSms("");
-      setPhoto(null);
+      setFile(null);
       setNote("");
       setMessage({ text: "Payment proof sent. The bursar will review it.", bad: false });
       setReloadKey((k) => k + 1);
@@ -119,7 +120,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
               placeholderTextColor={t.appSurface.inkFaint}
               style={{ minHeight: 88, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, padding: 10, fontFamily: "monospace", fontSize: 12, color: t.appSurface.ink }}
             />
-            <Text style={s.faint}>The M-Pesa, Airtel Money or bank SMS, copied whole. No screenshot needed; a photo can go with it or instead.</Text>
+            <Text style={s.faint}>The M-Pesa, Airtel Money or bank SMS, copied whole. No screenshot needed; a photo or PDF can go with it or instead.</Text>
 
             {parsed && (
               <View style={{ borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: t.appSurface.page, padding: 12, gap: 6 }} accessibilityLiveRegion="polite">
@@ -141,22 +142,18 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
               </View>
             )}
 
-            {photo ? (
+            {file ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {photo.name}{photo.sizeBytes ? ` · ${formatFileSize(photo.sizeBytes)}` : ""}</Text>
-                <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setPhoto(null)} style={{ minHeight: 40, justifyContent: "center" }}>
+                <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {file.name}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}</Text>
+                <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setFile(null)} style={{ minHeight: 40, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity
-                accessibilityRole="button"
-                disabled={sending}
-                onPress={() => void choosePhoto()}
-                style={{ minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: sending ? 0.5 : 1 }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: "600", color: t.appSurface.ink }}>Add a photo of the slip (optional)</Text>
-              </TouchableOpacity>
+              <View style={{ gap: 6 }}>
+                <Text style={{ fontSize: 12, fontWeight: "600" }}>Add a photo or PDF of the slip (optional)</Text>
+                <AttachChoices disabled={sending} onChoose={(source) => void chooseFile(source)} />
+              </View>
             )}
 
             <TextInput

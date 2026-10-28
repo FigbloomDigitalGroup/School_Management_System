@@ -9,8 +9,9 @@ import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren, useTenantId } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { SubScreen } from "../../components/SubScreen";
+import { AttachChoices } from "../../components/AttachChoices";
 import { notifyMedicalRead } from "../../lib/medicalUnread";
-import { pickPhoto, readPhoto, type PickedPhoto } from "../../lib/pickPhoto";
+import { pickFile, readPickedFile, type FileSource, type PickedFile } from "../../lib/pickFile";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const hm = (iso: string) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -34,9 +35,9 @@ const OUTCOME_TONE: Record<VisitOutcome, { bg: string; ink: string }> = {
  * The selected child's sick bay visits (what the nurse saw and did, and where
  * they went), their medication with each dose, and what the school told you,
  * as on the web's Health page. Ask the nurse to give a prescribed medicine
- * here, with a photo of the prescription from the gallery if there is one
- * (a PDF is sent from the website). Opening the screen marks the child's
- * notices read.
+ * here, with a photo (taken now or from the gallery) or a PDF of the
+ * prescription if there is one. Opening the screen marks the child's notices
+ * read.
  */
 export function ParentHealth() {
   const { child, index, setIndex, accent } = useChild();
@@ -103,13 +104,13 @@ export function ParentHealth() {
               first={child.first}
               tint={tint}
               onCancel={() => setAsking(false)}
-              onSend={async (draft, photo) => {
+              onSend={async (draft, file) => {
                 let path: string | null = null;
                 try {
-                  path = photo ? await uploadPrescriptionFile(tenantId, child.id, await readPhoto(photo)) : null;
+                  path = file ? await uploadPrescriptionFile(tenantId, child.id, await readPickedFile(file)) : null;
                   await requestMedication(tenantId, child.id, draft, path);
                 } catch (err) {
-                  // Nothing half-sent: a photo that went up without its request comes back out.
+                  // Nothing half-sent: a file that went up without its request comes back out.
                   if (path) await removeUnsentPrescription(path);
                   throw err;
                 }
@@ -245,7 +246,7 @@ function RequestForm({ first, tint, onCancel, onSend }: {
   first: string;
   tint: string;
   onCancel: () => void;
-  onSend: (draft: MedicationRequestDraft, photo: PickedPhoto | null) => Promise<void>;
+  onSend: (draft: MedicationRequestDraft, file: PickedFile | null) => Promise<void>;
 }) {
   const [drug, setDrug] = useState("");
   const [dose, setDose] = useState("");
@@ -254,20 +255,30 @@ function RequestForm({ first, tint, onCancel, onSend }: {
   const [startsOn, setStartsOn] = useState(localDay(new Date()));
   const [endsOn, setEndsOn] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [file, setFile] = useState<PickedFile | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  async function chooseFile(source: FileSource) {
+    setProblem(null);
+    try {
+      const picked = await pickFile(source);
+      if (picked) setFile(picked);
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : "Could not add that file.");
+    }
+  }
 
   async function send() {
     const draft: MedicationRequestDraft = {
       drug, dose, times_per_day: Math.round(Number(times)), starts_on: startsOn.trim(), ends_on: endsOn.trim() || null, instructions, prescriber,
     };
-    const p = requestDraftProblem(draft) ?? (photo ? uploadProblem(photo) : null);
+    const p = requestDraftProblem(draft) ?? (file ? uploadProblem(file) : null);
     if (p) { setProblem(p); return; }
     setBusy(true);
     setProblem(null);
     try {
-      await onSend(draft, photo);
+      await onSend(draft, file);
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not send the request.");
       setBusy(false);
@@ -301,25 +312,18 @@ function RequestForm({ first, tint, onCancel, onSend }: {
       {field("First day (YYYY-MM-DD)", startsOn, setStartsOn, { keyboard: "numbers-and-punctuation", max: 10 })}
       {field("Last day (YYYY-MM-DD, optional)", endsOn, setEndsOn, { keyboard: "numbers-and-punctuation", max: 10 })}
       {field("Instructions", instructions, setInstructions, { placeholder: "e.g. After meals, finish the course", max: 1000 })}
-      {photo ? (
+      {file ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {photo.name}{photo.sizeBytes ? ` · ${formatFileSize(photo.sizeBytes)}` : ""}</Text>
-          <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => setPhoto(null)} style={{ minHeight: 40, justifyContent: "center" }}>
+          <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {file.name}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}</Text>
+          <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => setFile(null)} style={{ minHeight: 40, justifyContent: "center" }}>
             <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <TouchableOpacity
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => {
-            setProblem(null);
-            pickPhoto().then((picked) => { if (picked) setPhoto(picked); }).catch((err: unknown) => setProblem(err instanceof Error ? err.message : "Could not open your photos."));
-          }}
-          style={{ minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}
-        >
-          <Text style={{ fontSize: 14, fontWeight: "600", color: t.appSurface.ink }}>Add a photo of the prescription (optional)</Text>
-        </TouchableOpacity>
+        <View style={{ gap: 6 }}>
+          <Text style={labelStyle}>Add a photo or PDF of the prescription (optional)</Text>
+          <AttachChoices disabled={busy} onChoose={(source) => void chooseFile(source)} />
+        </View>
       )}
       {!!problem && <Text style={{ fontSize: 12.5, color: t.status.warnInk }}>✕ {problem}</Text>}
       <View style={{ flexDirection: "row", gap: 10 }}>

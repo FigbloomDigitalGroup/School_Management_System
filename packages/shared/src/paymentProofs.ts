@@ -9,7 +9,7 @@ import { PRIVATE_DOCS_BUCKET, type UploadableFile } from "./uploads";
  * (20261027100000_payment_proof_text.sql), or both. The office checks it
  * against the school's own statement before recording the payment. The
  * browser's version is uploadPaymentProof in the web app; the phone apps send
- * the pasted message, a photo from the gallery, or both (sendPaymentProof).
+ * the pasted message, a photo or PDF, or both (sendPaymentProof).
  */
 
 export interface PaymentProof {

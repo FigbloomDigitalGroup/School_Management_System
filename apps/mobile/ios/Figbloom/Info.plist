@@ -36,6 +36,8 @@
 	<string>Figbloom needs your location to share this bus's position with parents and staff while a trip is active.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Figbloom needs your location to keep sharing this bus's position with parents and staff after you lock your phone during a trip.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Figbloom opens the camera only when you choose to take a photo, for example of a payment slip or a prescription, to send to the school.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
