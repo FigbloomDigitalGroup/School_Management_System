@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Profile, Tenant } from "@figbloom/shared";
-import { supabase } from "@figbloom/shared";
+import type { AdminArea, Profile, Tenant } from "@figbloom/shared";
+import { fetchMyAdminAreas, mayHoldAdminAreas, supabase } from "@figbloom/shared";
 
 export interface Session {
   loading: boolean;
@@ -21,6 +21,10 @@ export interface Session {
    *  membership is what actually grants this access, and the "Exit to
    *  organization" link's destination. */
   actingOrganization: { id: string; name: string; slug: string } | null;
+  /** A teacher's or other staff member's admin areas (20261031000000): their
+   *  own and their school roles'. Empty for everyone else; full admins don't
+   *  need any (adminAccessFor). The database checks every one itself. */
+  adminAreas: AdminArea[];
 }
 
 interface InternalState extends Session {
@@ -36,7 +40,7 @@ interface InternalState extends Session {
 }
 
 const EMPTY: Omit<InternalState, "resolvedFor"> = {
-  loading: false, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null,
+  loading: false, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [],
 };
 
 /**
@@ -44,7 +48,7 @@ const EMPTY: Omit<InternalState, "resolvedFor"> = {
  * than querying auth directly, so impersonation is honoured in one place.
  */
 export function useSession(slug: string | null): Session {
-  const [state, setState] = useState<InternalState>({ loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, resolvedFor: null });
+  const [state, setState] = useState<InternalState>({ loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [], resolvedFor: null });
 
   useEffect(() => {
     let alive = true;
@@ -81,10 +85,15 @@ export function useSession(slug: string | null): Session {
         actingOrganization = org ?? null;
       }
 
+      // A failed lookup leaves them with their own console only, never more.
+      const adminAreas = profile && tenant && mayHoldAdminAreas(profile.role)
+        ? await fetchMyAdminAreas().catch((err: unknown) => { console.error(err); return [] as AdminArea[]; })
+        : [];
+
       const raw = sessionStorage.getItem("figbloom.impersonation");
       const impersonating = raw ? (JSON.parse(raw) as Session["impersonating"]) : null;
 
-      if (alive) setState({ loading: false, profile: profile ?? null, tenant, impersonating, actingForTenant, actingOrganization, resolvedFor: slug });
+      if (alive) setState({ loading: false, profile: profile ?? null, tenant, impersonating, actingForTenant, actingOrganization, adminAreas, resolvedFor: slug });
     }
 
     load().catch((err) => { if (alive) { console.error(err); setState({ ...EMPTY, resolvedFor: slug }); } });
@@ -93,7 +102,7 @@ export function useSession(slug: string | null): Session {
   }, [slug]);
 
   if (state.resolvedFor !== slug) {
-    return { loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null };
+    return { loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [] };
   }
   return state;
 }

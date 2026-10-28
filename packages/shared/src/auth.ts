@@ -118,16 +118,19 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/materials", label: "Learning materials", icon: "book" },
     { to: "admin/report-cards", label: "Report cards", icon: "receipt" },
     { to: "admin/fees", label: "Fees", icon: "receipt" },
+    { to: "admin/study-helper", label: "Bloom study helper", icon: "chat" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
     { to: "admin/activities", label: "Sports & activities", icon: "trophy" },
     { to: "admin/chats", label: "Chats", icon: "chat" },
     { to: "admin/leave", label: "Leave requests", icon: "flag" },
     { to: "admin/visitors", label: "Visitors", icon: "people" },
+    { to: "admin/medical", label: "Sick bay", icon: "pulse" },
     { to: "admin/inventory", label: "Inventory", icon: "box" },
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },
     { to: "admin/reports", label: "Reports", icon: "chart" },
     { to: "admin/performance", label: "Performance", icon: "chart" },
     { to: "admin/settings", label: "School settings", icon: "gear" },
+    { to: "admin/access", label: "Access & roles", icon: "people" },
     { to: "admin/account", label: "My account", icon: "pencil" },
   ],
   teacher: [
@@ -158,10 +161,12 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "parent/homework", label: "Homework", icon: "pencil" },
     { to: "parent/materials", label: "Learning materials", icon: "book" },
     { to: "parent/activities", label: "Sports & activities", icon: "trophy" },
+    { to: "parent/study-helper", label: "Bloom study helper", icon: "chat" },
     { to: "parent/bus", label: "Bus", icon: "pulse" },
     { to: "parent/inbox", label: "Inbox", icon: "chat" },
     { to: "parent/chats", label: "Chats", icon: "chat" },
     { to: "parent/items", label: "Issued items", icon: "box" },
+    { to: "parent/health", label: "Health", icon: "pulse" },
     { to: "parent/settings", label: "Account", icon: "gear" },
   ],
   student: [
@@ -183,8 +188,8 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   driver: [
     { to: "driver", label: "Trip", icon: "pulse" },
   ],
-  // Other staff. Visitors only for those the office has given the visitor
-  // log (profiles.handles_visitors); StaffShell hides it from the rest.
+  // Other staff. Visitors only for those holding the visitors admin area
+  // (adminAreas.ts); StaffShell hides it from the rest.
   staff: [
     { to: "staff/visitors", label: "Visitors", icon: "people" },
     { to: "staff/notices", label: "Notices", icon: "bell" },

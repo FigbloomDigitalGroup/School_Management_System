@@ -2,24 +2,19 @@ import { audienceIncludes } from "./audience";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
-import type { Audience, Profile } from "./types";
+import type { Audience } from "./types";
 
 /**
  * Other staff (role "staff", 20261028100001): everyone at a school who isn't
  * a teacher, an admin or a driver. One role; the job is profiles.staff_title.
- * Those the office gives the visitor log (handles_visitors) keep the gate and
- * reception's work too.
+ * What else they can do is admin areas (adminAreas.ts): the receptionist or
+ * guard holds the visitors area, the bursar fees, and so on.
  */
 
 /** Offered when the office adds or edits other staff; any other title can be typed. */
 export const STAFF_TITLE_SUGGESTIONS = [
   "Librarian", "Matron", "Nurse", "Receptionist", "Guard", "Secretary", "Lab technician", "Cook", "Groundsman", "Accounts clerk",
 ] as const;
-
-/** Whether this person keeps the visitor log: other staff the office has given it. */
-export function handlesVisitors(profile: Pick<Profile, "role" | "handles_visitors">): boolean {
-  return profile.role === "staff" && !!profile.handles_visitors;
-}
 
 /**
  * The notices other staff read: everything addressed to them, "All staff"

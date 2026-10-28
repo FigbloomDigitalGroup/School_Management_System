@@ -7,6 +7,10 @@
  *  - the school's own admin, for anyone at their school
  *  - an org admin, for anyone at a school their organization owns
  *  - a parent, for their own child's learner login only
+ *  - a teacher or other staff member holding the people admin area
+ *    (20261031000000), for learners, parents, teachers, drivers and other
+ *    staff at their school who hold no admin area themselves: taking over
+ *    an account with more access than your own is never a password away
  *
  * Same temporary-password approach as invite-admin/provision-*: a random
  * one-time password (_shared/tempPassword.ts) returned once, to be handed
@@ -20,6 +24,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { holdsAnyArea, holdsArea } from "../_shared/adminAreas.ts";
 
 interface Body {
   profile_id: string;
@@ -42,7 +47,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: caller } = await admin
     .from("profiles").select("id, role, full_name, tenant_id").eq("id", user.id).maybeSingle();
-  if (!caller || !["super_admin", "school_admin", "org_admin", "parent"].includes(caller.role)) {
+  if (!caller || !["super_admin", "school_admin", "org_admin", "parent", "teacher", "staff"].includes(caller.role)) {
     return json({ error: "Only the school office, an organization admin, or a parent can reset a password." }, 403);
   }
 
@@ -84,6 +89,11 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
       authorized = !!guardian;
     }
     actorSuffix = "parent";
+  } else if (caller.role === "teacher" || caller.role === "staff") {
+    authorized = ["student", "parent", "teacher", "driver", "staff"].includes(target.role)
+      && await holdsArea(admin, caller, target.tenant_id, "people")
+      && !(await holdsAnyArea(admin, target.id));
+    actorSuffix = "people";
   }
   if (!authorized) return json({ error: NOT_YOURS }, 403);
 
