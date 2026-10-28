@@ -4,6 +4,7 @@ import { accentFor, HIT, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { Skeleton } from "../../components/Skeleton";
 import { CbeResults } from "../../components/CbeResults";
+import { ExamAbsences } from "../../components/ExamAbsences";
 import { ExamSwitcher } from "../../components/ExamSwitcher";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useExamView } from "../../lib/useExamView";
@@ -95,6 +96,7 @@ export function StudentResults() {
                 ))}
               </>
             )}
+            {!view.loading && !view.failed && <ExamAbsences studentId={data.studentId} examId={view.examId} />}
           </>
         )}
       </ScrollView>
