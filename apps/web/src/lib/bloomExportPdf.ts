@@ -3,13 +3,21 @@
  * Loaded on demand through bloomExport.ts, so pdf-lib stays out of the chat
  * page's bundle.
  *
- * The fonts are the PDF standard Helvetica and Courier families, like the
- * report cards: no font file to ship, but they only cover Latin-1 and WinAnsi,
- * so every string goes through pdfSafeText() first (accents and curly quotes
- * kept, other scripts simplified). The Word export keeps every character.
+ * The text is set in Noto Sans and Noto Sans Mono, embedded (subset to the
+ * characters used) through fontkit, so Swahili and every accented name, Greek,
+ * Cyrillic, curly quotes, dashes and signs such as ₦ € £ print as written.
+ * The font files are fetched only when a PDF is made (bloomExportFonts.ts),
+ * and only the faces the document uses. Whatever a font lacks (emoji, Arabic,
+ * Chinese, Devanagari...) goes through pdfSafeText()'s fallback: emoji are
+ * left out, other scripts become "?". Without the font files (no loader, or
+ * the download failed) it falls back to the standard Helvetica and Courier
+ * and their narrower WinAnsi set. The Word export keeps every character.
  */
+import fontkit, { type Font as FontkitFont } from "@pdf-lib/fontkit";
 import { PDFDocument, PDFString, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
-import { pdfSafeText, type ExportBlock, type ExportDocument, type ExportRun } from "../../../../packages/shared/src/bloomExport";
+import {
+  pdfSafeText, winAnsiGlyphs, type ExportBlock, type ExportDocument, type ExportRun, type GlyphCheck,
+} from "../../../../packages/shared/src/bloomExport";
 
 const A4: [number, number] = [595.28, 841.89];
 const MARGIN = 50;
@@ -30,7 +38,15 @@ const CODE_BG = rgb(0.95, 0.96, 0.95);
 const LINK = rgb(0.06, 0.4, 0.27);
 const FOREST = rgb(0.09, 0.25, 0.16);
 
-interface Fonts { regular: PDFFont; bold: PDFFont; italic: PDFFont; boldItalic: PDFFont; mono: PDFFont; monoBold: PDFFont }
+/** The six faces a document can use. */
+export type FontFace = "regular" | "bold" | "italic" | "boldItalic" | "mono" | "monoBold";
+/** A face's TrueType bytes. */
+export type FontLoader = (face: FontFace) => Promise<Uint8Array>;
+
+interface Fonts extends Record<FontFace, PDFFont> {
+  /** The text as `font` can draw it (pdfSafeText with that font's glyphs). */
+  safe: (font: PDFFont, text: string) => string;
+}
 
 interface Piece { text: string; font: PDFFont; size: number; color: RGB; href?: string; sup?: boolean; x: number; w: number }
 interface Line { pieces: Piece[]; width: number; size: number }
@@ -75,11 +91,31 @@ function pdfUri(url: string): string {
   return url.replace(/[^\x21-\x7e]|[()\\]/gu, (c) => [...new TextEncoder().encode(c)].map((b) => `%${b.toString(16).toUpperCase().padStart(2, "0")}`).join(""));
 }
 
-function fontFor(fonts: Fonts, run: ExportRun, base: TextStyle): PDFFont {
+function faceFor(run: ExportRun, base: { bold?: boolean; italic?: boolean }): FontFace {
   const bold = !!(run.bold || base.bold);
-  if (run.code) return bold ? fonts.monoBold : fonts.mono;
+  if (run.code) return bold ? "monoBold" : "mono";
   const italic = !!(run.italic || base.italic);
-  return bold ? (italic ? fonts.boldItalic : fonts.bold) : italic ? fonts.italic : fonts.regular;
+  return bold ? (italic ? "boldItalic" : "bold") : italic ? "italic" : "regular";
+}
+
+const fontFor = (fonts: Fonts, run: ExportRun, base: TextStyle): PDFFont => fonts[faceFor(run, base)];
+
+/**
+ * The faces a document needs, so only those font files are fetched: the
+ * title, header and footer always use regular, bold and italic.
+ */
+export function facesUsed(d: ExportDocument): Set<FontFace> {
+  const faces = new Set<FontFace>(["regular", "bold", "italic"]);
+  const runs = (list: ExportRun[], base: { bold?: boolean; italic?: boolean } = {}) => list.forEach((r) => faces.add(faceFor(r, base)));
+  for (const s of d.sections) {
+    for (const b of s.blocks) {
+      if (b.kind === "heading") runs(b.runs, { bold: true });
+      else if (b.kind === "paragraph" || b.kind === "listItem") runs(b.runs);
+      else if (b.kind === "code") faces.add("mono");
+      else if (b.kind === "table") { b.head.forEach((c) => runs(c, { bold: true })); b.rows.forEach((r) => r.forEach((c) => runs(c))); }
+    }
+  }
+  return faces;
 }
 
 /**
@@ -114,7 +150,7 @@ function layout(runs: ExportRun[], fonts: Fonts, width: number, base: TextStyle)
     const font = fontFor(fonts, run, base);
     const size = run.sup ? base.size * 0.65 : run.code ? base.size * 0.92 : base.size;
     const color = run.href ? LINK : base.color ?? INK;
-    for (const token of pdfSafeText(run.text).match(/\n| +|[^ \n]+/g) ?? []) {
+    for (const token of fonts.safe(font, run.text).match(/\n| +|[^ \n]+/g) ?? []) {
       if (token === "\n") { endLine(); continue; }
       if (!token.trim()) { if (line.pieces.length) add(" ", font, size, run, color); continue; }
       let word = token;
@@ -166,7 +202,24 @@ function drawLines(w: Writer, lines: Line[], x: number, opts: { quoteX?: number 
 
 const HEADING_SIZE = [0, 15, 13, 11.5, 10.5];
 
-function drawBlock(w: Writer, block: ExportBlock) {
+/** Blocks in order: a list gets room after it, and a heading keeps to what follows it. */
+function drawBlocks(w: Writer, blocks: ExportBlock[]) {
+  blocks.forEach((b, i) => {
+    const prev = blocks[i - 1];
+    // the end of a list (an item, or anything nested in one) before a block at the outer level
+    if (prev && (prev.kind === "listItem" || prev.indent > 0) && b.kind !== "listItem" && b.indent === 0) w.y -= BODY * 0.45;
+    drawBlock(w, b, blocks[i + 1]);
+  });
+}
+
+/** Room the start of a block needs, so the heading above it doesn't sit alone at the foot of a page. */
+function leadHeight(b: ExportBlock | undefined): number {
+  if (b?.kind === "table") return (lineHeight(9) + CELL_PAD * 2) * 2;
+  if (b?.kind === "code") return 8.5 * 1.4 * 2 + 12;
+  return lineHeight(BODY);
+}
+
+function drawBlock(w: Writer, block: ExportBlock, next?: ExportBlock) {
   const left = MARGIN + block.indent * INDENT + (block.quote ? 12 : 0);
   const width = MARGIN + WIDTH - left;
   const quoteX = block.quote ? left - 9 : undefined;
@@ -177,8 +230,8 @@ function drawBlock(w: Writer, block: ExportBlock) {
       const size = HEADING_SIZE[block.level]!;
       w.y -= size * 0.5;
       const lines = layout(block.runs, w.fonts, width, { size, bold: true, color });
-      // a heading stays with the line after it
-      w.need(lineHeight(size) * lines.length + lineHeight(BODY));
+      // a heading stays with the start of what follows it
+      w.need(lineHeight(size) * lines.length + 2 + leadHeight(next));
       drawLines(w, lines, left, { quoteX });
       w.y -= 2;
       break;
@@ -192,7 +245,7 @@ function drawBlock(w: Writer, block: ExportBlock) {
       const lines = layout(block.runs, w.fonts, width - INDENT, { size: BODY, color });
       const lh = lineHeight(BODY);
       w.need(lh);
-      const marker = block.ordered ? `${block.number}.` : (["•", "–", "·"][block.indent % 3]!);
+      const marker = block.ordered ? `${block.number}.` : (["•", "–", "•"][block.indent % 3]!);
       const font = w.fonts.regular;
       const mw = font.widthOfTextAtSize(marker, BODY);
       w.page.drawText(marker, { x: textX - 5 - mw, y: w.y - lh * 0.76, size: BODY, font, color: block.ordered ? color : MUTED });
@@ -225,11 +278,17 @@ function drawCode(w: Writer, text: string, x: number, width: number) {
   const font = w.fonts.mono;
   const perLine = Math.max(8, Math.floor((width - pad * 2) / font.widthOfTextAtSize("M", size)));
   const lines: string[] = [];
-  for (const raw of pdfSafeText(text).split("\n")) {
-    let l = raw.replace(/\s+$/, "");
-    if (!l) { lines.push(""); continue; }
-    while (l.length > perLine) { lines.push(l.slice(0, perLine)); l = l.slice(perLine); }
-    lines.push(l);
+  for (const raw of w.fonts.safe(font, text).split("\n")) {
+    let l = [...raw.replace(/\s+$/, "")];
+    if (!l.length) { lines.push(""); continue; }
+    while (l.length > perLine) {
+      // break after a space in the second half of the line when there is one, else mid-word
+      const space = l.lastIndexOf(" ", perLine);
+      const cut = space > perLine / 2 ? space + 1 : perLine;
+      lines.push(l.slice(0, cut).join("").replace(/\s+$/, ""));
+      l = l.slice(cut);
+    }
+    lines.push(l.join(""));
   }
   let i = 0;
   while (i < lines.length) {
@@ -257,7 +316,7 @@ function columnWidths(w: Writer, block: Extract<ExportBlock, { kind: "table" }>,
     for (const r of runs) {
       const font = fontFor(w.fonts, r, { size, bold });
       const s = r.sup ? size * 0.65 : size;
-      const text = pdfSafeText(r.text);
+      const text = w.fonts.safe(font, r.text);
       full += font.widthOfTextAtSize(text.replace(/\n/g, " "), s);
       for (const part of text.split(/[ \n]+/)) word = Math.max(word, font.widthOfTextAtSize(part, s));
     }
@@ -335,21 +394,87 @@ function drawTable(w: Writer, block: Extract<ExportBlock, { kind: "table" }>, x:
   }
 }
 
-/** The file's bytes. */
-export async function renderBloomPdf(d: ExportDocument): Promise<Uint8Array> {
+const STANDARD: Record<FontFace, StandardFonts> = {
+  regular: StandardFonts.Helvetica, bold: StandardFonts.HelveticaBold, italic: StandardFonts.HelveticaOblique,
+  boldItalic: StandardFonts.HelveticaBoldOblique, mono: StandardFonts.Courier, monoBold: StandardFonts.CourierBold,
+};
+
+/**
+ * Scripts drawn letter by letter, with no shaping: pdf-lib places glyphs one
+ * after another, so a script that needs its letters joined or reordered
+ * (Devanagari, which Noto Sans has, or Arabic) would come out wrong, and
+ * fontkit's shaper for those needs a runtime the bundle doesn't carry. Those
+ * take the fallback ("?") like a script the font lacks.
+ */
+const UNSHAPED = /[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Common}\p{Script=Inherited}]/u;
+
+/** A face the document doesn't use stands in for one it would otherwise need. */
+const STAND_IN: Record<FontFace, FontFace> = { regular: "regular", bold: "bold", italic: "italic", boldItalic: "bold", mono: "mono", monoBold: "mono" };
+
+type SubsetProto = { _addGlyph: (this: { loca: { version?: number } }, gid: number) => number; bloomLongLoca?: true };
+
+/**
+ * fontkit 1.1.1's TrueType subsetter writes the short `loca` format whenever
+ * the subset is under 128 KB, which stores every glyph offset halved. Noto's
+ * glyphs have odd byte lengths, so the halved offsets land mid-glyph and most
+ * letters come out blank or as the wrong letter. Starting each subset's
+ * `loca` in the long format (two bytes more per glyph) keeps the offsets
+ * exact. Patched once, on the prototype pdf-lib's own subsets use.
+ */
+function patchLongLoca(font: FontkitFont) {
+  const proto = Object.getPrototypeOf(font.createSubset()) as SubsetProto;
+  if (proto.bloomLongLoca) return;
+  const addGlyph = proto._addGlyph;
+  proto._addGlyph = function (gid) {
+    this.loca.version ??= 1;
+    return addGlyph.call(this, gid);
+  };
+  proto.bloomLongLoca = true;
+}
+
+/** The document's fonts: Noto, subset, when there's a loader and its files arrive; otherwise the standard fonts. */
+async function embedFonts(doc: PDFDocument, used: Set<FontFace>, loadFont?: FontLoader): Promise<Fonts> {
+  const faces = Object.keys(STANDARD) as FontFace[];
+  if (loadFont) {
+    try {
+      const wanted = faces.filter((f) => used.has(f));
+      const bytes = await Promise.all(wanted.map(loadFont));
+      doc.registerFontkit(fontkit);
+      const embedded = new Map<FontFace, PDFFont>();
+      const checks = new Map<PDFFont, GlyphCheck>();
+      for (const [i, face] of wanted.entries()) {
+        const parsed = fontkit.create(bytes[i]!);
+        patchLongLoca(parsed);
+        const font = await doc.embedFont(bytes[i]!, { subset: true });
+        embedded.set(face, font);
+        checks.set(font, (k) => UNSHAPED.test(String.fromCodePoint(k)) && parsed.hasGlyphForCodePoint(k));
+      }
+      const pick = (f: FontFace) => embedded.get(f) ?? embedded.get(STAND_IN[f])!;
+      return {
+        ...(Object.fromEntries(faces.map((f) => [f, pick(f)])) as Record<FontFace, PDFFont>),
+        safe: (font, text) => pdfSafeText(text, checks.get(font) ?? winAnsiGlyphs),
+      };
+    } catch (err) {
+      // a failed font download still gives a PDF, in the standard fonts
+      console.warn("Bloom PDF: the font files didn't load, using the standard fonts", err);
+    }
+  }
+  const standard = await Promise.all(faces.map((f) => doc.embedFont(STANDARD[f])));
+  return {
+    ...(Object.fromEntries(faces.map((f, i) => [f, standard[i]!])) as Record<FontFace, PDFFont>),
+    safe: (_font, text) => pdfSafeText(text),
+  };
+}
+
+/** The file's bytes. `loadFont` fetches the Noto font files; without it the standard fonts are used. */
+export async function renderBloomPdf(d: ExportDocument, loadFont?: FontLoader): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(pdfSafeText(d.title));
-  doc.setAuthor(pdfSafeText(d.schoolName));
+  // the document's properties are Unicode strings: only invisible characters are taken out
+  doc.setTitle(pdfSafeText(d.title, () => true));
+  doc.setAuthor(pdfSafeText(d.schoolName, () => true));
   doc.setSubject(d.disclaimer);
   doc.setCreator("Figbloom School Systems - Bloom");
-  const fonts: Fonts = {
-    regular: await doc.embedFont(StandardFonts.Helvetica),
-    bold: await doc.embedFont(StandardFonts.HelveticaBold),
-    italic: await doc.embedFont(StandardFonts.HelveticaOblique),
-    boldItalic: await doc.embedFont(StandardFonts.HelveticaBoldOblique),
-    mono: await doc.embedFont(StandardFonts.Courier),
-    monoBold: await doc.embedFont(StandardFonts.CourierBold),
-  };
+  const fonts = await embedFonts(doc, facesUsed(d), loadFont);
   const w = new Writer(doc, fonts);
 
   // header
@@ -363,12 +488,16 @@ export async function renderBloomPdf(d: ExportDocument): Promise<Uint8Array> {
 
   d.sections.forEach((s, i) => {
     if (s.label) {
-      if (i > 0) { w.y -= 6; w.need(lineHeight(BODY) * 3); }
+      if (i > 0) w.y -= 6;
+      // the label stays with the start of the turn: a heading and what follows it, or the first block
+      const [first, second] = s.blocks;
+      const lead = first?.kind === "heading" ? lineHeight(HEADING_SIZE[first.level]!) * 1.5 + leadHeight(second) : leadHeight(first);
+      w.need(lineHeight(8.5) + 3 + lead);
       const label = [s.label, s.time].filter(Boolean).join("  ·  ");
       drawLines(w, layout([{ text: label, bold: true }], fonts, WIDTH, { size: 8.5, color: s.label === "Bloom" ? FOREST : MUTED }), MARGIN);
       w.y -= 3;
     }
-    for (const b of s.blocks) drawBlock(w, b);
+    drawBlocks(w, s.blocks);
   });
 
   if (d.sources.length) {

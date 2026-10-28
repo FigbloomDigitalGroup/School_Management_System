@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   askBloomChat, chatTitleFrom, createAiChat, deleteAiChat, deleteAiChatMessage, EdgeError, fetchAiChatMessages, fetchAiChats,
-  homeRouteFor, renameAiChat, saveAiChatTurns, setAiChatWebSearch, sourceHost, CHAT_MESSAGE_MAX, type AiChat, type AiChatSource, type AiChatTurn,
+  formatFileSize, homeRouteFor, renameAiChat, saveAiChatTurns, setAiChatWebSearch, sourceHost, CHAT_MESSAGE_MAX, type AiChat, type AiChatSource, type AiChatTurn,
 } from "@figbloom/shared";
 import type { BloomChatState, BloomConsole } from "../../components/BloomFab";
 import { Markdown } from "../../components/Markdown";
@@ -11,13 +11,23 @@ import { useToast } from "../../components/ui/Toast";
 import { useAiStatus } from "../../lib/useAi";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-import { replyTables } from "../../../../../packages/shared/src/bloomExport";
+import { UPLOAD_LIMIT_BYTES } from "../../lib/uploadLimit";
+import { disconnectDrive, driveAccount, driveConfig, pickFromDrive, readPickedFile, saveToDrive } from "../../lib/googleDrive";
+import { replyTables, type ExportTurn } from "../../../../../packages/shared/src/bloomExport";
+import { attachmentLabel, CHAT_MAX_ATTACHMENTS, type ChatAttachment } from "../../../../../packages/shared/src/bloomAttachments";
+import { driveOpenLabel, shortAccount, type DriveTarget } from "../../../../../packages/shared/src/googleDrive";
 
 /**
  * A turn on screen; saved ones carry their row id (Regenerate removes the
- * last answer by it). An answer from a web search carries its sources.
+ * last answer by it). An answer from a web search carries its sources. A
+ * question shows the names of files sent with it; while the page is open it
+ * also holds the files themselves (`files`), so Regenerate can send them
+ * again. They are never saved.
  */
-interface Turn extends AiChatTurn { id?: string; created_at?: string; sources?: AiChatSource[] }
+interface Turn extends AiChatTurn { id?: string; created_at?: string; sources?: AiChatSource[]; attachments?: string[]; files?: ChatAttachment[] }
+
+/** Google Drive, when the three VITE_GOOGLE_* settings are present; null hides every Drive action. */
+const DRIVE = driveConfig();
 
 const STARTERS = [
   "Draft a circular to parents about half term",
@@ -41,6 +51,11 @@ const STARTERS = [
  *
  * An answer, or the whole chat, downloads as PDF or Word, and an answer's
  * tables as Excel or CSV (lib/bloomExport.ts, loaded only when asked for).
+ *
+ * With Google Drive set up (lib/googleDrive.ts), the same files can be saved
+ * to the person's Drive as a Google Doc, Sheet or PDF, and a question can
+ * carry up to three files picked from Drive. Bloom only ever sees files the
+ * person picks or creates here; the saved chat keeps their names, not them.
  */
 export function BloomChat({ console }: { console: BloomConsole }) {
   const toast = useToast();
@@ -61,6 +76,10 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [webSearch, setWebSearch] = useState(true);
   const [exporting, setExporting] = useState(false);
+  // Google Drive: who is connected (null until a Drive action this visit), and the next question's files
+  const [driveUser, setDriveUser] = useState<{ email: string | null; name: string | null } | null>(null);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -134,15 +153,19 @@ export function BloomChat({ console }: { console: BloomConsole }) {
         setActiveId(chat.id);
         setChatsKey((k) => k + 1);
       }
+      // the question's files, still in memory (a new question, or Regenerate in the same visit)
+      const files = history[history.length - 1]?.files;
       const reply = await askBloomChat(history.map(({ role, content }) => ({ role, content })), {
         tenantId: actingForTenant ? tenant.id : undefined,
         signal: controller.signal,
         webSearch,
+        attachments: files,
       });
       const answer: Turn = { role: "assistant", content: reply.text || "(Bloom gave an empty answer. Try again.)", sources: reply.sources };
       setTurns([...history, answer]);
       try {
-        const saved = await saveAiChatTurns(chatId, question ? [question, answer] : [answer]);
+        const saved: Turn[] = await saveAiChatTurns(chatId, question ? [question, answer] : [answer]);
+        if (question?.files) saved.forEach((s, k) => { if (k === 0 && s.role === "user") saved[k] = { ...s, files: question.files }; });
         setTurns([...history.slice(0, question ? -1 : undefined), ...saved]);
         setChatsKey((k) => k + 1);
       } catch {
@@ -150,7 +173,10 @@ export function BloomChat({ console }: { console: BloomConsole }) {
       }
     } catch (err) {
       setTurns(before);
-      if (question) setDraft(question.content);
+      if (question) {
+        setDraft(question.content);
+        setAttachments(question.files ?? []);
+      }
       if (created && chatId) {
         // Nothing was said in it: don't leave an empty chat in the list.
         await deleteAiChat(chatId).catch(() => {});
@@ -167,9 +193,69 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   function send(text: string) {
     const content = text.trim();
     if (!content || busy) return;
-    const question: Turn = { role: "user", content: content.slice(0, CHAT_MESSAGE_MAX) };
+    const question: Turn = {
+      role: "user", content: content.slice(0, CHAT_MESSAGE_MAX),
+      ...(attachments.length ? { attachments: attachments.map((a) => a.name), files: attachments } : {}),
+    };
     setDraft("");
+    setAttachments([]);
     void ask([...turns, question], turns, question);
+  }
+
+  /** Reports a Drive problem; a cancelled sign-in says why rather than failing silently. */
+  const driveFailed = (err: unknown, fallback: string) => toast(err instanceof Error ? err.message : fallback, "error");
+
+  /** After a Drive action: who is connected, for the header (looked up once a visit). */
+  async function noteDriveUser() {
+    if (DRIVE && !driveUser) setDriveUser(await driveAccount(DRIVE));
+  }
+
+  /** "Add from Google Drive": Google's Picker, then each picked file fetched here and held for the next question. */
+  async function addFromDrive() {
+    if (!DRIVE || attaching || busy) return;
+    const room = CHAT_MAX_ATTACHMENTS - attachments.length;
+    if (room < 1) { toast(`Bloom can read up to ${CHAT_MAX_ATTACHMENTS} files with one question.`, "error"); return; }
+    setAttaching(true);
+    try {
+      const picked = await pickFromDrive(DRIVE, room);
+      void noteDriveUser();
+      let held = attachments;
+      for (const file of picked.slice(0, room)) {
+        try {
+          const a = await readPickedFile(DRIVE, file, held, UPLOAD_LIMIT_BYTES);
+          held = [...held, a];
+          setAttachments(held);
+        } catch (err) {
+          driveFailed(err, `Couldn't read "${file.name}" from Drive.`);
+        }
+      }
+      input.current?.focus();
+    } catch (err) {
+      driveFailed(err, "Google Drive didn't open.");
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  /** Saves a file to Drive and offers to open it; the sign-in comes before the file is made, while the click still counts. */
+  async function saveDrive(target: DriveTarget, make: (lib: typeof import("../../lib/bloomExport")) => Promise<{ blob: Blob; fileName: string }>) {
+    if (!DRIVE || exporting) return;
+    setExporting(true);
+    try {
+      const saved = await saveToDrive(DRIVE, target, async () => make(await import("../../lib/bloomExport")));
+      toast(`Saved to your Google Drive as "${saved.name}".`, "default", { label: driveOpenLabel(target), href: saved.link });
+      void noteDriveUser();
+    } catch (err) {
+      driveFailed(err, "Couldn't save to Google Drive.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function disconnect() {
+    disconnectDrive();
+    setDriveUser(null);
+    toast("Google Drive disconnected.");
   }
 
   async function regenerate() {
@@ -209,18 +295,41 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     }
   }
 
-  function exportChat(format: "pdf" | "docx") {
-    void download((lib) => lib.downloadBloomExport({ format, chatTitle: activeTitle, schoolName: tenant.name, turns, wholeChat: true }));
+  /** The chat as the export reads it: a question names the files sent with it. */
+  const exportTurns = (): ExportTurn[] => turns.map((t) => (t.attachments?.length
+    ? { ...t, content: `${t.content}\n\nAttached: ${t.attachments.join(", ")}` }
+    : t));
+
+  /** The whole chat: download, or (with Drive) save as a Google Doc or a PDF in Drive. */
+  function chatItems(): MenuItem[] {
+    const req = { chatTitle: activeTitle, schoolName: tenant.name, turns: exportTurns(), wholeChat: true };
+    const items: MenuItem[] = [
+      { label: "Download as PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...req, format: "pdf" })) },
+      { label: "Download as Word", run: () => void download((lib) => lib.downloadBloomExport({ ...req, format: "docx" })) },
+    ];
+    if (DRIVE) {
+      items.push(
+        { label: "Save to Google Docs", divider: true, run: () => void saveDrive("doc", (lib) => lib.makeBloomFile({ ...req, format: "docx" })) },
+        { label: "Save PDF to Google Drive", run: () => void saveDrive("pdf", (lib) => lib.makeBloomFile({ ...req, format: "pdf" })) },
+      );
+    }
+    return items;
   }
 
-  /** The download choices for answer i: the answer itself, then any tables in it. */
+  /** The download choices for answer i: the answer itself, then any tables in it; with Drive, the same saved there. */
   function replyItems(i: number): MenuItem[] {
     const t = turns[i]!;
-    const common = { chatTitle: activeTitle, schoolName: tenant.name, context: turns };
+    const common = { chatTitle: activeTitle, schoolName: tenant.name, context: exportTurns() };
     const items: MenuItem[] = [
       { label: "Download as PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
       { label: "Download as Word", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "docx", turns: [t], wholeChat: false })) },
     ];
+    if (DRIVE) {
+      items.push(
+        { label: "Save to Google Docs", run: () => void saveDrive("doc", (lib) => lib.makeBloomFile({ ...common, format: "docx", turns: [t], wholeChat: false })) },
+        { label: "Save PDF to Google Drive", run: () => void saveDrive("pdf", (lib) => lib.makeBloomFile({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
+      );
+    }
     const tables = replyTables(t.content);
     tables.forEach((table, k) => {
       const name = tables.length > 1 ? `${table.name}: ` : "Table: ";
@@ -228,9 +337,15 @@ export function BloomChat({ console }: { console: BloomConsole }) {
         { label: `${name}Download as Excel (.xlsx)`, divider: k === 0, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content, index: k })) },
         { label: `${name}Download as CSV`, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "csv", content: t.content, index: k })) },
       );
+      if (DRIVE) {
+        items.push({ label: `${name}Save to Google Sheets`, run: () => void saveDrive("sheet", (lib) => lib.makeTableFile({ ...common, format: "xlsx", content: t.content, index: k })) });
+      }
     });
     if (tables.length > 1) {
       items.push({ label: "All tables: Excel, a sheet each", divider: true, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content })) });
+      if (DRIVE) {
+        items.push({ label: "All tables: Google Sheets, a sheet each", run: () => void saveDrive("sheet", (lib) => lib.makeTableFile({ ...common, format: "xlsx", content: t.content })) });
+      }
     }
     return items;
   }
@@ -321,6 +436,15 @@ export function BloomChat({ console }: { console: BloomConsole }) {
             {activeTitle ?? "New chat"}
           </h1>
         </div>
+        {DRIVE && driveUser && (
+          <p className="hidden min-w-0 max-w-[260px] items-center gap-1 text-[11.5px] text-ink-muted sm:flex">
+            <span className="truncate" title={driveUser.email ?? driveUser.name ?? undefined}>
+              {driveUser.email ? `Google account: ${shortAccount(driveUser.email)}` : driveUser.name ? `Google account: ${driveUser.name}` : "Google Drive connected"}
+            </span>
+            <span aria-hidden>·</span>
+            <button type="button" onClick={disconnect} className="shrink-0 font-semibold text-forest hover:underline">Disconnect</button>
+          </p>
+        )}
         {turns.length > 0 && (
           <ExportMenu
             label={exporting ? "Preparing…" : "Export whole chat"}
@@ -328,10 +452,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
             disabled={busy || exporting}
             align="right"
             buttonClassName="rounded-md border border-[#D3DAD5] bg-white px-3.5 py-2 text-[12.5px] hover:bg-page disabled:cursor-not-allowed disabled:opacity-50"
-            items={() => [
-              { label: "Download as PDF", run: () => exportChat("pdf") },
-              { label: "Download as Word", run: () => exportChat("docx") },
-            ]}
+            items={chatItems}
           />
         )}
         <Button className="md:hidden" onClick={() => setSidebarOpen((o) => !o)} aria-expanded={sidebarOpen}>Chats</Button>
@@ -375,6 +496,13 @@ export function BloomChat({ console }: { console: BloomConsole }) {
               <div className="flex flex-col gap-4" aria-live="polite">
                 {turns.map((t, i) => t.role === "user" ? (
                   <div key={t.id ?? `u${i}`} className="max-w-[85%] self-end whitespace-pre-wrap rounded-2xl bg-forest px-3.5 py-2.5 text-[13.5px] leading-relaxed text-white">
+                    {!!t.attachments?.length && (
+                      <ul aria-label="Files sent with this question" className="mb-1.5 flex flex-wrap gap-1">
+                        {t.attachments.map((n, k) => (
+                          <li key={k} className="max-w-full truncate rounded-md bg-white/15 px-2 py-0.5 text-[11.5px]" title={n}>{attachmentLabel(n)}</li>
+                        ))}
+                      </ul>
+                    )}
                     {t.content}
                   </div>
                 ) : (
@@ -417,6 +545,19 @@ export function BloomChat({ console }: { console: BloomConsole }) {
             className="shrink-0 border-t border-line bg-white px-4 py-3 sm:px-6"
             onSubmit={(e) => { e.preventDefault(); send(draft); }}
           >
+            {(attachments.length > 0 || attaching) && (
+              <ul aria-label="Files to send with your next question" className="mx-auto mb-2 flex max-w-[820px] flex-wrap gap-1.5">
+                {attachments.map((a, k) => (
+                  <li key={k} className="flex max-w-full items-center gap-1.5 rounded-full border border-line bg-page py-1 pl-2.5 pr-1 text-[12px] text-ink-soft">
+                    <span className="truncate" title={a.name}>{attachmentLabel(a.name)}</span>
+                    <span className="shrink-0 text-ink-faint">{formatFileSize(a.size)}</span>
+                    <button type="button" onClick={() => setAttachments(attachments.filter((_, j) => j !== k))} disabled={busy}
+                      aria-label={`Remove ${a.name}`} className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-sunken hover:text-ink">✕</button>
+                  </li>
+                ))}
+                {attaching && <li className="animate-pulse px-1 py-1 text-[12px] text-ink-faint" role="status">Getting your file from Drive…</li>}
+              </ul>
+            )}
             <div className="mx-auto flex max-w-[820px] items-end gap-2">
               <label htmlFor="bloom-input" className="sr-only">Message Bloom</label>
               <textarea
@@ -428,7 +569,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                 disabled={off}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft); } }}
-                placeholder="Message Bloom… (Shift+Enter for a new line)"
+                placeholder={attachments.length ? "Ask about the attached file… (Shift+Enter for a new line)" : "Message Bloom… (Shift+Enter for a new line)"}
                 className="max-h-[40vh] min-w-0 flex-1 resize-y rounded-lg border border-[#D3DAD5] bg-white px-3 py-2 text-[13.5px] outline-none focus:border-accent"
               />
               {busy
@@ -441,6 +582,16 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                   <input type="checkbox" checked={webSearch} disabled={off} onChange={(e) => toggleWebSearch(e.target.checked)} style={{ accentColor: "#17402A" }} />
                   Search the web
                 </label>
+              )}
+              {DRIVE && (
+                <span className="flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={() => void addFromDrive()}
+                    disabled={off || busy || attaching || attachments.length >= CHAT_MAX_ATTACHMENTS}
+                    className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1 text-[11.5px] text-ink-soft hover:bg-page disabled:cursor-not-allowed disabled:opacity-50">
+                    + Add from Google Drive
+                  </button>
+                  <span className="text-[11px] text-ink-faint">Bloom only sees files you pick or create here.</span>
+                </span>
               )}
               <p className="min-w-0 flex-1 text-[11px] text-ink-faint">
                 Bloom is an AI and can get things wrong. Check before you use it. Your chats are saved for you only.
@@ -488,10 +639,29 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
   const menu = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // opens upwards when there isn't room below the button (the last answer, just above the composer)
+  const [up, setUp] = useState(false);
+
+  useLayoutEffect(() => {
+    const m = menu.current;
+    const a = anchor.current;
+    if (!m || !a) return;
+    const box = scrollParent(a)?.getBoundingClientRect();
+    const top = Math.max(box?.top ?? 0, 0);
+    const bottom = Math.min(box?.bottom ?? window.innerHeight, window.innerHeight);
+    const at = a.getBoundingClientRect();
+    const below = bottom - at.bottom;
+    const above = at.top - top;
+    const needed = m.offsetHeight + 8;
+    if (below >= needed) return;
+    if (above >= needed) setUp(true);
+    // fits neither way (a short window): it stays below, scrolled into view
+    else m.scrollIntoView({ block: "nearest" });
+  }, [anchor]);
 
   useEffect(() => {
     const list = () => Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-    list()[0]?.focus();
+    list()[0]?.focus({ preventScroll: true });
     function onDocClick(e: MouseEvent) {
       const t = e.target as Node;
       if (!menu.current?.contains(t) && !anchor.current?.contains(t)) onCloseRef.current();
@@ -514,7 +684,7 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
       ref={menu}
       role="menu"
       aria-label={label}
-      className={`absolute top-full z-30 mt-1 w-64 overflow-hidden rounded-lg border border-line bg-white py-1 text-[12.5px] text-ink shadow-lg ${align === "right" ? "right-0" : "left-0"}`}
+      className={`absolute z-30 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-line bg-white py-1 text-[12.5px] text-ink shadow-lg ${up ? "bottom-full mb-1" : "top-full mt-1"} ${align === "right" ? "right-0" : "left-0"}`}
     >
       {items.map((it, i) => (
         <div key={i}>
@@ -531,6 +701,14 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
       ))}
     </div>
   );
+}
+
+/** The nearest ancestor that scrolls (the chat's message list), whose edges clip a menu inside it. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
+  }
+  return null;
 }
 
 /** An answer's sources as numbered chips, matching the [^n] markers in its text; each opens in a new tab. */

@@ -194,7 +194,14 @@ export function convertInline(nodes: Inline[], ctx: { cite: CiteLookup }, style:
       case "link": convertInline(n.children, ctx, { ...style, href: n.href }).forEach(push); break;
       case "cite": {
         const src = ctx.cite(n.n);
-        if (src) out.push({ text: String(src.n), sup: true, href: src.url });
+        if (!src) break;
+        // the number sits against its word ("day¹"), not after a space
+        const last = out[out.length - 1];
+        if (last && !last.sup && /\s$/.test(last.text)) {
+          last.text = last.text.trimEnd();
+          if (!last.text) out.pop();
+        }
+        out.push({ text: String(src.n), sup: true, href: src.url });
         break;
       }
     }
@@ -294,12 +301,18 @@ export function bloomExportFileName(title: string, now: Date, ext: "pdf" | "docx
   return `Bloom - ${name || "chat"} - ${date}.${ext}`;
 }
 
-// ------------------------------------------------------------------ PDF text
+/// ------------------------------------------------------------------ PDF text
 
 // What the standard PDF fonts (WinAnsi) can draw beyond Latin-1.
-const WIN_ANSI_EXTRA = new Set([..."€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ"]);
+const WIN_ANSI_EXTRA = new Set([..."€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ"].map((c) => c.codePointAt(0)!));
 
-// Common characters outside WinAnsi, put as their nearest plain spelling.
+/** Whether a font can draw a character, by its code point. */
+export type GlyphCheck = (codePoint: number) => boolean;
+
+/** What the standard Helvetica and Courier can draw: Latin-1 and WinAnsi's extras. */
+export const winAnsiGlyphs: GlyphCheck = (k) => (k >= 0x20 && k <= 0x7e) || (k >= 0xa1 && k <= 0xff && k !== 0xad) || WIN_ANSI_EXTRA.has(k);
+
+// Common characters a font may lack, put as their nearest plain spelling.
 const PLAIN: Record<string, string> = {
   "‐": "-", "‑": "-", "‒": "-", "―": "—", "−": "-",
   "′": "'", "″": '"', "‛": "'", "‟": "”",
@@ -308,32 +321,38 @@ const PLAIN: Record<string, string> = {
   "✓": "[x]", "✔": "[x]", "✅": "[x]", "☑": "[x]", "✗": "x", "✘": "x", "❌": "x", "☐": "[ ]",
   "●": "•", "◦": "•", "▪": "•", "∙": "•", "‣": "•",
   "Ł": "L", "ł": "l", "Đ": "D", "đ": "d", "ı": "i", "Ŋ": "Ng", "ŋ": "ng", "ħ": "h",
-  "\u00a0": " ", "\u2028": " ", "\u2029": " ", "\u202f": " ", "\u2009": " ", "\u2007": " ",
 };
 
+/** Characters that draw nothing: controls, zero-width joiners and spaces, variation selectors, soft hyphen, BOM, tag characters. */
+const invisible = (k: number) =>
+  k < 0x20 || (k >= 0x7f && k <= 0x9f) || k === 0xad || (k >= 0x200b && k <= 0x200f) || (k >= 0x2060 && k <= 0x206f)
+  || (k >= 0xfe00 && k <= 0xfe0f) || k === 0xfeff || (k >= 0xe0000 && k <= 0xe007f);
+
 /**
- * Text the PDF's standard fonts can draw. Latin-1 and WinAnsi's extras (é, ñ,
- * ü, curly quotes, en and em dashes, €, •) are kept as they are; other
- * accented letters lose the accent (ş -> s, ā -> a); a few symbols become their
- * plain spelling (→ "->", ≥ ">="); emoji and invisible characters are left
- * out; anything else (another script) becomes "?". Spaces are kept, for code;
- * a tab becomes four.
+ * Text a PDF font can draw. `has` says which characters the font has: the
+ * export embeds Noto Sans (apps/web bloomExportPdf.ts), which covers Latin
+ * with its accents, Greek, Cyrillic, curly quotes, dashes and signs such as
+ * € £ ₦; left out, it's the standard fonts' WinAnsi. Whatever the font lacks
+ * falls back: a few symbols become their plain spelling (→ "->", ≥ ">="), an
+ * accented letter loses the accent when the bare letter can be drawn
+ * (ş -> s), emoji, stray accent marks and invisible characters are left out,
+ * and anything else (a script the font doesn't cover) becomes "?". Every kind
+ * of space becomes a plain one, spaces are kept for code, and a tab becomes four.
  */
-export function pdfSafeText(s: string): string {
+export function pdfSafeText(s: string, has: GlyphCheck = winAnsiGlyphs): string {
   let out = "";
-  for (const ch of s) {
+  for (const ch of s.normalize("NFC")) {
     const code = ch.codePointAt(0)!;
     if (ch === "\t") { out += "    "; continue; }
     if (ch === "\n") { out += ch; continue; }
-    if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa1 && code <= 0xff && code !== 0xad) || WIN_ANSI_EXTRA.has(ch)) { out += ch; continue; }
+    if (/\p{Z}/u.test(ch)) { out += " "; continue; }
+    if (invisible(code)) continue;
+    if (has(code)) { out += ch; continue; }
     const plain = PLAIN[ch];
-    if (plain !== undefined) { out += plain; continue; }
-    // invisible: controls, zero-width joiners and spaces, variation selectors, soft hyphen, BOM
-    if (code < 0x20 || (code >= 0x7f && code <= 0xa0) || code === 0xad || (code >= 0x200b && code <= 0x200f) || (code >= 0x2060 && code <= 0x206f) || (code >= 0xfe00 && code <= 0xfe0f) || code === 0xfeff) continue;
-    if (/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(ch) || (code >= 0x1f3fb && code <= 0x1f3ff)) continue;
-    if (/\p{Zs}/u.test(ch)) { out += " "; continue; }
+    if (plain !== undefined && [...plain].every((c) => has(c.codePointAt(0)!))) { out += plain; continue; }
+    if (/\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{M}/u.test(ch) || (code >= 0x1f3fb && code <= 0x1f3ff)) continue;
     const bare = ch.normalize("NFKD").replace(/\p{M}/gu, "");
-    out += bare && [...bare].every((c) => { const k = c.codePointAt(0)!; return (k >= 0x20 && k <= 0x7e) || (k >= 0xa1 && k <= 0xff); }) ? bare : "?";
+    out += bare && [...bare].every((c) => has(c.codePointAt(0)!)) ? bare : "?";
   }
   return out;
 }
