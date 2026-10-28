@@ -7,10 +7,11 @@ import { useDayVisits } from "../../lib/useDayVisits";
 import { accentFor, HIT, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 
-const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Visitors" | "Performance" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
+const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Visitors" | "Performance" | "ReportCards" | "Classes" | "Leave" | "Buses" | "Account"; label: string; glyph: string }[] = [
   { to: "Chats", label: "Chats", glyph: "✉" },
   { to: "Visitors", label: "Your visitors", glyph: "⌂" },
   { to: "Performance", label: "Performance", glyph: "↗" },
+  { to: "ReportCards", label: "Report cards", glyph: "▤" },
   { to: "Timetable", label: "Timetable", glyph: "◷" },
   { to: "Homework", label: "Homework", glyph: "✎" },
   { to: "Classes", label: "My classes", glyph: "▨" },
