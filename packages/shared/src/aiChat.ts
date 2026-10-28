@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
+import { attachmentName, CHAT_MAX_ATTACHMENTS, type ChatAttachment } from "./bloomAttachments";
 
 /**
  * Bloom chat: a general AI assistant for the office and teachers. The reply
@@ -12,13 +13,18 @@ import { invokeEdge } from "./edge";
  * an answer then carries its sources, saved with it, and [^n] markers in its
  * text where it cites the nth one. The per-chat "Search the web" toggle is
  * ai_chats.web_search.
+ *
+ * A question can carry files (bloomAttachments.ts): they go to the edge
+ * function with that question only, and the saved message keeps just their
+ * names (ai_chat_messages.attachments, 20261102100000_bloom_chat_attachments.sql).
  */
 
 export interface AiChat { id: string; title: string; updated_at: string; web_search: boolean }
 export interface AiChatTurn { role: "user" | "assistant"; content: string }
 /** A page an answer cites. */
 export interface AiChatSource { title: string; url: string }
-export interface AiChatMessage extends AiChatTurn { id: string; created_at: string; sources: AiChatSource[] }
+/** A saved turn. `attachments` are the names of files sent with a question; their content isn't kept. */
+export interface AiChatMessage extends AiChatTurn { id: string; created_at: string; sources: AiChatSource[]; attachments: string[] }
 export interface AiChatReply { text: string; sources: AiChatSource[] }
 
 /** Mirrors the ai_chat_messages.sources check and the edge function's cap. */
@@ -57,16 +63,20 @@ const CHAT_SEND_TURNS = 40;
  * Bloom's next reply. `tenantId` lets an org admin acting inside a member
  * school use that school's Bloom; for everyone else the function ignores it.
  * `webSearch: false` (the chat's toggle off) means Bloom can't search; on, it
- * still can't if the school has switched web search off.
+ * still can't if the school has switched web search off. `attachments` go
+ * with the last question.
  */
 export async function askBloomChat(
-  turns: AiChatTurn[], opts: { tenantId?: string; signal?: AbortSignal; webSearch?: boolean } = {},
+  turns: AiChatTurn[], opts: { tenantId?: string; signal?: AbortSignal; webSearch?: boolean; attachments?: ChatAttachment[] } = {},
 ): Promise<AiChatReply> {
+  const attachments = (opts.attachments ?? []).map((a) => a.kind === "text"
+    ? { name: a.name, kind: a.kind, text: a.text }
+    : { name: a.name, kind: a.kind, data: a.data });
   const { result } = await invokeEdge<{ result: { text: string; sources?: unknown } }>(
     "ai-assist",
     {
       task: "chat",
-      payload: { messages: turns.slice(-CHAT_SEND_TURNS), webSearch: opts.webSearch !== false },
+      payload: { messages: turns.slice(-CHAT_SEND_TURNS), webSearch: opts.webSearch !== false, ...(attachments.length ? { attachments } : {}) },
       ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
     },
     { timeoutMs: CHAT_TIMEOUT_MS, signal: opts.signal },
@@ -92,12 +102,20 @@ export async function fetchAiChats(): Promise<AiChat[]> {
   return (data ?? []) as AiChat[];
 }
 
-type MessageRow = Omit<AiChatMessage, "sources"> & { sources: unknown };
-const asMessage = (r: MessageRow): AiChatMessage => ({ ...r, sources: parseChatSources(r.sources) });
+type MessageRow = Omit<AiChatMessage, "sources" | "attachments"> & { sources: unknown; attachments: unknown };
+
+/** Attachment names as a saved row holds them: text only, at most CHAT_MAX_ATTACHMENTS. */
+export function parseAttachmentNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, CHAT_MAX_ATTACHMENTS).map(attachmentName);
+}
+
+const asMessage = (r: MessageRow): AiChatMessage => ({ ...r, sources: parseChatSources(r.sources), attachments: parseAttachmentNames(r.attachments) });
+const MESSAGE_COLUMNS = "id, role, content, created_at, sources, attachments";
 
 export async function fetchAiChatMessages(chatId: string): Promise<AiChatMessage[]> {
   const { data, error } = await supabase().from("ai_chat_messages")
-    .select("id, role, content, created_at, sources").eq("chat_id", chatId).order("created_at").order("id");
+    .select(MESSAGE_COLUMNS).eq("chat_id", chatId).order("created_at").order("id");
   if (error) throw new Error(error.message);
   return ((data ?? []) as MessageRow[]).map(asMessage);
 }
@@ -129,7 +147,7 @@ export async function deleteAiChat(chatId: string): Promise<void> {
 }
 
 /** Saves turns in order; created_at is stamped one millisecond apart so a question always sorts before its answer. */
-export async function saveAiChatTurns(chatId: string, turns: (AiChatTurn & { sources?: AiChatSource[] })[]): Promise<AiChatMessage[]> {
+export async function saveAiChatTurns(chatId: string, turns: (AiChatTurn & { sources?: AiChatSource[]; attachments?: string[] })[]): Promise<AiChatMessage[]> {
   if (!turns.length) return [];
   const base = Date.now();
   const { data, error } = await supabase().from("ai_chat_messages").insert(
@@ -137,8 +155,10 @@ export async function saveAiChatTurns(chatId: string, turns: (AiChatTurn & { sou
       chat_id: chatId, role: t.role, content: t.content, created_at: new Date(base + i).toISOString(),
       // an answer's sources, so the saved chat shows them too; null when it has none
       sources: t.sources?.length ? t.sources : null,
+      // a question's file names, never their content; null when it had none
+      attachments: t.role === "user" && t.attachments?.length ? t.attachments.slice(0, CHAT_MAX_ATTACHMENTS).map(attachmentName) : null,
     })),
-  ).select("id, role, content, created_at, sources");
+  ).select(MESSAGE_COLUMNS);
   if (error) throw new Error(error.message);
   return ((data ?? []) as MessageRow[]).map(asMessage).sort((a, b) => a.created_at.localeCompare(b.created_at));
 }

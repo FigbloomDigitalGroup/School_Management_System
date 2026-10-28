@@ -1,4 +1,4 @@
-import { supabase, type Organization, type Tenant } from "@figbloom/shared";
+import { supabase, type EmailOutcome, type Organization, type Tenant } from "@figbloom/shared";
 
 /** A super_admin may insert tenants directly — RLS allows it, no edge function needed. */
 export interface NewSchoolInput {
@@ -56,6 +56,8 @@ export interface InviteAdminResult {
   ok: true;
   email: string;
   password: string;
+  /** Whether the sign-in details were emailed to them as well. */
+  emailed?: EmailOutcome;
 }
 
 export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminResult> {
@@ -94,12 +96,15 @@ export interface InviteStaffInput {
   role: "teacher" | "driver" | "staff";
   staff_title?: string;
   phone?: string;
+  /** Optional: their sign-in details are emailed here (they still sign in with the login ID). */
+  email?: string;
 }
 
 export interface InviteStaffResult {
   ok: true;
   login_id: string;
   password: string;
+  emailed?: EmailOutcome;
 }
 
 export async function inviteStaff(input: InviteStaffInput): Promise<InviteStaffResult> {
@@ -135,6 +140,7 @@ export interface ProvisionGuardianResult {
   ok: true;
   login_id: string;
   password: string;
+  emailed?: EmailOutcome;
 }
 
 export async function provisionGuardian(input: ProvisionGuardianInput): Promise<ProvisionGuardianResult> {
@@ -283,6 +289,7 @@ export interface OrgAdminInviteResult {
    *  they already have working credentials. */
   linkedExisting: boolean;
   password?: string;
+  emailed?: EmailOutcome;
 }
 
 export async function inviteOrgAdmin(input: OrgAdminInviteInput): Promise<OrgAdminInviteResult> {

@@ -20,15 +20,16 @@
  * the email belongs to some OTHER role (school_admin/parent/student/etc.),
  * that account can't be repurposed and the invite is rejected. Only a
  * genuinely new email creates a new account, with a random one-time
- * password that must be changed at first sign-in (no email/SMS provider
- * wired up — see invite-admin's own docstring for why) — a failed profile
- * insert rolls back the orphaned auth account rather than leaving a login
- * with no profile.
+ * password that must be changed at first sign-in, shown once on screen and,
+ * when Resend is set up (_shared/email.ts), emailed to them too — a failed
+ * profile insert rolls back the orphaned auth account rather than leaving a
+ * login with no profile. A failed email never undoes the account.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 interface Body {
   organization_id: string;
@@ -37,9 +38,9 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -62,9 +63,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (!organization_id || !full_name?.trim() || !email?.trim()) {
     return json({ error: "An organization, the admin's name and their email are all required." }, 400);
   }
+  if (!isDeliverable(email)) return json({ error: "That email address doesn't look right." }, 400);
 
   const { data: organization, error: orgErr } = await admin
-    .from("organizations").select("id, name").eq("id", organization_id).maybeSingle();
+    .from("organizations").select("id, name, slug").eq("id", organization_id).maybeSingle();
   if (orgErr || !organization) return json({ error: "That organization could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
@@ -160,7 +162,19 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, linkedExisting: false, email: email.trim(), password });
+  // The account exists now: whatever happens to the email, the password above is the way in.
+  const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {
+    kind: "welcome",
+    fullName: full_name.trim(),
+    placeName: organization.name,
+    login: email.trim(),
+    loginIsId: false,
+    password,
+    signInPath: signInPath("org_admin", organization.slug),
+    actor: actorName(callerProfile),
+  });
+
+  return json({ ok: true, linkedExisting: false, email: email.trim(), password, emailed });
 }
 
 if (import.meta.main) {
@@ -173,7 +187,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 

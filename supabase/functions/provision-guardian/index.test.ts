@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle } from "./index.ts";
 
 const SCHOOL_ADMIN_ID = "school-admin-1";
@@ -208,5 +209,33 @@ describe("provision-guardian login_id numbering", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("guardians").length, 0);
     assertEquals(admin.deletedUserIds, []);
+  });
+});
+
+describe("provision-guardian sign-in email", () => {
+  it("emails a guardian who has an email their login ID and one-time password", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request({ ...validBody, email: "rose@gmail.com" }), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "rose@gmail.com" });
+    assertMatch(mailer.sent[0].text, /Login ID: PT-0001/);
+    assertMatch(mailer.sent[0].text, /\/s\/green-valley\/parent/);
+  });
+
+  it("sends nothing to a guardian with no email", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals((await res.json()).emailed, { status: "no_address" });
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("skips cleanly when email isn't set up", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request({ ...validBody, email: "rose@gmail.com" }), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).emailed, { status: "not_configured" });
   });
 });

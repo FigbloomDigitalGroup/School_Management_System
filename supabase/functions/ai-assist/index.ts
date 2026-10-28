@@ -18,6 +18,10 @@
  *  - what is kept: one ai_usage row per request (who, task, tokens, searches), never
  *    the prompt or the reply. A paper sent for importing is deleted from
  *    storage as soon as it has been read (documents.ts).
+ *  - files: Bloom chat only. A question may carry up to CHAT_MAX_ATTACHMENTS
+ *    files in the request (text, or a PDF or Word file), read like a paper
+ *    import (documents.ts chatAttachmentParts) and never stored; metered and
+ *    refused like any chat request. The study helper refuses any file.
  *
  * Staff drafting tasks answer in JSON fixed by a schema; the app shows the
  * draft for a person to edit, and nothing is saved or sent from here. Bloom
@@ -32,10 +36,10 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { paperImportContent, readStaged } from "./documents.ts";
+import { chatAttachmentParts, paperImportContent, readStaged } from "./documents.ts";
 import { aiFromEnv, type AiCall, type AiReply, type AiRequest, type WebSearch } from "./providers.ts";
 import {
-  ALLOWED, BadInput, CHAT_MAX_SEARCHES, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
+  ALLOWED, BadInput, CHAT_MAX_SEARCHES, chatAttachments, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
   type Role, type Task,
 } from "./tasks.ts";
 
@@ -100,6 +104,8 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   let webSearch: WebSearch | null = null;
   try {
     if (task === "tutor") {
+      // files are for staff chat only; the study helper never reads one
+      if ((body.payload as { attachments?: unknown } | null)?.attachments != null) throw new BadInput("The study helper can't read files.");
       if (!tenant.ai_tutor_enabled) return json({ error: "Bloom isn't turned on for learners at your school." }, 403);
       // The school's switch, its access mode (every learner, or a parent's
       // opt-in) and the exam block, in one place: ai_helper_allowed() in
@@ -126,8 +132,14 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
     } else if (task === "chat") {
       const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Nairobi" });
       webSearch = chatWebSearch(body.payload, tenant);
-      system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today, webSearch !== null);
       messages = chatMessages(body.payload ?? {});
+      // files go in ahead of the question they came with (the last message), and are kept nowhere
+      const files = chatAttachments(body.payload);
+      if (files.length) {
+        const question = messages[messages.length - 1]!;
+        messages[messages.length - 1] = { role: "user", content: [...chatAttachmentParts(files), { type: "text", text: question.content as string }] };
+      }
+      system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today, webSearch !== null, files.length > 0);
     } else {
       const prepared = prepare(task, body.payload);
       system = prepared.system;

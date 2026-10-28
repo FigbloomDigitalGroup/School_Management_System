@@ -8,11 +8,15 @@
  * (<tenant>/paper-imports/<profile>/<file>, see packages/shared
  * paperImport.ts) and is deleted as soon as it has been read: the paper,
  * and any marking scheme in it, is never kept here.
+ *
+ * Bloom chat reuses the same reading for files attached to a question
+ * (chatAttachmentParts): those arrive in the request itself and are never
+ * stored at all.
  */
 
 import { strFromU8, unzipSync } from "npm:fflate@0.8.2";
 import type { AiPart } from "./providers.ts";
-import { BadInput, paperImportPrompt, type PaperImportRequest } from "./tasks.ts";
+import { BadInput, paperImportPrompt, type ChatAttachmentInput, type PaperImportRequest } from "./tasks.ts";
 
 const BUCKET = "private-documents";
 
@@ -123,6 +127,54 @@ export async function readStaged(admin: any, paths: string[]): Promise<Uint8Arra
     const { error } = await admin.storage.from(BUCKET).remove(paths);
     if (error) console.error("ai-assist: could not delete a staged paper", error.message);
   }
+}
+
+/** Bytes from base64. */
+export function fromBase64(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** A document's text in its own block; a closing tag inside it can't end the block early. */
+const documentBlock = (name: string, text: string, from?: string) =>
+  `<document name="${attr(name)}"${from ? ` from="${from}"` : ""}>\n${text.replace(/<\/document/gi, "<\\/document")}\n</document>`;
+
+/**
+ * Files sent with a Bloom chat question (tasks.ts chatAttachments), as the
+ * model's input ahead of the question: text in a delimited <document> block,
+ * a Word file opened here and sent as its text, a PDF as the file itself.
+ * The same limits as importing a paper: MAX_BYTES together, MAX_PDF_PAGES for
+ * a PDF, MAX_DOCX_CHARS for a Word file's text. Nothing is kept.
+ */
+export function chatAttachmentParts(attachments: ChatAttachmentInput[]): AiPart[] {
+  const total = attachments.reduce((n, a) => n + (a.kind === "text" ? new TextEncoder().encode(a.text).length : Math.floor((a.data.length * 3) / 4)), 0);
+  if (total > MAX_BYTES) throw new BadInput(`Bloom can read up to ${MAX_BYTES / 1024 ** 2} MB of files with one question. Remove a file, or attach a shorter one.`);
+  const parts: AiPart[] = [];
+  for (const a of attachments) {
+    if (a.kind === "text") {
+      parts.push({ type: "text", text: documentBlock(a.name, a.text) });
+      continue;
+    }
+    const bytes = fromBase64(a.data);
+    if (a.kind === "pdf") {
+      if (sniff(bytes) !== "pdf") throw new BadInput(`"${a.name}" isn't a PDF Bloom can open.`);
+      const pages = pdfPageCount(bytes);
+      if (pages !== null && pages > MAX_PDF_PAGES) throw new BadInput(`"${a.name}" has ${pages} pages. Bloom reads up to ${MAX_PDF_PAGES} at a time.`);
+      parts.push({ type: "text", text: `The PDF below is the attached document "${a.name}".` });
+      parts.push({ type: "pdf", name: /\.pdf$/i.test(a.name) ? a.name : `${a.name}.pdf`, data: a.data });
+    } else {
+      if (sniff(bytes) !== "docx") throw new BadInput(`"${a.name}" isn't a Word document Bloom can open. Save it as .docx or PDF.`);
+      const text = docxText(bytes);
+      if (!text) throw new BadInput(`"${a.name}" is empty.`);
+      if (text.length > MAX_DOCX_CHARS) throw new BadInput(`"${a.name}" is too long for Bloom to read at once. Copy the part you need into a new document.`);
+      parts.push({ type: "text", text: documentBlock(a.name, text, "Word") });
+    }
+  }
+  return parts;
 }
 
 /** The model's input for an import: the document (or its text), then what to do with it. */

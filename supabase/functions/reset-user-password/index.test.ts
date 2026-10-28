@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle } from "./index.ts";
 
 const TENANT_ID = "tenant-1";
@@ -193,5 +194,104 @@ describe("reset-user-password handle", () => {
     assertEquals(res.status, 500);
     assertEquals(clients.admin.rowsIn("password_reset_requests")[0].resolved_at, null);
     assertEquals(clients.admin.rowsIn("audit_events").length, 0);
+  });
+});
+
+describe("reset-user-password email", () => {
+  /** The usual fixtures, plus a teacher and a parent with real addresses and a people-area holder. */
+  function withEmails(callerId: string) {
+    const clients = makeClients(callerId);
+    clients.admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley", slug: "green-valley", organization_id: ORG_ID }, { id: OTHER_TENANT_ID, name: "Riverside", organization_id: null }]);
+    const profiles = clients.admin.rowsIn("profiles");
+    clients.admin.seed("profiles", [
+      ...profiles.map((p) => p.id === "teacher" ? { ...p, email: "otieno@gmail.com" } : p.id === "parent" ? { ...p, login_id: "PT-0001", email: "peter@gmail.com" } : p),
+      { id: "people-holder", role: "teacher", full_name: "Pat People", tenant_id: TENANT_ID, login_id: "TC-0009" },
+    ]);
+    clients.admin.seed("staff_permissions", [{ profile_id: "people-holder", tenant_id: TENANT_ID, area: "people" }]);
+    const mailer = new FakeMailer();
+    const limiter = countingLimiter();
+    return { ...clients, mailer, limiter, deps: { ...clients, mailer, limiter } };
+  }
+
+  it("a plain reset emails the new password to a teacher with an address, as the reset version", async () => {
+    const { deps, mailer } = withEmails("school-admin");
+    const res = await handle(request({ profile_id: "teacher" }), deps);
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "otieno@gmail.com" });
+    assertEquals(mailer.sent[0].template, "login-reset");
+    assertMatch(mailer.sent[0].text, new RegExp(out.password));
+    assertMatch(mailer.sent[0].text, /\/s\/green-valley\/teacher/);
+  });
+
+  it("never emails a learner, even on a plain reset", async () => {
+    const { deps, mailer } = withEmails("school-admin");
+    const res = await handle(request({ profile_id: "student-login" }), deps);
+    assertEquals((await res.json()).emailed, { status: "no_address" });
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("send again: a new one-time password, must change it, emailed, and audited", async () => {
+    const { deps, admin, mailer, limiter } = withEmails("school-admin");
+    const res = await handle(request({ profile_id: "parent", resend: true }), deps);
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "peter@gmail.com" });
+    assertEquals(admin.updatedUsers, [{ id: "parent", attrs: { password: out.password } }]);
+    assertEquals(admin.rowsIn("profiles").find((p) => p.id === "parent")!.must_change_password, true);
+    assertEquals(mailer.sent[0].template, "login-welcome");
+    assertMatch(mailer.sent[0].text, /Login ID: PT-0001/);
+    assertMatch(admin.rowsIn("audit_events")[0].event, /Sign-in details sent again to Peter Parent \(PT-0001\).*emailed/);
+    assertEquals(limiter.calls, 1, "counted once, not twice");
+  });
+
+  it("send again is allowed to a people-area holder, for a teacher without areas", async () => {
+    const { deps } = withEmails("people-holder");
+    const res = await handle(request({ profile_id: "teacher", resend: true }), deps);
+    assertEquals(res.status, 200);
+  });
+
+  it("send again needs the same permission as a reset: another school's admin is refused and nothing changes", async () => {
+    const { deps, admin, mailer } = withEmails("other-admin");
+    const res = await handle(request({ profile_id: "teacher", resend: true }), deps);
+    assertEquals(res.status, 403);
+    assertEquals(admin.updatedUsers, []);
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("send again is refused to a parent for another adult, and to anyone for a learner", async () => {
+    const parent = withEmails("parent");
+    assertEquals((await handle(request({ profile_id: "teacher", resend: true }), parent.deps)).status, 403);
+    const office = withEmails("school-admin");
+    const res = await handle(request({ profile_id: "student-login", resend: true }), office.deps);
+    assertEquals(res.status, 400);
+    assertEquals(office.admin.updatedUsers, []);
+  });
+
+  it("send again with no address, or with email not set up, or past the limit, changes nothing", async () => {
+    const noAddress = withEmails("school-admin");
+    assertEquals((await handle(request({ profile_id: "other-parent", resend: true }), noAddress.deps)).status, 400);
+    assertEquals(noAddress.admin.updatedUsers, []);
+
+    const notSetUp = withEmails("school-admin");
+    notSetUp.mailer.configured = false;
+    assertEquals((await handle(request({ profile_id: "teacher", resend: true }), notSetUp.deps)).status, 503);
+    assertEquals(notSetUp.admin.updatedUsers, []);
+
+    const limited = withEmails("school-admin");
+    const res = await handle(request({ profile_id: "teacher", resend: true }), { ...limited.deps, limiter: countingLimiter(0) });
+    assertEquals(res.status, 429);
+    assertEquals(limited.admin.updatedUsers, []);
+  });
+
+  it("if the email itself fails, the new password is still returned to show on screen", async () => {
+    const { deps, mailer, admin } = withEmails("school-admin");
+    mailer.answer = { status: "failed", reason: "Resend answered 500" };
+    const res = await handle(request({ profile_id: "teacher", resend: true }), deps);
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed.status, "failed");
+    assert(out.password);
+    assertMatch(admin.rowsIn("audit_events")[0].event, /email failed/);
   });
 });
