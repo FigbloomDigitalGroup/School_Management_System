@@ -15,6 +15,10 @@
  * function's service-role writes bypass, so the same logic is re-checked
  * here by hand rather than relied on). Since 20261031000000 a teacher or
  * other staff member holding the people admin area passes too.
+ *
+ * When the guardian has an email and Resend is set up (_shared/email.ts),
+ * their login ID and one-time password are emailed to them as well as shown
+ * on screen; a failed email never undoes the account.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -22,6 +26,7 @@ import { CORS_HEADERS } from "../_shared/cors.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 const RELATIONSHIPS = new Set(["mother", "father", "guardian"]);
 
@@ -40,9 +45,9 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -66,6 +71,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const email = body.email?.trim() || undefined;
   if (!tenant_id || !full_name?.trim() || !students?.length) {
     return json({ error: "A tenant, the guardian's name, and at least one learner are all required." }, 400);
+  }
+  // the sign-in details are emailed here, so a typo matters
+  if (email && !isDeliverable(email)) {
+    return json({ error: "That email address doesn't look right." }, 400);
   }
   for (const s of students) {
     if (s.relationship && !RELATIONSHIPS.has(s.relationship)) {
@@ -168,7 +177,19 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, login_id: loginId, password });
+  // The account exists now: whatever happens to the email, the password above is the way in.
+  const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {
+    kind: "welcome",
+    fullName: full_name.trim(),
+    placeName: tenant.name,
+    login: loginId,
+    loginIsId: true,
+    password,
+    signInPath: signInPath("parent", tenant.slug),
+    actor: actorName(callerProfile),
+  });
+
+  return json({ ok: true, login_id: loginId, password, emailed });
 }
 
 if (import.meta.main) {
@@ -181,7 +202,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 

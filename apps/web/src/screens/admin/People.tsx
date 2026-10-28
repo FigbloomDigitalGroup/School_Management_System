@@ -13,6 +13,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PasswordResetRequests, ResetPasswordSection } from "../../components/PasswordReset";
+import { handOverNote } from "../../components/TempPasswordCard";
 import { useAsync } from "../../lib/useAsync";
 import { LearnerDocumentSignatures } from "../../components/signatures/LearnerDocumentSignatures";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
@@ -505,7 +506,7 @@ export function People() {
             <div className="mt-5">
               <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
               <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />
-              <GuardianContacts studentId={manageRow.id} />
+              <GuardianContacts studentId={manageRow.id} schoolName={tenant.name} />
               <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
             </div>
           )}
@@ -913,9 +914,10 @@ function StaffTitleSuggestions() {
   );
 }
 
-/** Adds a teacher, driver or other staff member (FIG-398/400) — no email, an assigned login_id
- *  (e.g. "TC-0001") instead, shown once on success the same way every other
- *  credential-reveal modal in this app works. */
+/** Adds a teacher, driver or other staff member (FIG-398/400) — an assigned login_id
+ *  (e.g. "TC-0001") rather than an email login, shown once on success the same way every
+ *  other credential-reveal modal in this app works, and emailed to them too when an
+ *  address is given (invite-admin, Resend). */
 function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   tenantId: string; onClose: () => void; onAdded: () => void; toast: ToastFn;
 }) {
@@ -923,6 +925,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<InviteStaffResult | null>(null);
   const other = role === "staff";
@@ -935,6 +938,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
     try {
       const r = await inviteStaff({
         tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
       });
       setResult(r);
       onAdded();
@@ -958,7 +962,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
+            {handOverNote(result.emailed)}
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -981,6 +985,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
             <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <TextField id="staff-email" type="email" label="Email (optional)" placeholder="e.g. otieno@gmail.com" hint="We'll email their sign-in details. They still sign in with their login ID." value={email} onChange={(e) => setEmail(e.target.value)} />
           {role !== "driver" && (
             <p className="text-[12px] leading-relaxed text-ink-faint">
               A deputy, bursar, secretary or receptionist? Once they're added, open their card and give them admin access there.
@@ -1002,6 +1007,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
   const [relationship, setRelationship] = useState<"mother" | "father" | "guardian">("guardian");
   const [isPrimaryPayer, setIsPrimaryPayer] = useState(true);
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<ProvisionGuardianResult | null>(null);
 
@@ -1014,6 +1020,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
         full_name: fullName.trim(),
         students: students.map((s) => ({ student_id: s.id, relationship, is_primary_payer: isPrimaryPayer })),
         phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
       });
       setResult(r);
       onInvited();
@@ -1038,7 +1045,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
+            {handOverNote(result.emailed)}
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -1057,6 +1064,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
             options={[{ value: "mother", label: "Mother" }, { value: "father", label: "Father" }, { value: "guardian", label: "Guardian" }]}
           />
           <TextField id="guardian-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <TextField id="guardian-email" type="email" label="Email (optional)" placeholder="e.g. rose@gmail.com" hint="We'll email their sign-in details." value={email} onChange={(e) => setEmail(e.target.value)} />
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={isPrimaryPayer} onChange={(e) => setIsPrimaryPayer(e.target.checked)} style={{ accentColor: "#17402A" }} />
             <span className="text-[13px]">Primary fee payer</span>

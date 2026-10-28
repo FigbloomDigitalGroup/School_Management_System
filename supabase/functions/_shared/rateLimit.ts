@@ -1,5 +1,6 @@
 /**
- * Per-caller rate limits for the public (no-JWT) edge functions. Each call is
+ * Per-caller rate limits for the public (no-JWT) edge functions, and for the
+ * sign-in emails the account functions send (_shared/email.ts). Each call is
  * noted in login_lookups through note_login_lookup() (20261022000002), which
  * answers false once a caller has made more than `limit` calls in `window`.
  * resolve-login-id and request-password-reset carry their own copies of the same
@@ -12,6 +13,12 @@ export async function callerKey(req: Request, scope: string): Promise<string> {
     ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     ?? "unknown";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${scope}:${ip}`));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The same for a signed-in caller: a hash of their profile id and the scope, so one person's allowance follows them whatever address they call from. */
+export async function userKey(userId: string, scope: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${scope}:user:${userId}`));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
