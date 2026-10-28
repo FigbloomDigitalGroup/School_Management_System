@@ -31,6 +31,7 @@ import { ParentItems } from "./screens/parent/Items";
 import { ParentStudyHelper } from "./screens/parent/StudyHelper";
 import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
+import { StudentStudyHelper } from "./screens/student/StudyHelper";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -91,6 +92,8 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="ChatThread" component={StudentChatThread} />
           <Stack.Screen name="Activities" component={StudentActivities} />
           <Stack.Screen name="Items" component={StudentItems} />
+          {/* The study helper opens from a Today card. */}
+          <Stack.Screen name="StudyHelper" component={StudentStudyHelper} />
         </Stack.Navigator>
       )}
     </NavigationContainer>

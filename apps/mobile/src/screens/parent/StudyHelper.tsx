@@ -17,7 +17,7 @@ const when = (iso: string | null) =>
  * this child. Either guardian may change it; the screen says who did. The
  * price shows only once the school bills for it (AI_HELPER_BILLING_AVAILABLE
  * and the school's own switch); until then nothing here costs anything.
- * The learner uses the helper on the website for now: the phone app has none.
+ * The learner uses the helper from the Today screen of their own app, or the website.
  */
 export function ParentStudyHelper() {
   const { child, index, setIndex, accent, country } = useChild();
@@ -195,7 +195,7 @@ function Choice({ status, first, saving, tint, country, onChange }: {
         </View>
       </View>
 
-      <Text style={[s.faint, { marginTop: 12 }]}>For now {first} uses the study helper from the Figbloom website; the phone app doesn't have it yet.</Text>
+      <Text style={[s.faint, { marginTop: 12 }]}>{first} uses the study helper from the Today screen of their own Figbloom app, or from the website.</Text>
     </View>
   );
 }
