@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
-import { assertEquals, assertMatch } from "jsr:@std/assert";
+import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { captureLogs, countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle, normalisePhone } from "./index.ts";
 
 describe("normalisePhone", () => {
@@ -368,5 +369,101 @@ describe("login_id numbering", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("profiles").length, 1);
     assertEquals(admin.deletedUserIds, []);
+  });
+});
+
+describe("invite-admin sign-in email", () => {
+  const teacher = { tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher", email: "otieno@gmail.com" };
+
+  it("emails a new teacher their login ID and one-time password when there's an address and email is set up", async () => {
+    const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
+    const mailer = new FakeMailer();
+    const res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "otieno@gmail.com" });
+    assertEquals(mailer.sent.length, 1);
+    const sent = mailer.sent[0];
+    assertEquals(sent.to, "otieno@gmail.com");
+    assertEquals(sent.subject, "Your Figbloom account at Green Valley School");
+    assertMatch(sent.text, /Login ID: TC-0001/);
+    assertMatch(sent.text, new RegExp(`One-time password: ${out.password}`));
+    assertMatch(sent.text, /https:\/\/app\.example\.test\/s\/green-valley\/teacher/);
+    assertMatch(sent.text, /Jane Figbloom \(school admin\) added you/);
+    // still single-use: the emailed password must be changed at first sign-in
+    assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-admin-1")?.must_change_password, true);
+  });
+
+  it("emails a new school administrator at their login email", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    const out = await res.json();
+    assertEquals(out.emailed.status, "sent");
+    assertMatch(mailer.sent[0].text, /Email: wanjiru@school\.ac\.ke/);
+    assertMatch(mailer.sent[0].text, /\/s\/green-valley\/admin/);
+  });
+
+  it("sends nothing for a teacher with no email, and says so", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request({ ...teacher, email: undefined }), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals((await res.json()).emailed, { status: "no_address" });
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("skips cleanly when email isn't set up: the account and the on-screen password are as before", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request(teacher), { admin, asUser });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "not_configured" });
+    assertEquals(out.login_id, "TC-0001");
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
+  });
+
+  it("a failed email doesn't fail the account: it's created, the password is returned, and the reason given", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    mailer.answer = { status: "failed", reason: "Resend answered 403: domain not verified" };
+    const res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "failed", to: "otieno@gmail.com", reason: "Resend answered 403: domain not verified" });
+    assert(out.password);
+    assert(admin.rowsIn("profiles").some((p) => p.id === "new-admin-1"));
+    assertEquals(admin.deletedUserIds, []);
+  });
+
+  it("a throwing mailer doesn't fail the account either, and the password never reaches the logs", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    mailer.throws = new Error("network down");
+    let res: Response | undefined;
+    let password = "";
+    const logs = await captureLogs(async () => {
+      res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter() });
+      password = (await res.clone().json()).password;
+    });
+    assertEquals(res!.status, 200);
+    assertEquals((await res!.json()).emailed.status, "failed");
+    assert(password);
+    assert(!logs.includes(password), "password logged");
+  });
+
+  it("stops emailing past the caller's hourly limit, without failing the account", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter(0) });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).emailed.status, "failed");
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("refuses a contact email that doesn't look like one, before creating anything", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request({ ...teacher, email: "otieno at gmail" }), { admin, asUser, mailer: new FakeMailer() });
+    assertEquals(res.status, 400);
+    assertEquals(admin.rowsIn("profiles").length, 1);
   });
 });

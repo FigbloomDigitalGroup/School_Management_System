@@ -21,10 +21,13 @@
  * school itself. teacher/driver instead get a school-assigned login_id
  * (FIG-396/397's "TC-0001"/"BD-0099" scheme) — no email, no SMTP dependency,
  * generated server-side from how many staff of that role this tenant
- * already has. Either way there is no real email/SMS provider wired up, so
- * the account is created outright with a random one-time password
- * (_shared/tempPassword.ts) that's returned once and handed over directly;
- * must_change_password makes the person choose their own at first sign-in.
+ * already has. Either way the account is created outright with a random
+ * one-time password (_shared/tempPassword.ts) that's returned once and shown
+ * to whoever added them; must_change_password makes the person choose their
+ * own at first sign-in. When there's a real address (the admin's login email,
+ * or a teacher/driver/staff member's contact email) and Resend is set up
+ * (_shared/email.ts), the same details are emailed to them as well, and the
+ * response says whether that worked; a failed email never undoes the account.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -33,6 +36,7 @@ import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "staff"]);
 
@@ -51,9 +55,9 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -97,6 +101,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   }
   if (role === "school_admin" && !email) {
     return json({ error: "The administrator's email is required." }, 400);
+  }
+  // the sign-in details are emailed here, so a typo matters
+  if (email && !isDeliverable(email)) {
+    return json({ error: "That email address doesn't look right." }, 400);
   }
 
   const { data: tenant, error: tenantErr } = await admin
@@ -177,9 +185,21 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
+  // The account exists now: whatever happens to the email, the password above is the way in.
+  const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {
+    kind: "welcome",
+    fullName: full_name.trim(),
+    placeName: tenant.name,
+    login: isIdBased ? loginId! : email!,
+    loginIsId: isIdBased,
+    password,
+    signInPath: signInPath(role, tenant.slug),
+    actor: actorName(callerProfile!),
+  });
+
   return isIdBased
-    ? json({ ok: true, login_id: loginId, password })
-    : json({ ok: true, email: email!, password });
+    ? json({ ok: true, login_id: loginId, password, emailed })
+    : json({ ok: true, email: email!, password, emailed });
 }
 
 if (import.meta.main) {
@@ -192,7 +212,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 
