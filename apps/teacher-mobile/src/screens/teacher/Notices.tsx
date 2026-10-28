@@ -4,6 +4,7 @@ import { fetchTeacherNotices, markNoticeRead, subscribeAnnouncements, type Notic
 import { accentFor, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 import { OwnerAttachments } from "../../components/MediaLinks";
+import { PendingSignatures } from "../../components/PendingSignatures";
 
 const NOTICE_POLL_MS = 20_000;
 
@@ -81,6 +82,8 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
         </Text>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {/* Forms the school has asked this teacher to sign; nothing at all when there are none. */}
+        <PendingSignatures tint={a.deep} compact />
         {notices.length === 0 ? (
           <View style={s.card}><Text style={s.small}>Announcements from the school office will appear here.</Text></View>
         ) : (

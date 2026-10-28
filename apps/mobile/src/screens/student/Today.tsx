@@ -2,6 +2,7 @@ import { ScrollView, Text, View } from "react-native";
 import { currentPeriodIndex, todayWeekday } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { ChatsCard } from "../../components/ChatsCard";
+import { PendingSignatures } from "../../components/PendingSignatures";
 import { useStudentData } from "../../studentData";
 
 /** Where am I meant to be, and what is late. Nothing else above the fold. */
@@ -65,6 +66,9 @@ export function StudentToday() {
             </View>
           </View>
         )}
+
+        {/* Forms the school has asked this learner to sign; nothing at all when there are none. */}
+        <PendingSignatures tint={a.deep} />
 
         <ChatsCard tint={a.deep} blurb="Message your parents or guardians." />
 

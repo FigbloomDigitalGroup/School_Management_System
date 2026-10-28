@@ -6,6 +6,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { CbeResults } from "../../components/CbeResults";
 import { ExamAbsences } from "../../components/ExamAbsences";
 import { ExamSwitcher } from "../../components/ExamSwitcher";
+import { ReportCards } from "../../components/ReportCards";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useExamView } from "../../lib/useExamView";
 
@@ -106,6 +107,7 @@ export function ParentResults() {
             {!view.loading && !view.failed && <ExamAbsences studentId={child.id} examId={view.examId} />}
           </>
         )}
+        <ReportCards studentId={child.id} tint={tint} />
       </ScrollView>
     </View>
   );
