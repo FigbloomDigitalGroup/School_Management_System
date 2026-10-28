@@ -81,3 +81,7 @@ admin and teacher consoles use; class/attendance/gradebook data similarly
 lives there rather than duplicated per app) — any new teacher screen should
 start by checking whether its data-fetching already exists there before
 writing a new query against `apps/web/src/lib/teacherData.ts`'s tables.
+
+The fingerprint unlock (`components/FingerprintLock.tsx`, `FingerprintSetting.tsx`,
+`lib/fingerprintUnlock.ts`) is the same code as `apps/mobile`'s, copied; see the
+"Fingerprint unlock" note in that README for how it behaves.

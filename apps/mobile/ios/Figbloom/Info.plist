@@ -38,6 +38,8 @@
 	<string>Figbloom needs your location to keep sharing this bus's position with parents and staff after you lock your phone during a trip.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Figbloom opens the camera only when you choose to take a photo, for example of a payment slip or a prescription, to send to the school.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Figbloom uses Face ID only if you turn on unlocking in Account, so that only you can open the app.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

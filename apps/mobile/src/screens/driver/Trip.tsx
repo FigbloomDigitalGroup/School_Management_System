@@ -5,6 +5,7 @@ import {
   type AssignmentRow, type RouteStop, type Trip, type TripDirection,
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { queue } from "../../storage";
 import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 import { RefusedPings } from "./RefusedPings";
@@ -278,6 +279,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
           A notification stays visible while a trip is active — that is what keeps location sharing running with the
           screen locked.
         </Text>
+
+        <FingerprintSetting tint={a.deep} />
       </ScrollView>
     </View>
   );

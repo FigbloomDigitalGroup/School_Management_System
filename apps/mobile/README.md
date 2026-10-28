@@ -64,3 +64,11 @@ src/
   matatu loses the app, not the payment state.
 - **Offline reads.** The last fetched balance and results stay readable with no
   network, with the fetch time shown so nobody acts on a stale figure.
+- **Fingerprint unlock.** Opt-in on the Account screen (the driver's Trip screen
+  for drivers), per person, and dropped on sign-out. It locks the screens, not
+  the session: on a cold start, and after 30 seconds in the background, a
+  full-screen `Modal` asks for the fingerprint, with the app still mounted
+  underneath. Built on `react-native-biometrics` (strong biometrics only, no
+  phone-PIN fallback; "Sign out" on the lock screen is the way out). The app
+  cannot enrol a fingerprint, so with none on the phone it opens the phone's
+  security settings. `apps/teacher-mobile` has the same files — keep them in step.

@@ -13,6 +13,7 @@ import {
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren } from "../../data";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { Skeleton } from "../../components/Skeleton";
 
 interface Profile {
@@ -147,6 +148,8 @@ export function ParentAccount() {
           Fee reminders and same-day absences always go by SMS as well, because they are the two things a parent
           cannot afford to miss.
         </Text>
+
+        <FingerprintSetting tint={a.deep} />
 
         <TouchableOpacity
           accessibilityRole="button"
