@@ -3,7 +3,7 @@ import { supabase } from "./supabase";
 
 /**
  * Uploads from the phone apps. The web app uploads a browser File; React
- * Native has no File, so the phone reads a picked photo into a Blob
+ * Native has no File, so the phone reads a picked photo or document into a Blob
  * (fetch(uri).blob()) and hands it over with the name and type to store it
  * under. Same buckets and path rules as the web, which the database checks.
  */
@@ -18,10 +18,10 @@ export interface UploadableFile {
 /** The most a phone sends in one go: the hosted project's own cap, as on the web (VITE_MAX_UPLOAD_MB). */
 export const PHONE_UPLOAD_LIMIT_BYTES = 50 * 1024 ** 2;
 
-/** Why this file can't be sent, or null. A photo the phone hasn't measured (size null) is let through: the server still refuses what is too big. */
+/** Why this file can't be sent, or null. A file the phone hasn't measured (size null) is let through: the server still refuses what is too big. */
 export function uploadProblem(file: { name: string; sizeBytes: number | null }, limitBytes: number = PHONE_UPLOAD_LIMIT_BYTES): string | null {
   if (file.sizeBytes !== null && file.sizeBytes > limitBytes) {
-    return `That photo is ${(file.sizeBytes / 1024 ** 2).toFixed(1)} MB; the most that can be sent is ${Math.round(limitBytes / 1024 ** 2)} MB.`;
+    return `That file is ${(file.sizeBytes / 1024 ** 2).toFixed(1)} MB; the most that can be sent is ${Math.round(limitBytes / 1024 ** 2)} MB.`;
   }
   return null;
 }
