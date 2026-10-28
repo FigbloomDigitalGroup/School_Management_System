@@ -26,7 +26,9 @@ import { DriverTrip } from "./screens/driver/Trip";
 import { ChatList } from "./screens/chat/ChatList";
 import { ChatThread } from "./screens/chat/ChatThread";
 import { ParentActivities } from "./screens/parent/Activities";
+import { ParentHealth } from "./screens/parent/Health";
 import { ParentItems } from "./screens/parent/Items";
+import { ParentStudyHelper } from "./screens/parent/StudyHelper";
 import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
 
@@ -74,6 +76,8 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           {/* Sports and issued items open from Home cards too. */}
           <Stack.Screen name="Activities" component={ParentActivities} />
           <Stack.Screen name="Items" component={ParentItems} />
+          <Stack.Screen name="Health" component={ParentHealth} />
+          <Stack.Screen name="StudyHelper" component={ParentStudyHelper} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator screenOptions={{ headerShown: false }}>

@@ -2,7 +2,7 @@ import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { dueWords, formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote, splitHomework } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
-import { useChild, useChildren, useMessages, useTenantId, useTermLabel } from "../../data";
+import { useChild, useChildren, useMessages, useParentProfileId, useTenantId, useTermLabel } from "../../data";
 import { ChatsCard } from "../../components/ChatsCard";
 import { ChildBioCard } from "../../components/ChildBioCard";
 import { ChildHealthCard } from "../../components/ChildHealthCard";
@@ -10,6 +10,7 @@ import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { LinkCard } from "../../components/LinkCard";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { Skeleton } from "../../components/Skeleton";
+import { useMedicalUnread } from "../../lib/medicalUnread";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useParentHomework } from "../../lib/useParentHomework";
 
@@ -24,6 +25,7 @@ export function ParentHome() {
   const messages = useMessages();
   const termLabel = useTermLabel();
   const tenantId = useTenantId();
+  const unreadHealth = useMedicalUnread(useParentProfileId());
   // Only needed when there is no exam mean: a CBE learner's results are strand levels, not marks.
   const cbe = useCbeResults(child.mean === null ? child.id : null, country);
   const a = accentFor(accent);
@@ -133,6 +135,8 @@ export function ParentHome() {
 
         <LinkCard label="Sports & activities" blurb={`Clubs, teams, fixtures and awards for ${child.first}.`} tint={tint} to="Activities" />
         <LinkCard label="Issued items" blurb={`Textbooks and equipment ${child.first} has borrowed, and when they're due back.`} tint={tint} to="Items" />
+        <LinkCard label="Health" blurb={`Sick bay visits, the medicine the school gives ${child.first}, and notes from the nurse.`} tint={tint} to="Health" badge={unreadHealth} />
+        <LinkCard label="Bloom study helper" blurb={`An AI tutor ${child.first} can use for schoolwork. You turn it on or off.`} tint={tint} to="StudyHelper" />
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>From the school</Text>
         {messages.slice(0, 2).map((m) => (
