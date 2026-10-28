@@ -1,6 +1,7 @@
 {
   "trailingSlash": false,
   "rewrites": [
+    { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/signin", "destination": "/index.html" },
     { "source": "/signup", "destination": "/index.html" },
     { "source": "/org-picker", "destination": "/index.html" },
