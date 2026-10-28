@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const GRADUATE = "GRADUATE";
 const WITHDRAWN = "WITHDRAWN";
@@ -197,9 +198,11 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
 
   async function submit() {
     if (!rows || rows.length === 0) return;
-    if (!window.confirm(
-      `${sourceClass.name}: move ${promotedCount} up, keep ${repeatingCount} repeating, mark ${leavingCount} as left. Apply this to all ${rows.length} learners?`,
-    )) return;
+    if (!(await confirmDialog({
+      title: `Apply this to all ${rows.length} learners in ${sourceClass.name}?`,
+      body: `Move ${promotedCount} up, keep ${repeatingCount} repeating, mark ${leavingCount} as left.`,
+      confirmLabel: "Apply",
+    }))) return;
 
     setSaving(true);
     try {

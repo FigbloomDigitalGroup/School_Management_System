@@ -27,6 +27,7 @@ import { emptyHealth, isHealthEmpty, saveStudentHealth, setHealthConsent, type S
 import { CallButton } from "../../components/calls/CallButton";
 import { AdminAccessEditor } from "../../components/AdminAccess";
 import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & { avatar_url: string | null };
@@ -201,7 +202,7 @@ export function People() {
   }
 
   async function archiveStudents(ids: string[], who: string) {
-    if (!window.confirm(`Archive ${who}? They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".`)) return;
+    if (!(await confirmDialog({ title: `Archive ${who}?`, body: 'They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".', confirmLabel: "Archive" }))) return;
     await changeLearners(ids, () => archiveLearners(ids), `${who} archived. Find them under "Archived".`, "Could not archive");
   }
 
@@ -210,12 +211,12 @@ export function People() {
   }
 
   async function deleteStudents(ids: string[], who: string) {
-    if (!window.confirm(`Delete ${who} for good? This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.`)) return;
+    if (!(await confirmDialog({ title: `Delete ${who} for good?`, body: "This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.", confirmLabel: "Delete", danger: true }))) return;
     await changeLearners(ids, () => deleteLearners(ids), `${who} deleted.`, "Not deleted");
   }
 
   async function deleteStaff(staff: Pick<StaffRow, "id" | "full_name">) {
-    if (!window.confirm(`Remove ${staff.full_name}? This deletes their login and cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Remove ${staff.full_name}?`, body: "This deletes their login and cannot be undone.", confirmLabel: "Remove", danger: true }))) return;
     setDeletingStaff(true);
     try {
       const r = await deleteAccount({ tenant_id: tenant.id, profile_id: staff.id });

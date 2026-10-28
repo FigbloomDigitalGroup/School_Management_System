@@ -4,6 +4,7 @@ import { Button } from "./ui/Button";
 import { useToast } from "./ui/Toast";
 import { TempPasswordCard } from "./TempPasswordCard";
 import { useAsync } from "../lib/useAsync";
+import { confirmDialog } from "./ui/Confirm";
 
 /**
  * Setting someone a new temporary password when they've forgotten theirs.
@@ -26,7 +27,7 @@ function useReset(onDone?: () => void) {
   const [result, setResult] = useState<PasswordResetResult | null>(null);
 
   async function reset(profileId: string, name: string) {
-    if (!window.confirm(`Set a new temporary password for ${name}? Their current password stops working straight away.`)) return;
+    if (!(await confirmDialog({ title: `Set a new temporary password for ${name}?`, body: "Their current password stops working straight away.", confirmLabel: "Set new password", danger: true }))) return;
     setBusy(true);
     try {
       setResult(await resetUserPassword(profileId));
@@ -40,7 +41,7 @@ function useReset(onDone?: () => void) {
 
   /** "Send sign-in details again": a new one-time password, emailed. Refused with nothing changed when it can't be emailed. */
   async function resend(profileId: string, name: string, email: string) {
-    if (!window.confirm(`Email ${name} new sign-in details at ${email}? Their current password stops working straight away.`)) return;
+    if (!(await confirmDialog({ title: `Email ${name} new sign-in details?`, body: `They go to ${email}. Their current password stops working straight away.`, confirmLabel: "Send", danger: true }))) return;
     setBusy(true);
     try {
       const r = await sendSignInDetailsAgain(profileId);
@@ -141,7 +142,7 @@ export function PasswordResetRequests({ tenantId, schoolName }: { tenantId: stri
   const toast = useToast();
 
   async function reset(profileId: string, name: string) {
-    if (!window.confirm(`Set a new temporary password for ${name}? Their current password stops working straight away.`)) return;
+    if (!(await confirmDialog({ title: `Set a new temporary password for ${name}?`, body: "Their current password stops working straight away.", confirmLabel: "Set new password", danger: true }))) return;
     setBusyId(profileId);
     try {
       const result = await resetUserPassword(profileId);

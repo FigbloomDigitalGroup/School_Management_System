@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 
 type Variant = "primary" | "accent" | "secondary" | "danger";
 
@@ -15,9 +15,11 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   block?: boolean;
 }
 
-export function Button({ variant = "secondary", block, className = "", ...rest }: Props) {
+// takes a ref so a dialog can put focus on its safe button
+export const Button = forwardRef<HTMLButtonElement, Props>(function Button({ variant = "secondary", block, className = "", ...rest }, ref) {
   return (
     <button
+      ref={ref}
       {...rest}
       className={[
         "rounded-md border font-sans text-[12.5px] transition disabled:cursor-not-allowed disabled:opacity-50",
@@ -28,4 +30,4 @@ export function Button({ variant = "secondary", block, className = "", ...rest }
       ].join(" ")}
     />
   );
-}
+});

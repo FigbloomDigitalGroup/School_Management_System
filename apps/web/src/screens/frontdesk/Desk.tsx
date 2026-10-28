@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/Button";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /** The step buttons for one visit, and escalation to the principal's office. */
 export function useDeskActions() {
@@ -28,7 +29,7 @@ export function useDeskActions() {
   }
 
   async function escalate(v: Visit) {
-    if (!window.confirm(`Tell the principal's office that ${v.visitor_name} is here?`)) return;
+    if (!(await confirmDialog({ title: `Tell the principal's office that ${v.visitor_name} is here?`, confirmLabel: "Tell the office" }))) return;
     setBusy(v.id);
     try {
       await escalateVisit(v.id);

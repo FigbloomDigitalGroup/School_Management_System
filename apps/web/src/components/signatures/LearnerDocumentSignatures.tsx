@@ -12,6 +12,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { SignatureMark } from "./SignatureMark";
 import { SignatureStatus } from "./SignatureStatus";
 import { SignDocumentModal } from "./SignDocumentModal";
+import { promptDialog } from "../ui/Confirm";
 
 interface Person { id: string; name: string; detail: string }
 
@@ -72,7 +73,7 @@ export function LearnerDocumentSignatures({ doc, studentId, onClose }: {
   }
 
   async function voidOne(id: string) {
-    const reason = window.prompt("Why is this signature being voided? The signer can sign again afterwards.");
+    const reason = await promptDialog({ title: "Void this signature?", body: "The signer can sign again afterwards.", label: "Why is it being voided?", required: true, confirmLabel: "Void signature" });
     if (!reason) return;
     try {
       await voidSignature(id, reason);

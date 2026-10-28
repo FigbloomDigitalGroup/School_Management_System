@@ -7,6 +7,7 @@ import {
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
 import { HEALTH_CONSENT_EVENT } from "./HealthConsentRequests";
+import { confirmDialog, promptDialog } from "../ui/Confirm";
 
 /**
  * Health and bio details (student_health): the form, the Manage learner /
@@ -191,7 +192,7 @@ export function HealthEditor({ tenantId, studentId, toast, title = "Health and b
   }
 
   async function decide(give: boolean, paper?: { signedBy: string; formDate?: string | null }) {
-    if (!give && !window.confirm(`${HEALTH_CONSENT_WITHDRAW_WARNING} Continue?`)) return;
+    if (!give && !(await confirmDialog({ title: "Withdraw consent for health details?", body: HEALTH_CONSENT_WITHDRAW_WARNING, confirmLabel: "Withdraw consent", danger: true }))) return;
     setSaving(true);
     try {
       await setHealthConsent(studentId, give, paper);
@@ -205,9 +206,9 @@ export function HealthEditor({ tenantId, studentId, toast, title = "Health and b
     }
   }
 
-  function withdrawForParent() {
-    const who = window.prompt("Which parent or guardian asked to withdraw consent?");
-    if (who?.trim()) void decide(false, { signedBy: who.trim() });
+  async function withdrawForParent() {
+    const who = await promptDialog({ title: "Withdraw consent for a parent", label: "Which parent or guardian asked to withdraw consent?", required: true, confirmLabel: "Continue" });
+    if (who) void decide(false, { signedBy: who });
   }
 
   const flags = value ? healthFlags(value) : null;
@@ -235,8 +236,8 @@ export function HealthEditor({ tenantId, studentId, toast, title = "Health and b
                 <p className="mt-0.5">{flags ? flags.summary : "Notes or a blood group only."}{value.blood_group ? ` · Blood group ${value.blood_group}` : ""}</p>
                 {mode === "office" && (
                   <button type="button" disabled={saving} className="mt-1 text-[12px] font-semibold underline"
-                    onClick={() => {
-                      if (window.confirm("Delete these health details? The family doctor and emergency contact are kept.")) {
+                    onClick={async () => {
+                      if (await confirmDialog({ title: "Delete these health details?", body: "The family doctor and emergency contact are kept.", confirmLabel: "Delete", danger: true })) {
                         void save({ ...value, allergies: [], medical_conditions: [], medications: null, blood_group: null, dietary_needs: null, special_needs: null, notes: null }, "Health details deleted.").then(() => setReload((n) => n + 1));
                       }
                     }}>

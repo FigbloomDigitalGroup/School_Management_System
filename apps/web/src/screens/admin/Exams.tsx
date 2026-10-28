@@ -10,6 +10,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /**
  * Where a term's exams are set up. Teachers enter marks for their own classes
@@ -29,7 +30,7 @@ export function Exams() {
   }, [tenant.id, reloadKey]);
 
   async function remove(exam: ExamSummary) {
-    if (!window.confirm(`Delete "${exam.name}"? Nothing has been entered for it yet.`)) return;
+    if (!(await confirmDialog({ title: `Delete "${exam.name}"?`, body: "Nothing has been entered for it yet.", confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteExam(exam.id);
       toast(`"${exam.name}" deleted`);
