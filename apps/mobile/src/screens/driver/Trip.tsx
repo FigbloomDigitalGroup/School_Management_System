@@ -7,7 +7,9 @@ import {
 import { accentFor, s, t } from "../../theme";
 import { queue } from "../../storage";
 import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
+import { RefusedPings } from "./RefusedPings";
 import { ReportBreakdown } from "./ReportBreakdown";
+import { TripMap } from "./TripMap";
 import { TripRiders } from "./TripRiders";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
@@ -47,6 +49,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [ending, setEnding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastPing, setLastPing] = useState<{ at: Date; lat: number; lng: number } | null>(null);
+  /** Every GPS fix, sent or not: the map and the next-stop time follow the bus even through a dead zone. */
+  const [selfPos, setSelfPos] = useState<{ lat: number; lng: number } | null>(null);
   const [held, setHeld] = useState(0);
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -106,10 +110,12 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       setTrip(newTrip);
       tripRef.current = newTrip;
       setLastPing(null);
+      setSelfPos(null);
 
       await startLocationTracking((tick: LocationTick) => {
         const active = tripRef.current;
         if (!active) return;
+        setSelfPos({ lat: tick.lat, lng: tick.lng });
         const input = {
           tenantId, vehicleId: active.vehicle_id, tripId: active.id,
           lat: tick.lat, lng: tick.lng, speedKmh: tick.speedKmh, heading: tick.heading, recordedAt: tick.recordedAt,
@@ -147,6 +153,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       setTrip(null);
       tripRef.current = null;
       setLastPing(null);
+      setSelfPos(null);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Could not end the trip.");
     } finally {
@@ -198,6 +205,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
           <Text style={s.small}>{assignment.route?.name ?? "No route assigned"}</Text>
         </View>
 
+        <RefusedPings />
+
         {!!actionError && <Text style={{ fontSize: 12.5, color: t.status.warnInk, marginTop: 12 }}>{actionError}</Text>}
 
         {!trip ? (
@@ -248,6 +257,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
                 {held} location update{held === 1 ? "" : "s"} saved on this phone, sending when you have signal
               </Text>
             )}
+
+            <TripMap direction={trip.direction} stops={routeStops} plate={assignment.vehicle?.plate_number ?? "—"} pos={selfPos} tint={a.deep} />
 
             <TripRiders trip={trip} tenantId={tenantId} stops={stopsInTravelOrder(routeStops, trip.direction)} tint={a.deep} />
 

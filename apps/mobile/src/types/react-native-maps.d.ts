@@ -23,9 +23,13 @@ export interface MapViewProps {
   scrollEnabled?: boolean;
   zoomEnabled?: boolean;
   toolbarEnabled?: boolean;
+  /** Fires while a finger drags the map (not when the map is moved from code). */
+  onPanDrag?: () => void;
   children?: ReactNode;
 }
-export default class MapView extends Component<MapViewProps> {}
+export default class MapView extends Component<MapViewProps> {
+  animateCamera(camera: { center?: LatLng }, opts?: { duration?: number }): void;
+}
 
 export interface MarkerProps {
   coordinate: LatLng;

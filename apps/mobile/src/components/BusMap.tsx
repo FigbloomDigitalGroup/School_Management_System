@@ -1,9 +1,12 @@
-import { useMemo } from "react";
-import { Text, View } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
-import { stopsInTravelOrder, type BusOnRoute } from "@figbloom/shared";
+import { useEffect, useRef, useState } from "react";
+import { Text, TouchableOpacity, View } from "react-native";
+import MapView, { Marker, Polyline, type Region } from "react-native-maps";
+import { stopsInTravelOrder, type BusOnRoute, type Vehicle } from "@figbloom/shared";
 
 interface LatLng { latitude: number; longitude: number }
+
+/** What the map draws: a BusOnRoute fits, and so does a driver's own bus built from their assignment. */
+export type BusMapBus = Pick<BusOnRoute, "stops" | "direction"> & { vehicle: Pick<Vehicle, "plate_number" | "last_lat" | "last_lng"> };
 
 /** A viewport covering every point with room on all sides, not a tight crop. */
 function regionFor(points: LatLng[]) {
@@ -22,31 +25,50 @@ function regionFor(points: LatLng[]) {
 }
 
 /**
- * A lean native map for one child's bus (FIG-874): the bus, its route's stops
- * in order, and a straight line through them. Deliberately simpler than
+ * A lean native map for one bus (FIG-874): the bus, its route's stops in
+ * order, and a straight line through them. Deliberately simpler than
  * web's LiveRouteMap — no Directions-API road-snapping, no satellite/traffic
  * toggle, no glide animation between pings — see MAPS.md.
+ *
+ * `follow` is for the driver's own screen (FIG-1293): the camera keeps the bus
+ * in view as it moves, until the driver drags the map, and a button brings it back.
+ * A family watching the bus pans for themselves, so they leave it off.
  */
-export function BusMap({ bus, tint, height = 180 }: { bus: BusOnRoute; tint: string; height?: number }) {
+export function BusMap({ bus, tint, height = 180, follow = false }: { bus: BusMapBus; tint: string; height?: number; follow?: boolean }) {
   const stops = stopsInTravelOrder(bus.stops, bus.direction);
   const busPos: LatLng | null =
     bus.vehicle.last_lat != null && bus.vehicle.last_lng != null
       ? { latitude: bus.vehicle.last_lat, longitude: bus.vehicle.last_lng }
       : null;
 
-  // Computed once from the first fix: the camera is the viewer's to pan after that,
-  // not recentred under them every time a new ping moves the bus marker.
-  const initialRegion = useMemo(() => {
+  // Computed once, from the first points there are: the camera is the viewer's to pan after that,
+  // not recentred under them every time a new ping moves the bus marker. A map that mounts with
+  // nothing to show yet (no stops, no fix) takes its viewport from whichever arrives first.
+  const initialRegion = useRef<Region | null>(null);
+  if (!initialRegion.current) {
     const points: LatLng[] = [...stops.map((s) => ({ latitude: s.lat, longitude: s.lng })), ...(busPos ? [busPos] : [])];
-    return points.length ? regionFor(points) : null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only the mount-time fix
-  }, []);
+    if (points.length) initialRegion.current = regionFor(points);
+  }
 
-  if (!initialRegion) return null;
+  const mapRef = useRef<MapView>(null);
+  const [following, setFollowing] = useState(follow);
+  useEffect(() => {
+    if (following && busPos) mapRef.current?.animateCamera({ center: busPos }, { duration: 600 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the position's two numbers are what moves the camera
+  }, [following, busPos?.latitude, busPos?.longitude]);
+
+  if (!initialRegion.current) return null;
 
   return (
     <View style={{ height, borderRadius: 12, overflow: "hidden" }}>
-      <MapView style={{ flex: 1 }} initialRegion={initialRegion} pitchEnabled={false} toolbarEnabled={false}>
+      <MapView
+        ref={mapRef}
+        style={{ flex: 1 }}
+        initialRegion={initialRegion.current}
+        pitchEnabled={false}
+        toolbarEnabled={false}
+        onPanDrag={follow ? () => setFollowing(false) : undefined}
+      >
         {stops.length > 1 && (
           <Polyline coordinates={stops.map((s) => ({ latitude: s.lat, longitude: s.lng }))} strokeColor={tint} strokeWidth={4} />
         )}
@@ -65,6 +87,16 @@ export function BusMap({ bus, tint, height = 180 }: { bus: BusOnRoute; tint: str
           </Marker>
         )}
       </MapView>
+      {follow && !following && !!busPos && (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Follow the bus"
+          onPress={() => setFollowing(true)}
+          style={{ position: "absolute", right: 8, bottom: 8, minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 3 }}
+        >
+          <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Follow the bus</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
