@@ -38,6 +38,7 @@ export * from "./edge";
 export * from "./mpesaPay";
 export * from "./paymentSms";
 export * from "./paymentProofs";
+export * from "./uploads";
 export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";
