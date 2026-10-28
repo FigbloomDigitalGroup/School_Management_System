@@ -14,6 +14,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const TEXTAREA = "w-full resize-y rounded-md border border-[#D3DAD5] px-3 py-2 font-sans text-[13px] outline-none focus:border-forest";
 const INPUT = "rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[12.5px] outline-none focus:border-forest";
@@ -97,7 +98,7 @@ export function ExamScripts({ paper, onClose, onChanged }: { paper: ExamPaperRow
   }
 
   async function release(next: boolean) {
-    if (!next && !window.confirm("Take the results back? Learners and parents won't see them until you release them again.")) return;
+    if (!next && !(await confirmDialog({ title: "Take the results back?", body: "Learners and parents won't see them until you release them again.", confirmLabel: "Take back" }))) return;
     setBusy(true);
     try {
       await releaseExamResults(paper.id, next);
@@ -112,7 +113,7 @@ export function ExamScripts({ paper, onClose, onChanged }: { paper: ExamPaperRow
   }
 
   async function sendToGradebook() {
-    if (!window.confirm(`Put these scores into ${paper.examName} marks for ${paper.subjectName}, ${paper.className}? Scores are scaled to that exam's total and replace any already typed for learners who sat this paper. Learners who missed it or were excused go in as Missed or Excused, never as 0, unless a mark is already typed for them.`)) return;
+    if (!(await confirmDialog({ title: `Put these scores into ${paper.examName} marks?`, body: `For ${paper.subjectName}, ${paper.className}. Scores are scaled to that exam's total and replace any already typed for learners who sat this paper. Learners who missed it or were excused go in as Missed or Excused, never as 0, unless a mark is already typed for them.`, confirmLabel: "Send to gradebook" }))) return;
     setBusy(true);
     try {
       const n = await sendExamScoresToGradebook(paper.id);
@@ -303,7 +304,7 @@ function LearnerPanel({ paper, row, inClass, questions, onGrant, onChanged }: {
         <div className="mt-3 flex flex-wrap gap-2">
           {!excusal && <Button disabled={busy} onClick={onGrant}>{override ? "Change extra time / window / resit" : "Extra time, own window or resit"}</Button>}
           {override && attempts.length <= 1 && (
-            <Button disabled={busy} onClick={() => { if (window.confirm(`Take back ${learner.name}'s extra time, own window and resit?`)) void run(() => clearExamOverride(paper.id, learner.id), "Extension removed"); }}>
+            <Button disabled={busy} onClick={async () => { if (await confirmDialog({ title: `Take back ${learner.name}'s extra time, own window and resit?`, confirmLabel: "Remove extension" })) void run(() => clearExamOverride(paper.id, learner.id), "Extension removed"); }}>
               Remove extension
             </Button>
           )}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
+import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
 import { QueueNotice } from "./components/QueueNotice";
@@ -122,6 +123,7 @@ import { BloomChat } from "./screens/bloom/BloomChat";
 export function App() {
   return (
     <ToastHost>
+      <ConfirmHost />
       <RouteSeo />
       <Routes>
         <Route path="/" element={<Suspense fallback={null}><Landing /></Suspense>} />

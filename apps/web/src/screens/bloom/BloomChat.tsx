@@ -16,6 +16,7 @@ import { disconnectDrive, driveAccount, driveConfig, pickFromDrive, readPickedFi
 import { replyTables, type ExportTurn } from "../../../../../packages/shared/src/bloomExport";
 import { attachmentLabel, CHAT_MAX_ATTACHMENTS, type ChatAttachment } from "../../../../../packages/shared/src/bloomAttachments";
 import { driveOpenLabel, shortAccount, type DriveTarget } from "../../../../../packages/shared/src/googleDrive";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /**
  * A turn on screen; saved ones carry their row id (Regenerate removes the
@@ -361,7 +362,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   }
 
   async function remove(chat: AiChat) {
-    if (!window.confirm(`Delete "${chat.title}"? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete "${chat.title}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteAiChat(chat.id);
       if (chat.id === activeId) newChat();

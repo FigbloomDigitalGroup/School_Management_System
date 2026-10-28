@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { ExamSitting } from "./ExamSitting";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 type Tab = "Coming up" | "Done";
 
@@ -245,7 +246,7 @@ function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
           </p>
           <Button
             block variant="accent" className="mt-3"
-            onClick={() => { if (!minutes || window.confirm(`Start now? You'll have ${minutes} minutes.`)) onSit(); }}
+            onClick={async () => { if (!minutes || await confirmDialog({ title: "Start now?", body: `You'll have ${minutes} minutes.`, confirmLabel: "Start" })) onSit(); }}
           >
             {resit ? "Start your resit" : "Start"}
           </Button>

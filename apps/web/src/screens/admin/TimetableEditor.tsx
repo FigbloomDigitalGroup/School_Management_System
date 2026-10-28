@@ -5,6 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { WEEKDAYS } from "@figbloom/shared";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 interface Cell { label: string; room: string; subjectId: string | null }
 // id is a stable client-side key, independent of the editable `time` text —
@@ -228,14 +229,14 @@ export function TimetableEditor({ entityId, title, subjects, fetchSlots, saveSlo
     e.target.value = "";
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const { slots, blocking, warnings } = parseTimetableCsv(String(reader.result ?? ""), subjects ?? []);
       if (blocking.length > 0) {
         toast(`Could not import: ${blocking[0]}${blocking.length > 1 ? ` (+${blocking.length - 1} more)` : ""}`, "error");
         return;
       }
       if (slots.length === 0) { toast("Nothing to import — the file has no valid rows.", "error"); return; }
-      if ((rows?.length ?? 0) > 0 && !window.confirm(`Replace the ${rows!.length} period${rows!.length === 1 ? "" : "s"} already here with ${slots.length} imported row${slots.length === 1 ? "" : "s"}?`)) return;
+      if ((rows?.length ?? 0) > 0 && !(await confirmDialog({ title: `Replace the ${rows!.length} period${rows!.length === 1 ? "" : "s"} already here?`, body: `They're replaced by the ${slots.length} imported row${slots.length === 1 ? "" : "s"}.`, confirmLabel: "Replace", danger: true }))) return;
       setRows(slotsToRows(slots));
       toast(
         warnings.length > 0

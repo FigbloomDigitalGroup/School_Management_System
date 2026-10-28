@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const AUTOSAVE_MS = 15_000;
 const TEXTAREA = "w-full resize-y rounded-md border border-[#D3DAD5] px-3 py-2.5 font-sans text-body outline-none focus:border-forest";
@@ -106,10 +107,14 @@ function Sitting({ paper, onExit }: { paper: ExamPaperRow; onExit: () => void })
     });
   }
 
-  function confirmSubmit() {
+  async function confirmSubmit() {
     const blank = (questions ?? []).filter((q) => !(q.id in answers)).length;
-    const msg = blank ? `${blank} question${blank === 1 ? " is" : "s are"} unanswered. Hand in anyway? You can't change your answers after.` : "Hand in now? You can't change your answers after.";
-    if (window.confirm(msg)) void submit(false);
+    const ok = await confirmDialog({
+      title: blank ? "Hand in anyway?" : "Hand in now?",
+      body: `${blank ? `${blank} question${blank === 1 ? " is" : "s are"} unanswered. ` : ""}You can't change your answers after.`,
+      confirmLabel: "Hand in",
+    });
+    if (ok) void submit(false);
   }
 
   const handedIn = !!session?.submittedAt;

@@ -6,6 +6,7 @@ import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const APPLIES_TO_OPTIONS: { value: FeeItem["applies_to"]; label: string }[] = [
   { value: "all", label: "Every learner" },
@@ -55,7 +56,7 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
   }
 
   async function remove() {
-    if (!window.confirm(`Remove "${item.name}" from this term's fee structure?`)) return;
+    if (!(await confirmDialog({ title: `Remove "${item.name}" from this term's fee structure?`, confirmLabel: "Remove", danger: true }))) return;
     const { error } = await supabase().from("fee_items").delete().eq("id", item.id);
     if (error) { toast(`Could not remove that item: ${error.message}`, "error"); return; }
     onDeleted();
