@@ -22,6 +22,7 @@ import { ChatThread } from "./screens/chat/ChatThread";
 import { TeacherVisitors } from "./screens/teacher/Visitors";
 import { TeacherPerformance } from "./screens/teacher/Performance";
 import { TeacherReportCards } from "./screens/teacher/ReportCards";
+import { TeacherBloom } from "./screens/teacher/Bloom";
 import { VisitAlerts } from "./components/VisitAlerts";
 
 const Tab = createBottomTabNavigator();
@@ -63,6 +64,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="Visitors">{() => <TeacherVisitors session={session} />}</Stack.Screen>
       <Stack.Screen name="Performance">{() => <TeacherPerformance session={session} />}</Stack.Screen>
       <Stack.Screen name="ReportCards">{() => <TeacherReportCards session={session} />}</Stack.Screen>
+      <Stack.Screen name="Bloom">{() => <TeacherBloom session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }

@@ -65,6 +65,7 @@ export * from "./activities";
 export * from "./visitors";
 export * from "./signatures";
 export * from "./aiChat";
+export * from "./bloomAttachments";
 export * from "./markdown";
 export * from "./inventory";
 export * from "./feeCharges";
