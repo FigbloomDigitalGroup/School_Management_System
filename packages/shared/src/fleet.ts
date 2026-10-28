@@ -486,6 +486,21 @@ export function fmtDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(m >= 10_000 ? 0 : 1)} km` : `${Math.round(m / 50) * 50} m`;
 }
 
+/** How long a bus will take to get somewhere, and how far it is. `estimated` is true for a guess, false for a road time from a maps service. */
+export type EtaResult = { minutes: number; km: number; estimated: boolean };
+
+/** A rough ETA with no maps service to ask: road distance ~1.3x straight-line, at 25 km/h in town. */
+export function roughEta(from: { lat: number; lng: number }, to: { lat: number; lng: number }): EtaResult {
+  const km = (distanceM(from, to) * 1.3) / 1000;
+  return { minutes: Math.max(1, Math.round((km / 25) * 60)), km, estimated: true };
+}
+
+/** "~12 min" for a guess, "12 min" for a road time, "—" when there is none. */
+export function fmtEta(eta: EtaResult | null): string {
+  if (!eta) return "—";
+  return `${eta.estimated ? "~" : ""}${eta.minutes} min`;
+}
+
 /** A position this recent means the bus is on the road right now. */
 export const LIVE_WITHIN_MS = 2 * 60_000;
 

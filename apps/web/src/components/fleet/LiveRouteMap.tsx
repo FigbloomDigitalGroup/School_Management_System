@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { APIProvider, Map as GoogleMap, Marker, Polyline, useApiIsLoaded, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
-import { activeDirections, distanceM, isLive, stopsInTravelOrder, subscribeVehiclePositions, type BusOnRoute, type RouteStop } from "@figbloom/shared";
+import { activeDirections, distanceM, fmtEta, isLive, roughEta, stopsInTravelOrder, subscribeVehiclePositions, type BusOnRoute, type EtaResult, type RouteStop } from "@figbloom/shared";
+
+// The ETA wording and fallback guess are shared with the phone apps.
+export { fmtEta };
+export type { EtaResult };
 
 /**
  * The Uber-style live map every role shares (driver, parent, admin, teacher):
@@ -430,14 +434,6 @@ function RoutePath({ routeId, stops, color, dim }: { routeId: string; stops: Rou
 
 // ---------------------------------------------------------------- ETA
 
-export type EtaResult = { minutes: number; km: number; estimated: boolean };
-
-/** A rough ETA when Directions isn't available: road distance ~1.3x straight-line, at 25 km/h in town. */
-function roughEta(from: LatLng, to: LatLng): EtaResult {
-  const km = (distanceM(from, to) * 1.3) / 1000;
-  return { minutes: Math.max(1, Math.round((km / 25) * 60)), km, estimated: true };
-}
-
 type EtaProps = { from: LatLng | null; to: LatLng | null; children: (eta: EtaResult | null) => ReactNode };
 
 /**
@@ -484,11 +480,6 @@ function useGoogleEta(from: LatLng | null, to: LatLng | null): EtaResult | null 
   }, [routesLib, from?.lat, from?.lng, to?.lat, to?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return eta;
-}
-
-export function fmtEta(eta: EtaResult | null): string {
-  if (!eta) return "—";
-  return `${eta.estimated ? "~" : ""}${eta.minutes} min`;
 }
 
 // ---------------------------------------------------------------- sheet
