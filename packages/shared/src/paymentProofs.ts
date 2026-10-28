@@ -1,13 +1,15 @@
+import { safeFileName } from "./materials";
 import type { ParsedPaymentSms } from "./paymentSms";
 import { supabase } from "./supabase";
+import { PRIVATE_DOCS_BUCKET, type UploadableFile } from "./uploads";
 
 /**
  * A family's proof of payment for an invoice (payment_proofs): a photo or
  * PDF of the slip, the confirmation SMS pasted as text
  * (20261027100000_payment_proof_text.sql), or both. The office checks it
  * against the school's own statement before recording the payment. The
- * browser's version, with file uploads, is uploadPaymentProof in the web
- * app; the phone apps send the pasted message, which needs no file.
+ * browser's version is uploadPaymentProof in the web app; the phone apps send
+ * the pasted message, a photo from the gallery, or both (sendPaymentProof).
  */
 
 export interface PaymentProof {
@@ -41,32 +43,59 @@ export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof
   return (data ?? []) as PaymentProof[];
 }
 
+/** Where a proof's file lives: the invoice's own folder, which the database checks. */
+export function paymentProofFilePath(tenantId: string, invoiceId: string, fileName: string, now: number = Date.now()): string {
+  return `${tenantId}/invoices/${invoiceId}/${now}-${safeFileName(fileName)}`;
+}
+
 /**
- * Sends the pasted confirmation message as proof. parsed is what
- * parsePaymentSms read from text; the database refuses a code that has
- * already been used for this school, and says so in its message.
+ * Sends a proof: the pasted confirmation message (parsed is what
+ * parsePaymentSms read from its text), a photo, or both. The database refuses
+ * a transaction code already used for this school, and says so in its
+ * message; a photo that went up without its proof is taken back out.
  */
-export async function sendSmsPaymentProof(input: {
+export async function sendPaymentProof(input: {
   tenantId: string; invoiceId: string; uploadedBy: string; note?: string;
-  text: string; parsed: ParsedPaymentSms;
+  sms?: { text: string; parsed: ParsedPaymentSms };
+  file?: UploadableFile;
 }): Promise<void> {
-  if (!input.parsed.code) throw new Error("There is no transaction code in that message.");
-  const p = input.parsed;
+  if (!input.file && !input.sms) throw new Error("Add a photo or paste the confirmation message.");
+  if (input.sms && !input.sms.parsed.code) throw new Error("There is no transaction code in that message.");
+
+  let path: string | null = null;
+  if (input.file) {
+    path = paymentProofFilePath(input.tenantId, input.invoiceId, input.file.name);
+    const { error: upErr } = await supabase().storage.from(PRIVATE_DOCS_BUCKET).upload(path, input.file.blob, { contentType: input.file.mimeType, upsert: false });
+    if (upErr) throw new Error(upErr.message);
+  }
+
+  const p = input.sms?.parsed;
   const { error } = await supabase().from("payment_proofs").insert({
     tenant_id: input.tenantId,
     invoice_id: input.invoiceId,
     uploaded_by: input.uploadedBy,
-    file_path: null,
-    file_name: null,
+    file_path: path,
+    file_name: input.file?.name ?? null,
     note: input.note ?? null,
-    sms_text: input.text.trim(),
-    txn_source: p.source,
-    txn_code: p.code,
-    txn_amount_cents: p.amountCents,
-    txn_at: p.paidAt,
-    txn_payee: p.payee,
-    txn_payee_number: p.payeeNumber,
-    txn_account: p.account,
+    sms_text: input.sms?.text.trim() ?? null,
+    txn_source: p?.source ?? null,
+    txn_code: p?.code ?? null,
+    txn_amount_cents: p?.amountCents ?? null,
+    txn_at: p?.paidAt ?? null,
+    txn_payee: p?.payee ?? null,
+    txn_payee_number: p?.payeeNumber ?? null,
+    txn_account: p?.account ?? null,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (path) await supabase().storage.from(PRIVATE_DOCS_BUCKET).remove([path]).catch(() => {});
+    throw new Error(error.message);
+  }
+}
+
+/** Sends just the pasted confirmation message (no photo). */
+export async function sendSmsPaymentProof(input: {
+  tenantId: string; invoiceId: string; uploadedBy: string; note?: string;
+  text: string; parsed: ParsedPaymentSms;
+}): Promise<void> {
+  await sendPaymentProof({ tenantId: input.tenantId, invoiceId: input.invoiceId, uploadedBy: input.uploadedBy, note: input.note, sms: { text: input.text, parsed: input.parsed } });
 }

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import {
-  CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatDayLabel, chatDraftBody, chatFileUrl, chatRoleWord, fetchChatMessages, formatFileSize,
-  groupMessagesByDay, markConversationRead, mergeMessage, pushChatMessage, sendChatMessage, subscribeChatMessages,
-  type ChatMessage, type Role,
+  CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord, fetchChatMessages,
+  formatFileSize, groupMessagesByDay, markConversationRead, mergeMessage, pushChatMessage, removeUnsentChatFile, sendChatMessage,
+  subscribeChatMessages, uploadChatBlob, uploadProblem, type ChatMessage, type Role,
 } from "@figbloom/shared";
 import { notifyChatRead } from "../../lib/chatUnread";
 import { useChatSession } from "../../lib/chatSession";
+import { pickPhoto, readPhoto, type PickedPhoto } from "../../lib/pickPhoto";
 import { s, t } from "../../theme";
 import { ChatAvatar } from "./ChatAvatar";
 
@@ -21,7 +22,7 @@ interface ThreadParams {
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** One conversation: header, the messages by day, and the composer. Files in a chat open in the phone's viewer; sending a file is done from the website for now. */
+/** One conversation: header, the messages by day, and the composer. A photo can be sent from the gallery; files in a chat open in the phone's viewer, and other documents are still sent from the website. */
 export function ChatThread({ tint }: { tint: string }) {
   const nav = useNavigation<any>();
   const { conversationId, name, role, canReply } = useRoute<any>().params as ThreadParams;
@@ -32,6 +33,7 @@ export function ChatThread({ tint }: { tint: string }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
   const scroll = useRef<ScrollView>(null);
 
   // Marks the thread read, then lets the badges catch up.
@@ -55,22 +57,44 @@ export function ChatThread({ tint }: { tint: string }) {
     return () => { alive = false; unsubscribe(); };
   }, [conversationId, myId]);
 
-  async function send() {
-    const body = chatDraftBody(draft);
-    if (!body || sending) return;
-    setSending(true);
+  async function choosePhoto() {
     setSendError(null);
     try {
-      const sent = await sendChatMessage(conversationId, body);
+      const picked = await pickPhoto();
+      if (!picked) return;
+      const problem = uploadProblem(picked) ?? (chatMimeForFile({ name: picked.name, type: picked.mimeType }) ? null : "That kind of file can not be sent in a chat.");
+      if (problem) { setSendError(problem); return; }
+      setPhoto(picked);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Could not open your photos.");
+    }
+  }
+
+  async function send() {
+    const body = chatDraftBody(draft);
+    if ((!body && !photo) || sending || !session) return;
+    setSending(true);
+    setSendError(null);
+    let uploaded: string | null = null;
+    try {
+      const attached = photo ? await uploadChatBlob(session.tenantId, conversationId, await readPhoto(photo)) : undefined;
+      uploaded = attached?.path ?? null;
+      const sent = await sendChatMessage(conversationId, body, attached);
+      uploaded = null;
       setMessages((ms) => mergeMessage(ms ?? [], sent));
       setDraft("");
+      setPhoto(null);
       void pushChatMessage(sent.id);
     } catch (err) {
+      // Nothing half-sent: a photo that went up without its message comes back out.
+      if (uploaded) await removeUnsentChatFile(uploaded).catch(() => {});
       setSendError(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.");
     } finally {
       setSending(false);
     }
   }
+
+  const canSend = !sending && (!!chatDraftBody(draft) || !!photo);
 
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -127,7 +151,24 @@ export function ChatThread({ tint }: { tint: string }) {
       {canReply ? (
         <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 10 }}>
           {!!sendError && <Text style={{ fontSize: 12, color: t.status.warnInk, marginBottom: 6 }}>{sendError}</Text>}
+          {photo && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {photo.name}{photo.sizeBytes ? ` · ${formatFileSize(photo.sizeBytes)}` : ""}</Text>
+              <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setPhoto(null)} style={{ minHeight: 36, justifyContent: "center" }}>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Attach a photo"
+              disabled={sending}
+              onPress={() => void choosePhoto()}
+              style={{ width: 44, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: sending ? 0.5 : 1 }}
+            >
+              <Text style={{ fontSize: 18 }}>📎</Text>
+            </TouchableOpacity>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -142,9 +183,9 @@ export function ChatThread({ tint }: { tint: string }) {
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Send"
-              disabled={sending || !chatDraftBody(draft)}
+              disabled={!canSend}
               onPress={() => void send()}
-              style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 14, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: sending || !chatDraftBody(draft) ? 0.5 : 1 }}
+              style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 14, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5 }}
             >
               {sending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700" }}>Send</Text>}
             </TouchableOpacity>
@@ -162,6 +203,15 @@ export function ChatThread({ tint }: { tint: string }) {
 /** A file in a message opens through a short-lived signed link, in whatever the phone uses for it. */
 function ChatFile({ message, mine }: { message: ChatMessage; mine: boolean }) {
   const [failed, setFailed] = useState(false);
+  const isImage = !!message.mimeType?.startsWith("image/");
+  const [src, setSrc] = useState<string | null>(null);
+  // A photo shows in the message; the signed link lasts an hour, longer than the screen stays open.
+  useEffect(() => {
+    if (!isImage || !message.filePath) return;
+    let alive = true;
+    chatFileUrl(message.filePath).then((u) => { if (alive) setSrc(u); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isImage, message.filePath]);
   async function open() {
     if (!message.filePath) return;
     setFailed(false);
@@ -170,6 +220,13 @@ function ChatFile({ message, mine }: { message: ChatMessage; mine: boolean }) {
     } catch {
       setFailed(true);
     }
+  }
+  if (isImage && src) {
+    return (
+      <TouchableOpacity accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "photo"}`} onPress={() => void open()} style={{ marginBottom: 4 }}>
+        <Image source={{ uri: src }} accessibilityIgnoresInvertColors style={{ width: 220, height: 160, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.06)" }} resizeMode="cover" />
+      </TouchableOpacity>
+    );
   }
   return (
     <TouchableOpacity accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "file"}`} onPress={() => void open()} style={{ minHeight: 40, marginBottom: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: mine ? "rgba(255,255,255,0.15)" : "#fff" }}>
