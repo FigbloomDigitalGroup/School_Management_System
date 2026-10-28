@@ -304,13 +304,13 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   function chatItems(): MenuItem[] {
     const req = { chatTitle: activeTitle, schoolName: tenant.name, turns: exportTurns(), wholeChat: true };
     const items: MenuItem[] = [
-      { label: "Download as PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...req, format: "pdf" })) },
-      { label: "Download as Word", run: () => void download((lib) => lib.downloadBloomExport({ ...req, format: "docx" })) },
+      { section: "Whole chat", kind: "pdf", label: "PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...req, format: "pdf" })) },
+      { kind: "doc", label: "Word document", run: () => void download((lib) => lib.downloadBloomExport({ ...req, format: "docx" })) },
     ];
     if (DRIVE) {
       items.push(
-        { label: "Save to Google Docs", divider: true, run: () => void saveDrive("doc", (lib) => lib.makeBloomFile({ ...req, format: "docx" })) },
-        { label: "Save PDF to Google Drive", run: () => void saveDrive("pdf", (lib) => lib.makeBloomFile({ ...req, format: "pdf" })) },
+        { kind: "doc", label: "Google Doc", drive: true, run: () => void saveDrive("doc", (lib) => lib.makeBloomFile({ ...req, format: "docx" })) },
+        { kind: "pdf", label: "PDF in Google Drive", drive: true, run: () => void saveDrive("pdf", (lib) => lib.makeBloomFile({ ...req, format: "pdf" })) },
       );
     }
     return items;
@@ -321,30 +321,29 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     const t = turns[i]!;
     const common = { chatTitle: activeTitle, schoolName: tenant.name, context: exportTurns() };
     const items: MenuItem[] = [
-      { label: "Download as PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
-      { label: "Download as Word", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "docx", turns: [t], wholeChat: false })) },
+      { section: "This answer", kind: "pdf", label: "PDF", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
+      { kind: "doc", label: "Word document", run: () => void download((lib) => lib.downloadBloomExport({ ...common, format: "docx", turns: [t], wholeChat: false })) },
     ];
     if (DRIVE) {
       items.push(
-        { label: "Save to Google Docs", run: () => void saveDrive("doc", (lib) => lib.makeBloomFile({ ...common, format: "docx", turns: [t], wholeChat: false })) },
-        { label: "Save PDF to Google Drive", run: () => void saveDrive("pdf", (lib) => lib.makeBloomFile({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
+        { kind: "doc", label: "Google Doc", drive: true, run: () => void saveDrive("doc", (lib) => lib.makeBloomFile({ ...common, format: "docx", turns: [t], wholeChat: false })) },
+        { kind: "pdf", label: "PDF in Google Drive", drive: true, run: () => void saveDrive("pdf", (lib) => lib.makeBloomFile({ ...common, format: "pdf", turns: [t], wholeChat: false })) },
       );
     }
     const tables = replyTables(t.content);
     tables.forEach((table, k) => {
-      const name = tables.length > 1 ? `${table.name}: ` : "Table: ";
       items.push(
-        { label: `${name}Download as Excel (.xlsx)`, divider: k === 0, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content, index: k })) },
-        { label: `${name}Download as CSV`, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "csv", content: t.content, index: k })) },
+        { section: tables.length > 1 ? table.name : "Table", kind: "xls", label: "Excel", run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content, index: k })) },
+        { kind: "csv", label: "CSV", run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "csv", content: t.content, index: k })) },
       );
       if (DRIVE) {
-        items.push({ label: `${name}Save to Google Sheets`, run: () => void saveDrive("sheet", (lib) => lib.makeTableFile({ ...common, format: "xlsx", content: t.content, index: k })) });
+        items.push({ kind: "xls", label: "Google Sheet", drive: true, run: () => void saveDrive("sheet", (lib) => lib.makeTableFile({ ...common, format: "xlsx", content: t.content, index: k })) });
       }
     });
     if (tables.length > 1) {
-      items.push({ label: "All tables: Excel, a sheet each", divider: true, run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content })) });
+      items.push({ section: "All tables, a sheet each", kind: "xls", label: "Excel", run: () => void download((lib) => lib.downloadTableExport({ ...common, format: "xlsx", content: t.content })) });
       if (DRIVE) {
-        items.push({ label: "All tables: Google Sheets, a sheet each", run: () => void saveDrive("sheet", (lib) => lib.makeTableFile({ ...common, format: "xlsx", content: t.content })) });
+        items.push({ kind: "xls", label: "Google Sheet", drive: true, run: () => void saveDrive("sheet", (lib) => lib.makeTableFile({ ...common, format: "xlsx", content: t.content })) });
       }
     }
     return items;
@@ -604,7 +603,18 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   );
 }
 
-interface MenuItem { label: string; run: () => void; divider?: boolean }
+type FileKind = "pdf" | "doc" | "xls" | "csv";
+
+/** One menu row. `section` starts a new titled group; `drive` saves to Google Drive instead of downloading. */
+interface MenuItem { label: string; kind: FileKind; run: () => void; section?: string; drive?: boolean }
+
+/** The small coloured tag before each row, so the format is found by eye before it's read. */
+const FILE_TAG: Record<FileKind, { text: string; className: string }> = {
+  pdf: { text: "PDF", className: "bg-[#FBEAE8] text-[#B3261E]" },
+  doc: { text: "DOC", className: "bg-[#E8F0FC] text-[#1F5FBF]" },
+  xls: { text: "XLS", className: "bg-[#E6F4EC] text-[#1E7B45]" },
+  csv: { text: "CSV", className: "bg-sunken text-ink-muted" },
+};
 
 /**
  * A button that opens a short menu of downloads. The items are worked out on
@@ -686,21 +696,47 @@ function ExportMenuList({ items, label, anchor, align, onClose }: {
       aria-label={label}
       className={`absolute z-30 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-line bg-white py-1 text-[12.5px] text-ink shadow-lg ${up ? "bottom-full mb-1" : "top-full mt-1"} ${align === "right" ? "right-0" : "left-0"}`}
     >
-      {items.map((it, i) => (
-        <div key={i}>
-          {it.divider && <div className="my-1 border-t border-line-soft" />}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => { onClose(); it.run(); }}
-            className="block w-full px-3 py-2 text-left hover:bg-page focus:bg-page focus:outline-none"
-          >
-            {it.label}
-          </button>
+      {menuGroups(items).map((g, i) => (
+        <div key={i} role="group" aria-label={g.title} className={i > 0 ? "mt-1 border-t border-line-soft pt-1" : undefined}>
+          {g.title && <div aria-hidden className="truncate px-3 pb-1 pt-1.5 font-mono text-micro tracking-[0.12em] text-ink-faint">{g.title.toUpperCase()}</div>}
+          {g.items.map((it, k) => (
+            <div key={k}>
+              {/* a hairline between a section's downloads and its Drive saves */}
+              {it.drive && k > 0 && !g.items[k - 1]!.drive && <div aria-hidden className="mx-3 my-1 border-t border-line-soft" />}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { onClose(); it.run(); }}
+                // the first row takes focus on opening; only a keyboard user needs to see that
+                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left hover:bg-page focus:outline-none focus-visible:bg-page"
+              >
+                <span aria-hidden className={`grid h-5 w-8 shrink-0 place-items-center rounded font-mono text-[9.5px] font-semibold tracking-wide ${FILE_TAG[it.kind].className}`}>
+                  {FILE_TAG[it.kind].text}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{it.label}</span>
+                {it.drive && (
+                  <>
+                    <span aria-hidden className="shrink-0 text-[11px] text-ink-faint">↗</span>
+                    <span className="sr-only">, save to Google Drive</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ))}
         </div>
       ))}
     </div>
   );
+}
+
+/** Runs of items under the section title that starts them. */
+function menuGroups(items: MenuItem[]): { title?: string; items: MenuItem[] }[] {
+  const groups: { title?: string; items: MenuItem[] }[] = [];
+  for (const it of items) {
+    if (it.section !== undefined || groups.length === 0) groups.push({ title: it.section, items: [] });
+    groups[groups.length - 1]!.items.push(it);
+  }
+  return groups;
 }
 
 /** The nearest ancestor that scrolls (the chat's message list), whose edges clip a menu inside it. */
