@@ -41,8 +41,8 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
   // A message in any of the caller's chats moves it up the list and bumps its count.
   useEffect(() => (session ? subscribeChatMessages({ tenantId: session.tenantId }, () => void reload()) : undefined), [session, reload]);
 
-  function open(c: { id: string; otherName: string; otherRole: ConversationSummary["otherRole"]; canReply: boolean }) {
-    nav.navigate("ChatThread", { conversationId: c.id, name: c.otherName, role: c.otherRole, canReply: c.canReply });
+  function open(c: { id: string; otherId: string; otherName: string; otherRole: ConversationSummary["otherRole"]; canReply: boolean }) {
+    nav.navigate("ChatThread", { conversationId: c.id, otherId: c.otherId, name: c.otherName, role: c.otherRole, canReply: c.canReply });
   }
 
   async function startWith(contact: ChatContact) {
@@ -50,7 +50,7 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
       const id = await startConversation(contact.profileId);
       setPicking(false);
       void reload();
-      open({ id, otherName: contact.name, otherRole: contact.role, canReply: true });
+      open({ id, otherId: contact.profileId, otherName: contact.name, otherRole: contact.role, canReply: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start that chat.");
       setPicking(false);

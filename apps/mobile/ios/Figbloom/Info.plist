@@ -37,7 +37,9 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Figbloom needs your location to keep sharing this bus's position with parents and staff after you lock your phone during a trip.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Figbloom opens the camera only when you choose to take a photo, for example of a payment slip or a prescription, to send to the school.</string>
+	<string>Figbloom uses the camera only when you choose to: to take a photo, for example of a payment slip or a prescription, to send to the school, or when you turn your camera on in a video call or a live class.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Figbloom uses the microphone only while you are in a call or a live class, so the other people can hear you.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

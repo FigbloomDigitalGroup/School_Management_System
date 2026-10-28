@@ -97,16 +97,17 @@ export default function App() {
           />
         ) : session.role === "parent" ? (
           <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
-            <Navigation role="parent" accent={session.accent} />
+            <Navigation role="parent" accent={session.accent} profileId={session.profileId} />
           </ParentDataProvider>
         ) : session.role === "student" ? (
           <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
-            <Navigation role="student" accent={session.accent} />
+            <Navigation role="student" accent={session.accent} profileId={session.profileId} />
           </StudentDataProvider>
         ) : (
           <Navigation
             role="driver"
             accent={session.accent}
+            profileId={session.profileId}
             driver={{ driverId: session.profileId, tenantId: session.tenantId, fullName: session.fullName }}
           />
         )
