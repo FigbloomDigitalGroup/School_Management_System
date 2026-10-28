@@ -6,6 +6,7 @@ import {
   formatFileSize, groupMessagesByDay, markConversationRead, mergeMessage, pushChatMessage, removeUnsentChatFile, sendChatMessage,
   subscribeChatMessages, uploadChatBlob, uploadProblem, type ChatMessage, type Role,
 } from "@figbloom/shared";
+import { CallButtons } from "../../calls/CallButtons";
 import { notifyChatRead } from "../../lib/chatUnread";
 import { useChatSession } from "../../lib/chatSession";
 import { AttachChoices } from "../../components/AttachChoices";
@@ -15,6 +16,8 @@ import { ChatAvatar } from "./ChatAvatar";
 
 interface ThreadParams {
   conversationId: string;
+  /** The other person, for calling them. */
+  otherId?: string;
   name: string;
   role: Role;
   /** False once the pair may no longer talk: the thread stays readable but has no composer. */
@@ -26,7 +29,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: 
 /** One conversation: header, the messages by day, and the composer. A photo (taken now or from the gallery), a PDF or another document can be sent; files in a chat open in the phone's viewer. */
 export function ChatThread({ tint }: { tint: string }) {
   const nav = useNavigation<any>();
-  const { conversationId, name, role, canReply } = useRoute<any>().params as ThreadParams;
+  const { conversationId, otherId, name, role, canReply } = useRoute<any>().params as ThreadParams;
   const session = useChatSession();
   const myId = session?.profileId ?? null;
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
@@ -111,6 +114,7 @@ export function ChatThread({ tint }: { tint: string }) {
             <Text numberOfLines={1} style={s.headerTitle}>{name}</Text>
             <Text style={s.headerSub}>{chatRoleWord(role)}</Text>
           </View>
+          {canReply && !!otherId && <CallButtons otherId={otherId} name={name} />}
         </View>
       </View>
 

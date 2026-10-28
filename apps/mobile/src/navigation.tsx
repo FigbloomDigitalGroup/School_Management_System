@@ -34,6 +34,7 @@ import { ParentStudyHelper } from "./screens/parent/StudyHelper";
 import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
 import { StudentStudyHelper } from "./screens/student/StudyHelper";
+import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
 
 const Tab = createBottomTabNavigator();
@@ -55,7 +56,7 @@ async function openPushTarget(target: PushTarget, isParent: boolean) {
     // The thread wants the other person's name and role, which the push doesn't carry.
     const found = (await fetchMyConversations().catch(() => [])).find((c) => c.id === target.conversationId);
     whenReady(() => {
-      if (found) navRef.navigate("ChatThread", { conversationId: found.id, name: found.otherName, role: found.otherRole, canReply: found.canReply });
+      if (found) navRef.navigate("ChatThread", { conversationId: found.id, otherId: found.otherId, name: found.otherName, role: found.otherRole, canReply: found.canReply });
       else navRef.navigate("Chats");
     });
   } else if (target.kind === "health" && isParent) {
@@ -70,12 +71,14 @@ const tabIcon = (Icon: LucideIcon) => ({
 interface NavigationProps {
   role: "parent" | "student" | "driver";
   accent: string;
+  /** Who is signed in: calls and live classes ring and join as them. */
+  profileId: string;
   /** Only present (and only needed) when role is "driver". */
   driver?: { driverId: string; tenantId: string; fullName: string };
 }
 
 /** Which app opens is decided by the signed-in role, not by a picker. */
-export function Navigation({ role, accent, driver }: NavigationProps) {
+export function Navigation({ role, accent, profileId, driver }: NavigationProps) {
   // Tapping a push opens what it is about. (Before the driver's early return below: a hook can't come after one.)
   useEffect(() => {
     if (role === "driver") return;
@@ -89,6 +92,7 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
   }
 
   return (
+    <CallProvider profileId={profileId}>
     <NavigationContainer ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       {role === "parent" ? (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -130,6 +134,7 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
         </Stack.Navigator>
       )}
     </NavigationContainer>
+    </CallProvider>
   );
 }
 

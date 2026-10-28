@@ -12,6 +12,14 @@
          notification can show. Asked in pushNotifications.ts, after sign-in. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Calls and live classes (FIG-1291): LiveKit's own manifest adds the microphone,
+         camera and Bluetooth permissions it needs (merged in at build). Android 12+
+         also wants this one before a Bluetooth headset can carry a call. The hardware
+         is optional, so the app is still for phones without a camera. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"

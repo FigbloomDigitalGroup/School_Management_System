@@ -1,3 +1,4 @@
+import { PermissionsAndroid, Platform } from "react-native";
 import { errorCodes, isErrorWithCode, pick, types } from "@react-native-documents/picker";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import { mimeForFile, safeFileName, type UploadableFile } from "@figbloom/shared";
@@ -22,11 +23,17 @@ export const ANY_FILE: string[] = [types.allFiles];
  * Gets one file from the phone, from the system's own camera, photo picker or
  * file browser, so the app asks for no permission and sees only the file the
  * person chooses. (Android's camera is the system camera app, reached by an
- * intent, which needs no CAMERA permission; iOS says why in Info.plist.)
+ * intent, which needs no CAMERA permission of its own. But the calls library
+ * declares one, and once an app declares it the system refuses the intent
+ * until it is granted, so it is asked for first. iOS says why in Info.plist.)
  * null when they back out. `documentTypes` only narrows the file browser.
  */
 export async function pickFile(source: FileSource, documentTypes: string[] = PDF_OR_IMAGE): Promise<PickedFile | null> {
   if (source === "document") return pickDocument(documentTypes);
+  if (source === "camera" && Platform.OS === "android") {
+    const granted = await PermissionsAndroid.request("android.permission.CAMERA");
+    if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error("Allow the camera in your phone's settings to take a photo here.");
+  }
   const result = source === "camera"
     ? await launchCamera({ mediaType: "photo", quality: 0.8, saveToPhotos: false })
     : await launchImageLibrary({ mediaType: "photo", quality: 0.8, selectionLimit: 1 });

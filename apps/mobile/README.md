@@ -72,3 +72,26 @@ src/
   phone-PIN fallback; "Sign out" on the lock screen is the way out). The app
   cannot enrol a fingerprint, so with none on the phone it opens the phone's
   security settings. `apps/teacher-mobile` has the same files — keep them in step.
+
+## Calls and live classes (FIG-1291)
+
+Voice and video calls from a chat, and live classes (teacher goes live, learners
+and parents join), on LiveKit through the same `call-token` function as the web.
+The code is in `src/calls/`: `CallProvider` (one room at a time, the incoming-call
+card, looks for a ringing call when the app opens), `CallRoom` (the LiveKit room),
+the "Live now" banner and the chat header's Call and Video buttons. The teacher
+app has its own copy of the same files, plus a Live class screen under More.
+
+Needs the server's `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`
+(see `supabase/functions/call-token`); without them the call screens say calls
+are not set up. Android has the microphone, camera and Bluetooth permissions
+(LiveKit's own manifest adds most; `BLUETOOTH_CONNECT` is here). Calls work while
+the app is open: there is no lock-screen ringing and a call does not keep running
+with the app in the background yet.
+
+**iOS is not set up** (nothing builds the iOS project yet, FIG-1214). When it is,
+LiveKit needs, per its README: the two `source` lines in `ios/Podfile`
+(`https://github.com/livekit/podspecs.git` first, then `https://cdn.cocoapods.org/`),
+`#import "LivekitReactNative.h"` and `[LivekitReactNative setup];` at the top of
+`didFinishLaunchingWithOptions` in `ios/Figbloom/AppDelegate.mm`, and `pod install`.
+The microphone and camera reasons are already in `Info.plist`.
