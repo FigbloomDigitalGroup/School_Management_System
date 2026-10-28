@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { View } from "react-native";
+import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Bell, Mail, Menu, SquareCheck, Table2, type LucideIcon } from "lucide-react-native";
@@ -15,6 +17,7 @@ import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherLeave } from "./screens/teacher/Leave";
 import { TeacherHomework } from "./screens/teacher/Homework";
 import { useQueueSync } from "./lib/useQueueSync";
+import { listenForPushTaps } from "./pushTaps";
 import { TeacherBuses } from "./screens/teacher/Buses";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { ChatList } from "./screens/chat/ChatList";
@@ -29,6 +32,24 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 /** Lets the visitor alert, which sits above the navigator, open a screen inside it. */
 const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
+
+/** What to do once the navigator exists: a tap that opened the app from nothing arrives before it is ready. */
+let afterReady: (() => void) | null = null;
+const whenReady = (run: () => void) => { if (navRef.isReady()) run(); else afterReady = run; };
+
+/** Opens what a tapped push is about: a chat, or the visitors list. Anything else just opens the app. */
+async function openPushTarget(target: PushTarget) {
+  if (target.kind === "visit") {
+    whenReady(() => navRef.navigate("More", { screen: "Visitors", initial: false }));
+    return;
+  }
+  if (target.kind !== "chat") return;
+  // The thread wants the other person's name and role, which the push doesn't carry.
+  const found = (await fetchMyConversations().catch(() => [])).find((c) => c.id === target.conversationId);
+  whenReady(() => navRef.navigate("More", found
+    ? { screen: "ChatThread", initial: false, params: { conversationId: found.id, name: found.otherName, role: found.otherRole, canReply: found.canReply } }
+    : { screen: "Chats", initial: false }));
+}
 
 const tabIcon = (Icon: LucideIcon) => ({
   tabBarIcon: ({ color, size }: { color: string; size: number }) => <Icon color={color} size={size} />,
@@ -73,10 +94,12 @@ export function Navigation({ session }: { session: TeacherSession }) {
   const a = accentFor(session.accent);
   // Registers and marks saved on this phone go out as soon as the app opens, not only when a screen asks.
   useQueueSync(session.profileId);
+  // Tapping a push opens what it is about.
+  useEffect(() => listenForPushTaps((target) => { void openPushTarget(target); }), []);
 
   return (
     <View style={{ flex: 1 }}>
-    <NavigationContainer ref={navRef}>
+    <NavigationContainer ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,

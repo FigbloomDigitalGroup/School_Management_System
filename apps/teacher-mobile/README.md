@@ -28,6 +28,34 @@ npm install
 npm run android --workspace @figbloom/teacher-mobile   # device or emulator, API 26+
 ```
 
+## Push notifications (FIG-1290)
+
+The app registers for push after sign-in (`src/pushNotifications.ts`) and opens
+the right screen when a notification is tapped (`src/pushTaps.ts`): a new chat
+opens that conversation, a visitor opens Your visitors. The server already sends
+these (`chat-push`, `visit-notify`) through one FCM service account, so the
+teacher app is a **second Android app in the same Firebase project as
+`apps/mobile`** (`figbloom-school-systems`), not a project of its own: no server
+change, no second secret.
+
+**One step only a person with the Firebase console can do:**
+
+1. Firebase console, project `figbloom-school-systems`, Project settings, Add app,
+   Android, package name `com.figbloom.teacher`.
+2. Download the `google-services.json` it gives you and put it at
+   `apps/teacher-mobile/android/app/google-services.json` (commit it, as
+   `apps/mobile` commits its own: it is app configuration, not a secret). The
+   downloaded file lists every Android app in the project, so it may also replace
+   `apps/mobile`'s copy.
+3. Rebuild the app. Until the file is there the app builds and runs normally and
+   push simply doesn't register (the Gradle plugin is applied only when the file
+   exists).
+
+A release build from CI needs nothing extra once the file is committed:
+`mobile-release-build.yml` builds from the repo and never touches
+`google-services.json`, which is how `apps/mobile`'s committed copy is picked up
+today.
+
 ## Structure
 
 ```

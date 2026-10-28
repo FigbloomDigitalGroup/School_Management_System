@@ -1,4 +1,6 @@
-import { NavigationContainer } from "@react-navigation/native";
+import { useEffect } from "react";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
@@ -32,9 +34,34 @@ import { ParentStudyHelper } from "./screens/parent/StudyHelper";
 import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
 import { StudentStudyHelper } from "./screens/student/StudyHelper";
+import { listenForPushTaps } from "./pushTaps";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+/** Lets a tapped push, which arrives from outside the navigator, open a screen inside it. */
+const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
+
+/** What to do once the navigator exists: a tap that opened the app from nothing arrives before it is ready. */
+let afterReady: (() => void) | null = null;
+const whenReady = (run: () => void) => { if (navRef.isReady()) run(); else afterReady = run; };
+
+/**
+ * Opens what a tapped push is about: a chat (a parent or a learner), or the
+ * Health screen on the child a sick bay notice names (a parent). Anything else
+ * just opens the app, as it always has.
+ */
+async function openPushTarget(target: PushTarget, isParent: boolean) {
+  if (target.kind === "chat") {
+    // The thread wants the other person's name and role, which the push doesn't carry.
+    const found = (await fetchMyConversations().catch(() => [])).find((c) => c.id === target.conversationId);
+    whenReady(() => {
+      if (found) navRef.navigate("ChatThread", { conversationId: found.id, name: found.otherName, role: found.otherRole, canReply: found.canReply });
+      else navRef.navigate("Chats");
+    });
+  } else if (target.kind === "health" && isParent) {
+    whenReady(() => navRef.navigate("Health", { studentId: target.studentId }));
+  }
+}
 
 const tabIcon = (Icon: LucideIcon) => ({
   tabBarIcon: ({ color, size }: { color: string; size: number }) => <Icon color={color} size={size} />,
@@ -49,6 +76,12 @@ interface NavigationProps {
 
 /** Which app opens is decided by the signed-in role, not by a picker. */
 export function Navigation({ role, accent, driver }: NavigationProps) {
+  // Tapping a push opens what it is about. (Before the driver's early return below: a hook can't come after one.)
+  useEffect(() => {
+    if (role === "driver") return;
+    return listenForPushTaps((target) => { void openPushTarget(target, role === "parent"); });
+  }, [role]);
+
   if (role === "driver" && driver) {
     // A driver's screen is a single full-screen page (start/end trip), not a
     // console — no tabs, nothing else to navigate to.
@@ -56,7 +89,7 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       {role === "parent" ? (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {/* component, not an inline children render-prop: the latter is a

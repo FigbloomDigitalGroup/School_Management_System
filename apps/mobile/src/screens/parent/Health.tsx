@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useRoute } from "@react-navigation/native";
 import {
   DOSE_STATUS_LABEL, fetchChildMedical, formatFileSize, localDay, markMedicalNoticesRead, REQUEST_STATUS_LABEL, removeUnsentPrescription,
   requestDraftProblem, requestMedication, uploadPrescriptionFile, uploadProblem, VISIT_OUTCOME_LABEL, withdrawMedicationRequest,
@@ -42,6 +43,14 @@ const OUTCOME_TONE: Record<VisitOutcome, { bg: string; ink: string }> = {
 export function ParentHealth() {
   const { child, index, setIndex, accent } = useChild();
   const kids = useChildren();
+  // Opened from a sick bay push: show the child it is about, not whichever one was last picked.
+  const tappedStudent: string | null = useRoute<any>().params?.studentId ?? null;
+  useEffect(() => {
+    if (!tappedStudent) return;
+    const i = kids.findIndex((k) => k.id === tappedStudent);
+    if (i >= 0) setIndex(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new tap changes the child
+  }, [tappedStudent]);
   const tenantId = useTenantId();
   const a = accentFor(accent);
   const tint = index === 0 ? a.deep : a.hex;
