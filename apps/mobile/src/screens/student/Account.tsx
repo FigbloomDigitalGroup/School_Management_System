@@ -3,6 +3,7 @@ import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { Skeleton } from "../../components/Skeleton";
 
 interface Profile {
@@ -62,6 +63,8 @@ export function StudentAccount() {
             : <Skeleton width="55%" height={15} style={{ marginVertical: 2 }} />}
           <Text style={[s.small, { marginTop: 4 }]}>{data.className}</Text>
         </View>
+
+        <FingerprintSetting tint={a.deep} />
 
         <TouchableOpacity
           accessibilityRole="button"

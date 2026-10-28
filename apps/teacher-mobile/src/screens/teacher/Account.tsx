@@ -4,6 +4,7 @@ import { launchImageLibrary } from "react-native-image-picker";
 import { fetchMyProfile, supabase, updateMyAvatarUrl, updateMyProfile, type MyProfile } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { uploadAvatar } from "../../lib/uploads";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import type { TeacherSession } from "../../navigation";
@@ -136,6 +137,8 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
           </TouchableOpacity>
           {!!status && <Text style={s.small}>{status}</Text>}
         </View>
+
+        <FingerprintSetting tint={a.deep} />
 
         <TouchableOpacity
           accessibilityRole="button"
