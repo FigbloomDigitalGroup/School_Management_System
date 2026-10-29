@@ -40,6 +40,9 @@ jwt_expiry = 3600
 # auth was only ever used for the parent OTP flow that scheme replaced, so
 # there is no [auth.sms] section here any more.
 enable_signup = false
+# The "choose your password" forms ask for 8 characters; Auth enforces it too
+# (FIG-1338). Hosted: Authentication > Providers > Email > Minimum password length.
+minimum_password_length = 8
 
 [auth.email]
 enable_signup = true
