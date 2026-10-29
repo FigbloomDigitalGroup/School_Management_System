@@ -30,6 +30,9 @@ function ilikeToRegExp(pattern: string): RegExp {
 
 type OpKind = "select" | "insert" | "update" | "delete";
 
+type UniqueIndex = { cols: string[]; where?: (row: Row) => boolean };
+type FakeError = { message: string; code?: string };
+
 class FakeTable {
   rows: Row[];
   /** One-shot errors, set by failNextRead/failNextWrite — scoped by op kind so
@@ -60,8 +63,17 @@ class FakeTable {
     return err;
   }
 
-  insert(payload: Row): Row {
-    const row = { id: payload.id ?? crypto.randomUUID(), ...payload };
+  /** Unique indexes, set with FakeSupabaseClient.uniqueIndex (a partial one has `where`). */
+  uniques: UniqueIndex[] = [];
+
+  /** Returns null when a unique index refuses the row, as Postgres would with 23505. */
+  insert(payload: Row): Row | null {
+    // created_at as the column default would set it
+    const row: Row = { id: payload.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...payload };
+    for (const u of this.uniques) {
+      if (u.where && !u.where(row)) continue;
+      if (this.rows.some((r) => (!u.where || u.where(r)) && u.cols.every((c) => r[c] === row[c]))) return null;
+    }
     this.rows.push(row);
     return { ...row };
   }
@@ -155,12 +167,16 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     });
   }
 
-  private run(): { rows: Row[]; error: { message: string } | null } {
+  private run(): { rows: Row[]; error: FakeError | null } {
     const err = this.table.consumeError(this.op ?? "select");
     if (err) return { rows: [], error: { message: err } };
     if (this.op === "insert") {
       const payloads = Array.isArray(this.payload) ? this.payload : [this.payload!];
-      return { rows: payloads.map((p) => this.table.insert(p)), error: null };
+      const inserted = payloads.map((p) => this.table.insert(p));
+      if (inserted.some((r) => r === null)) {
+        return { rows: [], error: { code: "23505", message: "duplicate key value violates unique constraint" } };
+      }
+      return { rows: inserted as Row[], error: null };
     }
     if (this.op === "update") {
       return { rows: this.table.update(this.payload as Row, (r) => this.matches(r)), error: null };
@@ -172,9 +188,13 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     return { rows: this.limitN !== null ? rows.slice(0, this.limitN) : rows, error: null };
   }
 
+  /** Like PostgREST: more than one row is an error, not the first row. */
   async maybeSingle() {
     const { rows, error } = this.run();
     if (error) return { data: null, error };
+    if (rows.length > 1) {
+      return { data: null, error: { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" } };
+    }
     return { data: rows[0] ?? null, error: null };
   }
 
@@ -246,8 +266,20 @@ export class FakeSupabaseClient {
     }),
   };
 
+  private uniques = new Map<string, UniqueIndex[]>();
+
   seed(table: string, rows: Row[]) {
-    this.tables.set(table, new FakeTable(rows));
+    const t = new FakeTable(rows);
+    t.uniques = this.uniques.get(table) ?? [];
+    this.tables.set(table, t);
+  }
+
+  /** A unique index (partial, with `where`) that inserts into this table must respect. */
+  uniqueIndex(table: string, cols: string[], where?: (row: Row) => boolean) {
+    const list = this.uniques.get(table) ?? [];
+    list.push({ cols, where });
+    this.uniques.set(table, list);
+    this.table(table).uniques = list;
   }
 
   rowsIn(table: string): Row[] {
@@ -255,7 +287,11 @@ export class FakeSupabaseClient {
   }
 
   private table(table: string): FakeTable {
-    if (!this.tables.has(table)) this.tables.set(table, new FakeTable());
+    if (!this.tables.has(table)) {
+      const t = new FakeTable();
+      t.uniques = this.uniques.get(table) ?? [];
+      this.tables.set(table, t);
+    }
     return this.tables.get(table)!;
   }
 

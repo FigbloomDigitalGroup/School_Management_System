@@ -21,16 +21,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { queryStk, secretsMatch, type StkOutcome } from "../_shared/daraja.ts";
-
-/** Daraja result codes, mapped to the copy a parent actually reads. */
-const REASON: Record<number, string> = {
-  1: "insufficient",
-  1032: "cancelled",
-  1037: "timeout",
-  2001: "wrong_pin",
-  1001: "duplicate",
-};
+import { queryStk, secretsMatch, type StkOutcome, unpaidOutcome } from "../_shared/daraja.ts";
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
@@ -102,8 +93,7 @@ export async function handle(req: Request, { admin, callbackSecret, queryStk }: 
   }
 
   const { error } = await admin.from("payments").update({
-    status: resultCode === 1032 ? "cancelled" : resultCode === 1037 ? "timeout" : "failed",
-    failure_reason: REASON[resultCode] ?? "unreachable",
+    ...unpaidOutcome(resultCode),
     completed_at: new Date().toISOString(),
   }).eq("id", payment.id).eq("status", "pending");
   if (error) return retry("mark the payment failed", error);

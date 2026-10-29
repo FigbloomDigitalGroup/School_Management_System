@@ -11,18 +11,45 @@
  * This is the only place a payments row is created (clients have no insert
  * policy), and the amount on it is exactly what Safaricom is asked to charge,
  * which is what mpesa-callback credits.
+ *
+ * Who may raise a prompt: the learner's guardians, or the learner for their
+ * own invoice. Staff can read every invoice but record money they receive
+ * with record_payment, and nobody may ring a phone over and over: prompts
+ * are limited per caller and per number (FIG-1320).
+ *
+ * One prompt at a time per invoice, held by the database
+ * (payments_one_pending_per_invoice, FIG-1321). A request matching the
+ * prompt in flight (same number, same amount) gets that one back; anything
+ * else waits for it. A prompt older than any prompt lives is settled by
+ * asking Daraja, as mpesa-callback would, never credited from here.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { darajaToken, darajaUrl, stkPassword, timestamp } from "../_shared/daraja.ts";
+import { darajaToken, darajaUrl, queryStk as darajaQueryStk, stkPassword, type StkOutcome, timestamp, unpaidOutcome } from "../_shared/daraja.ts";
+import { dbLimiter, type Limiter, userKey } from "../_shared/rateLimit.ts";
 
 interface Body { invoice_id: string; amount_cents: number; msisdn: string }
 
-// deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+/** A PIN prompt times out on the phone after about a minute; past this, its result should be known. */
+const PROMPT_LIFETIME_MS = 2 * 60_000;
+/** Prompts per caller, and per phone number, in PROMPT_WINDOW. */
+const PROMPT_LIMIT = 10;
+const PROMPT_WINDOW = "1 hour";
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export interface Deps {
+  // deno-lint-ignore no-explicit-any
+  admin: any;
+  // deno-lint-ignore no-explicit-any
+  asUser: any;
+  queryStk?: (checkoutRequestId: string) => Promise<StkOutcome>;
+  withinLimit?: Limiter;
+}
+
+export async function handle(
+  req: Request,
+  { admin, asUser, queryStk = darajaQueryStk, withinLimit = () => Promise.resolve(true) }: Deps,
+): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -60,26 +87,40 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const callbackUrl = new URL(callbackBase);
   callbackUrl.searchParams.set("token", callbackSecret);
 
-  // RLS on the user client proves this caller may see (and so pay) this invoice
+  // RLS on the user client proves this caller may see this invoice
   const { data: invoice, error: invErr } = await asUser
-    .from("fee_invoices").select("id, tenant_id, total_cents, paid_cents").eq("id", invoice_id).single();
+    .from("fee_invoices").select("id, tenant_id, student_id, total_cents, paid_cents").eq("id", invoice_id).single();
   if (invErr || !invoice) return json({ error: "That invoice is not yours to pay." }, 403);
+  if (!(await paysFor(admin, user.id, invoice.student_id))) {
+    return json({ error: "Only the learner's family can pay by M-Pesa here. The school office records payments it receives." }, 403);
+  }
 
   const outstanding = invoice.total_cents - invoice.paid_cents;
   if (amount_cents! > outstanding) {
     return json({ error: "That is more than the outstanding balance." }, 400);
   }
 
-  // Guard against a double tap raising two prompts
-  const { data: inflight } = await admin
-    .from("payments").select("id").eq("invoice_id", invoice_id).eq("status", "pending")
-    .gte("created_at", new Date(Date.now() - 90_000).toISOString()).maybeSingle();
-  if (inflight) return json({ payment_id: inflight.id, reused: true });
+  const inFlight = await promptInFlight(admin, queryStk, invoice_id, msisdn, amount_cents!);
+  if (inFlight) return inFlight;
+
+  // both keys are noted every time, so neither allowance can be dodged by tripping the other first
+  const [callerOk, numberOk] = await Promise.all([
+    withinLimit(await userKey(user.id, "mpesa-stk-push")),
+    withinLimit(await userKey(msisdn, "mpesa-stk-push:number")),
+  ]);
+  if (!callerOk || !numberOk) {
+    return json({ error: "Too many payment prompts in the last hour. Try again later, or pay to the school's paybill." }, 429);
+  }
 
   const { data: payment, error: payErr } = await admin.from("payments").insert({
     tenant_id: invoice.tenant_id, invoice_id, amount_cents,
     method: "mpesa", msisdn, status: "pending",
   }).select("id").single();
+  if (payErr?.code === "23505") {
+    // another request raised a prompt for this invoice a moment ago
+    return (await promptInFlight(admin, queryStk, invoice_id, msisdn, amount_cents!))
+      ?? json({ error: "A payment for this invoice is already starting. Try again in a moment." }, 409);
+  }
   if (payErr || !payment) return json({ error: "Could not start the payment." }, 500);
 
   const shortcode = Deno.env.get("DARAJA_SHORTCODE")!;
@@ -138,8 +179,75 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, withinLimit: dbLimiter(admin, "mpesa-stk-push", PROMPT_LIMIT, PROMPT_WINDOW) });
   });
+}
+
+/** Whether this person pays for this learner: one of their guardians, or the learner. */
+// deno-lint-ignore no-explicit-any
+async function paysFor(admin: any, profileId: string, studentId: string): Promise<boolean> {
+  const [guardian, learner] = await Promise.all([
+    admin.from("guardians").select("id").eq("profile_id", profileId).eq("student_id", studentId).limit(1),
+    admin.from("students").select("id").eq("id", studentId).eq("profile_id", profileId).limit(1),
+  ]);
+  return (guardian.data ?? []).length > 0 || (learner.data ?? []).length > 0;
+}
+
+/**
+ * The invoice's pending prompt, if there is one: the answer to send back
+ * (reuse it, or wait for it), or null when a new prompt may go out. A
+ * prompt past its lifetime is settled first by asking Daraja.
+ */
+async function promptInFlight(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  queryStk: (checkoutRequestId: string) => Promise<StkOutcome>,
+  invoiceId: string,
+  msisdn: string,
+  amountCents: number,
+): Promise<Response | null> {
+  const { data: pending, error } = await admin.from("payments")
+    .select("id, msisdn, amount_cents, checkout_request_id, created_at")
+    .eq("invoice_id", invoiceId).eq("status", "pending").maybeSingle();
+  // an error here is an error, never "nothing in flight"
+  if (error) return json({ error: "Could not check for a payment already in progress. Try again." }, 500);
+  if (!pending) return null;
+
+  // an age that can't be read counts as fresh: settling a live prompt is the worse mistake
+  if (!(Date.now() - Date.parse(pending.created_at) >= PROMPT_LIFETIME_MS)) {
+    if (pending.msisdn === msisdn && pending.amount_cents === amountCents) {
+      return json({ payment_id: pending.id, reused: true });
+    }
+    return json({
+      error: pending.msisdn === msisdn
+        ? "A prompt for a different amount is already on that phone. Answer or cancel it, then try again."
+        : "A payment prompt for this invoice is already waiting on another phone. Try again in a couple of minutes.",
+    }, 409);
+  }
+
+  // Older than any prompt lives. No checkout id: it never reached Safaricom.
+  let unpaid = { status: "failed", failure_reason: "unreachable" };
+  if (pending.checkout_request_id) {
+    let outcome: StkOutcome;
+    try {
+      outcome = await queryStk(pending.checkout_request_id);
+    } catch {
+      return json({ error: "We couldn't check the last M-Pesa payment for this invoice. Try again in a minute." }, 502);  // 503 reads as "M-Pesa isn't set up" in mpesaPay.ts
+    }
+    if (!outcome.done) {
+      return json({ error: "The last M-Pesa payment for this invoice is still being processed. Try again in a minute." }, 409);
+    }
+    // paid: mpesa-callback credits it; never a second prompt on top
+    if (outcome.resultCode === 0) {
+      return json({ error: "The last M-Pesa payment for this invoice went through and is being confirmed. Check the balance before paying again." }, 409);
+    }
+    unpaid = unpaidOutcome(outcome.resultCode);
+  }
+  const { error: settleErr } = await admin.from("payments")
+    .update({ ...unpaid, completed_at: new Date().toISOString() })
+    .eq("id", pending.id).eq("status", "pending");
+  if (settleErr) return json({ error: "Could not check for a payment already in progress. Try again." }, 500);
+  return null;
 }
 
 const json = (body: unknown, status = 200) =>
