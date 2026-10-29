@@ -78,11 +78,13 @@ export function planTermBilling(students: BillableStudent[], items: FeeItem[], a
 
 /**
  * Parents commonly pay in instalments as harvests or salaries come in, so
- * part payment is normal, not an error state.
+ * part payment is normal, not an error state. "Pay half" is half to the
+ * whole shilling (M-Pesa charges nothing smaller), not to the nearest
+ * KSh 100, which made it 40% to 67% of most balances (FIG-1317).
  */
 export function payableSuggestions(balance: number): { label: string; cents: number }[] {
   if (balance <= 0) return [];
-  const half = Math.round(balance / 2 / 10000) * 10000;
+  const half = Math.round(balance / 2 / 100) * 100;
   const out = [{ label: "Pay in full", cents: balance }];
   if (half > 0 && half < balance) out.push({ label: "Pay half", cents: half });
   out.push({ label: "Another amount", cents: 0 });
