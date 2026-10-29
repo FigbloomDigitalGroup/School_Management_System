@@ -104,6 +104,7 @@ import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
+import { AdminAuditLog } from "./screens/admin/AuditLog";
 import { ParentHealth } from "./screens/parent/Health";
 import { useMedicalUnread } from "./lib/useMedicalUnread";
 import { TeacherVisitors } from "./screens/teacher/Visitors";
@@ -241,6 +242,7 @@ function TenantRoutes() {
           <Route path="admin/medical" element={<AdminShell page="admin/medical"><AdminMedical /></AdminShell>} />
           <Route path="admin/bloom" element={<AdminShell page="admin/bloom"><BloomChat console="admin" /></AdminShell>} />
           <Route path="admin/access" element={<AdminShell page="admin/access"><AccessRoles /></AdminShell>} />
+          <Route path="admin/audit" element={<AdminShell page="admin/audit"><AdminAuditLog /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
