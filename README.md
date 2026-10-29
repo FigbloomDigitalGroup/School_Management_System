@@ -10,9 +10,9 @@ apps/web/          React + Vite + TS + Tailwind — desktop console for every ro
                    (platform, school admin, teacher, parent, student)
 apps/mobile/       React Native (Android + iOS) — the parent, student and driver
                    mobile apps. apps/web also keeps a phone-mockup preview of the
-                   parent/student screens (ParentApp.tsx / StudentApp.tsx, wrapped
-                   in <PhoneFrame>) for design reference — it isn't routed to; the
-                   desktop screens are the real web app
+                   student screens (StudentApp.tsx, wrapped in <PhoneFrame>) for
+                   design reference — it isn't routed to; the desktop screens are
+                   the real web app
 apps/teacher-mobile/  React Native (Android only — iOS deferred, see its own
                    README) — the teacher app, a separate binary from apps/mobile
                    since a teacher's workflow doesn't fit that app's role union

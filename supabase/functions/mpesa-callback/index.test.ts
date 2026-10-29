@@ -196,3 +196,23 @@ describe("mpesa-callback handle", () => {
     assertEquals(payment.failure_reason, "unreachable");
   });
 });
+
+describe("two deliveries of the same callback (FIG-1323)", () => {
+  it("arriving together, credit once and log one 'Fee payment received' event", async () => {
+    const admin = makeAdmin();
+    const d = deps(admin);
+    const [a, b] = await Promise.all([handle(request(successCallback()), d), handle(request(successCallback()), d)]);
+    assertEquals([a.status, b.status], [200, 200]);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("audit_events").length, 1);
+  });
+
+  it("arriving together for a cancelled prompt, settle it once", async () => {
+    const admin = makeAdmin();
+    const d = deps(admin, { done: true, resultCode: 1032 });
+    const [a, b] = await Promise.all([handle(request(successCallback()), d), handle(request(successCallback()), d)]);
+    assertEquals([a.status, b.status], [200, 200]);
+    assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
+    assertEquals(admin.rowsIn("audit_events").length, 0);
+  });
+});

@@ -72,22 +72,26 @@ export async function handle(req: Request, { admin, callbackSecret, queryStk }: 
     }
 
     // the apply_payment trigger moves the invoice
-    const { error } = await admin.from("payments").update({
+    const { data: settled, error } = await admin.from("payments").update({
       status: "success",
       mpesa_receipt: receipt || null,
       completed_at: new Date().toISOString(),
-    }).eq("id", payment.id).eq("status", "pending");
+    }).eq("id", payment.id).eq("status", "pending").select("id");
     if (error) return retry("mark the payment successful", error);
+    // another delivery of this callback settled it a moment ago, and logged it (FIG-1323)
+    if (!settled?.length) return ok();
 
     const { data: p } = await admin.from("payments")
       .select("tenant_id, invoice_id, amount_cents, mpesa_receipt").eq("id", payment.id).single();
     if (p) {
-      await admin.from("audit_events").insert({
+      const { error: auditErr } = await admin.from("audit_events").insert({
         tenant_id: p.tenant_id, actor_label: "M-Pesa",
         event: `Fee payment received, receipt ${p.mpesa_receipt}`,
         category: "financial",
         metadata: { invoice_id: p.invoice_id, amount_cents: p.amount_cents },
       });
+      // the payment is settled either way; a lost audit line must at least show in the logs
+      if (auditErr) console.error(`mpesa-callback: could not log payment ${payment.id}:`, auditErr.message);
     }
     return ok();
   }
