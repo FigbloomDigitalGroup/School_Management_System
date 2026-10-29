@@ -326,3 +326,17 @@ describe("one prompt at a time per invoice (FIG-1321)", () => {
     assertEquals(admin.rowsIn("payments").find((p) => p.id === "old")!.failure_reason, "unreachable");
   });
 });
+
+describe("request bodies that are JSON but not an object (FIG-1324)", () => {
+  for (const body of ["null", "5", "[]", '"text"', "true"]) {
+    it(`answers 400 to ${body}`, async () => {
+      const { admin, asUser } = makeClients();
+      const res = await handle(
+        new Request("https://example.com/mpesa-stk-push", { method: "POST", headers: { Authorization: "Bearer token" }, body }),
+        { admin, asUser },
+      );
+      assertEquals(res.status, 400);
+      assertEquals((await res.json()).error, "Invalid request body");
+    });
+  }
+});

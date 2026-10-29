@@ -61,6 +61,8 @@ export async function handle(
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
+  // JSON that isn't an object (null, a number, a list) can't be destructured below (FIG-1324)
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Invalid request body" }, 400);
   const { invoice_id, amount_cents, msisdn } = body;
 
   if (!invoice_id) return json({ error: "Which invoice is this for?" }, 400);
