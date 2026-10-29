@@ -117,15 +117,15 @@ jobs:
           chmod +x gradlew
           ./gradlew bundleRelease --no-daemon
 
-      # The APKs are for sending to phones directly. One universal APK carries
-      # every architecture (about 120 MB); these are one small APK per phone type:
-      # app-arm64-v8a-release.apk for current phones and
-      # app-armeabi-v7a-release.apk for older 32-bit ones (about 18 and 15 MB).
-      # x86 and x86_64 (emulators, Chromebooks) are left out, so use a debug
-      # build on the emulator. -PsmallApk is read in app/build.gradle. The native
-      # code for these two architectures was built by the step above, so this
-      # run is much shorter.
-      - name: Build release APKs (one per phone type, small)
+      # The APK is for sending to phones directly: one file that installs on
+      # every phone, old or new (about 26 MB). It carries both phone
+      # architectures, arm64-v8a and armeabi-v7a, with the native libraries
+      # stored compressed; the default APK carries x86 and x86_64 as well and is
+      # about 120 MB. x86 and x86_64 (emulators, Chromebooks) are left out, so use
+      # a debug build on the emulator. -PsmallApk is read in app/build.gradle. The
+      # native code for these two architectures was built by the step above, so
+      # this run is much shorter.
+      - name: Build release APK (one file, all phones, small)
         working-directory: ${{ env.APP_DIR }}/android
         run: ./gradlew assembleRelease -PsmallApk -PreactNativeArchitectures=armeabi-v7a,arm64-v8a --no-daemon
 
