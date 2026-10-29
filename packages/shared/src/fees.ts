@@ -8,11 +8,33 @@ import { normalisePhoneForCountry } from "./phone";
  *  which is a deliberate business currency choice, not a per-tenant one. */
 export function formatMoney(cents: number, country: string): string {
   const { currencySymbol, currencyDecimals } = countryProfile(country);
+  // an amount with cents is shown with them, never rounded away (FIG-1334): KSh 10,000.50, not KSh 10,001
+  const decimals = cents % 100 !== 0 ? Math.max(currencyDecimals, 2) : currencyDecimals;
   return (
     currencySymbol +
     " " +
-    (cents / 100).toLocaleString("en-KE", { minimumFractionDigits: currencyDecimals, maximumFractionDigits: currencyDecimals })
+    (cents / 100).toLocaleString("en-KE", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
   );
+}
+
+/**
+ * School money is whole shillings (FIG-1334): M-Pesa charges nothing
+ * smaller, and the office forms, fee items and the database refuse cents.
+ * Rounds a balance up, so paying it by M-Pesa clears it.
+ */
+export const wholeShillings = (cents: number): number => Math.ceil(cents / 100) * 100;
+
+/**
+ * What someone typed into an amount field, as cents: whole shillings only,
+ * spaces and thousands commas allowed. A decimal point is refused with a
+ * sentence, never dropped: "500.50" must not become KSh 50,050.
+ */
+export function parseShillings(text: string): { ok: true; cents: number } | { ok: false; message: string } {
+  const t = text.replace(/[\s,]/g, "");
+  if (t === "") return { ok: true, cents: 0 };
+  if (/^\d+$/.test(t)) return { ok: true, cents: Number(t) * 100 };
+  if (/^\d*\.\d*$/.test(t)) return { ok: false, message: "Enter whole shillings: cents can't be paid or recorded." };
+  return { ok: false, message: "Enter the amount in shillings, using digits only." };
 }
 
 export const balanceCents = (i: FeeInvoice): number => Math.max(i.total_cents - i.paid_cents, 0);
@@ -85,8 +107,10 @@ export function planTermBilling(students: BillableStudent[], items: FeeItem[], a
 export function payableSuggestions(balance: number): { label: string; cents: number }[] {
   if (balance <= 0) return [];
   const half = Math.round(balance / 2 / 100) * 100;
-  const out = [{ label: "Pay in full", cents: balance }];
-  if (half > 0 && half < balance) out.push({ label: "Pay half", cents: half });
+  // a balance left with cents is paid up to the next shilling, the smallest M-Pesa charge that clears it
+  const full = wholeShillings(balance);
+  const out = [{ label: "Pay in full", cents: full }];
+  if (half > 0 && half < full) out.push({ label: "Pay half", cents: half });
   out.push({ label: "Another amount", cents: 0 });
   return out;
 }

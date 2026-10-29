@@ -97,7 +97,9 @@ select pg_temp.check('suspended school: a user at another school is not banned',
     where p.tenant_id <> current_setting('t.a')::uuid and u.banned_until is not null));
 
 select pg_temp.act_as(current_setting('t.super')); set local role authenticated;
-select pg_temp.expect_eq('suspended school: the super admin still sees the learners', pg_temp.visible('students'), current_setting('t.n_students')::bigint);
+-- Alliance's learners only: other seeded schools (db:seed-org) are visible to the super admin too
+select pg_temp.expect_eq('suspended school: the super admin still sees the learners',
+  pg_temp.visible(format('students where tenant_id = %L', current_setting('t.a'))), current_setting('t.n_students')::bigint);
 reset role;
 
 -- ---------------------------------------------------------------- un-suspended: everything comes back

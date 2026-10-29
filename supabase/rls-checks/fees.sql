@@ -69,6 +69,26 @@ select record_payment(current_setting('t.inv2')::uuid, 100, 'mpesa', 'sfc123abc'
 select pg_temp.expect_error('same M-Pesa receipt recorded twice',
   format('select record_payment(%L, 100, ''mpesa'', ''SFC123ABC'')', current_setting('t.inv2')), '23505');
 
+-- the same slip or cheque twice on one invoice (20261104300000, FIG-1328), on two invoices of their own
+reset role;
+select set_config('t.dup1', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents = 0 and total_cents > 1000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 5 limit 1), true);
+select set_config('t.dup2', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents = 0 and total_cents > 1000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 6 limit 1), true);
+set local role authenticated;
+select record_payment(current_setting('t.dup1')::uuid, 100, 'bank', 'DUP-SLIP 7');
+select pg_temp.expect_error('the same bank slip twice on one invoice, written differently',
+  format('select record_payment(%L, 100, ''bank'', '' dup-slip7 '')', current_setting('t.dup1')), '23505');
+select record_payment(current_setting('t.dup1')::uuid, 100, 'cheque', 'CHQ-881');
+select pg_temp.expect_error('the same cheque twice on one invoice',
+  format('select record_payment(%L, 100, ''cheque'', ''chq-881'')', current_setting('t.dup1')), '23505');
+select record_payment(current_setting('t.dup2')::uuid, 100, 'bank', 'DUP-SLIP 7');
+reset role;
+select pg_temp.check('one slip can still be split across invoices (brothers)',
+  (select count(*) from payments where reference = 'DUP-SLIP 7' and status = 'success') = 2);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+
 select log_admin_event(current_setting('t.a')::uuid, 'Billed Term 3', 'financial', '{"invoices": 3}');
 reset role;
 select pg_temp.check('log_admin_event writes with the caller as actor',
@@ -124,6 +144,78 @@ do $$ begin
 end $$;
 select log_admin_event(current_setting('t.a')::uuid, 'Term 1, 2027 billed: 1 invoices', 'financial', '{}');
 reset role;
+
+-- ---------------------------------------------------------------- bill_term: one call, logged as saved (20261104320000, FIG-1331)
+insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
+  values (current_setting('t.a')::uuid, 'Term 2, 2027', 2027, 2, '2027-05-03', '2027-08-06', false);
+select set_config('t.term2', (select id::text from terms where name = 'Term 2, 2027' and tenant_id = current_setting('t.a')::uuid), true);
+select set_config('t.bill', json_build_array(
+    json_build_object('student_id', current_setting('t.s1'), 'total_cents', 4000000),
+    json_build_object('student_id', current_setting('t.s2'), 'total_cents', 3500000))::text, true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.parent'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a parent runs a billing run',
+  format('select bill_term(%L, ''2027-05-10'', %L)', current_setting('t.term2'), current_setting('t.bill')), '42501');
+reset role;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select set_config('t.run1', bill_term(current_setting('t.term2')::uuid, '2027-05-10', current_setting('t.bill')::jsonb)::text, true);
+-- the same run again, as a second admin or a stale tab would
+select set_config('t.run2', bill_term(current_setting('t.term2')::uuid, '2027-05-10', current_setting('t.bill')::jsonb)::text, true);
+reset role;
+select pg_temp.check('a billing run creates the invoices and says so',
+  (current_setting('t.run1')::jsonb ->> 'created')::int = 2 and (current_setting('t.run1')::jsonb ->> 'total_cents')::bigint = 7500000);
+select pg_temp.check('the same run again creates nothing, and says they were already billed',
+  (current_setting('t.run2')::jsonb ->> 'created')::int = 0 and (current_setting('t.run2')::jsonb ->> 'already_billed')::int = 2);
+select pg_temp.check('the two runs log one event, with what was saved, under the admin',
+  (select count(*) from audit_events where event = '2 fee invoices created for Term 2, 2027') = 1
+  and (select (metadata->>'total_cents')::bigint from audit_events where event = '2 fee invoices created for Term 2, 2027') = 7500000
+  and (select actor_id from audit_events where event = '2 fee invoices created for Term 2, 2027') = current_setting('t.admin')::uuid
+  and (select count(*) from audit_events where event like '% fee invoice% created for Term 2, 2027') = 1);
+
+-- ---------------------------------------------------------------- status kept true (20261104330000, FIG-1333)
+select pg_temp.check('the status rule: paid, overdue, part paid, unpaid',
+  invoice_status_for(100, 100, current_date - 30) = 'paid' and invoice_status_for(100, 40, current_date - 1) = 'overdue'
+  and invoice_status_for(100, 40, current_date + 1) = 'part_paid' and invoice_status_for(100, 0, current_date + 1) = 'unpaid');
+select set_config('t.stale', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents < total_cents and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 9 limit 1), true);
+select set_config('request.jwt.claims', '', true);
+update fee_invoices set due_on = current_date - 3, status = 'unpaid' where id = current_setting('t.stale')::uuid and paid_cents = 0;
+update fee_invoices set due_on = current_date - 3, status = 'part_paid' where id = current_setting('t.stale')::uuid and paid_cents > 0;
+select set_config('t.refreshed', refresh_invoice_statuses()::text, true);
+select pg_temp.check('an invoice past its due date with a balance becomes overdue',
+  (select status::text from fee_invoices where id = current_setting('t.stale')::uuid) = 'overdue');
+select pg_temp.check('the refresh is one summary event per school and status, not a line per invoice',
+  (select count(*) from audit_events where actor_label = 'System' and event like '% now overdue' and created_at = now()
+     and tenant_id = current_setting('t.a')::uuid and metadata->'invoice_ids' ? current_setting('t.stale')) = 1
+  and (select count(*) from audit_events where event like 'Fee invoice for % changed: status'
+     and metadata->>'invoice_id' = current_setting('t.stale')) = 0);
+select pg_temp.check('every invoice''s status is what the rule says',
+  not exists (select 1 from fee_invoices where status is distinct from invoice_status_for(total_cents, paid_cents, due_on)));
+select pg_temp.check('the refresh runs every night',
+  not exists (select 1 from pg_namespace where nspname = 'cron')
+  or exists (select 1 from cron.job where jobname = 'refresh-invoice-statuses' and schedule = '15 21 * * *'));
+
+-- ---------------------------------------------------------------- whole shillings (20261104340000, FIG-1334)
+select set_config('t.cents', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents = 0 and total_cents > 100000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   order by id offset 11 limit 1), true);
+select set_config('request.jwt.claims', '', true);
+update fee_invoices set total_cents = total_cents + 50 where id = current_setting('t.cents')::uuid;  -- a balance left with cents
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a payment with cents',
+  format('select record_payment(%L, 100050, ''cash'', null)', current_setting('t.cents')), '22023');
+select record_payment(current_setting('t.cents')::uuid, (select total_cents - 50 from fee_invoices where id = current_setting('t.cents')::uuid), 'cash', null);
+select record_payment(current_setting('t.cents')::uuid, 50, 'cash', null);  -- exactly what's still owed, cents and all
+select pg_temp.expect_error('a total adjusted to cents',
+  format('select adjust_invoice_total(%L, 100050, ''Bursary'')', current_setting('t.inv2')), '22023');
+select pg_temp.expect_error('a fee item priced with cents',
+  format('insert into fee_items (tenant_id, term_id, name, amount_cents) values (%L, %L, ''Cents item'', 100050)',
+         current_setting('t.a'), current_setting('t.term')), '23514');
+reset role;
+select pg_temp.check('a balance left with cents can still be cleared at the office, exactly',
+  (select paid_cents = total_cents from fee_invoices where id = current_setting('t.cents')::uuid));
 
 -- ---------------------------------------------------------------- deleting invoices (20261103300000, FIG-1319)
 select set_config('t.inv3', (select id::text from fee_invoices
@@ -225,6 +317,52 @@ do $$ declare n int; begin
 exception when others then raise notice 'FAIL proof file checks: % %', sqlstate, sqlerrm; end $$;
 reset role;
 select set_config('request.jwt.claims', '', true);
+
+-- ---------------------------------------------------------------- fee items are audited (20261104000000, FIG-1329)
+select set_config('t.item', (select id::text from fee_items where tenant_id = current_setting('t.a')::uuid order by id limit 1), true);
+select set_config('t.item_amount', (select amount_cents::text from fee_items where id = current_setting('t.item')::uuid), true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+update fee_items set amount_cents = amount_cents + 10000 where id = current_setting('t.item')::uuid;
+insert into fee_items (tenant_id, term_id, name, amount_cents)
+  values (current_setting('t.a')::uuid, (select term_id from fee_items where id = current_setting('t.item')::uuid), 'FIG-1329 lab fee', 50000);
+delete from fee_items where name = 'FIG-1329 lab fee' and tenant_id = current_setting('t.a')::uuid;
+reset role;
+select pg_temp.check('a fee item''s amount edited is a financial event, with the old and new amount and the admin',
+  (select count(*) from audit_events e
+    where e.metadata->>'table' = 'fee_items' and e.metadata->>'op' = 'update' and e.category = 'financial'
+      and e.actor_id = current_setting('t.admin')::uuid
+      and (e.metadata->'changes'->0->'changes'->'amount_cents'->>'from')::bigint = current_setting('t.item_amount')::bigint
+      and (e.metadata->'changes'->0->'changes'->'amount_cents'->>'to')::bigint = current_setting('t.item_amount')::bigint + 10000) = 1);
+select pg_temp.check('a fee item added, and deleted, are each a financial event naming it',
+  (select count(*) from audit_events e
+    where e.metadata->>'table' = 'fee_items' and e.category = 'financial'
+      and e.event in ('Fee items: "FIG-1329 lab fee" added', 'Fee items: "FIG-1329 lab fee" removed')) = 2);
+
+-- ---------------------------------------------------------------- the details parents pay into (20261104310000, FIG-1330)
+select set_config('t.old_paybill', coalesce((select payment_paybill from tenants where id = current_setting('t.a')::uuid), ''), true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a paybill that isn''t 5 to 7 digits',
+  format('select set_school_payment_methods(%L, ''24724A'', null, null, null)', current_setting('t.a')), '22023');
+select pg_temp.expect_error('a till that isn''t 5 to 7 digits',
+  format('select set_school_payment_methods(%L, null, ''12'', null, null)', current_setting('t.a')), '22023');
+select set_school_payment_methods(current_setting('t.a')::uuid, '555 1234', null, 'Equity Bank, A/C 0123456789', null);
+select set_school_payment_methods(current_setting('t.a')::uuid, '5551234', null, 'Equity Bank, A/C 0123456789', null);  -- nothing changed
+reset role;
+select pg_temp.check('the paybill is stored as digits',
+  (select payment_paybill from tenants where id = current_setting('t.a')::uuid) = '5551234');
+select pg_temp.check('changing it is one financial event, with the admin and the old and new paybill',
+  (select count(*) from audit_events e
+    where e.tenant_id = current_setting('t.a')::uuid and e.category = 'financial'
+      and e.event like 'Payment details changed: %paybill%' and e.actor_id = current_setting('t.admin')::uuid
+      and e.metadata->'changes'->'paybill'->>'to' = '5551234'
+      and coalesce(e.metadata->'changes'->'paybill'->>'from', '') = current_setting('t.old_paybill')) = 1);
+select pg_temp.check('and not a second, generic line about the school row',
+  (select count(*) from audit_events where metadata->>'table' = 'tenants' and tenant_id is not distinct from null
+     and metadata->'changes'->0->'changes' ? 'payment_paybill') = 0
+  and (select count(*) from audit_events where metadata->>'table' = 'tenants'
+     and metadata->'changes'->0->'changes' ? 'payment_paybill') = 0);
 
 -- ---------------------------------------------------------------- overpayments (20261103400000, FIG-1316)
 -- s2's Term 1, 2027 invoice (100, unpaid) from the fees-area checks above

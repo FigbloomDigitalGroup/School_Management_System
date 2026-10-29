@@ -98,7 +98,9 @@ export async function handle(
   }
 
   const outstanding = invoice.total_cents - invoice.paid_cents;
-  if (amount_cents! > outstanding) {
+  // M-Pesa charges whole shillings, so a balance left with cents is cleared by
+  // rounding up to the next one (FIG-1334); the few cents over are logged as an overpayment
+  if (amount_cents! > Math.ceil(outstanding / 100) * 100) {
     return json({ error: "That is more than the outstanding balance." }, 400);
   }
 

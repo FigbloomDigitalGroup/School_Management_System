@@ -340,3 +340,15 @@ describe("request bodies that are JSON but not an object (FIG-1324)", () => {
     });
   }
 });
+
+describe("a balance left with cents (FIG-1334)", () => {
+  it("can be cleared by paying up to the next whole shilling, and no further", async () => {
+    const { admin, asUser } = makeClients({ total_cents: 12345, paid_cents: 0 });
+    stubFetch(stkOk);
+    const ok = await handle(request({ ...validBody, amount_cents: 12400 }), { admin, asUser });
+    assertEquals(ok.status, 200);
+    const { admin: admin2, asUser: asUser2 } = makeClients({ total_cents: 12345, paid_cents: 0 });
+    const tooMuch = await handle(request({ ...validBody, amount_cents: 12500 }), { admin: admin2, asUser: asUser2 });
+    assertEquals(tooMuch.status, 400);
+  });
+});

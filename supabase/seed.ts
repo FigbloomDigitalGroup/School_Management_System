@@ -176,20 +176,31 @@ async function main() {
   const { data: feeItems } = await db.from("fee_items")
     .insert(DEMO_FEE_ITEMS.map((f) => ({ ...f, tenant_id: alliance.id, term_id: term!.id }))).select("*");
 
-  const invoices = inserted!.map((s) => {
+  // Every invoice starts with nothing paid; what a family paid is a payments row, which the
+  // apply_payment trigger credits, so the seeded school reconciles (every paid amount has payments
+  // behind it) and each status follows (FIG-1332). Same random amounts as before.
+  const planned = inserted!.map((s) => {
     const cls = classes!.find((c) => c.id === s.class_id)!;
     const applicable = itemsForStudent(feeItems as never, { boarding: s.boarding }, cls.form_level, cls.level);
     const total = totalCents(applicable as never);
     const paidRatio = r();
     return {
-      tenant_id: alliance.id, student_id: s.id, term_id: term!.id,
-      total_cents: total,
-      paid_cents: paidRatio > 0.7 ? total : Math.round((total * Math.floor(paidRatio * 10)) / 10 / 1000) * 1000,
-      due_on: "2026-09-15",
+      student: s, total,
+      paid: paidRatio > 0.7 ? total : Math.round((total * Math.floor(paidRatio * 10)) / 10 / 1000) * 1000,
     };
   });
-  await db.from("fee_invoices").insert(invoices);
-  console.log(`  ${invoices.length} fee invoices`);
+  const { data: invoices, error: invoiceErr } = await db.from("fee_invoices")
+    .insert(planned.map((p) => ({ tenant_id: alliance.id, student_id: p.student.id, term_id: term!.id, total_cents: p.total, due_on: "2026-09-15" })))
+    .select("id, student_id");
+  if (invoiceErr) throw new Error(`fee_invoices: ${invoiceErr.message}`);
+  const invoiceOf = new Map((invoices ?? []).map((i) => [i.student_id as string, i.id as string]));
+  const payments = planned.filter((p) => p.paid > 0).map((p) => ({
+    tenant_id: alliance.id, invoice_id: invoiceOf.get(p.student.id)!, amount_cents: p.paid,
+    method: "bank", reference: `SEED-${p.student.admission_no}`, status: "success", completed_at: "2026-09-10T09:00:00Z",
+  }));
+  const { error: paymentErr } = await db.from("payments").insert(payments);
+  if (paymentErr) throw new Error(`payments: ${paymentErr.message}`);
+  console.log(`  ${planned.length} fee invoices, ${payments.length} payments`);
 
   // ---------------------------------------------------------------- exams and marks
   const { data: exams } = await db.from("exams").insert([
