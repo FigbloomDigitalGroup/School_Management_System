@@ -17,6 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { canSignIn } from "../_shared/signInStatuses.ts";
 
 /** Requests one caller may make in the window. A person who forgot their password asks once or twice. */
 const REQUEST_LIMIT = 10;
@@ -63,7 +64,8 @@ export async function handle(req: Request, { admin, withinLimit }: Deps): Promis
   // From here on every path answers the same { ok: true }: whether the ID
   // exists is exactly what this must not reveal.
   const { data: tenant } = await admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle();
-  if (!tenant || tenant.status !== "active") return json({ ok: true });
+  // trial and overdue schools sign in too, so their people can ask (FIG-1341)
+  if (!tenant || !canSignIn(tenant.status)) return json({ ok: true });
 
   const { data: profile } = await admin.from("profiles")
     .select("id, role").eq("tenant_id", tenantId).eq("login_id", loginId).maybeSingle();
