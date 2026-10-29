@@ -55,6 +55,26 @@ describe("create-organization handle", () => {
     assertEquals(res.status, 401);
   });
 
+  it("refuses an org admin whose only organization is suspended (FIG-1312)", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: "org-1" }]);
+    admin.seed("organizations", [{ id: "org-1", slug: "nakuru", status: "suspended" }]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 403);
+    assertEquals(admin.rowsIn("organizations").length, 1);
+  });
+
+  it("lets an org admin with an active organization create another, even if one of theirs is suspended", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("organization_admins", [
+      { id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: "org-1" },
+      { id: "link-2", profile_id: ORG_ADMIN_ID, organization_id: "org-2" },
+    ]);
+    admin.seed("organizations", [{ id: "org-1", slug: "nakuru", status: "suspended" }, { id: "org-2", slug: "eldoret", status: "active" }]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
+  });
+
   it("rejects when the token does not resolve to a user", async () => {
     const { admin, asUser } = makeClients();
     asUser.authUser = null;

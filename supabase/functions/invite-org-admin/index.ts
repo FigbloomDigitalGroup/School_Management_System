@@ -28,6 +28,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
@@ -71,9 +72,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
 
   let authorized = callerProfile.role === "super_admin";
   if (!authorized) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", organization_id).maybeSingle();
-    authorized = !!link;
+    authorized = await administersOrganization(admin, user.id, organization_id);
   }
   if (!authorized) {
     return json({ error: "You do not administer this organization." }, 403);
