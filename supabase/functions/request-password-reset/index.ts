@@ -18,10 +18,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { canSignIn } from "../_shared/signInStatuses.ts";
+import { callerKey, dbLimiter, type Limiter, overallKey, unlimited } from "../_shared/rateLimit.ts";
 
 /** Requests one caller may make in the window. A person who forgot their password asks once or twice. */
 const REQUEST_LIMIT = 10;
 const REQUEST_WINDOW = "1 hour";
+/** Requests at one school from everyone together (FIG-1336). */
+const SCHOOL_REQUEST_LIMIT = 100;
 const TOO_MANY_MESSAGE = "Too many attempts. Wait a while and try again, or ask the school office.";
 
 /** Roles that sign in with a school ID. Admins with an email use the emailed link instead. */
@@ -36,23 +39,16 @@ export interface Deps {
   // deno-lint-ignore no-explicit-any
   admin: any;
   /** Records a request by this caller and says whether it is still within its allowance. */
-  withinLimit: (callerKey: string) => Promise<boolean>;
+  withinLimit: Limiter;
+  /** The same for the school asked about, whoever asks. */
+  withinSchoolLimit?: Limiter;
 }
 
-/** Who is asking: a hash of the caller's address, so the limit works without keeping the address itself. */
-export async function callerKey(req: Request): Promise<string> {
-  const ip = req.headers.get("cf-connecting-ip")
-    ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? "unknown";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`request-password-reset:${ip}`));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-export async function handle(req: Request, { admin, withinLimit }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, withinLimit, withinSchoolLimit = unlimited }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  if (!(await withinLimit(await callerKey(req)))) return json({ error: TOO_MANY_MESSAGE }, 429);
+  if (!(await withinLimit(await callerKey(req, "request-password-reset")))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -60,6 +56,7 @@ export async function handle(req: Request, { admin, withinLimit }: Deps): Promis
   const tenantId = body.tenant_id?.trim();
   const loginId = body.login_id?.trim().toUpperCase();
   if (!tenantId || !loginId) return json({ error: "A school and an ID are both required." }, 400);
+  if (!(await withinSchoolLimit(await overallKey("request-password-reset", tenantId)))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   // From here on every path answers the same { ok: true }: whether the ID
   // exists is exactly what this must not reveal.
@@ -95,11 +92,8 @@ if (import.meta.main) {
     return handle(req, {
       admin,
       // Unlike sign-in, nothing urgent is lost by refusing here: if the limiter fails, refuse.
-      withinLimit: async (key) => {
-        const { data, error } = await admin.rpc("note_login_lookup", { p_key: key, p_limit: REQUEST_LIMIT, p_window: REQUEST_WINDOW });
-        if (error) { console.error("request-password-reset: rate limiter failed:", error.message); return false; }
-        return data !== false;
-      },
+      withinLimit: dbLimiter(admin, "request-password-reset", REQUEST_LIMIT, REQUEST_WINDOW, { failClosed: true }),
+      withinSchoolLimit: dbLimiter(admin, "request-password-reset", SCHOOL_REQUEST_LIMIT, REQUEST_WINDOW, { failClosed: true }),
     });
   });
 }

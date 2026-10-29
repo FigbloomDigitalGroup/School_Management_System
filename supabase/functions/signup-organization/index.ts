@@ -25,7 +25,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { callerKey, dbLimiter, type Limiter } from "../_shared/rateLimit.ts";
+import { callerKey, dbLimiter, type Limiter, overallKey, unlimited } from "../_shared/rateLimit.ts";
 
 /**
  * Signups one caller may make in the window. Each one creates a real account and
@@ -34,6 +34,9 @@ import { callerKey, dbLimiter, type Limiter } from "../_shared/rateLimit.ts";
  */
 const SIGNUP_LIMIT = 5;
 const SIGNUP_WINDOW = "1 hour";
+/** Sign-ups from everyone together, a day (FIG-1336). */
+const OVERALL_SIGNUP_LIMIT = 50;
+const OVERALL_SIGNUP_WINDOW = "1 day";
 const TOO_MANY_MESSAGE = "Too many sign-up attempts from here. Wait a while and try again.";
 
 const ORG_KINDS = new Set(["government", "county", "constituency", "group_owner"]);
@@ -60,13 +63,16 @@ export interface Deps {
   admin: any;
   /** Records an attempt by this caller and says whether it is still within its allowance. */
   withinLimit: Limiter;
+  /** The same for the whole function, whoever asks. */
+  withinOverall?: Limiter;
 }
 
-export async function handle(req: Request, { admin, withinLimit }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, withinLimit, withinOverall = unlimited }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   if (!(await withinLimit(await callerKey(req, "signup-organization")))) return json({ error: TOO_MANY_MESSAGE }, 429);
+  if (!(await withinOverall(await overallKey("signup-organization")))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -163,7 +169,11 @@ if (import.meta.main) {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    return handle(req, { admin, withinLimit: dbLimiter(admin, "signup-organization", SIGNUP_LIMIT, SIGNUP_WINDOW) });
+    return handle(req, {
+      admin,
+      withinLimit: dbLimiter(admin, "signup-organization", SIGNUP_LIMIT, SIGNUP_WINDOW),
+      withinOverall: dbLimiter(admin, "signup-organization", OVERALL_SIGNUP_LIMIT, OVERALL_SIGNUP_WINDOW),
+    });
   });
 }
 
