@@ -45,8 +45,13 @@ people with a school-issued account.
 
 ## Privacy policy URL
 https://schoolmanagement.figbloom.org/privacy.html
-(placeholder — confirm the production domain before submitting, see FIG-780)
+(the page is written and current; confirm the production domain before
+submitting, see FIG-780)
+
+## Account deletion URL
+https://schoolmanagement.figbloom.org/delete-account.html
 
 ## Contact email
-Fill in before submission — see the note in apps/web/public/privacy.html
-about privacy@figbloom.org.
+privacy@figbloom.org — confirm it is a real, monitored inbox before
+submitting. Data safety answers and permission declarations are in
+`data-safety.md`.

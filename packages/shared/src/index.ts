@@ -73,3 +73,4 @@ export * from "./feeCharges";
 export * from "./otherStaff";
 export * from "./adminAreas";
 export * from "./medical";
+export * from "./legalLinks";

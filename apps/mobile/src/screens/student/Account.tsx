@@ -4,6 +4,7 @@ import { supabase } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
 
 interface Profile {
@@ -65,6 +66,8 @@ export function StudentAccount() {
         </View>
 
         <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
 
         <TouchableOpacity
           accessibilityRole="button"

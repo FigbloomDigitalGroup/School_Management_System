@@ -26,10 +26,12 @@
   table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14.5px; }
   th, td { text-align: left; padding: 8px 10px; border: 1px solid #e3e3df; vertical-align: top; }
   th { background: #f1f3ef; }
-  .note {
-    background: #fff7e8; border: 1px solid #f0dfb0; border-radius: 8px;
-    padding: 14px 16px; font-size: 14px; margin: 28px 0; color: #5c4a14;
+  .summary {
+    background: #f1f6f2; border: 1px solid #d5e3d9; border-radius: 8px;
+    padding: 14px 18px; margin: 20px 0 8px;
   }
+  .summary p { margin: 0 0 8px; }
+  .summary ul { margin: 0; }
   footer { margin-top: 56px; font-size: 13.5px; color: #6b7570; }
 </style>
 </head>
@@ -40,105 +42,282 @@
     <span>Figbloom</span>
   </header>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 13 October 2026</p>
+  <p class="updated">Last updated: 29 October 2026</p>
 
   <p>
     This policy covers the Figbloom school-management apps — the parent,
-    student and driver app, and the teacher app — and the Figbloom web
-    console they connect to (together, the "Service"). Figbloom Digital
-    Group ("Figbloom", "we") builds and operates the Service on behalf of
-    the schools that use it. Each school is the data controller for its own
-    students', parents' and staff's information; Figbloom acts as the
-    school's data processor, storing and transmitting that data on
-    infrastructure Figbloom operates.
+    student and driver app ("Figbloom Schools"), and the teacher app
+    ("Figbloom Teacher") — and the Figbloom web console they connect to
+    (together, the "Service"). Figbloom Digital Group ("Figbloom", "we")
+    builds and operates the Service on behalf of the schools that use it.
+    Each school is the data controller for its own students', parents' and
+    staff's information; Figbloom acts as the school's data processor,
+    storing and transmitting that data on infrastructure Figbloom operates.
   </p>
+
+  <div class="summary">
+    <p><strong>In short</strong></p>
+    <ul>
+      <li>Your school gives you an account. Most of what is in the Service
+        was entered by your school, not by you.</li>
+      <li>We do not sell personal information and we do not show
+        advertising. The apps contain no advertising, analytics or
+        crash-reporting tools.</li>
+      <li>A driver's precise location is collected only during an active
+        school-bus trip.</li>
+      <li>Fingerprint unlock is optional, and your fingerprint never leaves
+        your phone.</li>
+      <li>Calls and live classes are not recorded by us.</li>
+      <li>To ask for your data to be corrected or removed, see
+        <a href="/delete-account.html">how to request deletion</a>.</li>
+    </ul>
+  </div>
 
   <h2>Information we collect</h2>
   <table>
     <tr><th>Category</th><th>What, and from whom</th></tr>
     <tr>
       <td>Account &amp; identity</td>
-      <td>Name, role (parent, student, teacher, driver), a school-assigned
-        login ID (most users sign in with this rather than an email address),
-        and school/class assignment — provided by the school when it enrolls
-        a user. A phone number or email is collected only where the school
-        records one or a feature needs it (e.g. M-Pesa payments use a phone
-        number).</td>
+      <td>Name, role (parent, student, teacher, driver, school staff), a
+        school-assigned login ID (most users sign in with this rather than
+        an email address), and school/class assignment — provided by the
+        school when it enrolls a user. A phone number or email is collected
+        only where the school records one or a feature needs it (for
+        example, M-Pesa payments use a phone number, and a temporary
+        password is emailed where an address is on file). Passwords are kept
+        only in hashed form by our sign-in provider.</td>
+    </tr>
+    <tr>
+      <td>Learner and family records</td>
+      <td>Admission number, class, date of birth, home address and bus
+        stop, guardians' names and contact details, emergency contacts, and
+        bio-data details that a parent or the school keeps up to date —
+        entered by the school or by a parent for their own child.</td>
+    </tr>
+    <tr>
+      <td>Academic &amp; attendance records</td>
+      <td>Grades, assessment results (including CBE strand and rubric
+        scores), report cards, attendance marks, timetables, homework,
+        exams, clubs and activities and what a learner achieved in them,
+        and items issued to a learner — entered by teachers and school
+        staff.</td>
+    </tr>
+    <tr>
+      <td>Health information</td>
+      <td>This is sensitive. A learner's health profile (allergies,
+        conditions, medication, blood group, dietary and special needs,
+        doctor and emergency contacts); the school sick-bay's visit
+        records, treatment and medication schedules; and medication
+        requests a parent sends the school, with a photo of the prescription
+        if they attach one. Entered by the school's authorised staff or by
+        the learner's parent.</td>
+    </tr>
+    <tr>
+      <td>Messages, calls and live classes</td>
+      <td>Messages sent in-app between families, learners and staff
+        (including photos and documents they attach), and announcements
+        published by the school. For voice and video calls and live
+        classes the apps use your microphone, and your camera for video;
+        the audio and video are carried in real time and are not recorded
+        by us. We keep a record that a call took place (who, when, and
+        whether it was answered and for how long).</td>
+    </tr>
+    <tr>
+      <td>Electronic signatures</td>
+      <td>When you sign a document, report card, receipt or form in the
+        app: your name, the mark you drew or the name you typed, which
+        document, a fingerprint (hash) of the document as you saw it, the
+        time, and the device type your phone reports.</td>
+    </tr>
+    <tr>
+      <td>Visitors</td>
+      <td>A school's gate or reception staff may record a visitor's name,
+        phone number, ID number, vehicle plate, purpose of visit and whom
+        they came to see. Visitors are not Service users; the school
+        records this under its own security rules.</td>
+    </tr>
+    <tr>
+      <td>Payments</td>
+      <td>Fee balances, receipts, and M-Pesa payment references (phone
+        number and M-Pesa transaction code) when a parent pays school fees
+        in-app, and any payment proof a parent sends (a photo, or a pasted
+        confirmation message). We do not collect or store card numbers.</td>
     </tr>
     <tr>
       <td>Location (driver app only)</td>
       <td>Precise GPS location, collected continuously — including while the
         app is in the background or the phone is locked — for the duration
         of an active school-bus trip, so the bus's position can be shown to
-        parents and school staff tracking that trip. Location is not
-        collected outside an active trip.</td>
+        the parents and school staff tracking that trip. A driver's
+        location is not collected outside an active trip, and no other
+        user's location is collected.</td>
     </tr>
     <tr>
-      <td>Academic &amp; attendance records</td>
-      <td>Grades, assessment results (including CBE strand/rubric scores),
-        attendance marks, timetables and class assignments, entered by
-        teachers or synced from the school's records.</td>
+      <td>Photos, camera and files</td>
+      <td>A profile photo, if a user chooses one; pictures and documents
+        that a user chooses to send (payment proof, chat attachments,
+        prescriptions, school documents). The apps ask for the camera only
+        when you take a photo or start a video call, and read photos and
+        files only through the phone's own picker, so they see just the
+        ones you choose.</td>
     </tr>
     <tr>
-      <td>Communications</td>
-      <td>Messages sent between teachers and parents in-app, and notices/
-        announcements published by the school.</td>
+      <td>Bloom (AI assistant)</td>
+      <td>See "Bloom" below.</td>
     </tr>
     <tr>
-      <td>Payments</td>
-      <td>Fee balances and M-Pesa payment references (phone number and
-        M-Pesa transaction code) when a parent pays school fees in-app. We
-        do not collect or store card numbers.</td>
+      <td>Device &amp; notification data</td>
+      <td>A device push-notification token for the apps that deliver
+        notifications (announcements, bus-trip updates, messages, visitor
+        arrivals), plus the notification choices you set. On your phone the
+        apps keep your sign-in session, some recently loaded data so
+        screens open quickly, and a queue of changes made offline until
+        they can be sent.</td>
     </tr>
     <tr>
-      <td>Photos</td>
-      <td>A profile photo, if a user chooses to upload one.</td>
-    </tr>
-    <tr>
-      <td>Device &amp; push notification data</td>
-      <td>A device push-notification token, collected today only from
-        Android users of the parent/student/driver app (not yet from the
-        teacher app, and not yet from iOS — see below), used to deliver
-        school-wide announcements the school has marked for push and
-        school-bus trip updates.</td>
+      <td>Technical logs</td>
+      <td>Our hosting and infrastructure providers keep standard server
+        logs (such as IP address, time and the page or function requested)
+        to run and protect the Service.</td>
     </tr>
   </table>
 
+  <h2>Bloom (AI assistant)</h2>
+  <p>
+    Bloom helps school staff draft text (for example report card comments)
+    and answer questions, and, where the school turns it on, helps
+    learners study. A school can switch Bloom off, and the learner study
+    helper is off unless the school turns it on (and may require a
+    parent's opt-in).
+  </p>
+  <ul>
+    <li>What is sent to the AI provider is only what the request needs.
+      Report card drafting, for example, sends a first name and results,
+      never an admission number or surname. What a person types into a
+      Bloom chat, and any file they attach to it, is sent too, so staff and
+      learners are told not to put personal details in.</li>
+    <li>We keep a usage record for each request (who, which task, how much
+      was used) but not the question or the answer. Staff can keep their
+      own chat history in the Service. Files attached to a Bloom chat are
+      read and not stored; a paper sent for importing is deleted once it has
+      been read.</li>
+    <li>When a school and a person allow it, Bloom chat can search the web;
+      learner and family details are not put into a search.</li>
+  </ul>
+
   <h2>How we use this information</h2>
   <ul>
-    <li>To run the core features of the Service: attendance, gradebook,
-      messaging, fee payment, timetables, and — for the driver app — live
-      bus-location sharing during a trip.</li>
-    <li>To deliver push notifications where they're currently supported
-      (Android, parent/student/driver app only) — for announcements the
-      school has marked for push, and for bus-trip updates. Teacher-parent
-      messages are delivered in-app and are not pushed.</li>
+    <li>To run the features of the Service: attendance, gradebook, report
+      cards, messaging, calls and live classes, fee payment, timetables,
+      medical and visitor records, e-signatures, and — for the driver app —
+      live bus-location sharing during a trip.</li>
+    <li>To deliver notifications you or your school have chosen.</li>
     <li>To authenticate users and keep each school's data separate from
       every other school's.</li>
     <li>To maintain and secure the Service, including diagnosing technical
-      issues.</li>
+      issues and preventing abuse.</li>
   </ul>
   <p>We do not sell personal information, and we do not use it for
-    advertising.</p>
+    advertising or to build advertising profiles.</p>
+
+  <h2>Who we share it with</h2>
+  <p>
+    We use the following service providers to run the Service. They receive
+    data only to do that job for us and the schools.
+  </p>
+  <table>
+    <tr><th>Provider</th><th>What it does, and what it receives</th></tr>
+    <tr>
+      <td>Supabase</td>
+      <td>Database, sign-in, file storage and our server functions: all
+        the information described above.</td>
+    </tr>
+    <tr>
+      <td>Vercel</td>
+      <td>Hosts the web console and this website: standard request logs.</td>
+    </tr>
+    <tr>
+      <td>Google (Firebase Cloud Messaging)</td>
+      <td>Delivers push notifications to Android phones: the device token
+        and the notification text.</td>
+    </tr>
+    <tr>
+      <td>Google (Maps Platform)</td>
+      <td>Draws the bus map and estimates arrival times: map requests from
+        the app, and the bus's and its stops' positions for estimates.</td>
+    </tr>
+    <tr>
+      <td>LiveKit</td>
+      <td>Carries the audio and video of calls and live classes in real
+        time.</td>
+    </tr>
+    <tr>
+      <td>Safaricom (M-Pesa)</td>
+      <td>Processes fee payments: the payer's phone number and the
+        amount.</td>
+    </tr>
+    <tr>
+      <td>Resend</td>
+      <td>Sends account emails (for example, a temporary password): the
+        recipient's email address and the message.</td>
+    </tr>
+    <tr>
+      <td>OpenAI or Anthropic</td>
+      <td>Provide the model behind Bloom, as described above. Which one
+        answers is a setting we control.</td>
+    </tr>
+  </table>
+  <p>
+    In the web console only, a person can attach a file from, or save an
+    export to, their own Google Drive. That connection goes between their
+    browser and Google, asks for access only to the files they pick or
+    create, and we do not receive or store their Google password.
+  </p>
+  <p>
+    Some of these providers process data outside Kenya. We may also
+    disclose information when the law requires it, or to protect the safety
+    of a child or of the Service.
+  </p>
 
   <h2>Who can see what</h2>
   <p>
     Data is scoped to the school it belongs to. Within a school: a parent
-    sees their own children's records; a teacher sees the classes and
-    students they're assigned to; a driver sees the trips they're assigned
-    to and the location they themselves report while a trip is active; school
-    administrators see the records their role is permitted to see. Figbloom
-    staff can access data only as needed to operate and support the Service,
-    under the school's instruction.
+    sees their own children's records; a learner sees their own; a teacher
+    sees the classes and learners they're assigned to; a driver sees the
+    trips they're assigned to and the location they themselves report while
+    a trip is active; school administrators see the records their role is
+    permitted to see. A learner's health profile (allergies, conditions and
+    the like) can be read by the school's staff, so that, for example, a
+    teacher knows about a nut allergy, and by the learner and their
+    guardians. The sick-bay's visit and medication records are limited to
+    the staff the school has given medical access, and to the learner's own
+    guardians.
+  </p>
+  <p>
+    Messages are visible to the people in the conversation, and the
+    school's administrators can read the conversations in their school.
+    A sent message cannot be edited or removed. Figbloom staff can access
+    data only as needed to operate and support the Service, under the
+    school's instruction.
+  </p>
+
+  <h2>Fingerprint unlock</h2>
+  <p>
+    The apps can be locked with your phone's fingerprint, if you switch it
+    on in Account. The check is done by your phone's own biometric prompt:
+    the app is told only "yes" or "no". It never receives, stores or sends
+    your fingerprint, and the setting stays on your phone.
   </p>
 
   <h2>Children's data</h2>
   <p>
     Because this is a school platform, it necessarily holds data about
     children. That data is provided and controlled by the school, not
-    collected by Figbloom directly from children. Parents/guardians should
-    direct requests about their child's data to their child's school in the
-    first instance; the school can in turn ask us to act on that request.
+    collected by Figbloom directly from children. Learners use the Service
+    only with an account their school has given them. Parents/guardians
+    should direct requests about their child's data to their child's school
+    in the first instance; the school can in turn ask us to act on that
+    request.
   </p>
 
   <h2>Data retention</h2>
@@ -147,24 +326,69 @@
     active, plus a reasonable period after a school leaves the Service in
     case the school requests an export. A school can request deletion of
     its data at any time, subject to any academic-record retention
-    requirements that apply to it.
+    requirements that apply to it. Learners who leave are archived by the
+    school rather than erased, so their records stay with the school.
   </p>
 
   <h2>Your rights</h2>
   <p>
     Depending on where you are, you may have rights to access, correct or
-    request deletion of your personal information, including under Kenya's
-    Data Protection Act, 2019. Requests should go to your school first,
-    since the school controls its own records; the school can escalate to
-    us if needed. You can also contact us directly at the address below and
-    we will route the request to the right school.
+    request deletion of your personal information, and to object to how it
+    is used, including under Kenya's Data Protection Act, 2019. Requests
+    should go to your school first, since the school controls its own
+    records; the school can escalate to us if needed. You can also contact
+    us directly and we will route the request to the right school. Our
+    page on <a href="/delete-account.html">deleting your account and data</a>
+    explains how, and what a school may have to keep.
+  </p>
+  <p>
+    If you are unhappy with how a request was handled, you can complain to
+    Kenya's Office of the Data Protection Commissioner (odpc.go.ke).
   </p>
 
   <h2>Security</h2>
   <p>
-    We use access controls and encryption in transit to protect data held
-    in the Service. No system is perfectly secure, and we work to improve
-    these protections over time.
+    Data is sent over encrypted connections, and each school's data is
+    separated from every other school's by access rules enforced in the
+    database. No system is perfectly secure, and we work to improve these
+    protections over time.
+  </p>
+
+  <h2>What the apps ask your phone for</h2>
+  <table>
+    <tr><th>Permission</th><th>Why</th></tr>
+    <tr>
+      <td>Location (driver app)</td>
+      <td>To share the bus's position during a school-bus trip, including
+        with the screen off. The phone shows a notification while this is
+        running.</td>
+    </tr>
+    <tr>
+      <td>Camera</td>
+      <td>To take a photo to send or upload, and for video calls and live
+        classes.</td>
+    </tr>
+    <tr>
+      <td>Microphone</td>
+      <td>For voice and video calls and live classes only.</td>
+    </tr>
+    <tr>
+      <td>Nearby devices / Bluetooth</td>
+      <td>So a call can use a Bluetooth headset.</td>
+    </tr>
+    <tr>
+      <td>Notifications</td>
+      <td>To show announcements, messages, trip updates and visitor
+        arrivals.</td>
+    </tr>
+    <tr>
+      <td>Fingerprint / biometrics</td>
+      <td>For the optional app lock. Nothing leaves your phone.</td>
+    </tr>
+  </table>
+  <p>
+    Photos and files are chosen through the phone's own picker, so the apps
+    do not need access to your photo library or storage.
   </p>
 
   <h2>Changes to this policy</h2>
@@ -175,16 +399,11 @@
 
   <h2>Contact us</h2>
   <p>
-    Questions about this policy or a privacy request: <a href="mailto:privacy@figbloom.org">privacy@figbloom.org</a>.
+    Questions about this policy or a privacy request:
+    <a href="mailto:privacy@figbloom.org">privacy@figbloom.org</a>.<br />
+    Figbloom Digital Group, Enterprise Road, SMK Business Centre, Nairobi,
+    Kenya.
   </p>
-
-  <div class="note">
-    Internal note (remove before relying on this for a real submission):
-    this draft hasn't had a legal review. Given it covers location tracking
-    and K-12 student data across multiple jurisdictions, get it reviewed
-    before linking it from Play Console / App Store Connect, and confirm
-    privacy@figbloom.org is a real, monitored inbox first.
-  </div>
 
   <footer>Figbloom Digital Group</footer>
 </div>

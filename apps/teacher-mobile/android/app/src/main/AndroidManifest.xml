@@ -4,9 +4,10 @@
 
     <!-- Account photo upload (FIG-492), via react-native-image-picker. On
          API 33+ it uses the system Photo Picker, which needs no runtime
-         permission at all; these only matter below that. -->
+         permission at all, so READ_MEDIA_IMAGES (which Google Play restricts
+         to apps whose core purpose is a photo gallery) is not declared; the
+         storage permission only matters below that. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <!-- Push notifications (FIG-1290): from Android 13 the app has to ask before a
          notification can show. Asked in pushNotifications.ts, after sign-in. -->
