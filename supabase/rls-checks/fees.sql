@@ -145,6 +145,34 @@ end $$;
 select log_admin_event(current_setting('t.a')::uuid, 'Term 1, 2027 billed: 1 invoices', 'financial', '{}');
 reset role;
 
+-- ---------------------------------------------------------------- bill_term: one call, logged as saved (20261104320000, FIG-1331)
+insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
+  values (current_setting('t.a')::uuid, 'Term 2, 2027', 2027, 2, '2027-05-03', '2027-08-06', false);
+select set_config('t.term2', (select id::text from terms where name = 'Term 2, 2027' and tenant_id = current_setting('t.a')::uuid), true);
+select set_config('t.bill', json_build_array(
+    json_build_object('student_id', current_setting('t.s1'), 'total_cents', 4000000),
+    json_build_object('student_id', current_setting('t.s2'), 'total_cents', 3500000))::text, true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.parent'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a parent runs a billing run',
+  format('select bill_term(%L, ''2027-05-10'', %L)', current_setting('t.term2'), current_setting('t.bill')), '42501');
+reset role;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select set_config('t.run1', bill_term(current_setting('t.term2')::uuid, '2027-05-10', current_setting('t.bill')::jsonb)::text, true);
+-- the same run again, as a second admin or a stale tab would
+select set_config('t.run2', bill_term(current_setting('t.term2')::uuid, '2027-05-10', current_setting('t.bill')::jsonb)::text, true);
+reset role;
+select pg_temp.check('a billing run creates the invoices and says so',
+  (current_setting('t.run1')::jsonb ->> 'created')::int = 2 and (current_setting('t.run1')::jsonb ->> 'total_cents')::bigint = 7500000);
+select pg_temp.check('the same run again creates nothing, and says they were already billed',
+  (current_setting('t.run2')::jsonb ->> 'created')::int = 0 and (current_setting('t.run2')::jsonb ->> 'already_billed')::int = 2);
+select pg_temp.check('the two runs log one event, with what was saved, under the admin',
+  (select count(*) from audit_events where event = '2 fee invoices created for Term 2, 2027') = 1
+  and (select (metadata->>'total_cents')::bigint from audit_events where event = '2 fee invoices created for Term 2, 2027') = 7500000
+  and (select actor_id from audit_events where event = '2 fee invoices created for Term 2, 2027') = current_setting('t.admin')::uuid
+  and (select count(*) from audit_events where event like '% fee invoice% created for Term 2, 2027') = 1);
+
 -- ---------------------------------------------------------------- deleting invoices (20261103300000, FIG-1319)
 select set_config('t.inv3', (select id::text from fee_invoices
    where tenant_id = current_setting('t.a')::uuid and paid_cents = 0

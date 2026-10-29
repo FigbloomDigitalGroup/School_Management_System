@@ -28,8 +28,6 @@ function defaultDueOn(term: Term): string {
   return term.starts_on > inTwoWeeks ? term.starts_on : inTwoWeeks;
 }
 
-const CHUNK = 500;
-
 /**
  * Creates this term's invoices from its fee items, one per active learner,
  * with the same itemsForStudent() maths the parent's bill breakdown uses.
@@ -57,21 +55,21 @@ export function BillTermModal({ term, feeItems, tenantId, country, onClose, onBi
     setSaving(true);
     setSaveError("");
     try {
-      const rows = plan.invoices.map((i) => ({ ...i, tenant_id: tenantId, term_id: term.id, due_on: dueOn }));
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const { error: insertError } = await supabase().from("fee_invoices")
-          .upsert(rows.slice(i, i + CHUNK), { onConflict: "student_id,term_id", ignoreDuplicates: true });
-        if (insertError) throw new Error(insertError.message);
-      }
-      await supabase().rpc("log_admin_event", {
-        p_tenant_id: tenantId,
-        p_event: `${term.name} billed: ${rows.length} invoices, ${formatMoney(plan.totalCents, country)}, due ${dueOn}`,
-        p_category: "financial",
-        p_metadata: { term_id: term.id, invoices: rows.length, total_cents: plan.totalCents, due_on: dueOn },
+      // One call, one transaction: the invoices and their audit event are what the
+      // database saved, not what this dialog planned (FIG-1331, bill_term).
+      const { data: result, error: billError } = await supabase().rpc("bill_term", {
+        p_term_id: term.id,
+        p_due_on: dueOn,
+        p_invoices: plan.invoices.map((i) => ({ student_id: i.student_id, total_cents: i.total_cents })),
       });
-      onBilled(`${rows.length.toLocaleString()} invoices created for ${term.name}`);
+      if (billError) throw new Error(billError.message);
+      const { created, already_billed: already } = result as { created: number; total_cents: number; already_billed: number };
+      onBilled(
+        `${created.toLocaleString()} invoice${created === 1 ? "" : "s"} created for ${term.name}`
+        + (already > 0 ? ` (${already.toLocaleString()} already billed by someone else)` : ""),
+      );
     } catch (err) {
-      // Invoices are created in batches; any already written stay, and running this again picks up the rest.
+      // Nothing was saved: the run is one transaction, so it can simply be tried again.
       setSaveError(err instanceof Error ? err.message : "Could not create the invoices.");
     } finally {
       setSaving(false);
