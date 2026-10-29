@@ -138,4 +138,36 @@ select pg_temp.check('every definer function that writes its own audit event and
    and p.prosrc !~ 'figbloom\.self_audited'
    and p.prosrc ~* ('(insert into|update|delete from)\s+' || c.table_name || '\M');
 
+-- ---------------------------------------------------------------- who reads the log: the "audit" area (20261104200000)
+select set_config('t.other', (select id::text from tenants where id <> current_setting('t.a')::uuid order by slug limit 1), true);
+insert into audit_events (tenant_id, actor_label, event, category)
+  values (current_setting('t.other')::uuid, 'Check', 'Another school''s event', 'operations');
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.teacher'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.check('a teacher without the area reads none of the log',
+  (select count(*) from audit_events) = 0);
+reset role;
+insert into staff_permissions (tenant_id, profile_id, area) values (current_setting('t.a')::uuid, current_setting('t.teacher')::uuid, 'audit');
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.teacher'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.check('given the audit area, the teacher reads their school''s log',
+  (select count(*) from audit_events where tenant_id = current_setting('t.a')::uuid) > 0);
+select pg_temp.check('and nothing of another school''s',
+  (select count(*) from audit_events where tenant_id is distinct from current_setting('t.a')::uuid) = 0);
+do $$ begin
+  insert into audit_events (tenant_id, actor_label, event, category) values (current_setting('t.a')::uuid, 'Forged', 'Forged', 'access');
+  raise notice 'FAIL the area holder writes an audit event: allowed';
+exception when others then raise notice 'PASS the area holder can''t write an audit event (%)', sqlstate; end $$;
+do $$ declare n int; begin
+  delete from audit_events where tenant_id = current_setting('t.a')::uuid;
+  get diagnostics n = row_count;
+  raise notice '% the area holder can''t remove an audit event (% removed)', case when n = 0 then 'PASS' else 'FAIL' end, n;
+exception when others then raise notice 'PASS the area holder can''t remove an audit event (%)', sqlstate; end $$;
+reset role;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.check('the school admin still reads the log without any area',
+  (select count(*) from audit_events where tenant_id = current_setting('t.a')::uuid) > 0);
+reset role;
+
 rollback;
