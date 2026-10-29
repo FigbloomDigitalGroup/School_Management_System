@@ -69,6 +69,26 @@ select record_payment(current_setting('t.inv2')::uuid, 100, 'mpesa', 'sfc123abc'
 select pg_temp.expect_error('same M-Pesa receipt recorded twice',
   format('select record_payment(%L, 100, ''mpesa'', ''SFC123ABC'')', current_setting('t.inv2')), '23505');
 
+-- the same slip or cheque twice on one invoice (20261104300000, FIG-1328), on two invoices of their own
+reset role;
+select set_config('t.dup1', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents = 0 and total_cents > 1000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 5 limit 1), true);
+select set_config('t.dup2', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents = 0 and total_cents > 1000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 6 limit 1), true);
+set local role authenticated;
+select record_payment(current_setting('t.dup1')::uuid, 100, 'bank', 'DUP-SLIP 7');
+select pg_temp.expect_error('the same bank slip twice on one invoice, written differently',
+  format('select record_payment(%L, 100, ''bank'', '' dup-slip7 '')', current_setting('t.dup1')), '23505');
+select record_payment(current_setting('t.dup1')::uuid, 100, 'cheque', 'CHQ-881');
+select pg_temp.expect_error('the same cheque twice on one invoice',
+  format('select record_payment(%L, 100, ''cheque'', ''chq-881'')', current_setting('t.dup1')), '23505');
+select record_payment(current_setting('t.dup2')::uuid, 100, 'bank', 'DUP-SLIP 7');
+reset role;
+select pg_temp.check('one slip can still be split across invoices (brothers)',
+  (select count(*) from payments where reference = 'DUP-SLIP 7' and status = 'success') = 2);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+
 select log_admin_event(current_setting('t.a')::uuid, 'Billed Term 3', 'financial', '{"invoices": 3}');
 reset role;
 select pg_temp.check('log_admin_event writes with the caller as actor',
