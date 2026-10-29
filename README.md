@@ -87,7 +87,7 @@ log looks stuck, so check Docker before cancelling.
 |---|---|---|
 | `npm run test:unit` | Vitest on `packages/shared` (pure logic) | nothing |
 | `npm run test:edge` | Deno tests for `supabase/functions` | Deno |
-| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, and the fee billing run | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
+| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, the fee billing run, and how the M-Pesa functions answer as deployed | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
 | `npm test` | Playwright over `e2e/flows.spec.ts`, desktop then phone, one worker | the local stack, seeded, and the edge functions running |
 
 `test:integration` refuses to start unless the Supabase URL is `127.0.0.1` or `localhost`
