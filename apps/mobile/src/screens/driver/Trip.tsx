@@ -141,7 +141,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
 
   async function handleSignOut() {
     await stopLocationTracking();
-    await supabase().auth.signOut();
+    await supabase().auth.signOut({ scope: "local" });
   }
 
   if (loading) {

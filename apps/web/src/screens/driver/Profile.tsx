@@ -46,7 +46,7 @@ export function DriverProfile() {
         <PasswordForm profileId={profile.id} submitLabel="Change password" onDone={() => toast("Password changed")} />
       </section>
       <button
-        onClick={() => void supabase().auth.signOut().then(() => navigate("/signin", { replace: true }))}
+        onClick={() => void supabase().auth.signOut({ scope: "local" }).then(() => navigate("/signin", { replace: true }))}
         className="hit justify-self-start rounded-lg border border-line px-4 py-2 text-small font-semibold text-ink-muted"
       >
         Sign out

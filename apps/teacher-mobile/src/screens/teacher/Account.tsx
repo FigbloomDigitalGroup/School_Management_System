@@ -139,7 +139,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
 
         <TouchableOpacity
           accessibilityRole="button"
-          onPress={() => void supabase().auth.signOut()}
+          onPress={() => void supabase().auth.signOut({ scope: "local" })}
           style={[s.primary, { ...HIT, marginTop: 16, backgroundColor: t.appSurface.lineSoft }]}
         >
           <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Sign out</Text>

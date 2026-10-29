@@ -102,7 +102,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
     : null;
 
   async function signOut() {
-    await supabase().auth.signOut();
+    await supabase().auth.signOut({ scope: "local" });
     nav("/signin", { replace: true });
   }
 
