@@ -125,4 +125,43 @@ end $$;
 select log_admin_event(current_setting('t.a')::uuid, 'Term 1, 2027 billed: 1 invoices', 'financial', '{}');
 reset role;
 
+-- ---------------------------------------------------------------- deleting invoices (20261103300000, FIG-1319)
+select set_config('t.inv3', (select id::text from fee_invoices
+   where tenant_id = current_setting('t.a')::uuid and paid_cents = 0
+     and not exists (select 1 from payments p where p.invoice_id = fee_invoices.id)
+     and not exists (select 1 from payment_proofs pp where pp.invoice_id = fee_invoices.id)
+     and not exists (select 1 from fee_charges c where c.invoice_id = fee_invoices.id)
+     and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   order by id limit 1), true);
+insert into payment_proofs (tenant_id, invoice_id, uploaded_by, file_path, file_name)
+  values (current_setting('t.a')::uuid, current_setting('t.inv3')::uuid, current_setting('t.parent')::uuid, 'x', 'slip3.jpg');
+
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('admin deletes an invoice with a recorded payment',
+  format('delete from fee_invoices where id = %L', current_setting('t.inv')), '23001');
+select pg_temp.expect_error('admin deletes an invoice with only a proof of payment',
+  format('delete from fee_invoices where id = %L', current_setting('t.inv3')), '23001');
+select pg_temp.expect_error('admin deletes the term of an invoice with a recorded payment',
+  format('delete from terms where id = (select term_id from fee_invoices where id = %L)', current_setting('t.inv')), '23001');
+delete from fee_invoices where student_id = current_setting('t.s1')::uuid and term_id = current_setting('t.term')::uuid;
+reset role;
+select pg_temp.check('payments survive the refused deletes',
+  (select count(*) from payments where invoice_id = current_setting('t.inv')::uuid) = 1);
+select pg_temp.check('an invoice with nothing recorded can still be deleted',
+  not exists (select 1 from fee_invoices where student_id = current_setting('t.s1')::uuid and term_id = current_setting('t.term')::uuid));
+select pg_temp.check('deleting an invoice writes an audit event with the admin as actor',
+  (select count(*) from audit_events where actor_id = current_setting('t.admin')::uuid
+     and event like 'Fee invoice deleted for %, Term 1, 2027') = 1);
+
+select set_config('request.jwt.claims', '', true);
+select pg_temp.expect_error('service role deletes an invoice with a recorded payment',
+  format('delete from fee_invoices where id = %L', current_setting('t.inv')), '23001');
+
+do $$ begin
+  delete from tenants where id = current_setting('t.a')::uuid;
+  raise notice '% removing a whole school still removes its invoices and payments',
+    case when not exists (select 1 from payments where invoice_id = current_setting('t.inv')::uuid) then 'PASS' else 'FAIL' end;
+exception when others then raise notice 'FAIL removing a whole school: % %', sqlstate, sqlerrm; end $$;
+
 rollback;
