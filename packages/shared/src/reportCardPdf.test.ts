@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { buildReportCards, type ReportCardInput } from "./reportCards";
-import { meritOrder, pdfText, renderReportCardsPdf, renderResultsSheetPdf } from "./reportCardPdf";
+import { logoFromBytes, meritOrder, pdfText, renderReportCardsPdf, renderResultsSheetPdf } from "./reportCardPdf";
 
 const input = (learners: number, subjects = 8): ReportCardInput => ({
   school: { name: "Kijani Ridge School", county: "Nairobi", country: "KE", logoUrl: null, accent: "#1B4D2E" },
@@ -48,6 +48,25 @@ describe("renderReportCardsPdf", () => {
   it("still makes a file for an empty class", async () => {
     const doc = await PDFDocument.load(await renderReportCardsPdf([]));
     expect(doc.getPageCount()).toBe(1);
+  });
+});
+
+describe("logoFromBytes", () => {
+  const png = new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+
+  it("tells PNG and JPEG by their first bytes, and nothing else", () => {
+    expect(logoFromBytes(png)?.type).toBe("png");
+    expect(logoFromBytes(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a]))?.type).toBe("jpg");
+    expect(logoFromBytes(new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'/>"))).toBeNull();
+    expect(logoFromBytes(new TextEncoder().encode("<html>Not found</html>"))).toBeNull();
+    expect(logoFromBytes(new Uint8Array())).toBeNull();
+  });
+
+  it("gives a logo the card can embed", async () => {
+    const [data] = buildReportCards(input(1));
+    const logo = logoFromBytes(png);
+    const doc = await PDFDocument.load(await renderReportCardsPdf([{ data: data!, teacherComment: null, principalComment: null }], { logo }));
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
   });
 });
 
