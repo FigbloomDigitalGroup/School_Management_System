@@ -162,6 +162,18 @@ describe("payableSuggestions", () => {
     expect(s.some((o) => o.label === "Pay half")).toBe(true);
     expect(s.at(-1)).toEqual({ label: "Another amount", cents: 0 });
   });
+  // FIG-1317: it used to round to the nearest KSh 100, so KSh 250 offered KSh 100
+  it.each([
+    [15000, 7500], [25000, 12500], [35000, 17500], [20000, 10000], [300000, 150000],
+  ])("'Pay half' of %i cents is %i cents", (balance, half) => {
+    expect(payableSuggestions(balance).find((o) => o.label === "Pay half")?.cents).toBe(half);
+  });
+  it("rounds an odd balance's half to the whole shilling, as M-Pesa charges", () => {
+    expect(payableSuggestions(15100).find((o) => o.label === "Pay half")?.cents).toBe(7600);
+  });
+  it("offers no half of KSh 1, which would be nothing", () => {
+    expect(payableSuggestions(100).some((o) => o.label === "Pay half")).toBe(false);
+  });
 });
 
 describe("normaliseMsisdn", () => {
