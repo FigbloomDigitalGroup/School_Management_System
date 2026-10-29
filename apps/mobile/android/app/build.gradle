@@ -120,6 +120,30 @@ android {
         versionName "1.0"
         manifestPlaceholders = [MAPS_API_KEY: localProperties.getProperty("MAPS_API_KEY", "")]
     }
+    // Small APKs for sending to phones directly. The release workflow passes
+    // -PsmallApk to its APK step only; the Play bundle and everyday builds are
+    // unchanged. It gives one APK per phone type (arm64-v8a, and armeabi-v7a for
+    // older 32-bit phones) instead of one universal file with four copies of every
+    // native library, and stores those libraries compressed: about 29 MB of them
+    // become about 11 MB, for more room on the phone once installed. Expects the
+    // native build to be limited to the same two architectures too:
+    // -PreactNativeArchitectures=armeabi-v7a,arm64-v8a. x86 and x86_64 (emulators)
+    // are not in these APKs; use a debug build there.
+    splits {
+        abi {
+            reset()
+            enable project.hasProperty("smallApk")
+            universalApk false
+            include "armeabi-v7a", "arm64-v8a"
+        }
+    }
+    if (project.hasProperty("smallApk")) {
+        packaging {
+            jniLibs {
+                useLegacyPackaging = true
+            }
+        }
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
