@@ -341,9 +341,21 @@ describe("ai-assist chat", () => {
     admin.seed("profiles", [{ id: "me", role: "org_admin", tenant_id: null }]);
     admin.seed("tenants", [{ id: TENANT_ID, organization_id: "org-1", name: "Kijani Ridge", ai_enabled: true, ai_monthly_tokens: 1_000_000 }]);
     admin.seed("organization_admins", [{ id: "oa-1", profile_id: "me", organization_id: "org-1" }]);
+    admin.seed("organizations", [{ id: "org-1", status: "active" }]);
     const res = await handle(ask([{ role: "user", content: "hi" }], { tenantId: TENANT_ID }), { admin, asUser, ai: fakeAi("hello").ai });
     assertEquals(res.status, 200);
     assertEquals(admin.rowsIn("ai_usage")[0]!.tenant_id, TENANT_ID);
+  });
+
+  it("refuses an org admin whose organization is suspended (FIG-1312)", async () => {
+    const { admin, asUser } = makeClients("org_admin");
+    admin.seed("profiles", [{ id: "me", role: "org_admin", tenant_id: null }]);
+    admin.seed("tenants", [{ id: TENANT_ID, organization_id: "org-1", name: "Kijani Ridge", ai_enabled: true, ai_monthly_tokens: 1_000_000 }]);
+    admin.seed("organization_admins", [{ id: "oa-1", profile_id: "me", organization_id: "org-1" }]);
+    admin.seed("organizations", [{ id: "org-1", status: "suspended" }]);
+    const res = await handle(ask([{ role: "user", content: "hi" }], { tenantId: TENANT_ID }), { admin, asUser, ai: fakeAi("hello").ai });
+    assertEquals(res.status, 403);
+    assertEquals(admin.rowsIn("ai_usage").length, 0);
   });
 
   it("refuses an org admin naming a school outside their organization", async () => {

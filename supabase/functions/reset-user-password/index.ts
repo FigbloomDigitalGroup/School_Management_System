@@ -31,6 +31,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 import { holdsAnyArea, holdsArea } from "../_shared/adminAreas.ts";
 import { actorName, deliverLoginDetails, emailContext, type EmailDeps, type EmailOutcome, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
@@ -86,11 +87,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     actorSuffix = "school admin";
   } else if (caller.role === "org_admin") {
     const { data: tenant } = await admin.from("tenants").select("organization_id").eq("id", target.tenant_id).maybeSingle();
-    if (tenant?.organization_id) {
-      const { data: link } = await admin.from("organization_admins")
-        .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-      authorized = !!link;
-    }
+    authorized = await administersOrganization(admin, user.id, tenant?.organization_id);
     actorSuffix = "org admin";
   } else if (caller.role === "parent" && target.role === "student") {
     // the learner record this login belongs to, then whether the caller is one of its guardians

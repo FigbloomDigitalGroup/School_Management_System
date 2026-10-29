@@ -25,6 +25,7 @@ function makeClients(callerId: string) {
     { id: "super", role: "super_admin", full_name: "Figbloom Staff", tenant_id: null },
   ]);
   admin.seed("organization_admins", [{ id: "link-1", profile_id: "org-admin", organization_id: ORG_ID }]);
+  admin.seed("organizations", [{ id: ORG_ID, status: "active" }]);
   admin.seed("students", [{ id: "student-1", tenant_id: TENANT_ID, profile_id: "student-login" }]);
   admin.seed("guardians", [{ id: "g1", tenant_id: TENANT_ID, profile_id: "parent", student_id: "student-1" }]);
   admin.seed("password_reset_requests", [
@@ -91,6 +92,13 @@ describe("reset-user-password handle", () => {
   it("lets an org admin reset someone at a school their organization owns", async () => {
     const { res } = await reset("org-admin", "teacher");
     assertEquals(res.status, 200);
+  });
+
+  it("refuses an org admin whose organization is suspended (FIG-1312)", async () => {
+    const clients = makeClients("org-admin");
+    clients.admin.seed("organizations", [{ id: ORG_ID, status: "suspended" }]);
+    const res = await handle(request({ profile_id: "teacher" }), clients);
+    assertEquals(res.status, 403);
   });
 
   it("lets Figbloom staff reset any school account", async () => {

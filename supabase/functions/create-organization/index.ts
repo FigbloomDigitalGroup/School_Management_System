@@ -20,6 +20,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { onlyAdministersInactiveOrganizations } from "../_shared/organizations.ts";
 
 const ORG_KINDS = new Set(["government", "county", "constituency", "group_owner"]);
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
@@ -54,6 +55,9 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     .from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle();
   if (callerProfile?.role !== "org_admin") {
     return json({ error: "Only an organization admin can create a new organization." }, 403);
+  }
+  if (await onlyAdministersInactiveOrganizations(admin, user.id)) {
+    return json({ error: "Your organization is suspended, so you can't create a new one." }, 403);
   }
 
   let body: Partial<Body>;
