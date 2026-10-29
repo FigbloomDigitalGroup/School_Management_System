@@ -18,6 +18,8 @@ select set_config('t.super',   (select id::text from profiles where role = 'supe
 select set_config('t.student', (select id::text from profiles where role = 'student' and tenant_id = current_setting('t.a')::uuid limit 1), true);
 update auth.users set banned_until = now() + interval '10 years' where id = current_setting('t.student')::uuid;
 select set_config('t.n_students', (select count(*)::text from students where tenant_id = current_setting('t.a')::uuid), true);
+-- every school's learners, which is what the platform super admin sees (more than Alliance's once db:seed-org has run)
+select set_config('t.n_students_all', (select count(*)::text from students), true);
 
 -- an organization with one admin, and Alliance as a member school
 insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000a1');
@@ -97,7 +99,7 @@ select pg_temp.check('suspended school: a user at another school is not banned',
     where p.tenant_id <> current_setting('t.a')::uuid and u.banned_until is not null));
 
 select pg_temp.act_as(current_setting('t.super')); set local role authenticated;
-select pg_temp.expect_eq('suspended school: the super admin still sees the learners', pg_temp.visible('students'), current_setting('t.n_students')::bigint);
+select pg_temp.expect_eq('suspended school: the super admin still sees the learners (of every school)', pg_temp.visible('students'), current_setting('t.n_students_all')::bigint);
 reset role;
 
 -- ---------------------------------------------------------------- un-suspended: everything comes back
