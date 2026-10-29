@@ -17,6 +17,9 @@ export function formatMoney(cents: number, country: string): string {
 
 export const balanceCents = (i: FeeInvoice): number => Math.max(i.total_cents - i.paid_cents, 0);
 
+/** What was paid above the total: two payments that crossed, or a charge cancelled after paying (FIG-1316). */
+export const overpaidCents = (i: Pick<FeeInvoice, "total_cents" | "paid_cents">): number => Math.max(i.paid_cents - i.total_cents, 0);
+
 export function invoiceStatus(i: Pick<FeeInvoice, "total_cents" | "paid_cents" | "due_on">, today = new Date()): InvoiceStatus {
   const bal = Math.max(i.total_cents - i.paid_cents, 0);
   if (bal === 0) return "paid";
