@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 const SUPER_ADMIN_ID = "super-admin-1";
@@ -86,5 +87,16 @@ describe("check-services handle", () => {
     const supabase = out.results.find((r: { service: string }) => r.service === "supabase");
     assertEquals(supabase.status, "down");
     assertEquals(supabase.detail, "connection refused");
+  });
+});
+
+// QA 08 (FIG-1241): only Figbloom staff can call this, but the database's own message still goes back in the answer.
+describe("check-services: errors", () => {
+  itFails("FIG-1342 (open): a failed log insert answers a generic message, not the database's own", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextWrite("service_status", 'relation "public.service_status" does not exist');
+    const res = await handle(request(), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(String((await res.json()).error).includes("service_status"), false);
   });
 });

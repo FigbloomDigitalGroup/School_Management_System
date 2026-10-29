@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 function makeClient() {
@@ -187,5 +188,19 @@ describe("signup-organization handle", () => {
       assertEquals(res.status, 400);
       assertEquals(counted, 1);
     });
+  });
+});
+
+// QA 08 (FIG-1241): the account is created with email_confirm: true, so the address counts as verified although nobody has proved
+// they own it. Anyone can register someone else's address, sign in with it at once, and the real owner is then told
+// "That email is already in use."
+describe("signup-organization: an unverified email address", () => {
+  itFails("FIG-1337 (open): the new account is not marked email-confirmed before anyone has verified the address", async () => {
+    let created: Record<string, unknown> | null = null;
+    const admin = new FakeSupabaseClient();
+    admin.onCreateUser = (attrs) => { created = attrs; return { data: { user: { id: "new-org-admin-1", email: attrs.email } }, error: null }; };
+    const res = await handle(request(validBody), { admin, withinLimit: async () => true });
+    assertEquals(res.status, 200);
+    assertEquals(created!.email_confirm === true, false);
   });
 });

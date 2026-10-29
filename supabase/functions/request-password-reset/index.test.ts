@@ -1,6 +1,8 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { itFails } from "../_shared/knownDefect.ts";
+import { SIGN_IN_STATUSES } from "../_shared/signInStatuses.ts";
 import { handle } from "./index.ts";
 
 const TENANT_ID = "tenant-1";
@@ -92,5 +94,47 @@ describe("request-password-reset handle", () => {
     const res = await handle(request({ tenant_id: TENANT_ID, login_id: "ST-0001" }), deps(admin, async () => false));
     assertEquals(res.status, 429);
     assertEquals(admin.rowsIn("password_reset_requests").length, 0);
+  });
+});
+
+// QA 08 (FIG-1241): a school can sign in when its status is in SIGN_IN_STATUSES (active, trial, overdue), but this function only
+// accepts 'active'. Someone at a school on trial or with an overdue invoice who taps "Forgot password?" is told it worked and
+// no request reaches the office.
+describe("request-password-reset: every school that can sign in can ask for a reset", () => {
+  const withSchool = (status: string) => {
+    const admin = makeClient();
+    admin.seed("tenants", [
+      { id: TENANT_ID, slug: "green-valley", status: "active" },
+      { id: ONBOARDING_TENANT_ID, slug: "riverside", status: "onboarding" },
+      { id: "tenant-3", slug: "hilltop", status },
+    ]);
+    admin.seed("profiles", [
+      { id: "student-1", tenant_id: TENANT_ID, role: "student", full_name: "Esther Wanjiru", login_id: "ST-0001" },
+      { id: "student-3", tenant_id: "tenant-3", role: "student", full_name: "Grace Atieno", login_id: "ST-0001" },
+    ]);
+    return admin;
+  };
+
+  it("records a request for a school that is active (control)", async () => {
+    const admin = withSchool("active");
+    await handle(request({ tenant_id: "tenant-3", login_id: "ST-0001" }), deps(admin));
+    assertEquals(admin.rowsIn("password_reset_requests").length, 1);
+  });
+
+  for (const status of SIGN_IN_STATUSES.filter((s) => s !== "active")) {
+    itFails(`FIG-1341 (open): records a request for a school on '${status}', which can sign in`, async () => {
+      const admin = withSchool(status);
+      const res = await handle(request({ tenant_id: "tenant-3", login_id: "ST-0001" }), deps(admin));
+      assertEquals(res.status, 200);
+      assertEquals(admin.rowsIn("password_reset_requests").length, 1);
+    });
+  }
+
+  it("records nothing for a school that cannot sign in (setup stalled, suspended)", async () => {
+    for (const status of ["setup_stalled", "suspended"]) {
+      const admin = withSchool(status);
+      await handle(request({ tenant_id: "tenant-3", login_id: "ST-0001" }), deps(admin));
+      assertEquals(admin.rowsIn("password_reset_requests").length, 0, status);
+    }
   });
 });

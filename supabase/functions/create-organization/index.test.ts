@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 const ORG_ADMIN_ID = "org-admin-1";
@@ -144,5 +145,16 @@ describe("create-organization handle", () => {
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("organizations").length, 0);
+  });
+});
+
+// QA 08 (FIG-1241): the database's own message names constraints and tables; it belongs in the log, not in the answer.
+describe("create-organization: errors", () => {
+  itFails("FIG-1342 (open): a failed insert answers a generic message, not the database's own", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextWrite("organizations", 'duplicate key value violates unique constraint "organizations_slug_key"');
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(String((await res.json()).error).includes("constraint"), false);
   });
 });
