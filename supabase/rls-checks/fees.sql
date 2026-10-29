@@ -267,6 +267,31 @@ select pg_temp.check('a fee item added, and deleted, are each a financial event 
     where e.metadata->>'table' = 'fee_items' and e.category = 'financial'
       and e.event in ('Fee items: "FIG-1329 lab fee" added', 'Fee items: "FIG-1329 lab fee" removed')) = 2);
 
+-- ---------------------------------------------------------------- the details parents pay into (20261104310000, FIG-1330)
+select set_config('t.old_paybill', coalesce((select payment_paybill from tenants where id = current_setting('t.a')::uuid), ''), true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a paybill that isn''t 5 to 7 digits',
+  format('select set_school_payment_methods(%L, ''24724A'', null, null, null)', current_setting('t.a')), '22023');
+select pg_temp.expect_error('a till that isn''t 5 to 7 digits',
+  format('select set_school_payment_methods(%L, null, ''12'', null, null)', current_setting('t.a')), '22023');
+select set_school_payment_methods(current_setting('t.a')::uuid, '555 1234', null, 'Equity Bank, A/C 0123456789', null);
+select set_school_payment_methods(current_setting('t.a')::uuid, '5551234', null, 'Equity Bank, A/C 0123456789', null);  -- nothing changed
+reset role;
+select pg_temp.check('the paybill is stored as digits',
+  (select payment_paybill from tenants where id = current_setting('t.a')::uuid) = '5551234');
+select pg_temp.check('changing it is one financial event, with the admin and the old and new paybill',
+  (select count(*) from audit_events e
+    where e.tenant_id = current_setting('t.a')::uuid and e.category = 'financial'
+      and e.event like 'Payment details changed: %paybill%' and e.actor_id = current_setting('t.admin')::uuid
+      and e.metadata->'changes'->'paybill'->>'to' = '5551234'
+      and coalesce(e.metadata->'changes'->'paybill'->>'from', '') = current_setting('t.old_paybill')) = 1);
+select pg_temp.check('and not a second, generic line about the school row',
+  (select count(*) from audit_events where metadata->>'table' = 'tenants' and tenant_id is not distinct from null
+     and metadata->'changes'->0->'changes' ? 'payment_paybill') = 0
+  and (select count(*) from audit_events where metadata->>'table' = 'tenants'
+     and metadata->'changes'->0->'changes' ? 'payment_paybill') = 0);
+
 -- ---------------------------------------------------------------- overpayments (20261103400000, FIG-1316)
 -- s2's Term 1, 2027 invoice (100, unpaid) from the fees-area checks above
 select set_config('t.inv4', (select id::text from fee_invoices
