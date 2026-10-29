@@ -246,6 +246,27 @@ exception when others then raise notice 'FAIL proof file checks: % %', sqlstate,
 reset role;
 select set_config('request.jwt.claims', '', true);
 
+-- ---------------------------------------------------------------- fee items are audited (20261104000000, FIG-1329)
+select set_config('t.item', (select id::text from fee_items where tenant_id = current_setting('t.a')::uuid order by id limit 1), true);
+select set_config('t.item_amount', (select amount_cents::text from fee_items where id = current_setting('t.item')::uuid), true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+update fee_items set amount_cents = amount_cents + 10000 where id = current_setting('t.item')::uuid;
+insert into fee_items (tenant_id, term_id, name, amount_cents)
+  values (current_setting('t.a')::uuid, (select term_id from fee_items where id = current_setting('t.item')::uuid), 'FIG-1329 lab fee', 50000);
+delete from fee_items where name = 'FIG-1329 lab fee' and tenant_id = current_setting('t.a')::uuid;
+reset role;
+select pg_temp.check('a fee item''s amount edited is a financial event, with the old and new amount and the admin',
+  (select count(*) from audit_events e
+    where e.metadata->>'table' = 'fee_items' and e.metadata->>'op' = 'update' and e.category = 'financial'
+      and e.actor_id = current_setting('t.admin')::uuid
+      and (e.metadata->'changes'->0->'changes'->'amount_cents'->>'from')::bigint = current_setting('t.item_amount')::bigint
+      and (e.metadata->'changes'->0->'changes'->'amount_cents'->>'to')::bigint = current_setting('t.item_amount')::bigint + 10000) = 1);
+select pg_temp.check('a fee item added, and deleted, are each a financial event naming it',
+  (select count(*) from audit_events e
+    where e.metadata->>'table' = 'fee_items' and e.category = 'financial'
+      and e.event in ('Fee items: "FIG-1329 lab fee" added', 'Fee items: "FIG-1329 lab fee" removed')) = 2);
+
 -- ---------------------------------------------------------------- overpayments (20261103400000, FIG-1316)
 -- s2's Term 1, 2027 invoice (100, unpaid) from the fees-area checks above
 select set_config('t.inv4', (select id::text from fee_invoices
