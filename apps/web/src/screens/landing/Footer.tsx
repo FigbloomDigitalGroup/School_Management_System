@@ -95,11 +95,11 @@ function Footer() {
       <div className="footer-inner">
         <div className="footer-top">
           <div className="footer-brand">
-            <a className="footer-logo" href="/" aria-label="BloomEd home">
+            <a className="footer-logo" href="/" aria-label="Figbloom School Management home">
               <span className="footer-logo-mark">
                 <GraduationCap />
               </span>
-              BloomEd
+              Figbloom School Management
             </a>
             <p>
               The school management system for Kenyan schools. Fees, attendance,
@@ -145,7 +145,7 @@ function Footer() {
         </div>
 
         <div className="footer-bottom">
-          <p>© {year} BloomEd. All rights reserved.</p>
+          <p>© {year} Figbloom School Management. All rights reserved.</p>
           <a className="footer-top-link" href="#top">
             <FooterIcon name="up" />
           </a>
