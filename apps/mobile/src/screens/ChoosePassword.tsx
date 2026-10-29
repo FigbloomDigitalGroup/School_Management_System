@@ -79,7 +79,7 @@ export function ChoosePassword({ profileId, fullName, loginId, onDone }: {
         {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Save and continue</Text>}
       </TouchableOpacity>
 
-      <TouchableOpacity accessibilityRole="button" onPress={() => void supabase().auth.signOut()} style={{ ...HIT, alignSelf: "center", justifyContent: "center", marginTop: 12 }}>
+      <TouchableOpacity accessibilityRole="button" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ ...HIT, alignSelf: "center", justifyContent: "center", marginTop: 12 }}>
         <Text style={{ fontSize: 13, fontWeight: "600", color: t.appSurface.inkMuted }}>Not you? Sign out</Text>
       </TouchableOpacity>
     </View>

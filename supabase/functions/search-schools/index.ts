@@ -17,7 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { callerKey, dbLimiter, type Limiter } from "../_shared/rateLimit.ts";
+import { callerKey, dbLimiter, type Limiter, overallKey, unlimited } from "../_shared/rateLimit.ts";
 import { SIGN_IN_STATUSES } from "../_shared/signInStatuses.ts";
 
 const RESULT_LIMIT = 8;
@@ -29,6 +29,9 @@ const RESULT_LIMIT = 8;
  */
 const SEARCH_LIMIT = 200;
 const SEARCH_WINDOW = "10 minutes";
+/** Searches from everyone together (FIG-1336). */
+const OVERALL_SEARCH_LIMIT = 5000;
+const OVERALL_SEARCH_WINDOW = "10 minutes";
 const TOO_MANY_MESSAGE = "Too many searches. Wait a few minutes and try again.";
 
 interface Body {
@@ -47,13 +50,16 @@ export interface Deps {
   admin: any;
   /** Records a search by this caller and says whether it is still within its allowance. */
   withinLimit: Limiter;
+  /** The same for the whole function, whoever asks. */
+  withinOverall?: Limiter;
 }
 
-export async function handle(req: Request, { admin, withinLimit }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, withinLimit, withinOverall = unlimited }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   if (!(await withinLimit(await callerKey(req, "search-schools")))) return json({ error: TOO_MANY_MESSAGE }, 429);
+  if (!(await withinOverall(await overallKey("search-schools")))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -88,7 +94,11 @@ if (import.meta.main) {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    return handle(req, { admin, withinLimit: dbLimiter(admin, "search-schools", SEARCH_LIMIT, SEARCH_WINDOW) });
+    return handle(req, {
+      admin,
+      withinLimit: dbLimiter(admin, "search-schools", SEARCH_LIMIT, SEARCH_WINDOW),
+      withinOverall: dbLimiter(admin, "search-schools", OVERALL_SEARCH_LIMIT, OVERALL_SEARCH_WINDOW),
+    });
   });
 }
 

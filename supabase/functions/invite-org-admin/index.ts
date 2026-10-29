@@ -28,6 +28,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
 import { administersOrganization } from "../_shared/organizations.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
@@ -99,7 +100,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
       organization_id,
       added_by: user.id,
     });
-    if (linkErr) return json({ error: linkErr.message }, 500);
+    if (linkErr) return json(failure("invite-org-admin", "add them to the organization", linkErr), 500);
 
     await admin.from("audit_events").insert({
       tenant_id: null,
@@ -122,7 +123,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     // Supabase's real message is "...has already been registered" — "been" sits
     // between the two words, so a plain "already registered" substring never matches.
     const already = createErr?.message?.toLowerCase().includes("already been registered");
-    return json({ error: already ? "That email is already in use." : (createErr?.message ?? "Could not create the account.") }, already ? 409 : 500);
+    return json(already ? { error: "That email is already in use." } : failure("invite-org-admin", "create the account", createErr), already ? 409 : 500);
   }
 
   // tenant_id is null for org_admin, the same way it is for super_admin —
@@ -137,7 +138,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("invite-org-admin", "save the profile", profileErr), 500);
   }
 
   const { error: linkErr } = await admin.from("organization_admins").insert({
@@ -151,7 +152,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     // is just as orphaned as a profile-less auth account is in invite-admin.
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: linkErr.message }, 500);
+    return json(failure("invite-org-admin", "add them to the organization", linkErr), 500);
   }
 
   await admin.from("audit_events").insert({

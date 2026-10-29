@@ -225,6 +225,16 @@ export class FakeSupabaseClient {
     error: { message: "onCreateUser not configured" },
   });
   deletedUserIds: string[] = [];
+  /** Auth users getUserById can find (id -> user), and the ones generateLink creates. */
+  authUsers = new Map<string, Row>();
+  /** What auth.admin.generateLink answers; by default it creates an unconfirmed user with a link. */
+  onGenerateLink: (params: Row) => { data: { user: Row | null; properties: Row | null }; error: { message: string } | null } = (params) => {
+    const user = { id: crypto.randomUUID(), email: params.email, email_confirmed_at: null };
+    this.authUsers.set(user.id, user);
+    return { data: { user, properties: { action_link: `https://auth.example.test/verify?token=t-${user.id}` } }, error: null };
+  };
+  /** Every generateLink call, in order. */
+  generatedLinks: Row[] = [];
   /** Every auth.admin.updateUserById call, in order. */
   updatedUsers: { id: string; attrs: Row }[] = [];
   /** Set to make the next updateUserById fail with this message. */
@@ -245,7 +255,16 @@ export class FakeSupabaseClient {
       },
       deleteUser: async (id: string) => {
         this.deletedUserIds.push(id);
+        this.authUsers.delete(id);
         return { error: null };
+      },
+      generateLink: async (params: Row) => {
+        this.generatedLinks.push(params);
+        return this.onGenerateLink(params);
+      },
+      getUserById: async (id: string) => {
+        const user = this.authUsers.get(id) ?? null;
+        return { data: { user }, error: user ? null : { message: "User not found" } };
       },
     },
   };

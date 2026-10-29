@@ -78,6 +78,15 @@ describe("check-services handle", () => {
     assertEquals(logged.map((r) => r.service).sort(), ["mpesa", "supabase"]);
   });
 
+  it("answers a sentence, not the database's own words, when saving the results fails (FIG-1342)", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("tenants", [{ id: "t1" }]);
+    admin.failNextWrite("service_status", 'relation "public.service_status" does not exist');
+    const res = await handle(request(), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(await res.json(), { error: "Could not save the service status. Try again." });
+  });
+
   it("reports supabase down when the query fails", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextRead("tenants", "connection refused");

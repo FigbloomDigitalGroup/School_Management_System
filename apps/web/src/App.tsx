@@ -623,7 +623,7 @@ function FullPageSkeleton() {
 function PendingOrgHold({ name }: { name: string }) {
   const nav = useNavigate();
   async function signOut() {
-    await supabase().auth.signOut();
+    await supabase().auth.signOut({ scope: "local" });
     nav("/signin", { replace: true });
   }
   return (
