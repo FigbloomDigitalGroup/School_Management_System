@@ -173,6 +173,29 @@ select pg_temp.check('the two runs log one event, with what was saved, under the
   and (select actor_id from audit_events where event = '2 fee invoices created for Term 2, 2027') = current_setting('t.admin')::uuid
   and (select count(*) from audit_events where event like '% fee invoice% created for Term 2, 2027') = 1);
 
+-- ---------------------------------------------------------------- status kept true (20261104330000, FIG-1333)
+select pg_temp.check('the status rule: paid, overdue, part paid, unpaid',
+  invoice_status_for(100, 100, current_date - 30) = 'paid' and invoice_status_for(100, 40, current_date - 1) = 'overdue'
+  and invoice_status_for(100, 40, current_date + 1) = 'part_paid' and invoice_status_for(100, 0, current_date + 1) = 'unpaid');
+select set_config('t.stale', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents < total_cents and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 9 limit 1), true);
+select set_config('request.jwt.claims', '', true);
+update fee_invoices set due_on = current_date - 3, status = 'unpaid' where id = current_setting('t.stale')::uuid and paid_cents = 0;
+update fee_invoices set due_on = current_date - 3, status = 'part_paid' where id = current_setting('t.stale')::uuid and paid_cents > 0;
+select set_config('t.refreshed', refresh_invoice_statuses()::text, true);
+select pg_temp.check('an invoice past its due date with a balance becomes overdue',
+  (select status::text from fee_invoices where id = current_setting('t.stale')::uuid) = 'overdue');
+select pg_temp.check('the refresh is one summary event per school and status, not a line per invoice',
+  (select count(*) from audit_events where actor_label = 'System' and event like '% now overdue' and created_at = now()
+     and tenant_id = current_setting('t.a')::uuid and metadata->'invoice_ids' ? current_setting('t.stale')) = 1
+  and (select count(*) from audit_events where event like 'Fee invoice for % changed: status'
+     and metadata->>'invoice_id' = current_setting('t.stale')) = 0);
+select pg_temp.check('every invoice''s status is what the rule says',
+  not exists (select 1 from fee_invoices where status is distinct from invoice_status_for(total_cents, paid_cents, due_on)));
+select pg_temp.check('the refresh runs every night',
+  not exists (select 1 from pg_namespace where nspname = 'cron')
+  or exists (select 1 from cron.job where jobname = 'refresh-invoice-statuses' and schedule = '15 21 * * *'));
+
 -- ---------------------------------------------------------------- deleting invoices (20261103300000, FIG-1319)
 select set_config('t.inv3', (select id::text from fee_invoices
    where tenant_id = current_setting('t.a')::uuid and paid_cents = 0
