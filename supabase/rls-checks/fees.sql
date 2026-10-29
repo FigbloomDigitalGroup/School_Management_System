@@ -125,4 +125,110 @@ end $$;
 select log_admin_event(current_setting('t.a')::uuid, 'Term 1, 2027 billed: 1 invoices', 'financial', '{}');
 reset role;
 
+-- ---------------------------------------------------------------- deleting invoices (20261103300000, FIG-1319)
+select set_config('t.inv3', (select id::text from fee_invoices
+   where tenant_id = current_setting('t.a')::uuid and paid_cents = 0
+     and not exists (select 1 from payments p where p.invoice_id = fee_invoices.id)
+     and not exists (select 1 from payment_proofs pp where pp.invoice_id = fee_invoices.id)
+     and not exists (select 1 from fee_charges c where c.invoice_id = fee_invoices.id)
+     and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   order by id limit 1), true);
+insert into payment_proofs (tenant_id, invoice_id, uploaded_by, file_path, file_name)
+  values (current_setting('t.a')::uuid, current_setting('t.inv3')::uuid, current_setting('t.parent')::uuid, 'x', 'slip3.jpg');
+
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('admin deletes an invoice with a recorded payment',
+  format('delete from fee_invoices where id = %L', current_setting('t.inv')), '23001');
+select pg_temp.expect_error('admin deletes an invoice with only a proof of payment',
+  format('delete from fee_invoices where id = %L', current_setting('t.inv3')), '23001');
+select pg_temp.expect_error('admin deletes the term of an invoice with a recorded payment',
+  format('delete from terms where id = (select term_id from fee_invoices where id = %L)', current_setting('t.inv')), '23001');
+delete from fee_invoices where student_id = current_setting('t.s1')::uuid and term_id = current_setting('t.term')::uuid;
+reset role;
+select pg_temp.check('payments survive the refused deletes',
+  (select count(*) from payments where invoice_id = current_setting('t.inv')::uuid) = 1);
+select pg_temp.check('an invoice with nothing recorded can still be deleted',
+  not exists (select 1 from fee_invoices where student_id = current_setting('t.s1')::uuid and term_id = current_setting('t.term')::uuid));
+select pg_temp.check('deleting an invoice writes an audit event with the admin as actor',
+  (select count(*) from audit_events where actor_id = current_setting('t.admin')::uuid
+     and event like 'Fee invoice deleted for %, Term 1, 2027') = 1);
+
+select set_config('request.jwt.claims', '', true);
+select pg_temp.expect_error('service role deletes an invoice with a recorded payment',
+  format('delete from fee_invoices where id = %L', current_setting('t.inv')), '23001');
+
+-- ---------------------------------------------------------------- fee records kept and audited (20261103300001)
+select pg_temp.check('a billing insert is audited, once per statement',
+  (select count(*) from audit_events where event = '1 fee invoice created for Term 1, 2027') = 1);
+select pg_temp.check('a proof sent is audited',
+  (select count(*) from audit_events where event like 'Proof of payment sent for %'
+     and metadata->>'invoice_id' = current_setting('t.inv3')) = 1);
+
+-- a teacher holding the fees area creates and edits invoices, but deletes none
+insert into staff_permissions (tenant_id, profile_id, area) values (current_setting('t.a')::uuid, current_setting('t.teacher')::uuid, 'fees');
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.teacher'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+insert into fee_invoices (tenant_id, student_id, term_id, total_cents, due_on)
+  values (current_setting('t.a')::uuid, current_setting('t.s2')::uuid, current_setting('t.term')::uuid, 100, '2027-01-05');
+update fee_invoices set due_on = '2027-01-12' where student_id = current_setting('t.s2')::uuid and term_id = current_setting('t.term')::uuid;
+delete from fee_invoices where student_id = current_setting('t.s2')::uuid and term_id = current_setting('t.term')::uuid;
+reset role;
+select pg_temp.check('a fees-area teacher can''t delete an invoice, even an empty one',
+  exists (select 1 from fee_invoices where student_id = current_setting('t.s2')::uuid and term_id = current_setting('t.term')::uuid));
+select pg_temp.check('an invoice edited by hand is audited with what changed',
+  (select metadata->'changes'->'due_on'->>'to' from audit_events
+    where actor_id = current_setting('t.teacher')::uuid and event like 'Fee invoice for % changed: due on') = '2027-01-12');
+
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+delete from payment_proofs where id = current_setting('t.proof')::uuid;  -- no delete policy: 0 rows
+reset role;
+select pg_temp.check('admin can''t delete a proof of payment',
+  exists (select 1 from payment_proofs where id = current_setting('t.proof')::uuid));
+set local role authenticated;
+select pg_temp.expect_error('admin changes what a proof says',
+  format('update payment_proofs set file_name = ''other.jpg'' where invoice_id = %L', current_setting('t.inv3')), '42501');
+select pg_temp.expect_error('admin marks a proof confirmed without recording the payment',
+  format('update payment_proofs set status = ''confirmed'' where invoice_id = %L', current_setting('t.inv3')), '42501');
+update payment_proofs set status = 'rejected', reviewed_by = auth.uid(), reviewed_at = now(), rejection_reason = 'Slip unreadable'
+  where invoice_id = current_setting('t.inv3')::uuid;
+select pg_temp.expect_error('a reviewed proof is reviewed again',
+  format('update payment_proofs set status = ''pending'' where invoice_id = %L', current_setting('t.inv3')), '22023');
+reset role;
+select pg_temp.check('a rejected proof is audited with the reason',
+  (select count(*) from audit_events where actor_id = current_setting('t.admin')::uuid
+     and event like 'Proof of payment rejected for %: Slip unreadable') = 1);
+
+select set_config('request.jwt.claims', '', true);
+select pg_temp.expect_error('service role deletes a proof of payment',
+  format('delete from payment_proofs where id = %L', current_setting('t.proof')), '42501');
+
+-- the proof's file
+insert into storage.objects (bucket_id, name) values
+  ('private-documents', current_setting('t.a') || '/invoices/' || current_setting('t.inv3') || '/1-slip.jpg'),
+  ('private-documents', current_setting('t.a') || '/students/' || current_setting('t.s1') || '/1-report.pdf');
+select set_config('storage.allow_delete_query', 'true', true);  -- what the Storage API sets for a delete
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+do $$ declare n int; begin
+  delete from storage.objects where bucket_id = 'private-documents' and name like '%/invoices/%/1-slip.jpg';
+  get diagnostics n = row_count;
+  raise notice '% admin can''t delete a proof''s file (% deleted)', case when n = 0 then 'PASS' else 'FAIL' end, n;
+  update storage.objects set metadata = '{}' where bucket_id = 'private-documents' and name like '%/invoices/%/1-slip.jpg';
+  get diagnostics n = row_count;
+  raise notice '% admin can''t overwrite a proof''s file (% updated)', case when n = 0 then 'PASS' else 'FAIL' end, n;
+  delete from storage.objects where bucket_id = 'private-documents' and name like '%/students/%/1-report.pdf';
+  get diagnostics n = row_count;
+  raise notice '% admin still deletes other office files (% deleted)', case when n = 1 then 'PASS' else 'FAIL' end, n;
+exception when others then raise notice 'FAIL proof file checks: % %', sqlstate, sqlerrm; end $$;
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+do $$ begin
+  delete from tenants where id = current_setting('t.a')::uuid;
+  raise notice '% removing a whole school still removes its invoices and payments',
+    case when not exists (select 1 from payments where invoice_id = current_setting('t.inv')::uuid) then 'PASS' else 'FAIL' end;
+exception when others then raise notice 'FAIL removing a whole school: % %', sqlstate, sqlerrm; end $$;
+
 rollback;
