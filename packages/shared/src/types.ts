@@ -382,7 +382,7 @@ export interface AuditEvent {
   actor_id: string | null;
   actor_label: string;
   event: string;
-  category: "provisioning" | "access" | "academic" | "financial";
+  category: "provisioning" | "access" | "academic" | "financial" | "health" | "transport" | "communication" | "operations";
   metadata: Record<string, unknown>;
   created_at: string;
 }

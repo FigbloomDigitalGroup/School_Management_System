@@ -1,0 +1,106 @@
+-- Audit trail checks for 20261104000000 (FIG-1326).
+--
+-- Runs against a local database that has the migrations applied and
+-- `npm run db:seed` data, inside one transaction that is rolled back.
+-- Every check prints PASS or FAIL.
+--
+--   docker exec -i supabase_db_figbloom psql -U postgres -d postgres -q < supabase/rls-checks/audit_log.sql
+
+\set ON_ERROR_STOP 1
+begin;
+
+select set_config('t.a', (select id::text from tenants where slug = 'alliance'), true);
+select set_config('t.admin', (select id::text from profiles where role = 'school_admin' and tenant_id = current_setting('t.a')::uuid limit 1), true);
+select set_config('t.teacher', (select id::text from profiles where role = 'teacher' and tenant_id = current_setting('t.a')::uuid limit 1), true);
+select set_config('t.since', now()::text, true);
+
+create function pg_temp.check(label text, ok boolean) returns void language plpgsql as $$
+begin raise notice '% %', case when coalesce(ok, false) then 'PASS' else 'FAIL' end, label; end $$;
+grant execute on all functions in schema pg_temp to authenticated;
+
+-- events written in this transaction (now() is the transaction's start, so every one of them)
+create function pg_temp.events(p_table text) returns setof audit_events language sql as $$
+  select * from audit_events where metadata->>'table' = p_table order by created_at, id
+$$;
+
+-- ---------------------------------------------------------------- every table users can write to is audited, or left out on purpose
+select pg_temp.check('every table with a write policy is audited or deliberately left out (missing: '
+    || coalesce(string_agg(w.t, ', '), 'none') || ')', count(*) = 0)
+  from (select distinct tablename as t from pg_policies
+         where schemaname = 'public' and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL')) w
+ where w.t not in ('ai_chat_messages', 'ai_chats', 'announcement_reads', 'chat_messages', 'device_tokens',
+                   'notification_preferences', 'vehicle_locations', 'organization_access_log')
+   and (select count(*) from pg_trigger tg join pg_proc p on p.oid = tg.tgfoid
+         where tg.tgrelid = format('public.%I', w.t)::regclass and not tg.tgisinternal
+           and p.prosrc ilike '%audit_events%') = 0;
+
+select pg_temp.check('each table in audit_table_config has its insert, update and delete triggers',
+  not exists (select 1 from audit_table_config c
+               where (select count(*) from pg_trigger tg
+                       where tg.tgrelid = format('public.%I', c.table_name)::regclass
+                         and tg.tgfoid = 'audit_table_change'::regproc) <> 3));
+
+-- ---------------------------------------------------------------- the school admin adds, changes and removes a class
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+insert into classes (tenant_id, name, form_level) values (current_setting('t.a')::uuid, 'Audit Check 1', 1);
+update classes set name = 'Audit Check 2' where name = 'Audit Check 1' and tenant_id = current_setting('t.a')::uuid;
+update classes set name = name where name = 'Audit Check 2' and tenant_id = current_setting('t.a')::uuid;
+insert into timetable_slots (tenant_id, class_id, day, start_time, label)
+  values (current_setting('t.a')::uuid, (select id from classes where name = 'Audit Check 2'), 'Mon', '08:00', 'Audit');
+delete from classes where name = 'Audit Check 2' and tenant_id = current_setting('t.a')::uuid;
+reset role;
+
+select pg_temp.check('adding a class is logged, with the admin, the school and the name',
+  (select count(*) from pg_temp.events('classes') e
+    where e.event = 'Classes: "Audit Check 1" added' and e.actor_id = current_setting('t.admin')::uuid
+      and e.tenant_id = current_setting('t.a')::uuid and e.category = 'academic'
+      and e.actor_label like '% · school admin') = 1);
+select pg_temp.check('renaming it is logged with what changed, from and to',
+  (select count(*) from pg_temp.events('classes') e
+    where e.event = 'Classes: "Audit Check 2" changed (name)'
+      and e.metadata->'changes'->0->'changes'->'name'->>'from' = 'Audit Check 1'
+      and e.metadata->'changes'->0->'changes'->'name'->>'to' = 'Audit Check 2') = 1);
+select pg_temp.check('an update that changes nothing writes nothing',
+  (select count(*) from pg_temp.events('classes') where metadata->>'op' = 'update') = 1);
+select pg_temp.check('removing it is logged, with the row as it was',
+  (select count(*) from pg_temp.events('classes') e
+    where e.event = 'Classes: "Audit Check 2" removed' and e.metadata->'rows'->0->>'name' = 'Audit Check 2') = 1);
+select pg_temp.check('the timetable slot its removal cascaded to is logged too, under the same admin',
+  (select count(*) from pg_temp.events('timetable_slots') e
+    where e.metadata->>'op' = 'delete' and e.event = 'Timetable slots: 1 record removed'
+      and e.actor_id = current_setting('t.admin')::uuid) = 1);
+
+-- ---------------------------------------------------------------- one line for a whole class's register
+select set_config('t.cls', (select s.class_id::text from attendance a join students s on s.id = a.student_id
+   where a.tenant_id = current_setting('t.a')::uuid group by s.class_id, a.taken_on having count(*) > 3 limit 1), true);
+select set_config('t.day', (select taken_on::text from attendance a join students s on s.id = a.student_id
+   where s.class_id = current_setting('t.cls')::uuid group by a.taken_on having count(*) > 3 limit 1), true);
+select set_config('t.n', (select count(*)::text from attendance a join students s on s.id = a.student_id
+   where s.class_id = current_setting('t.cls')::uuid and a.taken_on = current_setting('t.day')::date), true);
+update attendance a set mark = case a.mark when 'present' then 'absent'::attendance_mark else 'present'::attendance_mark end
+  from students s where s.id = a.student_id and s.class_id = current_setting('t.cls')::uuid and a.taken_on = current_setting('t.day')::date;
+select pg_temp.check('a whole class''s register changed at once is one event, counting every learner',
+  (select count(*) from pg_temp.events('attendance') e
+    where e.metadata->>'op' = 'update' and (e.metadata->>'count')::int = current_setting('t.n')::int
+      and e.event = format('Attendance: %s records changed (mark)', current_setting('t.n'))) = 1);
+
+-- ---------------------------------------------------------------- the service role, and a table whose values stay out of the log
+select set_config('request.jwt.claims', '', true);
+insert into leave_requests (tenant_id, teacher_id, starts_on, ends_on, reason)
+  values (current_setting('t.a')::uuid, current_setting('t.teacher')::uuid, '2027-02-01', '2027-02-03', 'Audit check: hospital appointment');
+update leave_requests set reason = 'Audit check: surgery follow-up' where reason like 'Audit check:%';
+select pg_temp.check('a write by the service role is logged as System',
+  (select count(*) from pg_temp.events('leave_requests') where actor_label = 'System' and actor_id is null) = 2);
+select pg_temp.check('a leave request''s reason is not copied into the log, only that it changed',
+  (select count(*) from pg_temp.events('leave_requests') e
+    where e.metadata::text like '%hospital%' or e.metadata::text like '%surgery%') = 0
+  and (select count(*) from pg_temp.events('leave_requests') e
+    where e.event = 'Leave requests: 1 record changed (reason)' and e.metadata->'changes'->0->'changes' ? 'reason') = 1);
+
+-- ---------------------------------------------------------------- the categories the new events use are allowed
+select pg_temp.check('every configured category is one audit_events accepts',
+  not exists (select 1 from audit_table_config
+               where category not in ('provisioning', 'access', 'academic', 'financial', 'health', 'transport', 'communication', 'operations')));
+
+rollback;
