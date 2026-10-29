@@ -30,7 +30,12 @@ enabled = false
 enabled = true
 site_url = "http://localhost:5173"
 additional_redirect_urls = ["http://localhost:5173/**", "figbloom://"]
-jwt_expiry = 3600
+# Access tokens last 15 minutes (FIG-1339). Sign-out ends the session in Auth at
+# once, but the REST API only checks a token's signature and expiry, so a
+# signed-out token kept reading data for up to the old hour. The apps refresh
+# tokens before they expire (autoRefreshToken in packages/shared/src/supabase.ts).
+# Hosted: Project Settings > JWT Keys (or Auth) > Access token expiry, 900.
+jwt_expiry = 900
 # The public /auth/v1/signup endpoint is off (accounts are created by invite,
 # via auth.admin.createUser in supabase/seed.ts) — but auth.email's own
 # "enable_signup" is actually the toggle for the whole email provider in this
