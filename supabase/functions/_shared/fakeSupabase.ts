@@ -28,6 +28,9 @@ function ilikeToRegExp(pattern: string): RegExp {
   return new RegExp(`^${out}$`, "i");
 }
 
+/** What supabase-js answers to .single() / .maybeSingle() when the query matched more than one row. */
+const MULTIPLE_ROWS = "JSON object requested, multiple (or no) rows returned";
+
 type OpKind = "select" | "insert" | "update" | "delete";
 
 class FakeTable {
@@ -61,7 +64,8 @@ class FakeTable {
   }
 
   insert(payload: Row): Row {
-    const row = { id: payload.id ?? crypto.randomUUID(), ...payload };
+    // created_at defaults to now() in the real tables, and the functions filter on it (the 90-second in-flight window)
+    const row = { id: payload.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...payload };
     this.rows.push(row);
     return { ...row };
   }
@@ -172,9 +176,11 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     return { rows: this.limitN !== null ? rows.slice(0, this.limitN) : rows, error: null };
   }
 
+  /** Like PostgREST: no row is `null`, more than one row is an error (PGRST116), never "the first one". */
   async maybeSingle() {
     const { rows, error } = this.run();
     if (error) return { data: null, error };
+    if (rows.length > 1) return { data: null, error: { message: MULTIPLE_ROWS } };
     return { data: rows[0] ?? null, error: null };
   }
 
@@ -182,6 +188,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     const { rows, error } = this.run();
     if (error) return { data: null, error };
     if (!rows[0]) return { data: null, error: { message: "Row not found" } };
+    if (rows.length > 1) return { data: null, error: { message: MULTIPLE_ROWS } };
     return { data: rows[0], error: null };
   }
 
