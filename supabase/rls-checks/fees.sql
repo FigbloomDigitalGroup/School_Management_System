@@ -225,6 +225,45 @@ exception when others then raise notice 'FAIL proof file checks: % %', sqlstate,
 reset role;
 select set_config('request.jwt.claims', '', true);
 
+-- ---------------------------------------------------------------- overpayments (20261103400000, FIG-1316)
+-- s2's Term 1, 2027 invoice (100, unpaid) from the fees-area checks above
+select set_config('t.inv4', (select id::text from fee_invoices
+   where student_id = current_setting('t.s2')::uuid and term_id = current_setting('t.term')::uuid), true);
+select set_config('request.jwt.claims', '', true);
+insert into payments (tenant_id, invoice_id, amount_cents, method, status, checkout_request_id)
+  values (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_over1'),
+         (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_over2');
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select record_payment(current_setting('t.inv4')::uuid, 100, 'cash', null);  -- the front desk, while the prompts wait
+reset role;
+select set_config('request.jwt.claims', '', true);
+update payments set status = 'success', mpesa_receipt = 'SFCOVER1' where checkout_request_id = 'ws_CO_over1';
+update payments set status = 'success', mpesa_receipt = 'SFCOVER2' where checkout_request_id = 'ws_CO_over2';
+select pg_temp.check('every payment received is kept on the invoice',
+  (select paid_cents from fee_invoices where id = current_setting('t.inv4')::uuid) = 300);
+select pg_temp.check('each payment above what was owed is audited as an overpayment, by M-Pesa',
+  (select count(*) from audit_events where metadata->>'invoice_id' = current_setting('t.inv4')
+     and event like 'Overpayment for %: 1.00 received above what was owed.%' and actor_label = 'M-Pesa'
+     and (metadata->>'excess_cents')::bigint = 100) = 2);
+select pg_temp.check('the cash payment that cleared the balance is not an overpayment',
+  (select count(*) from audit_events where event like 'Overpayment%' and metadata->>'invoice_id' = current_setting('t.inv4')
+     and metadata->>'payment_id' = (select id::text from payments where invoice_id = current_setting('t.inv4')::uuid and method = 'cash')) = 0);
+select pg_temp.check('payments within the balance write no overpayment',
+  (select count(*) from audit_events where event like 'Overpayment%' and metadata->>'invoice_id' = current_setting('t.inv2')) = 0);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.check('the office sees the overpaid invoice and by how much',
+  (select overpaid_cents from overpaid_invoices where id = current_setting('t.inv4')::uuid) = 200);
+reset role;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.parent'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.check('another family doesn''t see it',
+  not exists (select 1 from overpaid_invoices where id = current_setting('t.inv4')::uuid)
+  or exists (select 1 from guardians where profile_id = current_setting('t.parent')::uuid and student_id = current_setting('t.s2')::uuid));
+reset role;
+select set_config('request.jwt.claims', '', true);
+
 do $$ begin
   delete from tenants where id = current_setting('t.a')::uuid;
   raise notice '% removing a whole school still removes its invoices and payments',

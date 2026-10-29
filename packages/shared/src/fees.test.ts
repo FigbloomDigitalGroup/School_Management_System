@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, payableSuggestions, planTermBilling, totalCents,
+  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, overpaidCents, payableSuggestions, planTermBilling, totalCents,
 } from "./fees";
 import type { FeeInvoice, FeeItem } from "./types";
 
@@ -27,6 +27,16 @@ describe("balanceCents", () => {
   });
   it("never goes negative on an overpayment", () => {
     expect(balanceCents(invoice({ total_cents: 10000, paid_cents: 15000 }))).toBe(0);
+  });
+});
+
+describe("overpaidCents", () => {
+  it("is what was paid above the total", () => {
+    expect(overpaidCents({ total_cents: 10000, paid_cents: 15000 })).toBe(5000);
+  });
+  it("is nothing while a balance is owed or exactly cleared", () => {
+    expect(overpaidCents({ total_cents: 10000, paid_cents: 4000 })).toBe(0);
+    expect(overpaidCents({ total_cents: 10000, paid_cents: 10000 })).toBe(0);
   });
 });
 
