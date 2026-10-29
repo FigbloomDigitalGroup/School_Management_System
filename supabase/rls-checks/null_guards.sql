@@ -106,9 +106,8 @@ select pg_temp.check('the school''s name and paybill are unchanged',
 
 -- ---------------------------------------------------------------- anon grants
 -- No data-changing (volatile, non-trigger) definer function in public is
--- executable by anon. refresh_organization_tenant_summary() is excepted: it
--- only recomputes one school's counters, and non-definer triggers call it as
--- the caller, so it is left as it was (see the migration's header).
+-- executable by anon. refresh_organization_tenant_summary() used to be
+-- excepted; since 20261103900000 (FIG-1314) only its triggers call it.
 create temp table anon_callable as
 select p.oid::regprocedure::text as fn
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -116,8 +115,7 @@ select p.oid::regprocedure::text as fn
    and p.prosecdef
    and p.provolatile = 'v'
    and p.prorettype <> 'trigger'::regtype
-   and has_function_privilege('anon', p.oid, 'execute')
-   and p.proname not in ('refresh_organization_tenant_summary');
+   and has_function_privilege('anon', p.oid, 'execute');
 
 do $$
 declare r record;
@@ -128,5 +126,29 @@ begin
 end $$;
 select pg_temp.expect_eq('data-changing definer functions anon can execute',
   (select count(*) from anon_callable), 0);
+
+-- ---------------------------------------------------------------- helpers nobody calls directly (20261103900000, FIG-1314)
+select pg_temp.expect_eq('anon or a signed-in user can execute refresh_organization_tenant_summary, teaches_learner or chat_teaches_student',
+  (select count(*) from pg_proc p, unnest(array['anon', 'authenticated']) r(role)
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname in ('refresh_organization_tenant_summary', 'teaches_learner', 'chat_teaches_student')
+      and has_function_privilege(r.role, p.oid, 'execute')), 0);
+
+-- the triggers still refresh the summary when a signed-in admin changes a learner
+select set_config('t.alliance', (select id::text from tenants where slug = 'alliance'), true);
+select set_config('t.alliance_admin', (select id::text from profiles where role = 'school_admin'
+   and tenant_id = current_setting('t.alliance')::uuid limit 1), true);
+update organization_tenant_summary set active_students = -1 where tenant_id = current_setting('t.alliance')::uuid;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.alliance_admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+do $$ begin
+  update students set full_name = full_name
+   where id = (select id from students where tenant_id = current_setting('t.alliance')::uuid limit 1);
+  raise notice 'PASS a school admin''s change to a learner still goes through';
+exception when others then raise notice 'FAIL a school admin''s change to a learner: % %', sqlstate, sqlerrm; end $$;
+reset role;
+select pg_temp.expect_eq('and the school''s summary was refreshed by the trigger',
+  (select count(*) from organization_tenant_summary
+    where tenant_id = current_setting('t.alliance')::uuid and active_students >= 0), 1);
 
 rollback;
