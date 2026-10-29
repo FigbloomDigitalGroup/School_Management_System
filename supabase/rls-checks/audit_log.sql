@@ -20,7 +20,7 @@ grant execute on all functions in schema pg_temp to authenticated;
 
 -- events written in this transaction (now() is the transaction's start, so every one of them)
 create function pg_temp.events(p_table text) returns setof audit_events language sql as $$
-  select * from audit_events where metadata->>'table' = p_table order by created_at, id
+  select * from audit_events where metadata->>'table' = p_table and created_at = now() order by created_at, id
 $$;
 
 -- ---------------------------------------------------------------- every table users can write to is audited, or left out on purpose
