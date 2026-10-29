@@ -148,6 +148,14 @@ reset role;
 -- ---------------------------------------------------------------- anonymous
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
+-- A policy with no TO clause that calls a helper anon cannot run makes every
+-- anonymous request to its table fail with "permission denied for function"
+-- instead of coming back empty (and the query below then aborts this script).
+select pg_temp.expect_eq('no policy reaches anon and depends on a function anon cannot run',
+  (select count(distinct pol.oid) from pg_policy pol
+     join pg_depend d on d.classid = 'pg_policy'::regclass and d.objid = pol.oid and d.refclassid = 'pg_proc'::regclass
+    where (pol.polroles = '{0}' or (select oid from pg_roles where rolname = 'anon') = any (pol.polroles))
+      and not has_function_privilege('anon', d.refobjid, 'execute')), 0);
 select pg_temp.expect_eq('anonymous visitor cannot list public assets',
   (select count(*) from storage.objects where bucket_id = 'public-assets'), 0);
 select pg_temp.expect_denied('anonymous visitor writes to the audit log',
