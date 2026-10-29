@@ -32,6 +32,23 @@ export function stkPassword(shortcode: string, passkey: string, ts: string): str
   return btoa(shortcode + passkey + ts);
 }
 
+/** Daraja result codes, mapped to the copy a parent actually reads. */
+const REASON: Record<number, string> = {
+  1: "insufficient",
+  1032: "cancelled",
+  1037: "timeout",
+  2001: "wrong_pin",
+  1001: "duplicate",
+};
+
+/** What a prompt Daraja says wasn't paid becomes: its status, and the reason the parent reads. */
+export function unpaidOutcome(resultCode: number): { status: "cancelled" | "timeout" | "failed"; failure_reason: string } {
+  return {
+    status: resultCode === 1032 ? "cancelled" : resultCode === 1037 ? "timeout" : "failed",
+    failure_reason: REASON[resultCode] ?? "unreachable",
+  };
+}
+
 /** done: false while the customer is still on the PIN screen. */
 export type StkOutcome = { done: true; resultCode: number } | { done: false };
 

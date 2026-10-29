@@ -232,14 +232,23 @@ select set_config('t.inv4', (select id::text from fee_invoices
    where student_id = current_setting('t.s2')::uuid and term_id = current_setting('t.term')::uuid), true);
 select set_config('request.jwt.claims', '', true);
 insert into payments (tenant_id, invoice_id, amount_cents, method, status, checkout_request_id)
-  values (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_over1'),
-         (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_over2');
+  values (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_over1');
+-- one pending prompt per invoice (20261103800000, FIG-1321)
+do $$ begin
+  insert into payments (tenant_id, invoice_id, amount_cents, method, status, checkout_request_id)
+    values (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_dupe');
+  raise notice 'FAIL a second pending prompt for the same invoice: allowed';
+exception when unique_violation then raise notice 'PASS a second pending prompt for the same invoice is refused';
+end $$;
 select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
 set local role authenticated;
-select record_payment(current_setting('t.inv4')::uuid, 100, 'cash', null);  -- the front desk, while the prompts wait
+select record_payment(current_setting('t.inv4')::uuid, 100, 'cash', null);  -- the front desk, while the prompt waits
 reset role;
 select set_config('request.jwt.claims', '', true);
 update payments set status = 'success', mpesa_receipt = 'SFCOVER1' where checkout_request_id = 'ws_CO_over1';
+-- a second prompt, once the first is settled (raised before the cash cleared the balance)
+insert into payments (tenant_id, invoice_id, amount_cents, method, status, checkout_request_id)
+  values (current_setting('t.a')::uuid, current_setting('t.inv4')::uuid, 100, 'mpesa', 'pending', 'ws_CO_over2');
 update payments set status = 'success', mpesa_receipt = 'SFCOVER2' where checkout_request_id = 'ws_CO_over2';
 select pg_temp.check('every payment received is kept on the invoice',
   (select paid_cents from fee_invoices where id = current_setting('t.inv4')::uuid) = 300);
