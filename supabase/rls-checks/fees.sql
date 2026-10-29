@@ -132,6 +132,7 @@ select set_config('t.inv3', (select id::text from fee_invoices
      and not exists (select 1 from payment_proofs pp where pp.invoice_id = fee_invoices.id)
      and not exists (select 1 from fee_charges c where c.invoice_id = fee_invoices.id)
      and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+     and term_id <> current_setting('t.term')::uuid  -- not the Term 1, 2027 invoices made and deleted above
    order by id limit 1), true);
 insert into payment_proofs (tenant_id, invoice_id, uploaded_by, file_path, file_name)
   values (current_setting('t.a')::uuid, current_setting('t.inv3')::uuid, current_setting('t.parent')::uuid, 'x', 'slip3.jpg');
@@ -262,6 +263,38 @@ select pg_temp.check('another family doesn''t see it',
   not exists (select 1 from overpaid_invoices where id = current_setting('t.inv4')::uuid)
   or exists (select 1 from guardians where profile_id = current_setting('t.parent')::uuid and student_id = current_setting('t.s2')::uuid));
 reset role;
+
+-- ---------------------------------------------------------------- adjusting a total (20261103500000, FIG-1315)
+-- t.inv2 has payments against it (record_payment and the callback above); the teacher holds the fees area from above
+select set_config('t.paid2', (select paid_cents::text from fee_invoices where id = current_setting('t.inv2')::uuid), true);
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.teacher'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a fees-area teacher edits a total directly',
+  format('update fee_invoices set total_cents = %s where id = %L', current_setting('t.paid2'), current_setting('t.inv2')), '42501');
+select pg_temp.expect_error('a fees-area teacher adjusts a total',
+  format('select adjust_invoice_total(%L, %s, ''Bursary'')', current_setting('t.inv2'), current_setting('t.paid2')), '42501');
+reset role;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('admin edits a total directly',
+  format('update fee_invoices set total_cents = %s where id = %L', current_setting('t.paid2'), current_setting('t.inv2')), '42501');
+select pg_temp.expect_error('admin adjusts a total without a reason',
+  format('select adjust_invoice_total(%L, %s, ''  '')', current_setting('t.inv2'), current_setting('t.paid2')), '22023');
+select pg_temp.expect_error('admin adjusts a total below what was paid',
+  format('select adjust_invoice_total(%L, %s, ''Bursary'')', current_setting('t.inv2'), current_setting('t.paid2')::bigint - 1), '22023');
+select adjust_invoice_total(current_setting('t.inv2')::uuid, current_setting('t.paid2')::bigint, 'Bursary');
+reset role;
+select pg_temp.check('a total lowered to what was paid leaves the invoice paid',
+  (select status::text from fee_invoices where id = current_setting('t.inv2')::uuid) = 'paid');
+select pg_temp.check('the adjustment is audited once, with the reason and both amounts',
+  (select count(*) from audit_events where actor_id = current_setting('t.admin')::uuid
+     and event like 'Invoice total for % changed from % to %: Bursary' and metadata->>'invoice_id' = current_setting('t.inv2')) = 1
+  and not exists (select 1 from audit_events where event like 'Fee invoice for % changed%' and metadata->>'invoice_id' = current_setting('t.inv2')));
+set local role authenticated;
+select adjust_invoice_total(current_setting('t.inv2')::uuid, current_setting('t.paid2')::bigint + 1000, 'Bursary withdrawn');
+reset role;
+select pg_temp.check('a total raised above what was paid leaves it part paid (or overdue)',
+  (select status::text = case when due_on < current_date then 'overdue' else 'part_paid' end from fee_invoices where id = current_setting('t.inv2')::uuid));
 select set_config('request.jwt.claims', '', true);
 
 do $$ begin
