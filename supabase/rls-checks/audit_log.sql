@@ -103,4 +103,39 @@ select pg_temp.check('every configured category is one audit_events accepts',
   not exists (select 1 from audit_table_config
                where category not in ('provisioning', 'access', 'academic', 'financial', 'health', 'transport', 'communication', 'operations')));
 
+-- ---------------------------------------------------------------- the school, through the parent row (20261104100000)
+select set_config('t.asg', (select id::text from assignments where tenant_id = current_setting('t.a')::uuid limit 1), true);
+select set_config('t.learner', (select s.id::text from students s where s.tenant_id = current_setting('t.a')::uuid
+   and not exists (select 1 from assignment_submissions x where x.assignment_id = current_setting('t.asg')::uuid and x.student_id = s.id)
+   limit 1), true);
+insert into assignment_submissions (assignment_id, student_id)
+  values (current_setting('t.asg')::uuid, current_setting('t.learner')::uuid);
+select pg_temp.check('a homework hand-in, which has no tenant_id of its own, is logged under its assignment''s school',
+  (select count(*) from pg_temp.events('assignment_submissions') e
+    where e.metadata->>'op' = 'insert' and e.tenant_id = current_setting('t.a')::uuid) = 1);
+select pg_temp.check('every table that reaches its school through a parent row says how',
+  (select count(*) from audit_table_config
+    where table_name in ('assignment_submissions', 'exam_paper_texts', 'exam_questions', 'exam_question_keys')
+      and tenant_via is not null) = 4);
+
+-- ---------------------------------------------------------------- one line for a function that logs itself
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select archive_learners(array[current_setting('t.learner')::uuid]);
+reset role;
+select pg_temp.check('archiving a learner is the function''s own line only, with no generic Students line',
+  (select count(*) from audit_events where event = '1 learner archived' and actor_id = current_setting('t.admin')::uuid) = 1
+  and (select count(*) from pg_temp.events('students')) = 0);
+
+select pg_temp.check('every definer function that writes its own audit event and an audited table sets the flag (missing: '
+    || coalesce(string_agg(distinct p.oid::regprocedure::text, ', '), 'none') || ')', count(*) = 0)
+  from pg_proc p
+  join pg_language l on l.oid = p.prolang and l.lanname = 'plpgsql'
+ cross join audit_table_config c
+ where p.pronamespace = 'public'::regnamespace and p.prosecdef
+   and p.prorettype <> 'trigger'::regtype
+   and p.prosrc ilike '%insert into audit_events%'
+   and p.prosrc !~ 'figbloom\.self_audited'
+   and p.prosrc ~* ('(insert into|update|delete from)\s+' || c.table_name || '\M');
+
 rollback;
