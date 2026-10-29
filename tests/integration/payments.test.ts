@@ -87,9 +87,10 @@ async function sweepLeftovers() {
   await sb().from("students").delete().eq("tenant_id", tenantId).like("admission_no", "QA05-%");
 }
 
-async function makeTerm(label: string, index: number): Promise<string> {
+/** terms.index is 1 to 3 and (school, year, index) is unique: QA 05 uses year 2033, QA 07 year 2034. */
+async function makeTerm(label: string, index: number, year = 2033): Promise<string> {
   const { data, error } = await sb().from("terms")
-    .insert({ tenant_id: tenantId, name: `QA05 ${label} ${run}`, year: 2033, index, starts_on: "2033-01-05", ends_on: "2033-04-02", is_current: false })
+    .insert({ tenant_id: tenantId, name: `QA05 ${label} ${run}`, year, index, starts_on: "2033-01-05", ends_on: "2033-04-02", is_current: false })
     .select("id").single();
   if (error) throw new Error(`could not make a test term: ${error.message}`);
   madeTerms.push(data.id as string);
@@ -557,5 +558,111 @@ describe("known defects (QA 05)", () => {
     const before = await auditCount();
     await sb().from("fee_invoices").update({ total_cents: 400_000 }).eq("id", id).select();
     expect(await auditCount()).toBeGreaterThan(before);
+  });
+});
+
+// ---------------------------------------------------------------- QA 07 (FIG-1240): the audit trail must agree with the ledger
+// supabase/rls-checks/reconciliation.sql asks the same questions of the database directly.
+
+/** Everything BillTermModal.bill() does: the invoices, then the audit event the BROWSER writes, with the same payload shape. */
+async function billLikeTheApp(termId: string, termName: string) {
+  const { plan, rows } = await runBilling(termId);
+  const { error } = await sb().rpc("log_admin_event", {
+    p_tenant_id: tenantId,
+    p_event: `${termName} billed: ${rows.length} invoices, due 2033-01-05`,
+    p_category: "financial",
+    p_metadata: { term_id: termId, invoices: rows.length, total_cents: plan.totalCents, due_on: "2033-01-05" },
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** What the audit trail says was billed for a term, added up. */
+async function billedAccordingToAuditTrail(termId: string) {
+  const { data, error } = await sb().from("audit_events").select("metadata")
+    .eq("tenant_id", tenantId).eq("category", "financial").contains("metadata", { term_id: termId });
+  if (error) throw new Error(error.message);
+  const meta = (data ?? []).map((r) => r.metadata as { invoices: number; total_cents: number });
+  return { events: meta.length, invoices: meta.reduce((a, m) => a + m.invoices, 0), cents: meta.reduce((a, m) => a + m.total_cents, 0) };
+}
+
+describe("QA 07: billing run, audit trail against ledger", () => {
+  it("one run: one audit event, and its invoice count and total are what was saved", async () => {
+    const term = await makeTerm("audit one", 1, 2034);
+    await addFeeItems(term);
+    await billLikeTheApp(term, `QA05 audit one ${run}`);
+    const saved = await invoicesOfTerm(term);
+    const audit = await billedAccordingToAuditTrail(term);
+    expect(audit.events).toBe(1);
+    expect(audit.invoices).toBe(saved.length);
+    expect(audit.cents).toBe(saved.length ? await sumOfTotals(term) : 0);
+  }, 60_000);
+
+  // Both runs plan every learner (neither sees the other's invoices yet), both save their rows with ignoreDuplicates, and both then
+  // log what they PLANNED. One set of invoices exists; the audit trail says two sets were billed.
+  it.fails("FIG-1331 (open): two admins billing at once: the audit trail claims no more than was saved", async () => {
+    const term = await makeTerm("audit race", 2, 2034);
+    await addFeeItems(term);
+    await Promise.all([billLikeTheApp(term, `QA05 audit race ${run}`), billLikeTheApp(term, `QA05 audit race ${run}`)]);
+    const saved = await invoicesOfTerm(term);
+    const audit = await billedAccordingToAuditTrail(term);
+    expect(audit.invoices).toBe(saved.length);
+    expect(audit.cents).toBe(await sumOfTotals(term));
+  }, 90_000);
+});
+
+async function sumOfTotals(termId: string): Promise<number> {
+  return (await invoicesOfTerm(termId)).reduce((a, i) => a + num(i.total_cents), 0);
+}
+
+describe("QA 07: payment references and the audit trail of the settings money depends on", () => {
+  it.fails("FIG-1328 (open): the same bank slip number cannot be recorded twice on one invoice", async () => {
+    const id = await makeInvoice(1_000_000);
+    expect((await pay(id, 100_000, "bank", `DUP-${RUN}`)).error).toBeNull();
+    const second = await pay(id, 100_000, "bank", `DUP-${RUN}`);
+    expect(second.error, "the second entry of the same slip is refused").not.toBeNull();
+  });
+
+  it("the same bank slip number may be used on another learner's invoice (one deposit can cover siblings)", async () => {
+    const a = await makeInvoice(1_000_000);
+    const b = await makeInvoice(1_000_000);
+    expect((await pay(a, 100_000, "bank", `SIB-${RUN}`)).error).toBeNull();
+    expect((await pay(b, 100_000, "bank", `SIB-${RUN}`)).error).toBeNull();
+  });
+
+  it.fails("FIG-1329 (open): changing a fee item (what the next billing run charges) leaves an audit event", async () => {
+    const before = await auditCount();
+    const ins = await sb().from("fee_items").insert({ tenant_id: tenantId, term_id: payTerm, name: `QA05 levy ${run}`, amount_cents: 50_000, applies_to: "all" }).select("id").single();
+    expect(ins.error).toBeNull();
+    const upd = await sb().from("fee_items").update({ amount_cents: 60_000 }).eq("id", ins.data!.id as string).select();
+    expect(upd.error).toBeNull();
+    const del = await sb().from("fee_items").delete().eq("id", ins.data!.id as string).select();
+    expect(del.error).toBeNull();
+    expect(await auditCount()).toBeGreaterThan(before);
+  });
+
+  it.fails("FIG-1330 (open): changing the paybill, till or bank details parents pay into leaves an audit event", async () => {
+    const was = await sb().from("tenants").select("payment_paybill, payment_till, payment_bank_details, payment_notes").eq("id", tenantId).single();
+    const before = await auditCount();
+    try {
+      const set = await sb().rpc("set_school_payment_methods", { p_tenant_id: tenantId, p_paybill: "999999", p_till: "888888", p_bank_details: "QA05 bank", p_notes: "QA05" });
+      expect(set.error).toBeNull();
+      expect(await auditCount()).toBeGreaterThan(before);
+    } finally {
+      await sb().rpc("set_school_payment_methods", {
+        p_tenant_id: tenantId, p_paybill: was.data?.payment_paybill ?? null, p_till: was.data?.payment_till ?? null,
+        p_bank_details: was.data?.payment_bank_details ?? null, p_notes: was.data?.payment_notes ?? null,
+      });
+    }
+  });
+
+  it("a school admin cannot edit or delete audit events", async () => {
+    const seen = await sb().from("audit_events").select("id, event").eq("tenant_id", tenantId).limit(1).single();
+    expect(seen.data).not.toBeNull();
+    const upd = await sb().from("audit_events").update({ event: "edited" }).eq("id", seen.data!.id as string).select();
+    const del = await sb().from("audit_events").delete().eq("id", seen.data!.id as string).select();
+    expect(upd.data ?? []).toHaveLength(0);
+    expect(del.data ?? []).toHaveLength(0);
+    const after = await sb().from("audit_events").select("event").eq("id", seen.data!.id as string).single();
+    expect(after.data?.event).toBe(seen.data!.event);
   });
 });

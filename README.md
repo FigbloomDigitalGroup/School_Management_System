@@ -87,8 +87,8 @@ log looks stuck, so check Docker before cancelling.
 |---|---|---|
 | `npm run test:unit` | Vitest on `packages/shared` (pure logic) | nothing |
 | `npm run test:edge` | Deno tests for `supabase/functions` | Deno |
-| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, the fee billing run, and how the M-Pesa functions answer as deployed | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
-| `npm test` | Playwright over `e2e/flows.spec.ts`, desktop then phone, one worker | the local stack, seeded, and the edge functions running |
+| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, the fee billing run and its audit trail, what a parent's Fees screen is built from, and how the M-Pesa functions answer as deployed; one file at a time, because they share one database | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
+| `npm test` | Playwright over `e2e/` (`flows.spec.ts`, and `reconciliation.spec.ts`, which reads every money figure on the admin, parent, student and group screens and compares it with the database), desktop then phone, one worker | the local stack, seeded, and the edge functions running |
 
 `test:integration` refuses to start unless the Supabase URL is `127.0.0.1` or `localhost`
 (`tests/integration/support/localGuard.ts`), so it cannot be pointed at the demo or a production project by mistake.
