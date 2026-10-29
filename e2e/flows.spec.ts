@@ -22,6 +22,16 @@ const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVI
  */
 test.describe.configure({ mode: "serial" });
 
+// Every test signs in from this one machine, and the resolve-login-id edge function allows 30 login-ID lookups
+// per caller per 10 minutes. A second run soon after the first used to hit that ("Signing in as ..." never
+// appeared, and the rest of the serial block showed "did not run"). Clear the lookup log before each run.
+// Local Supabase only: a hosted project is never touched.
+test.beforeAll(async () => {
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(process.env.SUPABASE_URL ?? "")) return;
+  const { error } = await admin.from("login_lookups").delete().gte("looked_up_at", "1970-01-01");
+  if (error) console.warn(`could not clear login_lookups: ${error.message}`);
+});
+
 const LOGINS = {
   platform: { email: "joyce@figbloom.co.ke", password: "figbloom-dev" },
   schoolAdmin: { email: "principal@alliance.sc.ke", password: "figbloom-dev" },
