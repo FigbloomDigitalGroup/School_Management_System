@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAllPages, formatMoney, planTermBilling, supabase, type ClassLevel, type FeeItem, type Term } from "@figbloom/shared";
+import { fetchAllPages, formatMoney, parseShillings, planTermBilling, supabase, type ClassLevel, type FeeItem, type Term } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { SelectField, TextField } from "../../components/ui/Field";
@@ -217,11 +217,15 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
   }, [query, invoice, termId]);
 
   const m = METHODS.find((x) => x.value === method)!;
-  const cents = Math.round(parseFloat(amount.replace(/,/g, "")) * 100);
+  // whole shillings (FIG-1334), except exactly what's still owed, so a balance left with cents can be cleared
+  const parsedAmount = parseShillings(amount);
+  const typed = Math.round(parseFloat(amount.replace(/[\s,]/g, "")) * 100);
+  const cents = parsedAmount.ok ? parsedAmount.cents : invoice && typed === invoice.balanceCents ? typed : NaN;
 
   async function save() {
     if (!invoice) return;
     setError("");
+    if (!parsedAmount.ok && !Number.isFinite(cents)) { setError(parsedAmount.message); return; }
     if (!Number.isFinite(cents) || cents <= 0) { setError("Enter the amount received."); return; }
     if (cents > invoice.balanceCents) { setError(`That is more than the ${formatMoney(invoice.balanceCents, country)} still owed.`); return; }
     if (method !== "cash" && !reference.trim()) { setError(`Enter the ${m.refLabel.toLowerCase()}.`); return; }

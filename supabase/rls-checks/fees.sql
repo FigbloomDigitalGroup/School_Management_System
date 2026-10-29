@@ -196,6 +196,27 @@ select pg_temp.check('the refresh runs every night',
   not exists (select 1 from pg_namespace where nspname = 'cron')
   or exists (select 1 from cron.job where jobname = 'refresh-invoice-statuses' and schedule = '15 21 * * *'));
 
+-- ---------------------------------------------------------------- whole shillings (20261104340000, FIG-1334)
+select set_config('t.cents', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
+   and paid_cents = 0 and total_cents > 100000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   order by id offset 11 limit 1), true);
+select set_config('request.jwt.claims', '', true);
+update fee_invoices set total_cents = total_cents + 50 where id = current_setting('t.cents')::uuid;  -- a balance left with cents
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a payment with cents',
+  format('select record_payment(%L, 100050, ''cash'', null)', current_setting('t.cents')), '22023');
+select record_payment(current_setting('t.cents')::uuid, (select total_cents - 50 from fee_invoices where id = current_setting('t.cents')::uuid), 'cash', null);
+select record_payment(current_setting('t.cents')::uuid, 50, 'cash', null);  -- exactly what's still owed, cents and all
+select pg_temp.expect_error('a total adjusted to cents',
+  format('select adjust_invoice_total(%L, 100050, ''Bursary'')', current_setting('t.inv2')), '22023');
+select pg_temp.expect_error('a fee item priced with cents',
+  format('insert into fee_items (tenant_id, term_id, name, amount_cents) values (%L, %L, ''Cents item'', 100050)',
+         current_setting('t.a'), current_setting('t.term')), '23514');
+reset role;
+select pg_temp.check('a balance left with cents can still be cleared at the office, exactly',
+  (select paid_cents = total_cents from fee_invoices where id = current_setting('t.cents')::uuid));
+
 -- ---------------------------------------------------------------- deleting invoices (20261103300000, FIG-1319)
 select set_config('t.inv3', (select id::text from fee_invoices
    where tenant_id = current_setting('t.a')::uuid and paid_cents = 0

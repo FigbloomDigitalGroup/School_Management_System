@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions, payWithMpesa, type PaymentFailure } from "@figbloom/shared";
+import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, parseShillings, payableSuggestions, payWithMpesa, wholeShillings, type PaymentFailure } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useReloadParentData, useTenantId } from "../../data";
 import { PaymentMethodsCard, usePaymentMethods } from "../../components/PaymentMethods";
@@ -27,7 +27,10 @@ export function ParentPay() {
   const tint = index === 0 ? a.deep : a.hex;
 
   const [screen, setScreen] = useState<Screen>("form");
-  const [amount, setAmount] = useState(child.balance);
+  // what was typed, kept as typed: a decimal point is refused with a reason, never dropped (FIG-1334)
+  const [amountText, setAmountText] = useState(child.balance > 0 ? String(wholeShillings(child.balance) / 100) : "");
+  const parsed = parseShillings(amountText);
+  const amount = parsed.ok ? parsed.cents : 0;
   // No stand-in number: a prefilled demo MSISDN would send a real prompt to a stranger's phone.
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
@@ -43,8 +46,9 @@ export function ParentPay() {
   async function send() {
     const p = normaliseMsisdn(phone);
     if (!p.ok) { setError(p.message); return; }
+    if (!parsed.ok) { setError(parsed.message); return; }
     if (amount <= 0) { setError("Enter how much you are paying."); return; }
-    if (amount > child.balance) { setError(`That is more than the ${formatMoney(child.balance, country)} still owed.`); return; }
+    if (amount > wholeShillings(child.balance)) { setError(`That is more than the ${formatMoney(child.balance, country)} still owed.`); return; }
     if (!child.invoiceId) { setError("The school hasn't billed this term yet, so there is nothing to pay online."); return; }
 
     setError("");
@@ -190,7 +194,7 @@ export function ParentPay() {
         return (
           <TouchableOpacity
             key={sug.label}
-            onPress={() => setAmount(sug.cents)}
+            onPress={() => setAmountText(sug.cents > 0 ? String(sug.cents / 100) : "")}
             style={[s.card, { marginBottom: 8, padding: 14, borderWidth: 1.5, borderColor: on ? tint : t.appSurface.line, flexDirection: "row", justifyContent: "space-between" }]}
           >
             <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{sug.label}</Text>
@@ -202,10 +206,11 @@ export function ParentPay() {
       <Text style={[s.small, { fontWeight: "600", marginTop: 8, marginBottom: 6 }]}>Amount</Text>
       <TextInput
         keyboardType="number-pad"
-        value={amount ? String(amount / 100) : ""}
-        onChangeText={(v) => setAmount(Number(v.replace(/[^0-9]/g, "")) * 100)}
-        style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, fontFamily: "monospace" }}
+        value={amountText}
+        onChangeText={setAmountText}
+        style={{ borderWidth: 1, borderColor: parsed.ok ? t.appSurface.line : t.status.warnInk, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, fontFamily: "monospace" }}
       />
+      {!parsed.ok && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{parsed.message}</Text>}
 
       <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>M-Pesa number</Text>
       <TextInput
