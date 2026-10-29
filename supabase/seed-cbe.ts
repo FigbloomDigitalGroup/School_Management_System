@@ -265,11 +265,17 @@ async function seedSchoolLife(tenantId: string) {
 
   // ---------------------------------------------------------------- fees
   if (await seeded("fee_items")) {
-    // a run that stopped after the invoices: put the two demo children's balances right
+    // a run that stopped after the invoices: put the two demo children's balances right, with a
+    // payment for whatever is missing (apply_payment credits it), never by editing paid_cents (FIG-1332)
     const fix = async (id: string, paid: (total: number) => number) => {
-      const inv = ok(await db.from("fee_invoices").select("id, total_cents").eq("student_id", id).eq("term_id", term.id).single(), "invoice");
-      const cents = paid(inv.total_cents);
-      ok(await db.from("fee_invoices").update({ paid_cents: cents, status: cents >= inv.total_cents ? "paid" : "part_paid" }).eq("id", inv.id).select("id"), "invoice update");
+      const inv = ok(await db.from("fee_invoices").select("id, total_cents, paid_cents").eq("student_id", id).eq("term_id", term.id).single(), "invoice");
+      const missing = paid(inv.total_cents) - inv.paid_cents;
+      if (missing > 0) {
+        ok(await db.from("payments").insert({
+          tenant_id: tenantId, invoice_id: inv.id, amount_cents: missing, method: "bank",
+          reference: `SEED-TOPUP-${inv.id.slice(0, 8)}`, status: "success", completed_at: at(-1),
+        }).select("id"), "payment");
+      }
     };
     await fix(zawadi.id, () => 2_000_000);
     await fix(amani.id, (total) => total);
@@ -282,19 +288,27 @@ async function seedSchoolLife(tenantId: string) {
       { name: "ICT and digital learning", amount_cents: 150_000, applies_to: "all" },
     ] as const;
     ok(await db.from("fee_items").insert(items.map((f) => ({ ...f, tenant_id: tenantId, term_id: term.id, form_level: null }))).select("id"), "fee_items");
-    const invoices = ok(await db.from("fee_invoices").insert(students.map((s) => {
+    // Zawadi part-paid in two M-Pesa instalments, Amani paid up, everyone else a spread. Each
+    // invoice starts with nothing paid and the payments are rows the apply_payment trigger
+    // credits, so the school reconciles and each status follows (FIG-1332).
+    const planned = students.map((s) => {
       const total = items.filter((f) => f.applies_to === "all" || f.applies_to === (s.boarding ? "boarders" : "day")).reduce((a, f) => a + f.amount_cents, 0);
-      // Zawadi part-paid in instalments, Amani paid up, everyone else a spread. paid_cents is
-      // set directly rather than through payments, so this also seeds a database that doesn't
-      // have the apply_payment fix (20261008000000) yet -- before it, every successful payment failed.
       const roll = r();
       const paid = s.id === zawadi.id ? 2_000_000 : s.id === amani.id ? total : roll > 0.65 ? total : Math.round((total * roll) / 100_000) * 100_000;
-      return {
-        tenant_id: tenantId, student_id: s.id, term_id: term.id, total_cents: total, paid_cents: paid, due_on: "2026-10-30",
-        status: paid >= total ? "paid" : paid > 0 ? "part_paid" : "unpaid",
-      };
-    })).select("id"), "fee_invoices");
-    console.log(`  ${items.length} fee items, ${invoices.length} invoices (Zawadi part-paid, Amani paid up)`);
+      return { student: s, total, paid };
+    });
+    const invoices = ok(await db.from("fee_invoices").insert(planned.map((p) => ({
+      tenant_id: tenantId, student_id: p.student.id, term_id: term.id, total_cents: p.total, due_on: "2026-10-30",
+    }))).select("id, student_id"), "fee_invoices");
+    const invoiceOf = new Map(invoices.map((i) => [i.student_id as string, i.id as string]));
+    const payments = planned.filter((p) => p.paid > 0).flatMap((p) => p.student.id === zawadi.id
+      ? [
+          { tenant_id: tenantId, invoice_id: invoiceOf.get(p.student.id)!, amount_cents: 1_200_000, method: "mpesa", mpesa_receipt: "SEEDZW0001", reference: "SEEDZW0001", status: "success", completed_at: at(-20) },
+          { tenant_id: tenantId, invoice_id: invoiceOf.get(p.student.id)!, amount_cents: 800_000, method: "mpesa", mpesa_receipt: "SEEDZW0002", reference: "SEEDZW0002", status: "success", completed_at: at(-6) },
+        ]
+      : [{ tenant_id: tenantId, invoice_id: invoiceOf.get(p.student.id)!, amount_cents: p.paid, method: "bank", reference: `SEED-${p.student.id.slice(0, 8)}`, status: "success", completed_at: at(-10) }]);
+    ok(await db.from("payments").insert(payments).select("id"), "payments");
+    console.log(`  ${items.length} fee items, ${invoices.length} invoices, ${payments.length} payments (Zawadi part-paid in two M-Pesa instalments, Amani paid up)`);
   }
 
   // ---------------------------------------------------------------- attendance, start of term to yesterday
