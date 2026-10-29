@@ -41,7 +41,7 @@ const REMOTE = url.includes("supabase.co");
 const PASSWORD = process.env.SEED_PASSWORD ?? (REMOTE ? randomBytes(9).toString("base64url") : "figbloom-dev");
 // WITH_ORG=1 also creates a group-owner organisation that owns the school, with
 // an org_admin login (see organizations.sql). Existing organisations are never touched.
-const WITH_ORG = process.env.WITH_ORG === "1";
+const WITH_ORG = process.env.WITH_ORG === "1" || process.argv.includes("--with-org"); // `npm run db:seed-org`
 // FLEET_ONLY=1 adds just the buses, routes and drivers (seedFleet) to an
 // existing Kijani Ridge -- tops up whatever buses it doesn't have yet.
 const FLEET_ONLY = process.env.FLEET_ONLY === "1";

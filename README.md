@@ -20,6 +20,7 @@ packages/shared/   Domain logic used by all three apps: types, grading scale, fe
                    maths, attendance register, M-Pesa helpers, offline write queue
 supabase/          Schema, row-level security, seed script, M-Pesa edge functions
 e2e/               Playwright tests over the five critical flows
+tests/integration/ Vitest tests against the local Supabase: sign-in per role, school isolation, who may record payments, billing
 ```
 
 ## Running it
@@ -30,7 +31,8 @@ The web app talks to a real local Supabase — there is no mock-data mode anymor
 npm install
 cp .env.example .env         # then fill in the values `supabase start` prints below
 npx supabase start           # Postgres, Auth, Studio etc. in Docker — first run pulls images
-npm run db:seed              # applies supabase/migrations (schema + RLS) via db reset, then seeds demo data
+npm run db:seed              # seeds the demo data (the first `supabase start` has already applied supabase/migrations)
+npm run db:seed-org          # adds the org admin login (see "Seeded logins" below)
 npm run dev                  # web on :5173 (or the next free port — Vite will say which)
 npm run dev:mobile           # Metro, then `npm run android` or `npm run ios` -w @figbloom/mobile
 ```
@@ -44,9 +46,60 @@ the browser). `supabase/config.toml` moves every service off Supabase's usual
 excludedportrange protocol=tcp`), and Docker can't bind to those from the host.
 If your machine doesn't have that reservation you can move the ports back.
 
-Development logins are listed on the sign-in screen — the password column
-tells you what to type for each (a fixed password for staff, `OTP 000000` for
-the seeded parent, a PIN for the seeded student).
+## Seeded logins
+
+`npm run db:seed` creates the demo schools and one login for each role below, and `npm run db:seed-org` adds the
+org admin (it seeds the Kijani Ridge Group). Every one of them uses the same local-only password, `figbloom-dev`.
+Against a hosted project the seed scripts refuse to run unless `ALLOW_REMOTE_SEED=1` is set, and then give every
+login a random password instead.
+
+| Role | Sign in as | School | Seeded by |
+|---|---|---|---|
+| Platform staff | `joyce@figbloom.co.ke` | none | `db:seed` |
+| Org admin | `group@kijaniridge.sc.ke` | none (the Kijani Ridge Group owns the school) | `db:seed-org` |
+| School admin | `principal@alliance.sc.ke` | Alliance High School | `db:seed` |
+| Teacher | login ID `TC-0002` | Alliance High School | `db:seed` |
+| Parent | login ID `PT-0002` | Alliance High School | `db:seed` |
+| Student | login ID `ST-0002` | Alliance High School | `db:seed` |
+| Driver | login ID `BD-0001` | Alliance High School | `db:seed` |
+
+Staff with an email sign in with it. Everyone else picks their school and types their login ID; behind the scenes
+that becomes `<id>@login.<school>.figbloom.internal` (`loginIdEmail()` in `packages/shared/src/auth.ts`). The seed
+also creates a guard (`GD-0001`) and a receptionist (`RC-0001`).
+
+## Resetting the local database
+
+These only touch the Supabase running on this machine.
+
+| To get | Run |
+|---|---|
+| Back to the full seeded state, from scratch | `npm run db:fresh` (that is `db:reset`, then `db:seed`, then `db:seed-org`) |
+| Every migration re-applied and the data emptied | `npm run db:reset` |
+| A freshly reset database seeded | `npm run db:seed`, then `npm run db:seed-org` |
+
+The seeds only add data, so reset first on a database that is already seeded. `db:reset` can take about 15 minutes
+when the Supabase CLI wants a newer Postgres image than the one on your machine: it re-pulls about 1.7 GB and the
+log looks stuck, so check Docker before cancelling.
+
+## Tests
+
+| Command | What it runs | Needs |
+|---|---|---|
+| `npm run test:unit` | Vitest on `packages/shared` (pure logic) | nothing |
+| `npm run test:edge` | Deno tests for `supabase/functions` | Deno |
+| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, and the fee billing run | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
+| `npm test` | Playwright over `e2e/flows.spec.ts`, desktop then phone, one worker | the local stack, seeded, and the edge functions running |
+
+`test:integration` refuses to start unless the Supabase URL is `127.0.0.1` or `localhost`
+(`tests/integration/support/localGuard.ts`), so it cannot be pointed at the demo or a production project by mistake.
+Only the URL and the anon key from `.env` reach those tests, never the service-role key. A new role or login goes in
+`TEST_ROLES` in `tests/integration/support/signInAs.ts`; the smoke test picks it up.
+
+Playwright clears the local login-lookup log before it starts (sign-in by login ID is limited to 30 lookups per 10
+minutes), so runs can follow each other. After a reboot or a Docker restart the edge-function container stays down,
+and sign-in then fails in Playwright:
+`docker restart supabase_edge_runtime_figbloom`. The first Playwright run after Vite starts can time out on the first
+desktop test (a cold page load), which makes the rest of the desktop block show "did not run": run it again.
 
 ## Routes
 
