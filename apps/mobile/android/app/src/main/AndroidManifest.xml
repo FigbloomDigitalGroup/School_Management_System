@@ -21,6 +21,14 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Report card PDFs: react-native-blob-util writes them into the app's own cache
+         and hands them to the phone's PDF viewer through its FileProvider. Its manifest
+         also asks for broad storage and download permissions the app never uses, so they
+         are dropped here rather than shown to people at install. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" tools:node="remove" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
