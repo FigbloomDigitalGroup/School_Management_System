@@ -165,4 +165,12 @@ describe("create-organization handle", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("organizations").length, 0);
   });
+
+  it("answers a sentence, not the database's own words, when an insert fails (FIG-1342)", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextWrite("organizations", 'duplicate key value violates unique constraint "organizations_slug_key"');
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(await res.json(), { error: "Could not create the organization. Try again." });
+  });
 });

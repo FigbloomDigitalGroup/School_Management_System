@@ -23,6 +23,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
 import { administersOrganization } from "../_shared/organizations.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
@@ -134,7 +135,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     email_confirm: true,
   });
   if (createErr || !created.user) {
-    return json({ error: createErr?.message ?? "Could not create the account." }, 500);
+    return json(failure("provision-guardian", "create the account", createErr), 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -149,7 +150,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("provision-guardian", "save the profile", profileErr), 500);
   }
 
   const { error: guardiansErr } = await admin.from("guardians").insert(
@@ -164,7 +165,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   if (guardiansErr) {
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: guardiansErr.message }, 500);
+    return json(failure("provision-guardian", "link the guardian to the learners", guardiansErr), 500);
   }
 
   const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"

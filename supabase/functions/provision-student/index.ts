@@ -18,6 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
 import { administersOrganization } from "../_shared/organizations.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
@@ -96,7 +97,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     email_confirm: true,
   });
   if (createErr || !created.user) {
-    return json({ error: createErr?.message ?? "Could not create the account." }, 500);
+    return json(failure("provision-student", "create the account", createErr), 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -109,7 +110,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("provision-student", "save the profile", profileErr), 500);
   }
 
   const { error: linkErr } = await admin.from("students")
@@ -117,7 +118,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (linkErr) {
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: linkErr.message }, 500);
+    return json(failure("provision-student", "link the login to the learner", linkErr), 500);
   }
 
   const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
