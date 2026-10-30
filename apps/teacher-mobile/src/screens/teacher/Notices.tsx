@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { fetchTeacherNotices, markNoticeRead, subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 import { OwnerAttachments } from "../../components/MediaLinks";
 import { PendingSignatures } from "../../components/PendingSignatures";
+import { Tap } from "../../ui/Tap";
+import { BackLink } from "../../ui/BackLink";
 
 const NOTICE_POLL_MS = 20_000;
 
@@ -62,9 +64,7 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
           <Text style={s.headerSub}>{selected.from} · {selected.when}</Text>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <TouchableOpacity accessibilityRole="button" onPress={() => setOpenId(null)} style={{ minHeight: 44, justifyContent: "center" }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>‹ All notices</Text>
-          </TouchableOpacity>
+          <BackLink label="All notices" color={a.deep} onPress={() => setOpenId(null)} />
           <Text style={{ fontSize: 18, fontWeight: "600", marginTop: 8, lineHeight: 25 }}>{selected.subject}</Text>
           <Text style={[s.body, { marginTop: 14 }]}>{selected.body}</Text>
           <OwnerAttachments owner="announcement" id={selected.id} tint={a.deep} />
@@ -88,7 +88,7 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
           <View style={s.card}><Text style={s.small}>Announcements from the school office will appear here.</Text></View>
         ) : (
           notices.map((n) => (
-            <TouchableOpacity
+            <Tap
               key={n.id}
               accessibilityRole="button"
               onPress={() => open(n.id)}
@@ -103,7 +103,7 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
                 <Text style={s.faint}>{n.from}</Text>
                 <Text numberOfLines={2} style={[s.small, { marginTop: 4 }]}>{n.body.split("\n")[0]}</Text>
               </View>
-            </TouchableOpacity>
+            </Tap>
           ))
         )}
       </ScrollView>

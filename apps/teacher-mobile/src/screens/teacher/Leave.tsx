@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from "react-native";
 import {
   cancelLeaveRequest, fetchMyLeaveRequests, formatShortDate, requestLeave,
   type LeaveRequest, type LeaveStatus,
@@ -7,6 +7,7 @@ import {
 import { accentFor, HIT, s, t } from "../../theme";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 const STATUS_LABEL: Record<LeaveStatus, string> = {
   pending: "Awaiting review", approved: "Approved", rejected: "Rejected", cancelled: "Cancelled",
@@ -106,14 +107,14 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
             />
           </View>
 
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={!startsOn || !endsOn || saving}
             onPress={() => void submit()}
             style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !startsOn || !endsOn || saving ? 0.6 : 1 }]}
           >
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Request leave</Text>}
-          </TouchableOpacity>
+          </Tap>
           {!!status && <Text style={s.small}>{status}</Text>}
         </View>
 
@@ -140,9 +141,9 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
                   </View>
                 </View>
                 {r.status === "pending" && (
-                  <TouchableOpacity accessibilityRole="button" onPress={() => void withdraw(r.id)} style={{ marginTop: 8 }}>
+                  <Tap accessibilityRole="button" onPress={() => void withdraw(r.id)} style={{ marginTop: 8 }}>
                     <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.status.warnInk }}>Withdraw</Text>
-                  </TouchableOpacity>
+                  </Tap>
                 )}
               </View>
             );

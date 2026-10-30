@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
   AI_HELPER_REFUSAL_TEXT, askTutor, EdgeError, fetchAiHelperStatus, helperRefusal, type AiHelperStatus, type TutorTurn,
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { Tap } from "../../ui/Tap";
+import { BackLink } from "../../ui/BackLink";
 
 const STARTERS = [
   "Explain fractions with an example",
@@ -78,9 +80,7 @@ export function StudentStudyHelper() {
 
   const header = (
     <View style={[s.header, { backgroundColor: tint }]}>
-      <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-        <Text style={{ fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>‹ Back</Text>
-      </TouchableOpacity>
+      <BackLink onPress={() => nav.goBack()} />
       <Text style={s.headerTitle}>Ask Bloom</Text>
       <Text style={s.headerSub}>Your study helper</Text>
     </View>
@@ -146,7 +146,7 @@ export function StudentStudyHelper() {
         {turns.length === 0 && !blocked && (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {STARTERS.map((q) => (
-              <TouchableOpacity
+              <Tap
                 key={q}
                 accessibilityRole="button"
                 disabled={busy}
@@ -154,7 +154,7 @@ export function StudentStudyHelper() {
                 style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: "#fff" }}
               >
                 <Text style={{ fontSize: 13, color: t.appSurface.ink }}>{q}</Text>
-              </TouchableOpacity>
+              </Tap>
             ))}
           </View>
         )}
@@ -177,14 +177,14 @@ export function StudentStudyHelper() {
 
       <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 10 }}>
         {turns.length > 0 && (
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={busy}
             onPress={() => { setTurns([]); setError(""); }}
             style={{ alignSelf: "flex-start", minHeight: 36, justifyContent: "center", opacity: busy ? 0.5 : 1 }}
           >
             <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>New chat</Text>
-          </TouchableOpacity>
+          </Tap>
         )}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
           <TextInput
@@ -198,7 +198,7 @@ export function StudentStudyHelper() {
             accessibilityLabel="Your question"
             style={{ flex: 1, maxHeight: 120, minHeight: 44, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14.5, color: t.appSurface.ink }}
           />
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             accessibilityLabel="Ask"
             disabled={busy || !draft.trim() || !!blocked}
@@ -206,7 +206,7 @@ export function StudentStudyHelper() {
             style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 14, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: busy || !draft.trim() || !!blocked ? 0.5 : 1 }}
           >
             <Text style={{ color: "#fff", fontWeight: "700" }}>Ask</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
       </View>
     </KeyboardAvoidingView>

@@ -1,5 +1,7 @@
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import { HIT } from "../theme";
+import { RIPPLE_ON_DARK } from "../ui/color";
+import { Tap } from "../ui/Tap";
 
 /**
  * Two children, no confusion.
@@ -21,12 +23,13 @@ export function ChildSwitcher({
       {children.map((c, i) => {
         const on = i === index;
         return (
-          <TouchableOpacity
+          <Tap
             key={c.id}
             accessibilityRole="button"
             accessibilityLabel={c.name}
             accessibilityState={{ selected: on }}
             onPress={() => onChange(i)}
+            ripple={on ? undefined : RIPPLE_ON_DARK}
             style={{
               ...HIT,
               width: 40, height: 40, borderRadius: 13,
@@ -37,7 +40,7 @@ export function ChildSwitcher({
             <Text style={{ fontSize: 12, fontWeight: "700", color: on ? tint : "#fff" }}>
               {c.first[0]}{c.name.split(" ")[1]?.[0]}
             </Text>
-          </TouchableOpacity>
+          </Tap>
         );
       })}
     </View>

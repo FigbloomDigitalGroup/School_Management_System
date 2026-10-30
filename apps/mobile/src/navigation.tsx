@@ -4,7 +4,7 @@ import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
-import { accentFor } from "./theme";
+import { accentFor, fontSize, t } from "./theme";
 import { useChild, useMessages } from "./data";
 import { useStudentData } from "./studentData";
 
@@ -173,8 +173,12 @@ function ParentTabs() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: a.deep,
-        tabBarInactiveTintColor: "#9A908E",
-        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600" },
+        tabBarInactiveTintColor: t.appSurface.inkFaint,
+        tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
+        // The bar is a fixed height, so its labels stay put under large system text;
+        // it also steps aside for the keyboard instead of eating a third of a form.
+        tabBarAllowFontScaling: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         tabBarBadgeStyle: { backgroundColor: a.deep },
       }}
@@ -207,8 +211,12 @@ function StudentTabs({ a }: { a: ReturnType<typeof accentFor> }) {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: a.deep,
-        tabBarInactiveTintColor: "#9A908E",
-        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600" },
+        tabBarInactiveTintColor: t.appSurface.inkFaint,
+        tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
+        // The bar is a fixed height, so its labels stay put under large system text;
+        // it also steps aside for the keyboard instead of eating a third of a form.
+        tabBarAllowFontScaling: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         tabBarBadgeStyle: { backgroundColor: a.deep },
       }}

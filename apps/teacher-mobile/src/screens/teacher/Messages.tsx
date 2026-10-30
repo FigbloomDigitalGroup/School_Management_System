@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from "react-native";
 import {
   fetchSentByMe, fetchTeacherClasses, isRetryable, sendClassMessage,
   type Announcement, type ClassGroup, type ClassMessageRecipients,
@@ -8,6 +8,7 @@ import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 const RECIPIENT_OPTIONS: { id: ClassMessageRecipients; name: string }[] = [
   { id: "guardians", name: "Parents" },
@@ -145,14 +146,14 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
               <Text style={[s.faint, { marginTop: 6 }]}>Goes to this class's {recipientsLabel(recipients)}, in-app only.</Text>
             </View>
 
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={!subject.trim() || !body.trim() || sending}
               onPress={() => void send()}
               style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !subject.trim() || !body.trim() || sending ? 0.6 : 1 }]}
             >
               {sending ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Send</Text>}
-            </TouchableOpacity>
+            </Tap>
             {!!status && <Text style={[s.small, { marginTop: 10 }]}>{status}</Text>}
           </View>
         )}

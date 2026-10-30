@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, TextInput, View } from "react-native";
 import {
   addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchClassSizes, fetchMyHomework, fetchTeacherClasses,
   fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty,
@@ -11,6 +11,8 @@ import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
+import { Check } from "lucide-react-native";
 
 /** Today as YYYY-MM-DD in the teacher's own timezone (toISOString alone is UTC, a day behind after midnight in Nairobi). */
 const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -233,15 +235,18 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
               accent={session.accent}
             />
 
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               accessibilityState={{ expanded: guideOpen }}
               onPress={() => setGuideOpen((o) => !o)}
               style={{ ...HIT, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
             >
-              <Text style={[s.small, { fontWeight: "600" }]}>For parents{isGuideEmpty(guide) ? "" : " ✓"}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[s.small, { fontWeight: "600" }]}>For parents</Text>
+                {!isGuideEmpty(guide) && <Check size={14} color={t.status.okInk} strokeWidth={3} />}
+              </View>
               <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>{guideOpen ? "Hide" : "Show"}</Text>
-            </TouchableOpacity>
+            </Tap>
             {guideOpen && (
               <View style={{ gap: 10 }}>
                 <Text style={s.faint}>
@@ -257,15 +262,16 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                   {[...NEED_CHIPS, ...guide.needs.filter((n) => !NEED_CHIPS.some((c) => c.toLowerCase() === n.toLowerCase()))].map((n) => {
                     const on = guide.needs.some((x) => x.toLowerCase() === n.toLowerCase());
                     return (
-                      <TouchableOpacity
+                      <Tap
                         key={n}
                         accessibilityRole="button"
                         accessibilityState={{ selected: on }}
                         onPress={() => setGuide((g) => ({ ...g, needs: on ? removeNeed(g.needs, n) : addNeed(g.needs, n) }))}
-                        style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: on ? a.deep : t.appSurface.lineSoft }}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: on ? a.deep : t.appSurface.lineSoft }}
                       >
-                        <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{on ? "✓ " : ""}{n}</Text>
-                      </TouchableOpacity>
+                        {on && <Check size={14} color="#fff" strokeWidth={3} />}
+                        <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{n}</Text>
+                      </Tap>
                     );
                   })}
                 </View>
@@ -277,14 +283,14 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                     onSubmitEditing={() => { setGuide((g) => ({ ...g, needs: addNeed(g.needs, customNeed) })); setCustomNeed(""); }}
                     style={{ ...HIT, flex: 1, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14 }}
                   />
-                  <TouchableOpacity
+                  <Tap
                     accessibilityRole="button"
                     disabled={!customNeed.trim()}
                     onPress={() => { setGuide((g) => ({ ...g, needs: addNeed(g.needs, customNeed) })); setCustomNeed(""); }}
                     style={{ ...HIT, justifyContent: "center", paddingHorizontal: 8, opacity: customNeed.trim() ? 1 : 0.4 }}
                   >
                     <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Add</Text>
-                  </TouchableOpacity>
+                  </Tap>
                 </View>
 
                 <GuideInput label="How you can help" value={guide.help} placeholder={GUIDE_PLACEHOLDERS[tone].help} onChange={(help) => setGuide((g) => ({ ...g, help }))} />
@@ -305,31 +311,31 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
             )}
 
             {!editingId && (
-              <TouchableOpacity
+              <Tap
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: tellParents }}
                 onPress={() => setTellParents((v) => !v)}
                 style={{ ...HIT, flexDirection: "row", alignItems: "center", gap: 10 }}
               >
                 <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: a.deep, backgroundColor: tellParents ? a.deep : "transparent", alignItems: "center", justifyContent: "center" }}>
-                  {tellParents && <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>✓</Text>}
+                  {tellParents && <Check size={14} color="#fff" strokeWidth={3} />}
                 </View>
                 <Text style={[s.small, { flex: 1 }]}>Tell parents: send the class's parents a message with the due date and this guide.</Text>
-              </TouchableOpacity>
+              </Tap>
             )}
 
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={saving || noSubjects}
               onPress={() => void save()}
               style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: saving || noSubjects ? 0.6 : 1 }]}
             >
               {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>{editingId ? "Save changes" : "Set homework"}</Text>}
-            </TouchableOpacity>
+            </Tap>
             {!!editingId && (
-              <TouchableOpacity accessibilityRole="button" onPress={() => { reset(); setStatus(null); }} style={{ ...HIT, alignItems: "center", justifyContent: "center" }}>
+              <Tap accessibilityRole="button" onPress={() => { reset(); setStatus(null); }} style={{ ...HIT, alignItems: "center", justifyContent: "center" }}>
                 <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel editing</Text>
-              </TouchableOpacity>
+              </Tap>
             )}
             {!!status && <Text style={s.small}>{status}</Text>}
           </View>
@@ -351,12 +357,12 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
               <Text style={[s.small, { marginTop: 4 }]}>{handedInLabel(w.handedIn, work.sizes[w.classId])} handed in</Text>
               <MediaLinks items={files.get(w.id) ?? []} tint={a.deep} />
               <View style={{ flexDirection: "row", gap: 16, marginTop: 6 }}>
-                <TouchableOpacity accessibilityRole="button" onPress={() => startEdit(w)} style={{ ...HIT, justifyContent: "center" }}>
+                <Tap accessibilityRole="button" onPress={() => startEdit(w)} style={{ ...HIT, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity accessibilityRole="button" onPress={() => remove(w)} style={{ ...HIT, justifyContent: "center" }}>
+                </Tap>
+                <Tap accessibilityRole="button" onPress={() => remove(w)} style={{ ...HIT, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Delete</Text>
-                </TouchableOpacity>
+                </Tap>
               </View>
             </View>
           ))

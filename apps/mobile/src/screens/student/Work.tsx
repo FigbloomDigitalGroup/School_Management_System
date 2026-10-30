@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { LinkCard } from "../../components/LinkCard";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
+import { Tap } from "../../ui/Tap";
+import { OpenLabel } from "../../ui/OpenLabel";
 
 const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
   late: { bg: t.status.warnBg, ink: t.status.warnInk },
@@ -54,7 +56,7 @@ export function StudentWork() {
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {/* Learning materials is a stack screen, not a seventh tab: six is already a full bar. */}
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           onPress={() => nav.navigate("Materials")}
           style={[s.card, { marginBottom: 12, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}
@@ -63,8 +65,8 @@ export function StudentWork() {
             <Text style={s.eyebrow}>LEARNING MATERIALS</Text>
             <Text style={[s.small, { marginTop: 4 }]}>Notes, worksheets and videos your teachers have shared</Text>
           </View>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>Open ›</Text>
-        </TouchableOpacity>
+          <OpenLabel tint={a.deep} />
+        </Tap>
 
         <LinkCard label="Sports & activities" blurb="Your clubs and teams, what's coming up, and what you've won." tint={a.deep} to="Activities" />
         <LinkCard label="My items" blurb="Books and equipment the school has lent you, and when to bring them back." tint={a.deep} to="Items" />
@@ -101,13 +103,13 @@ export function StudentWork() {
 
                 {state !== "done" && (
                   <>
-                    <TouchableOpacity
+                    <Tap
                       disabled={marking[w.id]}
                       onPress={() => void handIn(w.id)}
                       style={[s.primary, { backgroundColor: a.deep, marginTop: 12, paddingVertical: 12, opacity: marking[w.id] ? 0.6 : 1 }]}
                     >
                       <Text style={s.primaryLabel}>{marking[w.id] ? "Marking…" : "Mark as handed in"}</Text>
-                    </TouchableOpacity>
+                    </Tap>
                     {failedId === w.id && (
                       <Text style={[s.small, { color: "#B4472B", marginTop: 6 }]}>Could not save that. Try again.</Text>
                     )}

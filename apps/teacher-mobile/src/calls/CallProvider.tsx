@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Alert, AppState, Modal, Text, TouchableOpacity, View } from "react-native";
+import { Alert, AppState, Modal, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CALL_RING_SECONDS, endLiveClass, fetchCallLog, isRingExpired, joinCall, joinLiveClass, liveClassNotice, liveClassSubtitle,
@@ -9,6 +9,7 @@ import {
 import { s, t } from "../theme";
 import { CallRoom } from "./CallRoom";
 import { ensureCallPermissions } from "./callPermissions";
+import { Tap } from "../ui/Tap";
 
 type Active =
   | { kind: "call"; call: Call; pass: RoomPass }
@@ -208,12 +209,12 @@ export function CallProvider({ profileId, children }: { profileId: string; child
               <Text style={s.eyebrow}>{incoming.video ? "VIDEO CALL" : "VOICE CALL"}</Text>
               <Text style={{ fontSize: 19, fontWeight: "700", color: t.appSurface.ink }}>{incoming.caller_name} is calling</Text>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                <TouchableOpacity accessibilityRole="button" disabled={answering} onPress={() => void answer(true)} style={{ flex: 1, minHeight: 52, borderRadius: 14, backgroundColor: "#1E7A43", alignItems: "center", justifyContent: "center", opacity: answering ? 0.6 : 1 }}>
+                <Tap accessibilityRole="button" disabled={answering} onPress={() => void answer(true)} style={{ flex: 1, minHeight: 52, borderRadius: 14, backgroundColor: "#1E7A43", alignItems: "center", justifyContent: "center", opacity: answering ? 0.6 : 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: "700", color: "#fff" }}>Answer</Text>
-                </TouchableOpacity>
-                <TouchableOpacity accessibilityRole="button" disabled={answering} onPress={() => void answer(false)} style={{ flex: 1, minHeight: 52, borderRadius: 14, backgroundColor: t.status.warnInk, alignItems: "center", justifyContent: "center", opacity: answering ? 0.6 : 1 }}>
+                </Tap>
+                <Tap accessibilityRole="button" disabled={answering} onPress={() => void answer(false)} style={{ flex: 1, minHeight: 52, borderRadius: 14, backgroundColor: t.status.warnInk, alignItems: "center", justifyContent: "center", opacity: answering ? 0.6 : 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: "700", color: "#fff" }}>Decline</Text>
-                </TouchableOpacity>
+                </Tap>
               </View>
             </View>
           </View>
@@ -288,7 +289,7 @@ function HostControls({ live, onChange, onEnded }: { live: LiveClass; onChange: 
 
 function HostButton({ label, pressed, disabled, onPress }: { label: string; pressed?: boolean; disabled?: boolean; onPress: () => void }) {
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="button"
       accessibilityState={{ selected: !!pressed, disabled: !!disabled }}
       disabled={disabled}
@@ -296,6 +297,6 @@ function HostButton({ label, pressed, disabled, onPress }: { label: string; pres
       style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: pressed ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", opacity: disabled ? 0.5 : 1 }}
     >
       <Text style={{ fontSize: 12.5, fontWeight: "600", color: "#fff" }}>{label}</Text>
-    </TouchableOpacity>
+    </Tap>
   );
 }

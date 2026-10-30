@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { FileDown } from "lucide-react-native";
 import { fetchDocumentSignatures, fetchMyReportCards, type StoredReportCard, type StoredSignature } from "@figbloom/shared";
 import { openReportCardPdf, pdfErrorMessage } from "../lib/reportCardFile";
 import { s, t } from "../theme";
 import { ReportCardBody } from "./ReportCardBody";
+import { Tap } from "../ui/Tap";
 
 /**
  * The report cards the school has sent out for one learner, newest term first,
@@ -64,7 +65,7 @@ export function ReportCards({ studentId, tint }: { studentId: string; tint: stri
         const { mean, grade } = c.data.summary;
         return (
           <View key={c.id} style={[s.card, { marginBottom: 8, padding: 0 }]}>
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               accessibilityState={{ expanded: open }}
               onPress={() => { setOpenId(open ? null : c.id); setPdfError(null); }}
@@ -75,10 +76,10 @@ export function ReportCards({ studentId, tint }: { studentId: string; tint: stri
                 <Text style={s.faint}>{c.data.learner.className}{mean !== null ? ` · mean ${mean}%, ${grade}` : ""}</Text>
               </View>
               <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>{open ? "Hide" : "Open"}</Text>
-            </TouchableOpacity>
+            </Tap>
             {open && (
               <View style={{ paddingHorizontal: 14, paddingBottom: 14, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft }}>
-                <TouchableOpacity
+                <Tap
                   accessibilityRole="button"
                   accessibilityLabel={`Open the ${c.data.term.name} report card as a PDF`}
                   disabled={making !== null}
@@ -91,7 +92,7 @@ export function ReportCards({ studentId, tint }: { studentId: string; tint: stri
                 >
                   {making === c.id ? <ActivityIndicator color={tint} /> : <FileDown color={tint} size={17} />}
                   <Text style={{ fontSize: 14, fontWeight: "600", color: tint }}>{making === c.id ? "Preparing the PDF…" : "Open as PDF"}</Text>
-                </TouchableOpacity>
+                </Tap>
                 {pdfError && <Text style={[s.small, { marginTop: 8, color: "#B4472B" }]}>{pdfError}</Text>}
                 <ReportCardBody card={c} signatures={signatures} />
               </View>

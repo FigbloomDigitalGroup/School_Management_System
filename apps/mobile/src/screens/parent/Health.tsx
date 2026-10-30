@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Text, TextInput, View } from "react-native";
 import { useRoute } from "@react-navigation/native";
 import {
   DOSE_STATUS_LABEL, fetchChildMedical, formatFileSize, localDay, markMedicalNoticesRead, REQUEST_STATUS_LABEL, removeUnsentPrescription,
@@ -13,6 +13,8 @@ import { SubScreen } from "../../components/SubScreen";
 import { AttachChoices } from "../../components/AttachChoices";
 import { notifyMedicalRead } from "../../lib/medicalUnread";
 import { pickFile, readPickedFile, type FileSource, type PickedFile } from "../../lib/pickFile";
+import { Tap } from "../../ui/Tap";
+import { CircleAlert } from "lucide-react-native";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const hm = (iso: string) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -129,9 +131,9 @@ export function ParentHealth() {
               }}
             />
           ) : (
-            <TouchableOpacity accessibilityRole="button" onPress={() => { setNote(null); setAsking(true); }} style={[s.primary, { backgroundColor: tint }]}>
+            <Tap accessibilityRole="button" onPress={() => { setNote(null); setAsking(true); }} style={[s.primary, { backgroundColor: tint }]}>
               <Text style={s.primaryLabel}>Ask the nurse to give a medicine</Text>
-            </TouchableOpacity>
+            </Tap>
           )}
 
           {data.notices.length > 0 && (
@@ -211,9 +213,9 @@ export function ParentHealth() {
                     </View>
                     {!!r.decision_note && <Text style={[s.small, { marginTop: 2 }]}>{r.decision_note}</Text>}
                     {r.status === "pending" && (
-                      <TouchableOpacity accessibilityRole="button" onPress={() => confirmWithdraw(r.id)} style={{ minHeight: 40, justifyContent: "center", alignSelf: "flex-start" }}>
+                      <Tap accessibilityRole="button" onPress={() => confirmWithdraw(r.id)} style={{ minHeight: 40, justifyContent: "center", alignSelf: "flex-start" }}>
                         <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Withdraw</Text>
-                      </TouchableOpacity>
+                      </Tap>
                     )}
                   </Row>
                 );
@@ -324,9 +326,9 @@ function RequestForm({ first, tint, onCancel, onSend }: {
       {file ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {file.name}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}</Text>
-          <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => setFile(null)} style={{ minHeight: 40, justifyContent: "center" }}>
+          <Tap accessibilityRole="button" disabled={busy} onPress={() => setFile(null)} style={{ minHeight: 40, justifyContent: "center" }}>
             <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
       ) : (
         <View style={{ gap: 6 }}>
@@ -334,14 +336,19 @@ function RequestForm({ first, tint, onCancel, onSend }: {
           <AttachChoices disabled={busy} onChoose={(source) => void chooseFile(source)} />
         </View>
       )}
-      {!!problem && <Text style={{ fontSize: 12.5, color: t.status.warnInk }}>✕ {problem}</Text>}
+      {!!problem && (
+        <View accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+          <CircleAlert size={14} color={t.status.warnInk} style={{ marginTop: 2 }} />
+          <Text style={{ flex: 1, fontSize: 12.5, color: t.status.warnInk }}>{problem}</Text>
+        </View>
+      )}
       <View style={{ flexDirection: "row", gap: 10 }}>
-        <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={onCancel} style={{ flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
+        <Tap accessibilityRole="button" disabled={busy} onPress={onCancel} style={{ flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => void send()} style={{ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: busy ? 0.6 : 1 }}>
+        </Tap>
+        <Tap accessibilityRole="button" disabled={busy} onPress={() => void send()} style={{ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: busy ? 0.6 : 1 }}>
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ fontWeight: "600", color: "#fff" }}>Send to the nurse</Text>}
-        </TouchableOpacity>
+        </Tap>
       </View>
     </View>
   );

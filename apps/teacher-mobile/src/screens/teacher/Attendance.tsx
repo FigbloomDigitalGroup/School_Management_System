@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
+import { CalendarOff, Users } from "lucide-react-native";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
   fetchHealthForStudents, healthFlags, type HealthFlags,
@@ -11,6 +12,8 @@ import { queue } from "../../storage";
 import { PillPicker } from "../../components/PillPicker";
 import { QueueNotice } from "../../components/QueueNotice";
 import type { TeacherSession } from "../../navigation";
+import { EmptyState, ErrorState } from "../../ui/StateView";
+import { Tap } from "../../ui/Tap";
 
 const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 
@@ -29,6 +32,8 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   const [termId, setTermId] = useState<string | null>(null);
   /** The classes/term fetch itself failed — not the same as "no classes" or "no term". */
   const [loadFailed, setLoadFailed] = useState(false);
+  /** Bumped by "Try again", to run the classes/term fetch once more. */
+  const [loadTries, setLoadTries] = useState(0);
   const [roster, setRoster] = useState<Student[] | null>(null);
   const [reg, setReg] = useState<Register | null>(null);
   const [submitted, setSubmitted] = useState<boolean | null>(null);
@@ -75,7 +80,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       })
       .catch(() => { if (alive) { setLoadFailed(true); setClasses([]); } });
     return () => { alive = false; };
-  }, [session.profileId]);
+  }, [session.profileId, loadTries]);
 
   useEffect(() => {
     if (!classId || !termId) return;
@@ -140,6 +145,12 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
 
   const cls = classes?.find((c) => c.id === classId);
 
+  function tryLoadingAgain() {
+    setLoadFailed(false);
+    setClasses(null);
+    setLoadTries((n) => n + 1);
+  }
+
   // Checked before the spinner: with no class or no open term the register
   // never loads, so the spinner would otherwise turn forever.
   if (classes && loadFailed) {
@@ -148,9 +159,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         <View style={[s.header, { backgroundColor: a.deep }]}>
           <Text style={s.headerTitle}>Attendance</Text>
         </View>
-        <View style={{ padding: 16 }}>
-          <View style={s.card}><Text style={s.small}>Could not load your classes — check your connection and open this tab again.</Text></View>
-        </View>
+        <ErrorState title="Couldn't load your classes" onRetry={tryLoadingAgain} />
       </View>
     );
   }
@@ -161,9 +170,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         <View style={[s.header, { backgroundColor: a.deep }]}>
           <Text style={s.headerTitle}>Attendance</Text>
         </View>
-        <View style={{ padding: 16 }}>
-          <View style={s.card}><Text style={s.small}>You aren't assigned to any classes yet.</Text></View>
-        </View>
+        <EmptyState icon={Users} title="No classes yet" body="You aren't assigned to any classes yet." />
       </View>
     );
   }
@@ -174,9 +181,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         <View style={[s.header, { backgroundColor: a.deep }]}>
           <Text style={s.headerTitle}>Attendance</Text>
         </View>
-        <View style={{ padding: 16 }}>
-          <View style={s.card}><Text style={s.small}>No term is open yet. Ask the school admin to set up this term.</Text></View>
-        </View>
+        <EmptyState icon={CalendarOff} title="No term is open yet" body="Ask the school admin to set up this term." />
       </View>
     );
   }
@@ -201,13 +206,13 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
         </View>
         <View style={{ padding: 16 }}>
           <QueueNotice />
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             onPress={() => setSubmitted(false)}
             style={[s.primary, { ...HIT, backgroundColor: t.brand.orange }]}
           >
             <Text style={s.primaryLabel}>Correct a mark</Text>
-          </TouchableOpacity>
+          </Tap>
 
           {classes.length > 1 && (
             <View style={{ marginTop: 20 }}>
@@ -223,7 +228,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: a.deep }]}>
-        <Text style={s.eyebrow}>ATTENDANCE · {todayLabel.toUpperCase()}</Text>
+        <Text style={s.headerEyebrow}>ATTENDANCE · {todayLabel.toUpperCase()}</Text>
         <Text style={s.headerTitle}>{cls.name}</Text>
         <Text style={s.headerSub}>{roster?.length ?? 0} learners</Text>
       </View>
@@ -248,18 +253,18 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
           const mark = reg?.marks[student.id] ?? "present";
           return (
             <View key={student.id} style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
-              <TouchableOpacity accessibilityRole="button" onPress={() => cycle(student.id)} style={{ flex: 1 }}>
+              <Tap accessibilityRole="button" onPress={() => cycle(student.id)} style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Text style={s.faint}>ADM {student.admission_no}</Text>
                   <HealthChip flags={health.get(student.id)} name={student.full_name} />
                 </View>
-              </TouchableOpacity>
+              </Tap>
               <View style={{ flexDirection: "row", gap: 6 }}>
                 {(["present", "absent", "late"] as AttendanceMark[]).map((k) => {
                   const on = mark === k;
                   return (
-                    <TouchableOpacity
+                    <Tap
                       key={k}
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
@@ -272,7 +277,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
                       <Text style={{ fontSize: 13, fontWeight: "700", color: on ? MARK_STYLE[k].ink : t.appSurface.inkMuted }}>
                         {MARK_SHORT[k]}
                       </Text>
-                    </TouchableOpacity>
+                    </Tap>
                   );
                 })}
               </View>
@@ -287,23 +292,23 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
           <>
             <Text style={[s.small, { marginBottom: 10 }]}>{confirming}</Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
-              <TouchableOpacity accessibilityRole="button" onPress={() => setConfirming(null)} style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft }]}>
+              <Tap accessibilityRole="button" onPress={() => setConfirming(null)} style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft }]}>
                 <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Go back</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" onPress={submit} style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange }]}>
+              </Tap>
+              <Tap accessibilityRole="button" onPress={submit} style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange }]}>
                 <Text style={s.primaryLabel}>Yes, submit</Text>
-              </TouchableOpacity>
+              </Tap>
             </View>
           </>
         ) : (
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={busy}
             onPress={submit}
             style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: busy ? 0.6 : 1 }]}
           >
             {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Submit register</Text>}
-          </TouchableOpacity>
+          </Tap>
         )}
       </View>
     </View>
@@ -315,7 +320,7 @@ function HealthChip({ flags, name }: { flags: HealthFlags | undefined; name: str
   if (!flags) return null;
   const allergy = flags.allergy;
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="button"
       accessibilityLabel={`${name}: ${flags.summary}`}
       onPress={() => Alert.alert(name, flags.summary.replace(/ · /g, "\n"))}
@@ -326,6 +331,6 @@ function HealthChip({ flags, name }: { flags: HealthFlags | undefined; name: str
       <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: allergy ? "#9B2C1C" : "#8A5A0B" }}>
         {allergy ? "ALLERGY" : flags.medical ? "MEDICAL" : "DIET"}
       </Text>
-    </TouchableOpacity>
+    </Tap>
   );
 }

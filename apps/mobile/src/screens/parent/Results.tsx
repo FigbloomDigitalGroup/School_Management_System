@@ -1,4 +1,4 @@
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { useChild, useSubjects } from "../../data";
@@ -9,6 +9,7 @@ import { ExamSwitcher } from "../../components/ExamSwitcher";
 import { ReportCards } from "../../components/ReportCards";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useExamView } from "../../lib/useExamView";
+import { Tap } from "../../ui/Tap";
 
 /** A mark with its context. No class position — that is a decision, see the web note. */
 export function ParentResults() {
@@ -56,9 +57,9 @@ export function ParentResults() {
             {view.failed ? (
               <View style={[s.card, { gap: 8 }]}>
                 <Text style={s.small}>Could not load these results. Check your connection, then tap the exam again.</Text>
-                <TouchableOpacity accessibilityRole="button" onPress={() => view.examId && view.pick(view.examId)} style={{ ...HIT, justifyContent: "center" }}>
+                <Tap accessibilityRole="button" onPress={() => view.examId && view.pick(view.examId)} style={{ ...HIT, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13.5, fontWeight: "600", color: tint }}>Try again</Text>
-                </TouchableOpacity>
+                </Tap>
               </View>
             ) : view.loading ? (
               <View style={[s.card, { gap: 8 }]}>

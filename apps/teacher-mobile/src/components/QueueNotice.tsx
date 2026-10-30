@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import type { QueuedWrite } from "@figbloom/shared";
 import { HIT, s, t } from "../theme";
 import { queue } from "../storage";
+import { Tap } from "../ui/Tap";
 
 const WHAT: Record<string, string> = {
   attendance: "A register",
@@ -36,13 +37,13 @@ export function QueueNotice() {
         {WHAT[first.table] ?? "Something"} saved on this phone could not be sent{refused.length > 1 ? ` (and ${refused.length - 1} more)` : ""}
       </Text>
       <Text style={s.small}>{first.rejected?.message}. Check it, enter it again if you still need it, then discard this notice.</Text>
-      <TouchableOpacity
+      <Tap
         accessibilityRole="button"
         onPress={() => { void queue.discard(first.id).then(() => queue.rejected()).then(setRefused); }}
         style={{ ...HIT, justifyContent: "center" }}
       >
         <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.brand.orange }}>Discard</Text>
-      </TouchableOpacity>
+      </Tap>
     </View>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Switch, Text, View } from "react-native";
 import { fetchTeacherClasses, liveClassTitle, supabase, type ClassGroup } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
@@ -7,6 +7,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { useCalls } from "../../calls/CallProvider";
 import { useRunningLiveClasses } from "../../calls/useRunningLiveClasses";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 interface Assignment { class_id: string; subject_id: string; subjects: { name: string } | null }
 
@@ -94,13 +95,13 @@ export function TeacherLiveClass({ session }: { session: TeacherSession }) {
             </View>
 
             {runningHere ? (
-              <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => void joinClass(runningHere.id)} style={[s.primary, { backgroundColor: a.deep, opacity: busy ? 0.6 : 1 }]}>
+              <Tap accessibilityRole="button" disabled={busy} onPress={() => void joinClass(runningHere.id)} style={[s.primary, { backgroundColor: a.deep, opacity: busy ? 0.6 : 1 }]}>
                 <Text style={s.primaryLabel}>Rejoin {runningHere.title}</Text>
-              </TouchableOpacity>
+              </Tap>
             ) : (
-              <TouchableOpacity accessibilityRole="button" disabled={busy || starting || !cls} onPress={() => void start()} style={[s.primary, { backgroundColor: a.deep, opacity: busy || starting || !cls ? 0.6 : 1 }]}>
+              <Tap accessibilityRole="button" disabled={busy || starting || !cls} onPress={() => void start()} style={[s.primary, { backgroundColor: a.deep, opacity: busy || starting || !cls ? 0.6 : 1 }]}>
                 <Text style={s.primaryLabel}>{starting ? "Starting…" : "Go live"}</Text>
-              </TouchableOpacity>
+              </Tap>
             )}
 
             <Text style={s.faint}>

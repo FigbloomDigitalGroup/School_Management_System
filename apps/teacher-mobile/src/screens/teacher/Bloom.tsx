@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import {
   askBloomChat, attachmentLabel, CHAT_MAX_ATTACHMENTS, CHAT_MESSAGE_MAX, chatTitleFrom, createAiChat, deleteAiChat, EdgeError,
   fetchAiChatMessages, fetchAiChats, fetchAiStatus, formatFileSize, saveAiChatTurns, setAiChatWebSearch, sourceHost,
@@ -11,6 +11,8 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { BLOOM_FILE_TYPES, readBloomAttachment } from "../../lib/bloomFiles";
 import { pickFile } from "../../lib/pickFile";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
+import { BackLink } from "../../ui/BackLink";
 
 const STARTERS = [
   "Draft a circular to parents about half term",
@@ -89,9 +91,9 @@ export function TeacherBloom({ session }: { session: TeacherSession }) {
           </View>
         ) : (
           <>
-            <TouchableOpacity accessibilityRole="button" onPress={() => setOpen("new")} style={[s.primary, { backgroundColor: a.deep }]}>
+            <Tap accessibilityRole="button" onPress={() => setOpen("new")} style={[s.primary, { backgroundColor: a.deep }]}>
               <Text style={s.primaryLabel}>New chat</Text>
-            </TouchableOpacity>
+            </Tap>
             {chats.length === 0 ? (
               <View style={[s.card, { padding: 16 }]}>
                 <Text style={s.small}>No chats yet. Ask Bloom to draft a notice, plan a lesson, explain a topic or read a document.</Text>
@@ -99,13 +101,13 @@ export function TeacherBloom({ session }: { session: TeacherSession }) {
             ) : (
               chats.map((c) => (
                 <View key={c.id} style={[s.card, { padding: 0, flexDirection: "row", alignItems: "center" }]}>
-                  <TouchableOpacity accessibilityRole="button" onPress={() => setOpen(c)} style={{ flex: 1, minHeight: 56, padding: 14 }}>
+                  <Tap accessibilityRole="button" onPress={() => setOpen(c)} style={{ flex: 1, minHeight: 56, padding: 14 }}>
                     <Text numberOfLines={1} style={{ fontSize: 14.5, fontWeight: "600", color: t.appSurface.ink }}>{c.title}</Text>
                     <Text style={s.faint}>{dayOf(c.updated_at)}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Delete ${c.title}`} onPress={() => confirmDelete(c)} style={{ minHeight: 56, paddingHorizontal: 14, justifyContent: "center" }}>
+                  </Tap>
+                  <Tap accessibilityRole="button" accessibilityLabel={`Delete ${c.title}`} onPress={() => confirmDelete(c)} style={{ minHeight: 56, paddingHorizontal: 14, justifyContent: "center" }}>
                     <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Delete</Text>
-                  </TouchableOpacity>
+                  </Tap>
                 </View>
               ))
             )}
@@ -243,9 +245,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={onBack} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>‹ All chats</Text>
-        </TouchableOpacity>
+        <BackLink label="All chats" onPress={onBack} />
         <Text numberOfLines={1} style={s.headerTitle}>{chat?.title ?? "New chat"}</Text>
         <Text style={s.headerSub}>Bloom is an AI and can get things wrong. Read and edit before you save or send.</Text>
       </View>
@@ -263,14 +263,14 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
             {turns.length === 0 && (
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                 {STARTERS.map((q) => (
-                  <TouchableOpacity
+                  <Tap
                     key={q}
                     accessibilityRole="button"
                     onPress={() => setDraft(q)}
                     style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: "#fff" }}
                   >
                     <Text style={{ fontSize: 13, color: t.appSurface.ink }}>{q}</Text>
-                  </TouchableOpacity>
+                  </Tap>
                 ))}
               </View>
             )}
@@ -287,9 +287,9 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
                     <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft, gap: 2 }}>
                       <Text style={s.eyebrow}>SOURCES</Text>
                       {m.sources.map((src, n) => !!src.url && (
-                        <TouchableOpacity key={n} accessibilityRole="link" onPress={() => { void Linking.openURL(src.url).catch(() => {}); }} style={{ minHeight: 36, justifyContent: "center" }}>
+                        <Tap key={n} accessibilityRole="link" onPress={() => { void Linking.openURL(src.url).catch(() => {}); }} style={{ minHeight: 36, justifyContent: "center" }}>
                           <Text numberOfLines={2} style={{ fontSize: 12.5, color: tint }}>{n + 1}. {src.title} · {sourceHost(src.url)}</Text>
-                        </TouchableOpacity>
+                        </Tap>
                       ))}
                     </View>
                   )}
@@ -317,13 +317,13 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
         {attachments.map((f, i) => (
           <View key={`${f.name}-${i}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>{attachmentLabel(f.name)} · {formatFileSize(f.size)}</Text>
-            <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => setAttachments((cur) => cur.filter((_, k) => k !== i))} style={{ minHeight: 36, justifyContent: "center" }}>
+            <Tap accessibilityRole="button" disabled={busy} onPress={() => setAttachments((cur) => cur.filter((_, k) => k !== i))} style={{ minHeight: 36, justifyContent: "center" }}>
               <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
-            </TouchableOpacity>
+            </Tap>
           </View>
         ))}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             accessibilityLabel="Add a PDF, Word or text file for Bloom to read"
             disabled={busy || attaching}
@@ -331,7 +331,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
             style={{ width: 44, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: busy || attaching ? 0.5 : 1 }}
           >
             {attaching ? <ActivityIndicator color={tint} /> : <Text style={{ fontSize: 18 }}>📎</Text>}
-          </TouchableOpacity>
+          </Tap>
           <TextInput
             value={draft}
             onChangeText={setDraft}
@@ -344,16 +344,16 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
             style={{ flex: 1, maxHeight: 140, minHeight: 44, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14.5, color: t.appSurface.ink }}
           />
           {busy ? (
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               accessibilityLabel="Stop"
               onPress={() => abort.current?.abort()}
               style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}
             >
               <Text style={{ fontWeight: "700", color: t.appSurface.ink }}>Stop</Text>
-            </TouchableOpacity>
+            </Tap>
           ) : (
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               accessibilityLabel="Send"
               disabled={!canSend}
@@ -361,7 +361,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
               style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 14, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5 }}
             >
               <Text style={{ color: "#fff", fontWeight: "700" }}>Send</Text>
-            </TouchableOpacity>
+            </Tap>
           )}
         </View>
       </View>

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import {
   arrangeRiders, isRetryable, listTripRiders, markRider, pushRiderUpdates, riderMarkRow,
   type ArrangedRider, type QueuedWrite, type RiderStatus, type Trip, type TripRider,
 } from "@figbloom/shared";
 import { queue } from "../../storage";
 import { s, t } from "../../theme";
+import { Tap } from "../../ui/Tap";
 
 const PLACE_NOTE: Record<ArrangedRider["place"], string | null> = {
   on_bus: "On the bus",
@@ -128,9 +129,9 @@ export function TripRiders({ trip, tenantId, stops, tint }: {
         <View style={{ marginBottom: 8 }}>
           <Text style={{ fontSize: 12.5, lineHeight: 19, color: t.status.warnInk }}>{error}</Text>
           {!riders && (
-            <TouchableOpacity accessibilityRole="button" onPress={() => setReloadKey((k) => k + 1)} style={{ minHeight: 44, justifyContent: "center" }}>
+            <Tap accessibilityRole="button" onPress={() => setReloadKey((k) => k + 1)} style={{ minHeight: 44, justifyContent: "center" }}>
               <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.brand.orange }}>Try again</Text>
-            </TouchableOpacity>
+            </Tap>
           )}
         </View>
       )}
@@ -147,9 +148,9 @@ export function TripRiders({ trip, tenantId, stops, tint }: {
             {refused.length === 1 ? "A mark saved on this phone" : `${refused.length} marks saved on this phone`} could not be sent
           </Text>
           <Text style={s.small}>{refused[0]?.rejected?.message}. The list below shows what the school has.</Text>
-          <TouchableOpacity accessibilityRole="button" onPress={() => void dismissRefused()} style={{ minHeight: 44, justifyContent: "center" }}>
+          <Tap accessibilityRole="button" onPress={() => void dismissRefused()} style={{ minHeight: 44, justifyContent: "center" }}>
             <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.brand.orange }}>Dismiss</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
       )}
 
@@ -172,7 +173,7 @@ export function TripRiders({ trip, tenantId, stops, tint }: {
                   <Text numberOfLines={1} style={s.faint}>{[note, stop ?? "No stop set"].filter(Boolean).join(" · ")}</Text>
                 </View>
                 {actionsFor(r).map((a) => (
-                  <TouchableOpacity
+                  <Tap
                     key={a.status}
                     accessibilityRole="button"
                     accessibilityLabel={`${a.label}: ${r.full_name}`}
@@ -185,7 +186,7 @@ export function TripRiders({ trip, tenantId, stops, tint }: {
                     }}
                   >
                     <Text style={{ fontSize: 13, fontWeight: "600", color: a.primary ? "#fff" : t.appSurface.inkMuted }}>{a.label}</Text>
-                  </TouchableOpacity>
+                  </Tap>
                 ))}
               </View>
             );

@@ -1,4 +1,4 @@
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatMoney, formatShortDate, itemsForStudent } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
@@ -8,6 +8,7 @@ import { PaymentProofCard } from "../../components/PaymentProofCard";
 import { InvoiceSignature } from "../../components/PendingSignatures";
 import { ReceiptSignature } from "../../components/SignatureMark";
 import { useReceiptSignatures } from "../../lib/useReceiptSignatures";
+import { Tap } from "../../ui/Tap";
 
 export function ParentFees() {
   const nav = useNavigation<any>();
@@ -117,9 +118,9 @@ export function ParentFees() {
         )}
 
         {child.balance > 0 && (
-          <TouchableOpacity onPress={() => nav.navigate("Pay")} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
+          <Tap onPress={() => nav.navigate("Pay")} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
             <Text style={s.primaryLabel}>Pay {formatMoney(child.balance, country)}</Text>
-          </TouchableOpacity>
+          </Tap>
         )}
       </ScrollView>
     </View>

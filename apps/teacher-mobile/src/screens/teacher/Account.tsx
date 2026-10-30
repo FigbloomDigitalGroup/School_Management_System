@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, ScrollView, Text, TextInput, View } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
 import { fetchMyProfile, supabase, updateMyAvatarUrl, updateMyProfile, type MyProfile } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
@@ -8,6 +8,7 @@ import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -86,14 +87,14 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
                 <Text style={{ fontSize: 20, fontWeight: "700", color: "#fff" }}>{initialsOf(fullName || session.fullName)}</Text>
               </View>
             )}
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={uploading}
               onPress={() => void changePhoto()}
               style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 14, justifyContent: "center" }}
             >
               {uploading ? <ActivityIndicator color={a.deep} /> : <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>Change photo</Text>}
-            </TouchableOpacity>
+            </Tap>
           </View>
 
           <View>
@@ -127,26 +128,26 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
             ) : <Skeleton width={120} height={10} />}
           </View>
 
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={!dirty || saving}
             onPress={() => void save()}
             style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !dirty || saving ? 0.6 : 1 }]}
           >
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Save changes</Text>}
-          </TouchableOpacity>
+          </Tap>
           {!!status && <Text style={s.small}>{status}</Text>}
         </View>
 
         <FingerprintSetting tint={a.deep} />
 
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           onPress={() => void supabase().auth.signOut()}
           style={[s.primary, { ...HIT, marginTop: 16, backgroundColor: t.appSurface.lineSoft }]}
         >
           <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Sign out</Text>
-        </TouchableOpacity>
+        </Tap>
       </ScrollView>
     </View>
   );

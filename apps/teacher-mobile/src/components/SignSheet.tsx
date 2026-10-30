@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, View } from "react-native";
 import { signatureProblem, type SignatureMark, type SignatureStyle, type Stroke } from "@figbloom/shared";
 import { s, t } from "../theme";
 import { SignatureInk } from "./SignatureMark";
 import { SignaturePad } from "./SignaturePad";
+import { Tap } from "../ui/Tap";
+import { Check, CircleAlert } from "lucide-react-native";
 
 /**
  * Sign something: draw or type the signature, give your full name, and agree
@@ -49,13 +51,13 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
     <Modal visible animationType="slide" onRequestClose={saving ? undefined : onClose}>
       <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={[s.header, { backgroundColor: tint }]}>
-          <Text style={[s.eyebrow, { color: "rgba(255,255,255,0.75)" }]}>ELECTRONIC SIGNATURE</Text>
+          <Text style={s.headerEyebrow}>ELECTRONIC SIGNATURE</Text>
           <Text style={s.headerTitle}>{title}</Text>
         </View>
         <ScrollView scrollEnabled={!drawing} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 14 }}>
           <View style={{ flexDirection: "row", gap: 4, padding: 4, borderRadius: 12, backgroundColor: t.appSurface.shell }} accessibilityRole="tablist">
             {(["drawn", "typed"] as const).map((o) => (
-              <TouchableOpacity
+              <Tap
                 key={o}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: style === o }}
@@ -64,7 +66,7 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
                 style={{ flex: 1, minHeight: 40, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: style === o ? "#fff" : "transparent" }}
               >
                 <Text style={{ fontSize: 13.5, fontWeight: "600", color: style === o ? t.appSurface.ink : t.appSurface.inkMuted }}>{o === "drawn" ? "Draw" : "Type"}</Text>
-              </TouchableOpacity>
+              </Tap>
             ))}
           </View>
 
@@ -88,7 +90,7 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
             <View><Text style={s.faint}>Date</Text><Text style={{ fontSize: 13.5, fontWeight: "600", marginTop: 2 }}>{today}</Text></View>
           </View>
 
-          <TouchableOpacity
+          <Tap
             accessibilityRole="checkbox"
             accessibilityState={{ checked: agreed }}
             disabled={saving}
@@ -96,21 +98,26 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
             style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", minHeight: 44 }}
           >
             <View style={{ width: 22, height: 22, marginTop: 1, borderRadius: 6, borderWidth: 1.5, borderColor: agreed ? tint : t.appSurface.inkFaint, backgroundColor: agreed ? tint : "#fff", alignItems: "center", justifyContent: "center" }}>
-              {agreed && <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>✓</Text>}
+              {agreed && <Check size={15} color="#fff" strokeWidth={3} />}
             </View>
             <Text style={[s.small, { flex: 1, color: t.appSurface.ink }]}>I agree that this electronic signature is mine and means the same as signing {what} by hand.</Text>
-          </TouchableOpacity>
+          </Tap>
 
-          {!!error && <Text style={{ fontSize: 12.5, color: t.status.warnInk }}>✕ {error}</Text>}
+          {!!error && (
+            <View accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+              <CircleAlert size={14} color={t.status.warnInk} style={{ marginTop: 2 }} />
+              <Text style={{ flex: 1, fontSize: 12.5, color: t.status.warnInk }}>{error}</Text>
+            </View>
+          )}
 
           <Text style={s.faint}>A signature can't be changed once made. If something is wrong, ask the school office to void it.</Text>
 
-          <TouchableOpacity accessibilityRole="button" disabled={saving} onPress={() => void sign()} style={[s.primary, { backgroundColor: tint, opacity: saving ? 0.7 : 1 }]}>
+          <Tap accessibilityRole="button" disabled={saving} onPress={() => void sign()} style={[s.primary, { backgroundColor: tint, opacity: saving ? 0.7 : 1 }]}>
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Sign</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity accessibilityRole="button" disabled={saving} onPress={onClose} style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+          </Tap>
+          <Tap accessibilityRole="button" disabled={saving} onPress={onClose} style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontSize: 14.5, fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel</Text>
-          </TouchableOpacity>
+          </Tap>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>

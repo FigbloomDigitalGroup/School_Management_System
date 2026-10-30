@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import {
   CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord, fetchChatMessages,
@@ -13,6 +13,9 @@ import { AttachChoices } from "../../components/AttachChoices";
 import { ANY_FILE, pickFile, readPickedFile, type FileSource, type PickedFile } from "../../lib/pickFile";
 import { s, t } from "../../theme";
 import { ChatAvatar } from "./ChatAvatar";
+import { BackLink } from "../../ui/BackLink";
+import { Tap } from "../../ui/Tap";
+import { Eye } from "lucide-react-native";
 
 interface ThreadParams {
   conversationId: string;
@@ -105,9 +108,7 @@ export function ChatThread({ tint }: { tint: string }) {
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>‹ All chats</Text>
-        </TouchableOpacity>
+        <BackLink label="All chats" onPress={() => nav.goBack()} />
         <View style={[s.row, { gap: 10 }]}>
           <ChatAvatar id={conversationId} name={name} size={36} />
           <View style={{ flex: 1 }}>
@@ -118,7 +119,10 @@ export function ChatThread({ tint }: { tint: string }) {
         </View>
       </View>
 
-      <Text style={[s.faint, { paddingHorizontal: 16, paddingVertical: 6, backgroundColor: t.appSurface.shell }]}>◈ {CHAT_OVERSIGHT_NOTICE}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: t.appSurface.shell }}>
+        <Eye size={13} color={t.appSurface.inkFaint} />
+        <Text style={[s.faint, { flex: 1 }]}>{CHAT_OVERSIGHT_NOTICE}</Text>
+      </View>
 
       {error ? (
         <Text style={[s.small, { color: t.status.warnInk, padding: 16 }]}>Could not load this chat: {error}</Text>
@@ -161,9 +165,9 @@ export function ChatThread({ tint }: { tint: string }) {
           {file && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {file.name}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}</Text>
-              <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setFile(null)} style={{ minHeight: 36, justifyContent: "center" }}>
+              <Tap accessibilityRole="button" disabled={sending} onPress={() => setFile(null)} style={{ minHeight: 36, justifyContent: "center" }}>
                 <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
-              </TouchableOpacity>
+              </Tap>
             </View>
           )}
           {attachOpen && !file && (
@@ -172,7 +176,7 @@ export function ChatThread({ tint }: { tint: string }) {
             </View>
           )}
           <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               accessibilityLabel="Attach a file"
               accessibilityState={{ expanded: attachOpen }}
@@ -181,7 +185,7 @@ export function ChatThread({ tint }: { tint: string }) {
               style={{ width: 44, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: sending ? 0.5 : 1 }}
             >
               <Text style={{ fontSize: 18 }}>📎</Text>
-            </TouchableOpacity>
+            </Tap>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -193,7 +197,7 @@ export function ChatThread({ tint }: { tint: string }) {
               accessibilityLabel="Message"
               style={{ flex: 1, maxHeight: 120, minHeight: 44, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14.5, color: t.appSurface.ink }}
             />
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               accessibilityLabel="Send"
               disabled={!canSend}
@@ -201,7 +205,7 @@ export function ChatThread({ tint }: { tint: string }) {
               style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 14, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: canSend ? 1 : 0.5 }}
             >
               {sending ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700" }}>Send</Text>}
-            </TouchableOpacity>
+            </Tap>
           </View>
         </View>
       ) : (
@@ -236,13 +240,13 @@ function ChatFile({ message, mine }: { message: ChatMessage; mine: boolean }) {
   }
   if (isImage && src) {
     return (
-      <TouchableOpacity accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "photo"}`} onPress={() => void open()} style={{ marginBottom: 4 }}>
+      <Tap accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "photo"}`} onPress={() => void open()} style={{ marginBottom: 4 }}>
         <Image source={{ uri: src }} accessibilityIgnoresInvertColors style={{ width: 220, height: 160, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.06)" }} resizeMode="cover" />
-      </TouchableOpacity>
+      </Tap>
     );
   }
   return (
-    <TouchableOpacity accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "file"}`} onPress={() => void open()} style={{ minHeight: 40, marginBottom: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: mine ? "rgba(255,255,255,0.15)" : "#fff" }}>
+    <Tap accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "file"}`} onPress={() => void open()} style={{ minHeight: 40, marginBottom: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: mine ? "rgba(255,255,255,0.15)" : "#fff" }}>
       <Text>📎</Text>
       <View style={{ flexShrink: 1 }}>
         <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: "600", color: mine ? "#fff" : t.appSurface.ink }}>{message.fileName}</Text>
@@ -250,6 +254,6 @@ function ChatFile({ message, mine }: { message: ChatMessage; mine: boolean }) {
           {failed ? "Could not open it. Check your connection." : message.sizeBytes != null ? formatFileSize(message.sizeBytes) : "File"}
         </Text>
       </View>
-    </TouchableOpacity>
+    </Tap>
   );
 }

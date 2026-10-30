@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Linking, Text, TouchableOpacity, View } from "react-native";
+import { Linking, Text, View } from "react-native";
 import {
   CAPACITY_LABEL, fetchMySignatureRequests, signDocuments, supabase,
   type SignatureMark as Mark, type SignatureRequest,
@@ -8,6 +8,7 @@ import { fileHash } from "../lib/signing";
 import { useMyName } from "../lib/useMyName";
 import { s, t } from "../theme";
 import { SignSheet } from "./SignSheet";
+import { Tap } from "../ui/Tap";
 
 /**
  * "Waiting for your signature": the files someone has asked the viewer to
@@ -64,13 +65,13 @@ export function PendingSignatures({ tint, compact }: { tint: string; compact?: b
           {!!r.note && <Text style={[s.small, { marginTop: 4 }]}>{r.note}</Text>}
           <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
             {!!r.filePath && (
-              <TouchableOpacity accessibilityRole="button" onPress={() => void open(r)} style={{ minHeight: 44, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
+              <Tap accessibilityRole="button" onPress={() => void open(r)} style={{ minHeight: 44, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
                 <Text style={{ fontWeight: "600" }}>Read</Text>
-              </TouchableOpacity>
+              </Tap>
             )}
-            <TouchableOpacity accessibilityRole="button" onPress={() => { setNote(null); setSigning(r); }} style={{ minHeight: 44, paddingHorizontal: 20, borderRadius: 12, backgroundColor: tint, alignItems: "center", justifyContent: "center" }}>
+            <Tap accessibilityRole="button" onPress={() => { setNote(null); setSigning(r); }} style={{ minHeight: 44, paddingHorizontal: 20, borderRadius: 12, backgroundColor: tint, alignItems: "center", justifyContent: "center" }}>
               <Text style={{ fontWeight: "600", color: "#fff" }}>Sign</Text>
-            </TouchableOpacity>
+            </Tap>
           </View>
         </View>
       ))}

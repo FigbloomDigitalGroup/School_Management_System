@@ -1,8 +1,10 @@
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useChatSession } from "../lib/chatSession";
 import { useChatUnread } from "../lib/chatUnread";
 import { s, t } from "../theme";
+import { Tap } from "../ui/Tap";
+import { OpenLabel } from "../ui/OpenLabel";
 
 /** The way into Chats from a home screen: a card with the unread count, since the tab bar is already full. */
 export function ChatsCard({ tint, blurb }: { tint: string; blurb: string }) {
@@ -10,7 +12,7 @@ export function ChatsCard({ tint, blurb }: { tint: string; blurb: string }) {
   const session = useChatSession();
   const unread = useChatUnread(session?.tenantId ?? null);
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="button"
       accessibilityLabel={unread ? `Chats, ${unread} unread` : "Chats"}
       onPress={() => nav.navigate("Chats")}
@@ -25,9 +27,9 @@ export function ChatsCard({ tint, blurb }: { tint: string; blurb: string }) {
             </View>
           )}
         </View>
-        <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Open ›</Text>
+        <OpenLabel tint={tint} />
       </View>
       <Text style={[s.small, { marginTop: 4 }]}>{blurb}</Text>
-    </TouchableOpacity>
+    </Tap>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Text, TextInput, View } from "react-native";
 import {
   formatFileSize, formatMoney, listPaymentProofs, parsePaymentSms, PAYMENT_PROOF_LABEL, PAYMENT_SMS_MAX, PAYMENT_SMS_SOURCE_LABEL,
   paymentSmsFlags, sendPaymentProof, uploadProblem, type PaymentProof, type PaymentSmsFlag,
@@ -7,6 +7,7 @@ import {
 import { pickFile, readPickedFile, type FileSource, type PickedFile } from "../lib/pickFile";
 import { s, t } from "../theme";
 import { AttachChoices } from "./AttachChoices";
+import { Tap } from "../ui/Tap";
 
 // What a family is told about a flag: gentler than the office's label, and
 // never a refusal -- a part payment is still a payment.
@@ -145,9 +146,9 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
             {file ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Text numberOfLines={1} style={[s.small, { flex: 1, color: t.appSurface.ink }]}>📎 {file.name}{file.sizeBytes ? ` · ${formatFileSize(file.sizeBytes)}` : ""}</Text>
-                <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setFile(null)} style={{ minHeight: 40, justifyContent: "center" }}>
+                <Tap accessibilityRole="button" disabled={sending} onPress={() => setFile(null)} style={{ minHeight: 40, justifyContent: "center" }}>
                   <Text style={{ fontSize: 13, fontWeight: "600", color: t.status.warnInk }}>Remove</Text>
-                </TouchableOpacity>
+                </Tap>
               </View>
             ) : (
               <View style={{ gap: 6 }}>
@@ -164,14 +165,14 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
               placeholderTextColor={t.appSurface.inkFaint}
               style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13.5, color: t.appSurface.ink }}
             />
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={!ready || sending}
               onPress={() => void send()}
               style={[s.primary, { backgroundColor: tint, opacity: !ready || sending ? 0.5 : 1 }]}
             >
               {sending ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Send proof</Text>}
-            </TouchableOpacity>
+            </Tap>
           </View>
         )}
         {!!message && <Text style={{ fontSize: 12.5, color: message.bad ? t.status.warnInk : t.status.okInk, paddingTop: canSend ? 4 : 0, paddingBottom: proofs?.length ? 8 : 0 }}>{message.text}</Text>}

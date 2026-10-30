@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import {
   AI_HELPER_BILLING_AVAILABLE, fetchAiHelperStatus, formatMoney, optInOutcomeText, setAiHelperOptIn, type AiHelperStatus,
 } from "@figbloom/shared";
@@ -7,6 +7,7 @@ import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { SubScreen } from "../../components/SubScreen";
+import { Tap } from "../../ui/Tap";
 
 const when = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
@@ -163,7 +164,7 @@ function Choice({ status, first, saving, tint, country, onChange }: {
       {!!who && <Text style={[s.faint, { marginTop: 6 }]}>{who} Either parent or guardian can change this.</Text>}
 
       {action && (
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           disabled={saving}
           onPress={() => onChange(action.on)}
@@ -172,7 +173,7 @@ function Choice({ status, first, saving, tint, country, onChange }: {
           {saving
             ? <ActivityIndicator color={action.on ? "#fff" : tint} />
             : <Text style={[s.primaryLabel, action.on ? null : { color: t.appSurface.ink }]}>{action.label}</Text>}
-        </TouchableOpacity>
+        </Tap>
       )}
 
       {priced && (

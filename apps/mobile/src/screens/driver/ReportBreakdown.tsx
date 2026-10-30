@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Text, TextInput, View } from "react-native";
 import { breakdownAffected, listTripRiders, reportBreakdown } from "@figbloom/shared";
 import { s, t } from "../../theme";
+import { Tap } from "../../ui/Tap";
 
 /**
  * "The bus has broken down": the office gets an alert, and the families of
@@ -46,13 +47,13 @@ export function ReportBreakdown({ tripId, lat, lng }: { tripId: string; lat: num
     return (
       <>
         {!!result && <Text style={{ marginTop: 12, fontSize: 12.5, lineHeight: 19, color: result.ok ? t.status.okInk : t.status.warnInk }}>{result.text}</Text>}
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           onPress={() => { setResult(null); setOpen(true); }}
           style={{ minHeight: 48, marginTop: 16, borderRadius: 13, borderWidth: 1.5, borderColor: t.status.warnInk, alignItems: "center", justifyContent: "center" }}
         >
           <Text style={{ fontSize: 15, fontWeight: "600", color: t.status.warnInk }}>Report a breakdown</Text>
-        </TouchableOpacity>
+        </Tap>
       </>
     );
   }
@@ -80,12 +81,12 @@ export function ReportBreakdown({ tripId, lat, lng }: { tripId: string; lat: num
       />
       {!!result && !result.ok && <Text style={{ marginTop: 8, fontSize: 12.5, lineHeight: 19, color: t.status.warnInk }}>{result.text}</Text>}
       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-        <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => setOpen(false)} style={{ flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
+        <Tap accessibilityRole="button" disabled={sending} onPress={() => setOpen(false)} style={{ flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" disabled={sending} onPress={() => void send()} style={{ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: t.status.warnInk, alignItems: "center", justifyContent: "center", opacity: sending ? 0.6 : 1 }}>
+        </Tap>
+        <Tap accessibilityRole="button" disabled={sending} onPress={() => void send()} style={{ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: t.status.warnInk, alignItems: "center", justifyContent: "center", opacity: sending ? 0.6 : 1 }}>
           {sending ? <ActivityIndicator color="#fff" /> : <Text style={{ fontWeight: "600", color: "#fff" }}>Tell the school</Text>}
-        </TouchableOpacity>
+        </Tap>
       </View>
     </View>
   );

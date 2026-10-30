@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, TextInput, View } from "react-native";
 import {
   ABSENCE_LABEL, againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarkAbsences, fetchMarksForExamSubject,
   fetchPublishedSubjects, fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, isRetryable,
@@ -12,6 +12,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 import { TeacherCbeGradebookBody } from "./CbeGradebook";
+import { Tap } from "../../ui/Tap";
 
 /** Stand-in for a PillPicker row while its options load — same height, so nothing jumps. */
 function PillsSkeleton() {
@@ -380,7 +381,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
             {(["strands", "marks"] as const).map((m) => {
               const on = mode === m;
               return (
-                <TouchableOpacity
+                <Tap
                   key={m}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
@@ -390,7 +391,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
                   <Text style={{ fontSize: 12.5, fontWeight: "700", color: on ? "#fff" : t.appSurface.inkMuted }}>
                     {m === "strands" ? "Strands" : "Exam marks"}
                   </Text>
-                </TouchableOpacity>
+                </Tap>
               );
             })}
           </View>
@@ -471,25 +472,25 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
           </Text>
         )}
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={busy || rowsLoading}
             onPress={() => void saveDraft()}
             style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy || rowsLoading ? 0.6 : 1 }]}
           >
             <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>{isPublished ? "Save changes" : "Save draft"}</Text>
-          </TouchableOpacity>
+          </Tap>
           {isPublished ? (
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={busy || rowsLoading}
               onPress={withdraw}
               style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || rowsLoading ? 0.6 : 1 }]}
             >
               {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Withdraw</Text>}
-            </TouchableOpacity>
+            </Tap>
           ) : (
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={busy || rowsLoading || entered < roll.length}
               onPress={() => void publish()}
@@ -498,7 +499,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
               {busy ? <ActivityIndicator color="#fff" /> : (
                 <Text style={s.primaryLabel}>{!rowsLoading && entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
               )}
-            </TouchableOpacity>
+            </Tap>
           )}
         </View>
       </View>

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import type { QueuedWrite } from "@figbloom/shared";
 import { queue } from "../../storage";
 import { s, t } from "../../theme";
+import { Tap } from "../../ui/Tap";
 
 /** How often to look for location updates the server has refused. */
 const WATCH_MS = 4_000;
@@ -47,9 +48,9 @@ export function RefusedPings() {
         The school's system turned {count === 1 ? "it" : "them"} down, so the office may not see this bus on its map.
         If this keeps happening, tell the school office. ({refused[0]?.rejected?.message})
       </Text>
-      <TouchableOpacity accessibilityRole="button" onPress={() => void dismiss()} style={{ minHeight: 44, justifyContent: "center" }}>
+      <Tap accessibilityRole="button" onPress={() => void dismiss()} style={{ minHeight: 44, justifyContent: "center" }}>
         <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.brand.orange }}>Dismiss</Text>
-      </TouchableOpacity>
+      </Tap>
     </View>
   );
 }

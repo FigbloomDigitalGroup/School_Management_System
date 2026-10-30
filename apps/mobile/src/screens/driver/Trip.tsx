@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
   endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder, supabase,
   type AssignmentRow, type RouteStop, type Trip, type TripDirection,
@@ -12,6 +12,8 @@ import { RefusedPings } from "./RefusedPings";
 import { ReportBreakdown } from "./ReportBreakdown";
 import { TripMap } from "./TripMap";
 import { TripRiders } from "./TripRiders";
+import { RIPPLE_ON_DARK } from "../../ui/color";
+import { Tap } from "../../ui/Tap";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
 
@@ -180,9 +182,9 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       <View style={[s.screen, { alignItems: "center", justifyContent: "center", padding: 24 }]}>
         <Text style={{ fontSize: 16, fontWeight: "600", textAlign: "center" }}>You are not assigned to a vehicle yet</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8 }]}>Contact the school office to be assigned to a bus and route.</Text>
-        <TouchableOpacity onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line }]}>
+        <Tap onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line }]}>
           <Text style={{ fontSize: 15, fontWeight: "600" }}>Sign out</Text>
-        </TouchableOpacity>
+        </Tap>
       </View>
     );
   }
@@ -194,9 +196,9 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
           <Text style={s.headerTitle}>{fullName}</Text>
           <Text style={s.headerSub}>DRIVER</Text>
         </View>
-        <TouchableOpacity onPress={() => void handleSignOut()} style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
+        <Tap onPress={() => void handleSignOut()} ripple={RIPPLE_ON_DARK} style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
           <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "600" }}>Sign out</Text>
-        </TouchableOpacity>
+        </Tap>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -217,24 +219,24 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
               {(["to_school", "from_school"] as const).map((d) => {
                 const on = direction === d;
                 return (
-                  <TouchableOpacity
+                  <Tap
                     key={d}
                     onPress={() => setDirection(d)}
                     style={[s.card, { flex: 1, alignItems: "center", padding: 16, borderWidth: 1.5, borderColor: on ? a.deep : t.appSurface.line, backgroundColor: on ? a.deep : t.appSurface.card }]}
                   >
                     <Text style={{ fontSize: 15, fontWeight: "600", color: on ? "#fff" : t.appSurface.ink }}>{DIRECTION_LABEL[d]}</Text>
-                  </TouchableOpacity>
+                  </Tap>
                 );
               })}
             </View>
 
-            <TouchableOpacity
+            <Tap
               disabled={starting}
               onPress={() => void handleStart()}
               style={[s.primary, { backgroundColor: a.deep, marginTop: 24, paddingVertical: 20, opacity: starting ? 0.6 : 1 }]}
             >
               <Text style={[s.primaryLabel, { fontSize: 17 }]}>{starting ? "Starting…" : "Start trip"}</Text>
-            </TouchableOpacity>
+            </Tap>
           </>
         ) : (
           <>
@@ -265,13 +267,13 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
 
             <ReportBreakdown tripId={trip.id} lat={lastPing?.lat ?? null} lng={lastPing?.lng ?? null} />
 
-            <TouchableOpacity
+            <Tap
               disabled={ending}
               onPress={() => void handleEnd()}
               style={[s.primary, { backgroundColor: t.status.warnInk, marginTop: 24, paddingVertical: 20, opacity: ending ? 0.6 : 1 }]}
             >
               <Text style={[s.primaryLabel, { fontSize: 17 }]}>{ending ? "Ending…" : "End trip"}</Text>
-            </TouchableOpacity>
+            </Tap>
           </>
         )}
 

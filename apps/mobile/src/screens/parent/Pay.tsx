@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions, payWithMpesa, type PaymentFailure } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useReloadParentData, useTenantId } from "../../data";
 import { PaymentMethodsCard, usePaymentMethods } from "../../components/PaymentMethods";
+import { Tap } from "../../ui/Tap";
+import { Check } from "lucide-react-native";
 
 type Screen = "form" | "sending" | "prompting" | "success" | "failed" | "unconfirmed" | "unavailable";
 
@@ -89,7 +91,7 @@ export function ParentPay() {
     return (
       <ScrollView contentContainerStyle={{ padding: 24, alignItems: "center" }} style={s.screen}>
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: t.status.okBg, alignItems: "center", justifyContent: "center", marginTop: 24 }}>
-          <Text style={{ fontSize: 24, color: t.status.okInk }}>✓</Text>
+          <Check size={28} color={t.status.okInk} strokeWidth={2.5} />
         </View>
         <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16 }}>{formatMoney(amount, country)} received</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
@@ -105,9 +107,9 @@ export function ParentPay() {
           ))}
         </View>
 
-        <TouchableOpacity onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
+        <Tap onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
           <Text style={s.primaryLabel}>Done</Text>
-        </TouchableOpacity>
+        </Tap>
       </ScrollView>
     );
   }
@@ -123,9 +125,9 @@ export function ParentPay() {
           If you entered your PIN, the payment may still come through, and your balance will update when it does. Check Receipts in a few minutes
           before paying again, so you don't pay twice.
         </Text>
-        <TouchableOpacity onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
+        <Tap onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
           <Text style={s.primaryLabel}>Back to fees</Text>
-        </TouchableOpacity>
+        </Tap>
       </View>
     );
   }
@@ -147,9 +149,9 @@ export function ParentPay() {
         <Text style={[s.faint, { marginTop: 14, lineHeight: 18 }]}>
           After you pay, the school records it and {child.first}'s balance updates. Keep your receipt or SMS until it does.
         </Text>
-        <TouchableOpacity onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
+        <Tap onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
           <Text style={s.primaryLabel}>Back to fees</Text>
-        </TouchableOpacity>
+        </Tap>
       </ScrollView>
     );
   }
@@ -166,12 +168,12 @@ export function ParentPay() {
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
           {PAYMENT_FAILURES[failure]}
         </Text>
-        <TouchableOpacity onPress={() => setScreen("form")} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
+        <Tap onPress={() => setScreen("form")} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
           <Text style={s.primaryLabel}>Try again</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => nav.goBack()} style={[s.primary, { marginTop: 8, width: "100%", borderWidth: 1, borderColor: t.appSurface.line }]}>
+        </Tap>
+        <Tap onPress={() => nav.goBack()} style={[s.primary, { marginTop: 8, width: "100%", borderWidth: 1, borderColor: t.appSurface.line }]}>
           <Text style={{ fontSize: 15, fontWeight: "600" }}>Pay at the school office instead</Text>
-        </TouchableOpacity>
+        </Tap>
       </View>
     );
   }
@@ -188,14 +190,14 @@ export function ParentPay() {
       {payableSuggestions(child.balance).map((sug) => {
         const on = sug.cents > 0 && amount === sug.cents;
         return (
-          <TouchableOpacity
+          <Tap
             key={sug.label}
             onPress={() => setAmount(sug.cents)}
             style={[s.card, { marginBottom: 8, padding: 14, borderWidth: 1.5, borderColor: on ? tint : t.appSurface.line, flexDirection: "row", justifyContent: "space-between" }]}
           >
             <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{sug.label}</Text>
             {sug.cents > 0 && <Text style={s.mono}>{formatMoney(sug.cents, country)}</Text>}
-          </TouchableOpacity>
+          </Tap>
         );
       })}
 
@@ -217,9 +219,9 @@ export function ParentPay() {
       />
       {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{error}</Text>}
 
-      <TouchableOpacity onPress={() => void send()} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
+      <Tap onPress={() => void send()} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
         <Text style={s.primaryLabel}>Send M-Pesa prompt</Text>
-      </TouchableOpacity>
+      </Tap>
       <Text style={[s.faint, { textAlign: "center", marginTop: 12, lineHeight: 18 }]}>
         You will get a prompt on {phone || "that number"}. Nothing leaves your account until you enter your PIN.
       </Text>

@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import {
   passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, roleFromLoginId, searchSchools, supabase,
   type ResolvedLogin, type SchoolSearchResult,
 } from "@figbloom/shared";
-import { HIT, s, t } from "../theme";
+import { fontSize, s, t } from "../theme";
+import { Button } from "../ui/Button";
+import { Field } from "../ui/Field";
+import { Tap } from "../ui/Tap";
 
 /**
  * Unified sign-in (FIG-396/403) — no parent/student/driver tabs. The mobile
@@ -36,11 +39,14 @@ export function SignIn() {
   const [idHint, setIdHint] = useState("");
 
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+
+  const passwordRef = useRef<TextInput>(null);
+  // Set when the keyboard's "next" key asked for the ID to be looked up: once it has been, the password field takes focus.
+  const wantPassword = useRef(false);
 
   useEffect(() => {
     const q = schoolQuery.trim();
@@ -57,6 +63,13 @@ export function SignIn() {
     }, 250);
     return () => { current = false; clearTimeout(timer); };
   }, [schoolQuery, retry]);
+
+  useEffect(() => {
+    if (resolved && wantPassword.current) {
+      wantPassword.current = false;
+      passwordRef.current?.focus();
+    }
+  }, [resolved]);
 
   function selectSchool(picked: SchoolSearchResult) {
     setSchool(picked);
@@ -75,13 +88,15 @@ export function SignIn() {
   }
 
   async function resolveId() {
-    if (!school || !loginId.trim()) return;
+    // Already looked up (moving on to the password blurs this field a second time) or still looking: don't ask again.
+    if (!school || !loginId.trim() || resolving || resolved) return;
     setResolving(true);
     try {
       const r = await resolveLoginId(school.id, loginId.trim());
       setResolved(r);
       setIdHint("");
     } catch (err) {
+      wantPassword.current = false;
       setResolved(null);
       setIdHint(err instanceof Error ? err.message : "Could not find that ID.");
     } finally {
@@ -125,56 +140,51 @@ export function SignIn() {
   }
 
   return (
-    <View style={[s.screen, { justifyContent: "center", padding: 24 }]}>
-      <Text style={{ fontSize: 22, fontWeight: "700", textAlign: "center" }}>Figbloom</Text>
+    // A scroll, not a centred View: with the keyboard up on a small phone the form is taller than what is left.
+    <ScrollView
+      style={s.screen}
+      contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ fontSize: fontSize.header, fontWeight: "700", textAlign: "center", color: t.appSurface.ink }}>Figbloom</Text>
       <Text style={[s.small, { textAlign: "center", marginTop: 4, marginBottom: 24 }]}>
         Sign in to mark attendance, enter grades and message parents.
       </Text>
 
       {school ? (
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", ...fieldStyle(false), paddingVertical: 12 }}>
-          <View>
-            <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.appSurface.inkFaint, letterSpacing: 0.6 }}>SCHOOL</Text>
-            <Text style={{ fontSize: 15, fontWeight: "600" }}>{school.name}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: t.appSurface.line, borderRadius: t.radius.lg, backgroundColor: t.appSurface.card, paddingLeft: 14, paddingVertical: 4 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: fontSize.micro, fontWeight: "700", color: t.appSurface.inkFaint, letterSpacing: 0.6 }}>SCHOOL</Text>
+            <Text style={{ fontSize: fontSize.lead, fontWeight: "600", color: t.appSurface.ink }}>{school.name}</Text>
           </View>
-          <TouchableOpacity accessibilityRole="button" onPress={changeSchool} style={HIT}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Change</Text>
-          </TouchableOpacity>
+          <Button variant="quiet" label="Change" accessibilityHint="Pick a different school" onPress={changeSchool} style={{ paddingVertical: 10 }} />
         </View>
       ) : (
         <>
-          <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>School</Text>
-          <TextInput
+          <Field
+            label="School"
             placeholder="Start typing your school's name"
             autoCapitalize="words"
             value={schoolQuery}
             onChangeText={setSchoolQuery}
-            style={fieldStyle(false)}
+            error={!searching && searchFailed ? "We couldn't search just now. Check your connection." : undefined}
+            hint={searching ? "Searching…" : !searchFailed && !!searchedFor && schoolResults.length === 0 ? "No school matches that name. Check the spelling, or ask the school office." : undefined}
           />
-          {searching && <Text style={[s.faint, { marginTop: 6 }]}>Searching…</Text>}
           {!searching && searchFailed && (
-            <View style={{ marginTop: 6 }}>
-              <Text style={{ fontSize: 11.5, color: t.status.warnInk }}>We couldn't search just now. Check your connection.</Text>
-              <TouchableOpacity accessibilityRole="button" onPress={() => setRetry((n) => n + 1)} style={{ ...HIT, justifyContent: "center" }}>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Try again</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          {!searching && !searchFailed && !!searchedFor && schoolResults.length === 0 && (
-            <Text style={[s.faint, { marginTop: 6 }]}>No school matches that name. Check the spelling, or ask the school office.</Text>
+            <Button variant="quiet" label="Try again" onPress={() => setRetry((n) => n + 1)} style={{ alignSelf: "flex-start", paddingVertical: 10, paddingHorizontal: 4 }} />
           )}
           {!searching && schoolResults.length > 0 && (
-            <View style={{ marginTop: 6, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, overflow: "hidden" }}>
+            <View style={{ marginTop: 8, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: t.radius.lg, overflow: "hidden", backgroundColor: t.appSurface.card }}>
               {schoolResults.map((r) => (
-                <TouchableOpacity
+                <Tap
                   key={r.id}
-                  accessibilityRole="button"
                   onPress={() => selectSchool(r)}
+                  pressedScale={1}
                   style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.appSurface.lineSoft }}
                 >
-                  <Text style={{ fontSize: 14, fontWeight: "600" }}>{r.name}</Text>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: t.appSurface.ink }}>{r.name}</Text>
                   {r.county && <Text style={s.faint}>{r.county}</Text>}
-                </TouchableOpacity>
+                </Tap>
               ))}
             </View>
           )}
@@ -183,48 +193,54 @@ export function SignIn() {
 
       {school && (
         <>
-          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Your ID</Text>
-          <TextInput
+          <Field
+            label="Your ID"
             placeholder="e.g. PT-0029"
             autoCapitalize="characters"
+            autoComplete="username"
+            autoCorrect={false}
+            returnKeyType={forgot ? "done" : "next"}
+            submitBehavior={forgot ? "blurAndSubmit" : "submit"}
             value={loginId}
             onChangeText={(v) => { setLoginId(v); setResolved(null); setIdHint(""); }}
             onBlur={() => { if (!forgot) void resolveId(); }}
-            style={fieldStyle(!!idHint)}
+            onSubmitEditing={() => {
+              if (forgot) return;
+              if (resolved) passwordRef.current?.focus();
+              else { wantPassword.current = true; void resolveId(); }
+            }}
+            error={idHint || undefined}
+            style={{ marginTop: 14 }}
           />
           {forgot ? null : resolving ? (
             <Text style={[s.faint, { marginTop: 6 }]}>Checking…</Text>
           ) : resolved ? (
-            <Text style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.display_name}</Text>
-          ) : idHint ? (
-            <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{idHint}</Text>
+            <Text accessibilityLiveRegion="polite" style={[s.small, { marginTop: 6, color: t.status.okInk }]}>Signing in as {resolved.display_name}</Text>
           ) : null}
         </>
       )}
 
       {resolved && !forgot && (
-        <>
-          <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Password</Text>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TextInput
-              placeholder="••••••••"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              style={[fieldStyle(!!error), { flex: 1 }]}
-            />
-            <TouchableOpacity accessibilityRole="button" onPress={() => setShowPassword((v) => !v)} style={{ ...HIT, marginLeft: 8, justifyContent: "center" }}>
-              <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.appSurface.inkMuted }}>{showPassword ? "Hide" : "Show"}</Text>
-            </TouchableOpacity>
-          </View>
-        </>
+        <Field
+          ref={passwordRef}
+          label="Password"
+          placeholder="••••••••"
+          secret
+          autoComplete="current-password"
+          returnKeyType="go"
+          value={password}
+          onChangeText={(v) => { setPassword(v); if (error) setError(""); }}
+          onSubmitEditing={() => { if (password && !busy) void submit(); }}
+          error={error || undefined}
+          style={{ marginTop: 14 }}
+        />
       )}
 
-      {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 8 }}>{error}</Text>}
+      {forgot && !!error && <Text accessibilityLiveRegion="polite" style={{ fontSize: fontSize.caption, color: t.status.warnInk, marginTop: 8 }}>{error}</Text>}
 
       {forgot ? (
         forgotSent ? (
-          <Text style={[s.small, { marginTop: 20, color: t.status.okInk, lineHeight: 19 }]}>
+          <Text accessibilityLiveRegion="polite" style={[s.small, { marginTop: 20, color: t.status.okInk, lineHeight: 19 }]}>
             {passwordResetRequestedMessage(roleFromLoginId(loginId))}
           </Text>
         ) : (
@@ -232,39 +248,14 @@ export function SignIn() {
             <Text style={[s.faint, { marginTop: 14, lineHeight: 17 }]}>
               {school ? "We'll ask your school to set you a new temporary password." : "Pick your school, then enter your ID, and we'll ask the school to set you a new temporary password."}
             </Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              disabled={busy || !school || !loginId.trim()}
-              onPress={askForReset}
-              style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 14, opacity: busy || !school || !loginId.trim() ? 0.6 : 1 }]}
-            >
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Ask for a new password</Text>}
-            </TouchableOpacity>
+            <Button label="Ask for a new password" loading={busy} disabled={!school || !loginId.trim()} onPress={askForReset} style={{ marginTop: 14 }} />
           </>
         )
       ) : (
-        <TouchableOpacity
-          accessibilityRole="button"
-          disabled={busy || !resolved || !password}
-          onPress={submit}
-          style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 20, opacity: busy || !resolved || !password ? 0.6 : 1 }]}
-        >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Sign in</Text>}
-        </TouchableOpacity>
+        <Button label="Sign in" loading={busy} disabled={!resolved || !password} onPress={submit} style={{ marginTop: 20 }} />
       )}
 
-      <TouchableOpacity accessibilityRole="button" onPress={() => toggleForgot(!forgot)} style={{ ...HIT, justifyContent: "center", alignSelf: "center", marginTop: 8 }}>
-        <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>{forgot ? "Back to sign in" : "Forgot password?"}</Text>
-      </TouchableOpacity>
-    </View>
+      <Button variant="quiet" label={forgot ? "Back to sign in" : "Forgot password?"} onPress={() => toggleForgot(!forgot)} style={{ alignSelf: "center", marginTop: 8 }} />
+    </ScrollView>
   );
 }
-
-const fieldStyle = (hasError: boolean) => ({
-  ...HIT,
-  borderWidth: 1,
-  borderColor: hasError ? t.status.warnInk : t.appSurface.line,
-  borderRadius: 12,
-  paddingHorizontal: 14,
-  fontSize: 15,
-});
