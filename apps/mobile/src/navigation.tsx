@@ -33,6 +33,10 @@ import { ParentItems } from "./screens/parent/Items";
 import { ParentStudyHelper } from "./screens/parent/StudyHelper";
 import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
+import { StudentExams } from "./screens/student/Exams";
+import { StudentExamPaper } from "./screens/student/ExamPaper";
+import { StudentExamSitting } from "./screens/student/ExamSitting";
+import { StudentExamReview } from "./screens/student/ExamReview";
 import { StudentStudyHelper } from "./screens/student/StudyHelper";
 import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
@@ -129,6 +133,11 @@ export function Navigation({ role, accent, profileId, driver }: NavigationProps)
           <Stack.Screen name="ChatThread" component={StudentChatThread} />
           <Stack.Screen name="Activities" component={StudentActivities} />
           <Stack.Screen name="Items" component={StudentItems} />
+          {/* Exams opens from the Work tab: the list, one paper, sitting it, and looking back at it marked. */}
+          <Stack.Screen name="Exams" component={StudentExams} />
+          <Stack.Screen name="ExamPaper" component={StudentExamPaper} />
+          <Stack.Screen name="ExamSitting" component={StudentExamSitting} options={{ gestureEnabled: false }} />
+          <Stack.Screen name="ExamReview" component={StudentExamReview} />
           {/* The study helper opens from a Today card. */}
           <Stack.Screen name="StudyHelper" component={StudentStudyHelper} />
         </Stack.Navigator>
