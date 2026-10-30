@@ -276,13 +276,16 @@ describe("first sign-in: what the server enforces (the screens ask for a new pas
 
   // The form asks for 8 characters; Auth accepts 6 (its default, nothing in supabase/config.toml raises it).
   it.fails("FIG-1338 (open): the server enforces the 8-character minimum the form asks for", async () => {
+    let failure: unknown;
     try {
       const weak = await driver.client.auth.updateUser({ password: "abc123" });
       expect(weak.error, "a 6-character password").not.toBeNull();
-    } finally {
-      // put the seeded password back whatever happened above
-      const back = await driver.client.auth.updateUser({ password: SEED_PASSWORD });
-      if (back.error) throw new Error(`could not restore the seed password: ${back.error.message}`);
+    } catch (e) {
+      failure = e;
     }
+    // put the seeded password back whatever happened above (a throw inside `finally` would hide the failure)
+    const back = await driver.client.auth.updateUser({ password: SEED_PASSWORD });
+    if (back.error) throw new Error(`could not restore the seed password: ${back.error.message}`);
+    if (failure) throw failure;
   });
 });
