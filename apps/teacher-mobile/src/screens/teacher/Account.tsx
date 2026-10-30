@@ -5,6 +5,7 @@ import { fetchMyProfile, supabase, updateMyAvatarUrl, updateMyProfile, type MyPr
 import { accentFor, HIT, s, t } from "../../theme";
 import { uploadAvatar } from "../../lib/uploads";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import type { TeacherSession } from "../../navigation";
@@ -139,6 +140,8 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
         </View>
 
         <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
 
         <TouchableOpacity
           accessibilityRole="button"

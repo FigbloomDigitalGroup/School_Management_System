@@ -6,6 +6,7 @@ import {
 } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { queue } from "../../storage";
 import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 import { RefusedPings } from "./RefusedPings";
@@ -281,6 +282,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
         </Text>
 
         <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
       </ScrollView>
     </View>
   );

@@ -14,6 +14,7 @@ import {
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
 
 interface Profile {
@@ -150,6 +151,8 @@ export function ParentAccount() {
         </Text>
 
         <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
 
         <TouchableOpacity
           accessibilityRole="button"
