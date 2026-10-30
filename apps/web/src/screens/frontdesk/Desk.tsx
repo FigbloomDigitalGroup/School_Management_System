@@ -11,10 +11,9 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 
-/** The step buttons for one visit, and escalation for reception and the office. */
+/** The step buttons for one visit, and escalation to the principal's office. */
 export function useDeskActions() {
   const toast = useToast();
-  const { profile } = useTenantSession();
   const [busy, setBusy] = useState<string | null>(null);
 
   async function step(v: Visit, status: VisitStatus) {
@@ -44,10 +43,10 @@ export function useDeskActions() {
 
   return (v: Visit) => (
     <>
-      {profile.role !== "guard" && !v.escalated && v.status !== "left" && (
+      {!v.escalated && v.status !== "left" && (
         <Button disabled={busy === v.id} onClick={() => void escalate(v)}>Escalate</Button>
       )}
-      {nextVisitSteps(v.status, profile.role).map((s) => (
+      {nextVisitSteps(v.status).map((s) => (
         <Button key={s} variant={s === "left" ? "secondary" : "primary"} disabled={busy === v.id} onClick={() => void step(v, s)}>
           {VISIT_STEP_LABEL[s]}
         </Button>
@@ -56,48 +55,32 @@ export function useDeskActions() {
   );
 }
 
-/**
- * The guard's console: record each visitor at the gate, and sign them out
- * on the way out. Everything recorded here reaches reception live.
- */
-export function Gate() {
-  const today = useToday();
-  const { visits, loading, error, replace } = useDayVisits(today);
-  const actions = useDeskActions();
-  const onSite = visitQueue(visits);
-  const left = visits.filter((v) => v.status === "left");
-
-  return (
-    <>
-      <PageHead eyebrow="Gate" title="Visitors" blurb="Record everyone who comes in. Reception sees them before they reach the office." />
-      <div className="grid gap-5 px-7 py-6">
-        <section className="rounded-lg border border-line bg-white p-5">
-          <h2 className="mb-3.5 text-body font-semibold">New visitor</h2>
-          <VisitForm entryPoint="gate" onRecorded={replace} />
-        </section>
-        <DeskLists loading={loading} error={error} onSite={onSite} left={left} actions={actions} />
-      </div>
-    </>
-  );
-}
+const ENTRY_POINTS: { key: Visit["entry_point"]; label: string }[] = [
+  { key: "gate", label: "At the gate" },
+  { key: "reception", label: "Walk-in at the office" },
+];
 
 /**
- * Reception's console: the queue of visitors still on the premises, live
- * from the gate, each moved along until they leave. Walk-ins who didn't
- * come through the gate are recorded here.
+ * The visitor log, for other staff the office has given it
+ * (handles_visitors): the gate's work and reception's in one screen. Record
+ * each visitor where they came in, move them along (arrived, with their
+ * host, signed out) and escalate anything the principal's office should
+ * handle. Whoever else keeps the log sees each visit live.
  */
-export function Reception() {
+export function DeskVisitors() {
   const toast = useToast();
-  const { tenant } = useTenantSession();
+  const { tenant, profile } = useTenantSession();
   const today = useToday();
   const { visits, loading, error, replace } = useDayVisits(today);
   const actions = useDeskActions();
-  const [walkIn, setWalkIn] = useState(false);
+  const [entryPoint, setEntryPoint] = useState<Visit["entry_point"]>("gate");
 
-  // A visitor recorded at the gate is announced here before they reach the door.
+  // A visitor someone else recorded at the gate is announced before they reach the door.
   useEffect(() => subscribeVisits(tenant.id, (v, isNew) => {
-    if (isNew && v.entry_point === "gate") toast(`${v.visitor_name} is on the way from the gate, for ${visitHostLabel(v)}.`);
-  }), [tenant.id, toast]);
+    if (isNew && v.entry_point === "gate" && v.recorded_by !== profile.id) {
+      toast(`${v.visitor_name} is on the way from the gate, for ${visitHostLabel(v)}.`);
+    }
+  }), [tenant.id, profile.id, toast]);
 
   const onSite = visitQueue(visits);
   const left = visits.filter((v) => v.status === "left");
@@ -105,18 +88,26 @@ export function Reception() {
   return (
     <>
       <PageHead
-        eyebrow="Reception"
+        eyebrow={profile.staff_title ?? "Visitors"}
         title="Visitors today"
-        blurb="Everyone the gate lets in appears here as they're recorded. Escalate anything the principal's office should handle."
-        actions={<Button variant="accent" onClick={() => setWalkIn((w) => !w)}>{walkIn ? "Close" : "Record a walk-in"}</Button>}
+        blurb="Record everyone who comes in, at the gate or the office. Escalate anything the principal's office should handle."
       />
       <div className="grid gap-5 px-7 py-6">
-        {walkIn && (
-          <section className="rounded-lg border border-line bg-white p-5">
-            <h2 className="mb-3.5 text-body font-semibold">Walk-in</h2>
-            <VisitForm entryPoint="reception" onRecorded={(v) => { replace(v); setWalkIn(false); }} />
-          </section>
-        )}
+        <section className="rounded-lg border border-line bg-white p-5">
+          <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-body font-semibold">New visitor</h2>
+            <div role="group" aria-label="Where they came in" className="flex w-fit rounded-md border border-[#D3DAD5] bg-white p-0.5">
+              {ENTRY_POINTS.map((e) => (
+                <button key={e.key} type="button" aria-pressed={entryPoint === e.key} className="rounded px-3 py-1.5 text-small"
+                  onClick={() => setEntryPoint(e.key)}
+                  style={entryPoint === e.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
+                  {e.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <VisitForm entryPoint={entryPoint} onRecorded={replace} />
+        </section>
         <DeskLists loading={loading} error={error} onSite={onSite} left={left} actions={actions} />
       </div>
     </>

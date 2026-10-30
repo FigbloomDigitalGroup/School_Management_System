@@ -37,6 +37,11 @@ interface Props {
    *  callback rather than a plain URL so the caller can log the exit before
    *  navigating away. */
   actingBanner?: { orgName: string; schoolName: string; onExit: () => void };
+  /** NAV entries this person doesn't get, e.g. Visitors for other staff without the visitor log. */
+  hiddenNav?: string[];
+  /** A teacher or other staff member who also holds admin areas (20261031000000):
+   *  a "Teacher | Admin" switch between their own console and the admin one. */
+  consoleSwitch?: { current: "own" | "admin"; ownLabel: string; ownTo: string; adminTo: string };
 }
 
 /**
@@ -44,7 +49,7 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch }: Props) {
   // Start collapsed when the labelled sidebar would eat too much of a narrow
   // (or heavily zoomed) window; the person can still expand it.
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
@@ -72,11 +77,12 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const online = tenant?.delivery_mode === "online";
   const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework", "teacher/exams", "admin/papers", "student/exams", "admin/report-cards", "teacher/report-cards", "teacher/materials", "admin/materials", "student/materials", "parent/materials", "admin/performance", "teacher/performance"]);
   const items = NAV[role].filter((item) => {
+    if (hiddenNav?.includes(item.to)) return false;
     if (item.to === "admin/classes" || item.to === "admin/subjects" || item.to === "admin/exams" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
     if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
     // Only where the school has turned the study helper on (School settings -> AI).
-    if (item.to === "student/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
+    if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
     return true;
   });
   // Three link-prefix regimes, not two: /platform/* (super_admin, absolute
@@ -89,7 +95,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // Only the three roles with a real self-service "My account" screen (FIG-
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
-  const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings" };
+  const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings", staff: "staff/account" };
   const accountTo = ACCOUNT_ROUTE[role];
   const accountHref = accountTo
     ? (tenantScoped ? `/s/${slug}/${accountTo}` : orgScoped ? `/org/${orgSlug}/${accountTo}` : accountTo)
@@ -155,6 +161,30 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           >
             <Icon name="forward" size={13} />
           </button>
+        )}
+
+        {consoleSwitch && open && (
+          <div role="group" aria-label="Console" className="mb-2 grid shrink-0 grid-cols-2 gap-0.5 rounded-[9px] bg-white/10 p-0.5">
+            {([["own", consoleSwitch.ownLabel, consoleSwitch.ownTo], ["admin", "Admin", consoleSwitch.adminTo]] as const).map(([key, label, to]) => (
+              <NavLink
+                key={key}
+                to={`/s/${slug}/${to}`}
+                aria-current={consoleSwitch.current === key ? "page" : undefined}
+                className={`hit rounded-[7px] px-2 py-1.5 text-center text-small ${consoleSwitch.current === key ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10"}`}
+              >
+                {label}
+              </NavLink>
+            ))}
+          </div>
+        )}
+        {consoleSwitch && !open && (
+          <NavLink
+            to={`/s/${slug}/${consoleSwitch.current === "own" ? consoleSwitch.adminTo : consoleSwitch.ownTo}`}
+            title={consoleSwitch.current === "own" ? "Switch to the admin console" : `Switch to the ${consoleSwitch.ownLabel.toLowerCase()} console`}
+            className="hit mx-auto mb-2 grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/60 hover:bg-white/10"
+          >
+            <Icon name="cycle" size={13} />
+          </NavLink>
         )}
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">

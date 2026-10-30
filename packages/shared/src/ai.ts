@@ -187,16 +187,32 @@ export async function askTutor(messages: TutorTurn[]): Promise<string> {
 
 // ------------------------------------------------------------------ settings
 
-export interface AiStatus { aiEnabled: boolean; tutorEnabled: boolean; monthlyTokens: number; usedTokens: number }
+/**
+ * usedTokens counts each web search as a fixed number of tokens
+ * (ai_tokens_per_search(), 20261029100000_bloom_web_search.sql); usedSearches
+ * is how many of those there were.
+ */
+export interface AiStatus {
+  aiEnabled: boolean; tutorEnabled: boolean; webSearchEnabled: boolean;
+  monthlyTokens: number; usedTokens: number; usedSearches: number;
+}
 
 export async function fetchAiStatus(tenantId: string): Promise<AiStatus | null> {
   const { data, error } = await supabase().rpc("ai_status", { p_tenant_id: tenantId });
   if (error) throw new Error(error.message);
-  const row = (data as { ai_enabled: boolean; ai_tutor_enabled: boolean; monthly_tokens: number; used_tokens: number }[] | null)?.[0];
-  return row ? { aiEnabled: row.ai_enabled, tutorEnabled: row.ai_tutor_enabled, monthlyTokens: row.monthly_tokens, usedTokens: Number(row.used_tokens) } : null;
+  const row = (data as {
+    ai_enabled: boolean; ai_tutor_enabled: boolean; ai_web_search_enabled: boolean;
+    monthly_tokens: number; used_tokens: number; used_searches: number;
+  }[] | null)?.[0];
+  return row ? {
+    aiEnabled: row.ai_enabled, tutorEnabled: row.ai_tutor_enabled, webSearchEnabled: row.ai_web_search_enabled !== false,
+    monthlyTokens: row.monthly_tokens, usedTokens: Number(row.used_tokens), usedSearches: Number(row.used_searches ?? 0),
+  } : null;
 }
 
-export async function saveAiSettings(tenantId: string, enabled: boolean, tutorEnabled: boolean): Promise<void> {
-  const { error } = await supabase().rpc("set_ai_settings", { p_tenant_id: tenantId, p_enabled: enabled, p_tutor_enabled: tutorEnabled });
+export async function saveAiSettings(tenantId: string, enabled: boolean, tutorEnabled: boolean, webSearchEnabled: boolean): Promise<void> {
+  const { error } = await supabase().rpc("set_ai_settings", {
+    p_tenant_id: tenantId, p_enabled: enabled, p_tutor_enabled: tutorEnabled, p_web_search_enabled: webSearchEnabled,
+  });
   if (error) throw new Error(error.message);
 }

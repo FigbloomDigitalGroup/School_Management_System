@@ -4,16 +4,24 @@
  * every check live here, never in an app:
  *  - who: the task's roles (tasks.ts ALLOWED), at a school with AI switched
  *    on. An org admin acting inside a member school names it (tenantId) and
- *    counts as that school's office; the study helper also needs the school to have turned it on, and is
- *    off while the learner has an exam in progress or open
- *    (ai_tutor_blocked() in 20261026040000_ai_assist.sql)
- *  - how much: the school's monthly token allowance (tenants.ai_monthly_tokens)
- *    and a daily request cap per person
+ *    counts as that school's office; the study helper also needs the school to have turned it on (for
+ *    every learner, or only those whose parent opted in), and is off while the learner has an exam in
+ *    progress or open (ai_helper_allowed() in 20261101100000_ai_helper_optin.sql)
+ *  - how much: the school's monthly token allowance (tenants.ai_monthly_tokens,
+ *    each web search counted as ai_tokens_per_search() tokens) and a daily
+ *    request cap per person
  *  - what is sent: only what the task needs. Report card drafting gets a
  *    first name and results, never an admission number or surname.
- *  - what is kept: one ai_usage row per request (who, task, tokens), never
+ *  - web search: Bloom chat only, when the school allows it
+ *    (tenants.ai_web_search_enabled) and the person's toggle is on; at most
+ *    CHAT_MAX_SEARCHES a message. No other task is ever sent the tool.
+ *  - what is kept: one ai_usage row per request (who, task, tokens, searches), never
  *    the prompt or the reply. A paper sent for importing is deleted from
  *    storage as soon as it has been read (documents.ts).
+ *  - files: Bloom chat only. A question may carry up to CHAT_MAX_ATTACHMENTS
+ *    files in the request (text, or a PDF or Word file), read like a paper
+ *    import (documents.ts chatAttachmentParts) and never stored; metered and
+ *    refused like any chat request. The study helper refuses any file.
  *
  * Staff drafting tasks answer in JSON fixed by a schema; the app shows the
  * draft for a person to edit, and nothing is saved or sent from here. Bloom
@@ -28,10 +36,10 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { paperImportContent, readStaged } from "./documents.ts";
-import { aiFromEnv, type AiCall, type AiReply, type AiRequest } from "./providers.ts";
+import { chatAttachmentParts, paperImportContent, readStaged } from "./documents.ts";
+import { aiFromEnv, type AiCall, type AiReply, type AiRequest, type WebSearch } from "./providers.ts";
 import {
-  ALLOWED, BadInput, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
+  ALLOWED, BadInput, CHAT_MAX_SEARCHES, chatAttachments, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
   type Role, type Task,
 } from "./tasks.ts";
 
@@ -81,7 +89,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   const role = effectiveRole as Role;
 
   const { data: tenant } = await admin.from("tenants")
-    .select("id, name, country, ai_enabled, ai_tutor_enabled, ai_monthly_tokens").eq("id", tenantId).maybeSingle();
+    .select("id, name, country, ai_enabled, ai_tutor_enabled, ai_web_search_enabled, ai_monthly_tokens").eq("id", tenantId).maybeSingle();
   if (!tenant?.ai_enabled) return json({ error: "Bloom is turned off for this school. The school office can turn it on in School settings." }, 403);
   if ("error" in ai) {
     console.error("ai-assist:", ai.error);
@@ -92,11 +100,24 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   let system: string;
   let messages: AiRequest["messages"];
   let schema: Record<string, unknown> | null = null;
+  // Only the chat branch below ever sets this.
+  let webSearch: WebSearch | null = null;
   try {
     if (task === "tutor") {
+      // files are for staff chat only; the study helper never reads one
+      if ((body.payload as { attachments?: unknown } | null)?.attachments != null) throw new BadInput("The study helper can't read files.");
       if (!tenant.ai_tutor_enabled) return json({ error: "Bloom isn't turned on for learners at your school." }, 403);
-      const { data: blocked } = await admin.rpc("ai_tutor_blocked", { p_profile_id: caller.id });
-      if (blocked) return json({ error: blocked, blocked: true }, 423);
+      // The school's switch, its access mode (every learner, or a parent's
+      // opt-in) and the exam block, in one place: ai_helper_allowed() in
+      // 20261101100000_ai_helper_optin.sql. If it can't answer, the helper stays shut.
+      const { data: refused, error: checkError } = await admin.rpc("ai_helper_allowed", { p_profile_id: caller.id });
+      if (checkError) {
+        console.error("ai-assist: ai_helper_allowed failed", checkError.message);
+        return json({ error: "Bloom couldn't check whether you can use the study helper. Please try again." }, 503);
+      }
+      const refusal = refused as { code?: string; message?: string } | null;
+      if (refusal?.code === "exam") return json({ error: refusal.message, blocked: true }, 423);
+      if (refusal) return json({ error: refusal.message, optIn: refusal.code === "needs_optin" }, 403);
       const { data: me } = await admin.from("students")
         .select("classes(level, form_level)").eq("profile_id", caller.id).eq("active", true).maybeSingle();
       const level: string = me?.classes?.level ?? "";
@@ -110,8 +131,15 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
       messages = [{ role: "user", content: paperImportContent(request, await readStaged(admin, request.paths)) }];
     } else if (task === "chat") {
       const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Nairobi" });
-      system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today);
+      webSearch = chatWebSearch(body.payload, tenant);
       messages = chatMessages(body.payload ?? {});
+      // files go in ahead of the question they came with (the last message), and are kept nowhere
+      const files = chatAttachments(body.payload);
+      if (files.length) {
+        const question = messages[messages.length - 1]!;
+        messages[messages.length - 1] = { role: "user", content: [...chatAttachmentParts(files), { type: "text", text: question.content as string }] };
+      }
+      system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today, webSearch !== null, files.length > 0);
     } else {
       const prepared = prepare(task, body.payload);
       system = prepared.system;
@@ -138,11 +166,13 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
     admin.from("ai_usage").insert({
       tenant_id: tenant.id, profile_id: caller.id, task, model: reply?.model ?? ai.model, outcome,
       input_tokens: reply?.inputTokens ?? 0, output_tokens: reply?.outputTokens ?? 0,
+      // left null when the tool wasn't offered; searches are billed even when the answer is refused or cut off
+      ...(webSearch ? { searches: reply?.searches ?? 0 } : {}),
     });
 
   let reply: AiReply;
   try {
-    reply = await ai.call({ system, messages, schema, effort: EFFORT[task] });
+    reply = await ai.call({ system, messages, schema, effort: EFFORT[task], webSearch });
   } catch (err) {
     await log(null, "error");
     console.error("ai-assist: model call failed", err instanceof Error ? err.message : err);
@@ -168,12 +198,25 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   }
 
   await log(reply, "ok");
+  if (task === "chat") return json({ result: { text: reply.text, sources: reply.sources } });
   if (!schema) return json({ result: { text: reply.text } });
   try {
     return json({ result: JSON.parse(reply.text) });
   } catch {
     return json({ error: "The draft came back in an unexpected form. Please try again." }, 502);
   }
+}
+
+/**
+ * Bloom chat's web search: on unless the school has switched it off or the
+ * person turned it off for this chat (payload.webSearch === false), and
+ * localised to the school's country (Kenya's time zone for a Kenyan school).
+ */
+export function chatWebSearch(payload: unknown, tenant: { country?: string | null; ai_web_search_enabled?: boolean | null }): WebSearch | null {
+  if (tenant.ai_web_search_enabled === false) return null;
+  if ((payload as { webSearch?: unknown } | null)?.webSearch === false) return null;
+  const country = typeof tenant.country === "string" && /^[A-Z]{2}$/.test(tenant.country) ? tenant.country : "KE";
+  return { maxUses: CHAT_MAX_SEARCHES, country, ...(country === "KE" ? { timezone: "Africa/Nairobi" } : {}) };
 }
 
 function json(body: unknown, status = 200): Response {

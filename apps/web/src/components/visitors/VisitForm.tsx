@@ -14,9 +14,10 @@ const EMPTY: VisitDraft = { visitor_name: "", visitor_phone: "", id_number: "", 
 const HOST_KIND_OPTIONS = (Object.keys(VISIT_HOST_KIND_LABEL) as VisitHostKind[]).map((k) => ({ value: k, label: VISIT_HOST_KIND_LABEL[k] }));
 
 /**
- * Records one visitor: at the gate (the guard) or as a walk-in at the
- * office (reception). Saving tells whoever needs to know straight away:
- * reception and the host see it live, and visit-notify pushes their phones.
+ * Records one visitor: at the gate, or as a walk-in at the office. Saving
+ * tells whoever needs to know straight away: everyone keeping the visitor
+ * log and the host see it live, and visit-notify pushes the host's phone
+ * (and the principal's office's, for a visit escalated on arrival).
  */
 export function VisitForm({ entryPoint, onRecorded }: { entryPoint: Visit["entry_point"]; onRecorded?: (v: Visit) => void }) {
   const toast = useToast();
@@ -44,7 +45,7 @@ export function VisitForm({ entryPoint, onRecorded }: { entryPoint: Visit["entry
       void pushVisit(v.id);
       const told = v.escalated ? " The principal's office has been told."
         : v.host_kind === "teacher" ? ` ${v.host_name ?? "Their host"} has been told.` : "";
-      toast(entryPoint === "gate" ? `${v.visitor_name} recorded. Reception has been told.${told}` : `${v.visitor_name} is in the queue.${told}`);
+      toast(entryPoint === "gate" ? `${v.visitor_name} recorded, on the way to the office.${told}` : `${v.visitor_name} is in the queue.${told}`);
       setDraft(EMPTY);
       setLearner(null);
       setLearnerQuery("");
@@ -120,7 +121,7 @@ export function VisitForm({ entryPoint, onRecorded }: { entryPoint: Visit["entry
       <TextField id="visit-purpose" label="Reason for the visit" placeholder="e.g. Fees query, collecting a child, delivery" value={draft.purpose} onChange={(e) => set({ purpose: e.target.value })} error={problem ?? undefined} autoComplete="off" />
 
       <div className="flex justify-end">
-        <Button type="submit" variant="accent" disabled={saving}>{saving ? "Saving…" : entryPoint === "gate" ? "Record and send to reception" : "Add to the queue"}</Button>
+        <Button type="submit" variant="accent" disabled={saving}>{saving ? "Saving…" : entryPoint === "gate" ? "Record and send to the office" : "Add to the queue"}</Button>
       </div>
     </form>
   );

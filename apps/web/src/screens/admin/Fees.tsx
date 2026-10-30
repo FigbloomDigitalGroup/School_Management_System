@@ -16,6 +16,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
+import { TermReceipts } from "../../components/signatures/ReceiptSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
 import { BillTermModal, RecordPaymentModal, type PayableInvoice, type ProofToConfirm } from "./FeeCollection";
 
@@ -23,13 +24,17 @@ interface OutstandingRow {
   id: string;
   name: string;
   cls: string;
+  /** The invoice total, charges included. */
   billed: number;
+  /** The part of `billed` that is charges (a lost textbook). */
+  charges: number;
   paid: number;
 }
 
 interface RawInvoiceRow {
   id: string;
   total_cents: number;
+  charges_cents: number;
   paid_cents: number;
   students: { full_name: string; classes: { name: string } | null } | null;
 }
@@ -87,7 +92,7 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
     // Every invoice, not the first 1000: the totals below are the school's whole term.
     termId
       ? fetchAllPages<RawInvoiceRow>((from, to) =>
-          sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))")
+          sb.from("fee_invoices").select("id,total_cents,charges_cents,paid_cents,students(full_name,classes(name))")
             .eq("tenant_id", tenantId).eq("term_id", termId).order("id").range(from, to).returns<RawInvoiceRow[]>())
       : Promise.resolve([] as RawInvoiceRow[]),
     // Payment proofs are keyed by invoice, not term — reach the current term
@@ -116,6 +121,7 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
       name: r.students?.full_name ?? "Unknown learner",
       cls: r.students?.classes?.name ?? "—",
       billed: r.total_cents,
+      charges: r.charges_cents,
       paid: r.paid_cents,
     }))
     .sort((a, b) => (b.billed - b.paid) - (a.billed - a.paid))
@@ -321,7 +327,11 @@ export function Fees() {
               title="Largest outstanding balances"
               columns={[
                 { key: "name", header: "Learner", width: "1.6fr", render: (r: OutstandingRow) => <Cell sub={r.cls}>{r.name}</Cell> },
-                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.billed, tenant.country)}</Mono> },
+                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => (
+                  <Cell sub={r.charges > 0 ? `incl. ${formatMoney(r.charges, tenant.country)} charges` : undefined}>
+                    <Mono>{formatMoney(r.billed, tenant.country)}</Mono>
+                  </Cell>
+                ) },
                 { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.paid, tenant.country)}</Mono> },
                 { key: "bal", header: "Balance", align: "right", render: (r: OutstandingRow) => (
                   <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.billed - r.paid, tenant.country)}</span>
@@ -402,6 +412,12 @@ export function Fees() {
             />
           )}
         </div>
+
+        {data?.term && (
+          <div className="mt-4">
+            <TermReceipts termId={data.term.id} reloadKey={reloadKey} />
+          </div>
+        )}
       </div>
 
       {editingItems && data?.term && (

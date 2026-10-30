@@ -23,9 +23,13 @@ export interface MapViewProps {
   scrollEnabled?: boolean;
   zoomEnabled?: boolean;
   toolbarEnabled?: boolean;
+  /** Fires while a finger drags the map (not when the map is moved from code). */
+  onPanDrag?: () => void;
   children?: ReactNode;
 }
-export default class MapView extends Component<MapViewProps> {}
+export default class MapView extends Component<MapViewProps> {
+  animateCamera(camera: { center?: LatLng }, opts?: { duration?: number }): void;
+}
 
 export interface MarkerProps {
   coordinate: LatLng;
@@ -34,7 +38,10 @@ export interface MarkerProps {
   anchor?: { x: number; y: number };
   children?: ReactNode;
 }
-export class Marker extends Component<MarkerProps> {}
+export class Marker extends Component<MarkerProps> {
+  /** Slides the marker to a new position, natively, over `duration` ms (default 500). */
+  animateMarkerToCoordinate(coordinate: LatLng, duration?: number): void;
+}
 
 export interface PolylineProps {
   coordinates: LatLng[];

@@ -13,9 +13,15 @@ def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
-// No com.google.gms.google-services plugin yet — push isn't in scope until
-// a teacher-messaging ticket needs it, and it would need this app's own
-// Firebase project registration, not apps/mobile's google-services.json.
+// Push notifications (FIG-1290). The google-services plugin reads
+// android/app/google-services.json: the Firebase config for THIS app (package
+// com.figbloom.teacher), registered as a second Android app in the same Firebase
+// project as apps/mobile, so the server's one FCM service account reaches both.
+// Applied only when the file is there, so a build without it (CI, a fresh clone)
+// still compiles; push then simply doesn't register. See README.md here.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -106,6 +112,21 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    // A small APK for sending to phones directly. The release workflow passes
+    // -PsmallApk to its APK step only; the Play bundle and everyday builds are
+    // unchanged. It stores the native libraries compressed (about 29 MB of them
+    // become about 11 MB), for more room on the phone once installed. It expects
+    // the native build to be limited to the two phone architectures, arm64-v8a
+    // and armeabi-v7a, with -PreactNativeArchitectures=armeabi-v7a,arm64-v8a.
+    // That is still one APK that installs on every phone; only x86 and x86_64
+    // (emulators, Chromebooks) are left out, so use a debug build there.
+    if (project.hasProperty("smallApk")) {
+        packaging {
+            jniLibs {
+                useLegacyPackaging = true
+            }
+        }
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -143,4 +164,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Push notifications (FIG-1290) — @react-native-firebase/messaging autolinks
+    // against these; the BoM keeps their versions in step with google-services.json.
+    implementation platform("com.google.firebase:firebase-bom:34.19.0")
+    implementation "com.google.firebase:firebase-messaging"
 }

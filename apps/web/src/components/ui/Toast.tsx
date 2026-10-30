@@ -2,7 +2,9 @@ import { createContext, useCallback, useContext, useRef, useState, type ReactNod
 
 /** "error" is for anything that didn't happen (a failed save, a blocked form) — everything else is the default. */
 export type ToastTone = "default" | "error";
-export type ToastFn = (msg: string, tone?: ToastTone) => void;
+/** A link after the message, e.g. "Open in Google Docs" once a file is saved there. Opens in a new tab. */
+export interface ToastLink { label: string; href: string }
+export type ToastFn = (msg: string, tone?: ToastTone, link?: ToastLink) => void;
 
 const ToastCtx = createContext<ToastFn>(() => {});
 export const useToast = () => useContext(ToastCtx);
@@ -17,15 +19,16 @@ export const useToast = () => useContext(ToastCtx);
  * every school, so a failure never looks like a confirmation.
  */
 export function ToastHost({ children }: { children: ReactNode }) {
-  const [toast, setToast] = useState<{ msg: string; tone: ToastTone; id: number } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; tone: ToastTone; id: number; link?: ToastLink } | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
-  const fire = useCallback<ToastFn>((msg, tone = "default") => {
+  const fire = useCallback<ToastFn>((msg, tone = "default", link) => {
     // A new toast replaces the old one outright — without clearing the old
     // timer it would dismiss the new message early.
     window.clearTimeout(timer.current);
-    setToast({ msg, tone, id: Date.now() });
-    timer.current = window.setTimeout(() => setToast(null), tone === "error" ? 6000 : 3600);
+    setToast({ msg, tone, id: Date.now(), link });
+    // one with a link stays long enough to reach for it
+    timer.current = window.setTimeout(() => setToast(null), link ? 10000 : tone === "error" ? 6000 : 3600);
   }, []);
 
   const error = toast?.tone === "error";
@@ -47,6 +50,11 @@ export function ToastHost({ children }: { children: ReactNode }) {
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange" aria-hidden />
           )}
           {toast.msg}
+          {toast.link && (
+            <a href={toast.link.href} target="_blank" rel="noopener noreferrer" className="shrink-0 font-semibold underline underline-offset-2">
+              {toast.link.label}
+            </a>
+          )}
         </div>
       )}
     </ToastCtx.Provider>

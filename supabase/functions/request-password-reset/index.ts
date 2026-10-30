@@ -24,7 +24,7 @@ const REQUEST_WINDOW = "1 hour";
 const TOO_MANY_MESSAGE = "Too many attempts. Wait a while and try again, or ask the school office.";
 
 /** Roles that sign in with a school ID. Admins with an email use the emailed link instead. */
-const ID_ROLES = new Set(["student", "parent", "teacher", "driver", "guard", "receptionist", "school_admin"]);
+const ID_ROLES = new Set(["student", "parent", "teacher", "driver", "staff", "school_admin"]);
 
 interface Body {
   tenant_id: string;

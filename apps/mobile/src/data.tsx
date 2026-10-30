@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
+import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeCharge, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
 import { accentFor, t } from "./theme";
 
 /**
@@ -23,8 +23,12 @@ interface Child {
   classId: string | null;
   /** This term's invoice, which a payment is made against; null until the school has billed. */
   invoiceId: string | null;
+  /** Still owed: the invoice total, charges included, less what has been paid. */
   balance: number;
+  /** The invoice total: fees billed plus any charges. */
   billed: number;
+  /** Charges the office added to this term's invoice (a lost textbook), already inside `billed`. */
+  charges: FeeCharge[];
   dueOn: string | null;
   boarding: boolean;
   formLevel: number;
@@ -49,6 +53,7 @@ function toChild(c: ChildInfo): Child {
     classId: c.classId ?? null, // a cache written by an older build may not carry it
     invoiceId: c.invoiceId ?? null, // a cache written by an older build may not carry it
     balance: c.balance, billed: c.billed, dueOn: c.dueOn,
+    charges: c.charges ?? [], // a cache written by an older build may not carry them
     boarding: c.boarding, formLevel: c.formLevel, classLevel: c.classLevel, receipts: c.receipts,
     attendance: c.attendancePct,
     absentDates: c.absentDates ?? [], // a cache written by an older build may not carry it

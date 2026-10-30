@@ -1,6 +1,6 @@
 /** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
 
-export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "guard" | "receptionist";
+export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "staff";
 
 export type TenantStatus = "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
 
@@ -41,6 +41,10 @@ export interface Tenant {
   ai_enabled?: boolean;
   /** The study helper for learners; off unless the school turns it on. */
   ai_tutor_enabled?: boolean;
+  /** Bloom chat may search the web (20261029100000); on unless the school turns it off. */
+  ai_web_search_enabled?: boolean;
+  /** Every learner, or only those whose parent turned it on (20261101100000); "all" when missing. */
+  ai_tutor_access?: "all" | "opt_in";
   licensed_seats: number;
   payment_paybill: string | null;
   payment_till: string | null;
@@ -151,6 +155,8 @@ export interface Profile {
   must_change_password: boolean;
   /** A driver changed their own photo and no admin has looked at it yet. */
   photo_changed_at: string | null;
+  /** Deprecated (20261031000000): the visitor log is now the visitors admin area (adminAreas.ts). Nothing reads it. */
+  handles_visitors?: boolean;
   created_at: string;
 }
 
@@ -287,7 +293,10 @@ export interface FeeInvoice {
   tenant_id: string;
   student_id: string;
   term_id: string;
+  /** Fees billed plus any charges (fee_charges): what is owed in all. */
   total_cents: number;
+  /** The part of total_cents that is charges (a lost textbook). Optional: older selects leave it out. */
+  charges_cents?: number;
   paid_cents: number;
   due_on: string;
   status: InvoiceStatus;

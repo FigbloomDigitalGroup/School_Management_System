@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
   fetchTeacherClasses, fetchTeacherClassTimetable,
   type ClassGroup, type TeacherTimetableRow, type Weekday,
@@ -8,6 +8,7 @@ import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 const DAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_LABEL: Record<Weekday, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
@@ -85,7 +86,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
         {DAYS.map((d) => {
           const on = d === day;
           return (
-            <TouchableOpacity
+            <Tap
               key={d}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
@@ -96,7 +97,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
               }}
             >
               <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{d}</Text>
-            </TouchableOpacity>
+            </Tap>
           );
         })}
       </View>

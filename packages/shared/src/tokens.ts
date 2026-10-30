@@ -36,7 +36,11 @@ export const surface = {
   inkFaint: "#7B877F",
 } as const;
 
-/** Warmer surfaces for the parent and student apps — read on a phone, at night. */
+/**
+ * Warmer surfaces for the parent and student apps — read on a phone, at night.
+ * Only the phone apps use these. `inkFaint` is the quietest text and must still
+ * clear 4.5:1 on every surface here (tokens.test.ts holds it to that).
+ */
 export const appSurface = {
   page: "#FBF9F9",
   shell: "#F3EFEE",
@@ -45,7 +49,7 @@ export const appSurface = {
   lineSoft: "#F4F0EF",
   ink: "#221A1B",
   inkMuted: "#6B605F",
-  inkFaint: "#8B807E",
+  inkFaint: "#736967",
 } as const;
 
 /** The accents a school may choose. Every one is AA on white. */

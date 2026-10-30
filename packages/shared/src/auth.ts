@@ -17,8 +17,9 @@ export const ROLE_ID_PREFIX: Partial<Record<Role, string>> = {
   parent: "PT",
   student: "ST",
   driver: "BD",
-  guard: "GD",
-  receptionist: "RC",
+  // "Other staff". Accounts that were guards or receptionists before
+  // 20261028100001 keep the GD-/RC- IDs they were issued.
+  staff: "SF",
 };
 
 /** Zero-pads to 4 digits, e.g. formatLoginId("TC", 1) -> "TC-0001". */
@@ -83,8 +84,8 @@ export function homeRouteFor(role: Role, slug: string | null, institutionType?: 
     case "parent": return `/s/${slug}/parent`;
     case "student": return `/s/${slug}/student`;
     case "driver": return `/s/${slug}/driver`;
-    case "guard": return `/s/${slug}/gate`;
-    case "receptionist": return `/s/${slug}/reception`;
+    // the visitor log for those who keep it, notices for everyone else (App.tsx StaffHome)
+    case "staff": return `/s/${slug}/staff`;
     // Not tenant-scoped at all — `slug` here is actually the org's own slug
     // (SignIn.tsx resolves it from organization_admins, not tenants, for
     // this role). Not /platform/*: that's staff-only and would just bounce
@@ -117,16 +118,19 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/materials", label: "Learning materials", icon: "book" },
     { to: "admin/report-cards", label: "Report cards", icon: "receipt" },
     { to: "admin/fees", label: "Fees", icon: "receipt" },
+    { to: "admin/study-helper", label: "Bloom study helper", icon: "chat" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone" },
     { to: "admin/activities", label: "Sports & activities", icon: "trophy" },
     { to: "admin/chats", label: "Chats", icon: "chat" },
     { to: "admin/leave", label: "Leave requests", icon: "flag" },
     { to: "admin/visitors", label: "Visitors", icon: "people" },
+    { to: "admin/medical", label: "Sick bay", icon: "pulse" },
     { to: "admin/inventory", label: "Inventory", icon: "box" },
     { to: "admin/fleet", label: "Fleet", icon: "pulse" },
     { to: "admin/reports", label: "Reports", icon: "chart" },
     { to: "admin/performance", label: "Performance", icon: "chart" },
     { to: "admin/settings", label: "School settings", icon: "gear" },
+    { to: "admin/access", label: "Access & roles", icon: "people" },
     { to: "admin/account", label: "My account", icon: "pencil" },
   ],
   teacher: [
@@ -157,10 +161,12 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "parent/homework", label: "Homework", icon: "pencil" },
     { to: "parent/materials", label: "Learning materials", icon: "book" },
     { to: "parent/activities", label: "Sports & activities", icon: "trophy" },
+    { to: "parent/study-helper", label: "Bloom study helper", icon: "chat" },
     { to: "parent/bus", label: "Bus", icon: "pulse" },
     { to: "parent/inbox", label: "Inbox", icon: "chat" },
     { to: "parent/chats", label: "Chats", icon: "chat" },
     { to: "parent/items", label: "Issued items", icon: "box" },
+    { to: "parent/health", label: "Health", icon: "pulse" },
     { to: "parent/settings", label: "Account", icon: "gear" },
   ],
   student: [
@@ -182,11 +188,14 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
   driver: [
     { to: "driver", label: "Trip", icon: "pulse" },
   ],
-  guard: [
-    { to: "gate", label: "Gate", icon: "people" },
-  ],
-  receptionist: [
-    { to: "reception", label: "Reception", icon: "people" },
+  // Other staff. Visitors only for those holding the visitors admin area
+  // (adminAreas.ts); StaffShell hides it from the rest.
+  staff: [
+    { to: "staff/visitors", label: "Visitors", icon: "people" },
+    { to: "staff/notices", label: "Notices", icon: "bell" },
+    { to: "staff/chats", label: "Chats", icon: "chat" },
+    { to: "staff/items", label: "My items", icon: "box" },
+    { to: "staff/account", label: "Account", icon: "pencil" },
   ],
   // Relative, same as every tenant-scoped role's items — NavLink resolves
   // them against the current /org/<slug>/ location, so no manual slug

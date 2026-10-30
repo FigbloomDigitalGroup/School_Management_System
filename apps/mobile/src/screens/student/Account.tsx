@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
+import { Tap } from "../../ui/Tap";
 
 interface Profile {
   fullName: string;
@@ -63,7 +66,11 @@ export function StudentAccount() {
           <Text style={[s.small, { marginTop: 4 }]}>{data.className}</Text>
         </View>
 
-        <TouchableOpacity
+        <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
+
+        <Tap
           accessibilityRole="button"
           disabled={signingOut}
           onPress={signOut}
@@ -72,7 +79,7 @@ export function StudentAccount() {
           <Text style={{ fontSize: 15, fontWeight: "600", color: t.status.warnInk }}>
             {signingOut ? "Signing out…" : "Sign out"}
           </Text>
-        </TouchableOpacity>
+        </Tap>
       </ScrollView>
     </View>
   );

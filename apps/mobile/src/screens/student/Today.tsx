@@ -1,11 +1,15 @@
 import { ScrollView, Text, View } from "react-native";
 import { currentPeriodIndex, todayWeekday } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
+import { LiveClassBanner } from "../../calls/LiveClassBanner";
+import { ChatsCard } from "../../components/ChatsCard";
+import { PendingSignatures } from "../../components/PendingSignatures";
+import { StudyHelperCard } from "../../components/StudyHelperCard";
 import { useStudentData } from "../../studentData";
 
 /** Where am I meant to be, and what is late. Nothing else above the fold. */
 export function StudentToday() {
-  const { data, timetable, accent } = useStudentData();
+  const { data, timetable, accent, tenantId } = useStudentData();
   const a = accentFor(accent);
 
   const day = todayWeekday();
@@ -47,6 +51,9 @@ export function StudentToday() {
           )}
         </View>
 
+        {/* A live class running in this learner's class: Join. Nothing when there is none. */}
+        {!!data.classId && <LiveClassBanner tenantId={tenantId} classIds={[data.classId]} tint={a.deep} />}
+
         {overdue.length > 0 && (
           <View style={[s.banner, { marginTop: 16 }]}>
             <View style={{ width: 24, height: 24, borderRadius: 8, backgroundColor: t.brand.orange, alignItems: "center", justifyContent: "center" }}>
@@ -64,6 +71,12 @@ export function StudentToday() {
             </View>
           </View>
         )}
+
+        {/* Forms the school has asked this learner to sign; nothing at all when there are none. */}
+        <PendingSignatures tint={a.deep} />
+
+        <ChatsCard tint={a.deep} blurb="Message your parents or guardians." />
+        <StudyHelperCard tint={a.deep} />
 
         <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Rest of today</Text>
         {restOfDay.length === 0 ? (

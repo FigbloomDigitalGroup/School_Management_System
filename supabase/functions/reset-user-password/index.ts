@@ -7,6 +7,10 @@
  *  - the school's own admin, for anyone at their school
  *  - an org admin, for anyone at a school their organization owns
  *  - a parent, for their own child's learner login only
+ *  - a teacher or other staff member holding the people admin area
+ *    (20261031000000), for learners, parents, teachers, drivers and other
+ *    staff at their school who hold no admin area themselves: taking over
+ *    an account with more access than your own is never a password away
  *
  * Same temporary-password approach as invite-admin/provision-*: a random
  * one-time password (_shared/tempPassword.ts) returned once, to be handed
@@ -14,23 +18,35 @@
  * own at their next sign-in. Any open password_reset_requests for the
  * account are marked resolved.
  *
+ * Email (_shared/email.ts): when the account has a real email on its profile
+ * and Resend is set up, the new password is emailed to them too, never to a
+ * learner (children's logins go through their parents or the school). With
+ * `resend: true` this is the "Send sign-in details again" action instead:
+ * same permission, same new one-time password and must_change_password, but
+ * it refuses up front (before touching the password) when there's no address,
+ * email isn't set up, or the caller has sent too many in the last hour.
+ *
  * Deploy: supabase functions deploy reset-user-password
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { holdsAnyArea, holdsArea } from "../_shared/adminAreas.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, type EmailOutcome, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 interface Body {
   profile_id: string;
+  /** "Send sign-in details again": email the new password, or change nothing. */
+  resend?: boolean;
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
 const NOT_YOURS = "You can't reset this person's password.";
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -42,7 +58,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: caller } = await admin
     .from("profiles").select("id, role, full_name, tenant_id").eq("id", user.id).maybeSingle();
-  if (!caller || !["super_admin", "school_admin", "org_admin", "parent"].includes(caller.role)) {
+  if (!caller || !["super_admin", "school_admin", "org_admin", "parent", "teacher", "staff"].includes(caller.role)) {
     return json({ error: "Only the school office, an organization admin, or a parent can reset a password." }, 403);
   }
 
@@ -51,9 +67,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const profileId = body.profile_id?.trim();
   if (!profileId) return json({ error: "Say whose password to reset." }, 400);
   if (profileId === user.id) return json({ error: "To change your own password, use your account page." }, 400);
+  const resend = body.resend === true;
 
   const { data: target } = await admin
-    .from("profiles").select("id, role, full_name, tenant_id, login_id").eq("id", profileId).maybeSingle();
+    .from("profiles").select("id, role, full_name, tenant_id, login_id, email").eq("id", profileId).maybeSingle();
   // Accounts outside a school (org admins, Figbloom staff) have a real email and reset through the emailed link.
   if (!target || !target.tenant_id || target.role === "super_admin" || target.role === "org_admin") {
     return json({ error: "That account could not be found." }, 404);
@@ -84,8 +101,27 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
       authorized = !!guardian;
     }
     actorSuffix = "parent";
+  } else if (caller.role === "teacher" || caller.role === "staff") {
+    authorized = ["student", "parent", "teacher", "driver", "staff"].includes(target.role)
+      && await holdsArea(admin, caller, target.tenant_id, "people")
+      && !(await holdsAnyArea(admin, target.id));
+    actorSuffix = "people";
   }
   if (!authorized) return json({ error: NOT_YOURS }, 403);
+
+  // Learners are children: their sign-in goes through their parents or the school, never their inbox.
+  const mayEmail = target.role !== "student";
+  const email = await emailContext(admin, emailDeps, user.id);
+  if (resend) {
+    if (!mayEmail) return json({ error: "A learner's sign-in details aren't emailed. Reset the password and hand it over instead." }, 400);
+    if (!isDeliverable(target.email)) return json({ error: `There's no email address on file for ${target.full_name}.` }, 400);
+    if (!email.mailer.configured) return json({ error: "Email isn't set up yet, so nothing was sent. Reset the password and hand it over instead." }, 503);
+    if (!(await email.limiter(email.callerKey))) {
+      return json({ error: "You've sent a lot of sign-in emails in the last hour. Try again later." }, 429);
+    }
+    // counted just now: the send below mustn't count it twice
+    email.limiter = () => Promise.resolve(true);
+  }
 
   const password = tempPassword();
   const { error: authErr } = await admin.auth.admin.updateUserById(target.id, { password });
@@ -103,15 +139,33 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     .update({ resolved_at: now, resolved_by: user.id }).eq("profile_id", target.id).is("resolved_at", null);
   if (resolveErr) console.error("reset-user-password: could not close the request:", resolveErr.message);
 
+  // The new password is set: whatever happens to the email, it's on screen as well.
+  let emailed: EmailOutcome = { status: "no_address" };
+  if (mayEmail) {
+    const { data: tenant } = await admin.from("tenants").select("name, slug").eq("id", target.tenant_id).maybeSingle();
+    emailed = await deliverLoginDetails(email, target.email, {
+      kind: resend ? "welcome" : "reset",
+      fullName: target.full_name,
+      placeName: tenant?.name ?? "your school",
+      login: target.login_id ?? target.email ?? "",
+      loginIsId: !!target.login_id,
+      password,
+      signInPath: signInPath(target.role, tenant?.slug),
+      actor: actorName(caller),
+    });
+  }
+
+  const who = `${target.full_name}${target.login_id ? ` (${target.login_id})` : ""}`;
+  const mailed = emailed.status === "sent" ? ", emailed to them" : resend ? ", but the email failed" : "";
   await admin.from("audit_events").insert({
     tenant_id: target.tenant_id,
     actor_id: user.id,
     actor_label: `${caller.full_name ?? "Unknown"} · ${actorSuffix}`,
-    event: `Password reset for ${target.full_name}${target.login_id ? ` (${target.login_id})` : ""}`,
+    event: resend ? `Sign-in details sent again to ${who}: new one-time password${mailed}` : `Password reset for ${who}${mailed}`,
     category: "access",
   });
 
-  return json({ ok: true, password, login_id: target.login_id ?? null, full_name: target.full_name });
+  return json({ ok: true, password, login_id: target.login_id ?? null, full_name: target.full_name, emailed });
 }
 
 if (import.meta.main) {
@@ -124,7 +178,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 

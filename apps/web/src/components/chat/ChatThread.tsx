@@ -9,6 +9,7 @@ import { Avatar } from "../Avatar";
 import { Button } from "../ui/Button";
 import { Skeleton } from "../ui/Skeleton";
 import { useToast } from "../ui/Toast";
+import { CallButton } from "../calls/CallButton";
 import { UPLOAD_LIMIT_BYTES } from "../../lib/uploadLimit";
 import { CHAT_READ_EVENT } from "../../lib/useChatUnread";
 
@@ -147,8 +148,10 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
               <div className="truncate text-[14px] font-semibold">{other.name}</div>
               <div className="text-[11.5px] text-ink-faint">{chatRoleWord(other.role)}</div>
             </div>
-            {/* Call slot: the LiveKit calls work drops <CallButton profileId={other.profileId} /> here. */}
-            <div data-slot="call" className="flex shrink-0 items-center gap-2" />
+            {/* Chat and calls share one rule (may_talk), so whoever can be replied to can be rung. */}
+            <div data-slot="call" className="flex shrink-0 items-center gap-2">
+              {canReply && <CallButton profileId={other.profileId} name={other.name} />}
+            </div>
           </>
         ) : null}
       </header>
@@ -225,7 +228,7 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
           </div>
         ) : (
           <p className="border-t border-line bg-white px-5 py-3 text-[12.5px] text-ink-muted">
-            You can read this chat but can no longer reply: the school has changed who teaches this learner.
+            You can read this chat but can no longer reply or call: the school has changed who teaches this learner, or the learner has left.
           </p>
         )
       )}

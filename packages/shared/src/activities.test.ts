@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   achievementLabel, diffIds, eventNotice, eventResultLabel, eventToForm, isAchievement, ordinal, splitEvents,
-  validateActivity, validateEvent, type ActivityEventRow, type EventForm,
+  clubsLine, termActivities, validateActivity, validateEvent, type ActivityEventRow, type EventForm, type TermActivityRows,
 } from "./activities";
 
 const form = (over: Partial<EventForm> = {}): EventForm => ({
@@ -157,5 +157,57 @@ describe("diffIds", () => {
   it("adds the new and removes the dropped", () => {
     expect(diffIds(["a", "b"], ["b", "c"])).toEqual({ add: ["c"], remove: ["a"] });
     expect(diffIds([], [])).toEqual({ add: [], remove: [] });
+  });
+});
+
+describe("termActivities", () => {
+  const term = { startsOn: "2026-05-04", endsOn: "2026-08-07" };
+  const ev = (id: string, day: string, over: Partial<TermActivityRows["events"][number]> = {}): TermActivityRows["events"][number] => ({
+    id, title: `Event ${id}`, level: "county", startsAt: new Date(`${day}T14:00`).toISOString(), status: "completed",
+    score: "", outcome: null, position: null, activityName: "Athletics", ...over,
+  });
+  const none = { award: null, position: null, achievement: null };
+
+  it("lists running clubs joined by the term's end, and their own awards at events in the term", () => {
+    const out = termActivities({
+      memberships: [
+        { studentId: "s1", activityName: "Football", activityActive: true, role: " Captain ", joinedOn: "2026-01-10" },
+        { studentId: "s1", activityName: "Chess", activityActive: false, role: null, joinedOn: "2026-01-10" },
+        { studentId: "s1", activityName: "Drama", activityActive: true, role: null, joinedOn: "2026-09-01" },
+      ],
+      events: [ev("in", "2026-06-12"), ev("before", "2026-04-30"), ev("after", "2026-08-08")],
+      participants: [
+        { studentId: "s1", eventId: "in", award: "gold", position: 1, achievement: "400 m" },
+        { studentId: "s1", eventId: "before", award: "silver", position: null, achievement: null },
+        { studentId: "s1", eventId: "after", award: "bronze", position: null, achievement: null },
+      ],
+    }, term);
+    expect(out.get("s1")).toEqual({
+      clubs: [{ name: "Football", role: "Captain" }],
+      achievements: [{ date: "2026-06-12", activity: "Athletics", event: "Event in", level: "county", result: "Gold · 400 m" }],
+    });
+  });
+
+  it("counts a team's win or podium place for those who took part, never a loss or a cancelled event", () => {
+    const out = termActivities({
+      memberships: [],
+      events: [
+        ev("won", "2026-05-10", { outcome: "won", score: "2-1", activityName: "Football" }),
+        ev("lost", "2026-05-17", { outcome: "lost", score: "0-3", activityName: "Football" }),
+        ev("third", "2026-06-01", { position: 3, activityName: "Choir" }),
+        ev("off", "2026-06-02", { status: "cancelled", outcome: "won" }),
+      ],
+      participants: ["won", "lost", "third", "off"].map((eventId) => ({ studentId: "s2", eventId, ...none })),
+    }, term);
+    expect(out.get("s2")!.achievements.map((a) => a.result)).toEqual(["Won 2-1", "3rd place"]);
+  });
+
+  it("leaves out a learner with nothing to show", () => {
+    const out = termActivities({ memberships: [], events: [ev("lost", "2026-05-17", { outcome: "lost" })], participants: [{ studentId: "s3", eventId: "lost", ...none }] }, term);
+    expect(out.has("s3")).toBe(false);
+  });
+
+  it("writes clubs on one line with roles", () => {
+    expect(clubsLine([{ name: "Football", role: "Captain" }, { name: "Drama", role: null }])).toBe("Football (Captain), Drama");
   });
 });

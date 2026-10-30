@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, TextInput, View } from "react-native";
 import {
-  againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, isRetryable, parseScoreInput, publishMarks, rubricFor, saveExamMarks,
-  summarise, unpublishMarks, type ClassGroup, type Exam, type Student, type Subject,
+  ABSENCE_LABEL, againstMean, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarkAbsences, fetchMarksForExamSubject,
+  fetchPublishedSubjects, fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, isRetryable,
+  parseScoreInput, publishMarks, rubricFor, saveExamMarks, summarise, unpublishMarks,
+  type ClassGroup, type Exam, type MarkAbsence, type Student, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
@@ -11,6 +12,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 import { TeacherCbeGradebookBody } from "./CbeGradebook";
+import { Tap } from "../../ui/Tap";
 
 /** Stand-in for a PillPicker row while its options load — same height, so nothing jumps. */
 function PillsSkeleton() {
@@ -131,6 +133,19 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
       .catch(() => { if (alive) { setExistingMarks({}); setMarksFor(loadedFor); } });
     return () => { alive = false; };
   }, [examId, subjectId, roster, marksVersion]);
+
+  // Learners an online paper recorded as missed or excused (send_exam_scores_to_gradebook): no score, and never a 0.
+  // Their mark still reads "abs", like any other blank, with why under their name. A failed read just leaves the why off.
+  const [absenceData, setAbsenceData] = useState<{ examId: string; subjectId: string; absences: Record<string, MarkAbsence> } | null>(null);
+  useEffect(() => {
+    if (!examId || !subjectId || !roster || !roster.length) { setAbsenceData(null); return; }
+    let alive = true;
+    fetchMarkAbsences(examId, subjectId, roster.map((s) => s.id))
+      .then((absences) => { if (alive) setAbsenceData({ examId, subjectId, absences }); })
+      .catch(() => { if (alive) setAbsenceData(null); });
+    return () => { alive = false; };
+  }, [examId, subjectId, roster, marksVersion]);
+  const absences = absenceData && absenceData.examId === examId && absenceData.subjectId === subjectId ? absenceData.absences : {};
 
   // Which of this exam's subjects are already out for this class. Re-read after every save, publish or withdraw.
   const [publishedSubjects, setPublishedSubjects] = useState<Set<string>>(new Set());
@@ -366,7 +381,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
             {(["strands", "marks"] as const).map((m) => {
               const on = mode === m;
               return (
-                <TouchableOpacity
+                <Tap
                   key={m}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
@@ -376,7 +391,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
                   <Text style={{ fontSize: 12.5, fontWeight: "700", color: on ? "#fff" : t.appSurface.inkMuted }}>
                     {m === "strands" ? "Strands" : "Exam marks"}
                   </Text>
-                </TouchableOpacity>
+                </Tap>
               );
             })}
           </View>
@@ -410,6 +425,11 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
                 <Text style={s.faint}>ADM {student.admission_no}</Text>
+                {!!absences[student.id] && raw.trim().toLowerCase().startsWith("abs") && (
+                  <Text style={{ fontSize: 11.5, fontWeight: "600", color: absences[student.id] === "missed" ? t.status.warnInk : t.status.infoInk }}>
+                    {absences[student.id] === "missed" ? `${ABSENCE_LABEL.missed} the online paper` : `${ABSENCE_LABEL.excused} from the online paper`}
+                  </Text>
+                )}
                 {parsed.ok && parsed.score !== null && mean !== null && (
                   <Text style={s.faint}>{againstMean(parsed.score, mean)}</Text>
                 )}
@@ -452,25 +472,25 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
           </Text>
         )}
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={busy || rowsLoading}
             onPress={() => void saveDraft()}
             style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy || rowsLoading ? 0.6 : 1 }]}
           >
             <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>{isPublished ? "Save changes" : "Save draft"}</Text>
-          </TouchableOpacity>
+          </Tap>
           {isPublished ? (
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={busy || rowsLoading}
               onPress={withdraw}
               style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.brand.orange, opacity: busy || rowsLoading ? 0.6 : 1 }]}
             >
               {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Withdraw</Text>}
-            </TouchableOpacity>
+            </Tap>
           ) : (
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={busy || rowsLoading || entered < roll.length}
               onPress={() => void publish()}
@@ -479,7 +499,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
               {busy ? <ActivityIndicator color="#fff" /> : (
                 <Text style={s.primaryLabel}>{!rowsLoading && entered < roll.length ? `${roll.length - entered} left` : "Publish"}</Text>
               )}
-            </TouchableOpacity>
+            </Tap>
           )}
         </View>
       </View>

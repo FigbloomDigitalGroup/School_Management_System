@@ -3,7 +3,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
+import { FingerprintLock } from "./src/components/FingerprintLock";
 import { Navigation, type TeacherSession } from "./src/navigation";
+import { registerPushToken } from "./src/pushNotifications";
 import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { SignIn } from "./src/screens/SignIn";
 import { accentFor } from "./src/theme";
@@ -54,6 +56,11 @@ export default function App() {
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
 
+  // Pushes (a new chat, a visitor) reach this phone once it has told the server it exists.
+  useEffect(() => {
+    if (session) void registerPushToken();
+  }, [session]);
+
   const a = accentFor(session?.accent ?? "#7A1F2B");
 
   if (loading) {
@@ -70,14 +77,16 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
       {session ? (
-        choosePassword ? (
-          <ChoosePassword
-            profileId={session.profileId}
-            fullName={session.fullName}
-            loginId={choosePassword.loginId}
-            onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
-          />
-        ) : <Navigation session={session} />
+        <FingerprintLock key={session.profileId} profileId={session.profileId} accent={session.accent}>
+          {choosePassword ? (
+            <ChoosePassword
+              profileId={session.profileId}
+              fullName={session.fullName}
+              loginId={choosePassword.loginId}
+              onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
+            />
+          ) : <Navigation session={session} />}
+        </FingerprintLock>
       ) : <SignIn />}
     </SafeAreaProvider>
   );

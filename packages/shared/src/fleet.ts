@@ -1,3 +1,4 @@
+import { writeErrorFrom } from "./queue";
 import { supabase } from "./supabase";
 import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, VehicleAssignment } from "./types";
 
@@ -339,10 +340,15 @@ export function pushRiderUpdates(tripId: string): void {
   void supabase().functions.invoke("rider-update", { body: { trip_id: tripId } }).catch(() => {});
 }
 
-/** Marks a child on, off, or not here. The family's update is written by a trigger; this pushes it. */
+/**
+ * Marks a child on, off, or not here. The family's update is written by a
+ * trigger; this pushes it. A failure is a WriteError (see queue.ts), so a
+ * screen can tell "no signal, hold it and send later" from "the server said
+ * no" (the child isn't on this route), which holding would never fix.
+ */
 export async function markRider(input: RiderMarkInput): Promise<void> {
-  const { error } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
-  if (error) throw error;
+  const { error, status } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
+  if (error) throw writeErrorFrom(error, status);
   pushRiderUpdates(input.tripId);
 }
 
@@ -478,6 +484,21 @@ export function routeProgress(
 /** "2.4 km" / "800 m" */
 export function fmtDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(m >= 10_000 ? 0 : 1)} km` : `${Math.round(m / 50) * 50} m`;
+}
+
+/** How long a bus will take to get somewhere, and how far it is. `estimated` is true for a guess, false for a road time from a maps service. */
+export type EtaResult = { minutes: number; km: number; estimated: boolean };
+
+/** A rough ETA with no maps service to ask: road distance ~1.3x straight-line, at 25 km/h in town. */
+export function roughEta(from: { lat: number; lng: number }, to: { lat: number; lng: number }): EtaResult {
+  const km = (distanceM(from, to) * 1.3) / 1000;
+  return { minutes: Math.max(1, Math.round((km / 25) * 60)), km, estimated: true };
+}
+
+/** "~12 min" for a guess, "12 min" for a road time, "—" when there is none. */
+export function fmtEta(eta: EtaResult | null): string {
+  if (!eta) return "—";
+  return `${eta.estimated ? "~" : ""}${eta.minutes} min`;
 }
 
 /** A position this recent means the bus is on the road right now. */

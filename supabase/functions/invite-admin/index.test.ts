@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
-import { assertEquals, assertMatch } from "jsr:@std/assert";
+import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { captureLogs, countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle, normalisePhone } from "./index.ts";
 
 describe("normalisePhone", () => {
@@ -167,6 +168,33 @@ describe("invite-admin handle", () => {
       assertEquals(out.login_id, "BD-0001");
     });
 
+    it("creates other staff with an SF-prefixed login_id and their title", async () => {
+      const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Lucy Njeri", role: "staff", staff_title: "Receptionist" }), { admin, asUser });
+      assertEquals(res.status, 200);
+      const out = await res.json();
+      assertEquals(out.login_id, "SF-0001");
+      const created = admin.rowsIn("profiles").find((p) => p.id === "new-admin-1");
+      assertEquals(created?.role, "staff");
+      assertEquals(created?.staff_title, "Receptionist");
+      assertMatch(admin.rowsIn("audit_events")[0].event, /Staff member Lucy Njeri \(Receptionist, SF-0001\)/);
+    });
+
+    it("no longer sets the deprecated visitor-log flag: the visitor log is an admin area, given afterwards", async () => {
+      const { admin, asUser } = makeClients();
+      await handle(request({ tenant_id: TENANT_ID, full_name: "Lucy Njeri", role: "staff", handles_visitors: true }), { admin, asUser });
+      assertEquals("handles_visitors" in (admin.rowsIn("profiles").find((p) => p.id === "new-admin-1") ?? {}), false);
+      assertEquals(admin.rowsIn("staff_permissions").length, 0);
+    });
+
+    it("no longer creates the retired guard and receptionist roles", async () => {
+      const { admin, asUser } = makeClients();
+      for (const role of ["guard", "receptionist"]) {
+        const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Samuel Kiprono", role }), { admin, asUser });
+        assertEquals(res.status, 400);
+      }
+    });
+
     it("increments the login_id per tenant+role, not globally", async () => {
       const { admin, asUser } = makeClients();
       admin.seed("profiles", [
@@ -207,6 +235,61 @@ describe("invite-admin handle", () => {
     it("still rejects a school_admin trying to add ANOTHER school_admin (the first-admin case stays super_admin/org_admin-only)", async () => {
       const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
       const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+  });
+
+  describe("a teacher or other staff member with the people area (20261031000000)", () => {
+    function withArea(role: string, areas: string[], tenantId = TENANT_ID) {
+      const clients = makeClients({ role, callerTenantId: tenantId });
+      clients.admin.seed("staff_permissions", areas.map((area) => ({ tenant_id: tenantId, profile_id: SUPER_ADMIN_ID, area })));
+      return clients;
+    }
+
+    it("adds a teacher", async () => {
+      const { admin, asUser } = withArea("staff", ["people"]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 200);
+      assertMatch(admin.rowsIn("audit_events")[0].actor_label, /Jane Figbloom · people/);
+    });
+
+    it("adds a teacher when people comes from a school role", async () => {
+      const { admin, asUser } = makeClients({ role: "teacher", callerTenantId: TENANT_ID });
+      admin.seed("school_roles", [{ id: "role-1", tenant_id: TENANT_ID, name: "Admissions", areas: ["people"] }]);
+      admin.seed("staff_role_assignments", [{ tenant_id: TENANT_ID, profile_id: SUPER_ADMIN_ID, role_id: "role-1" }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 200);
+    });
+
+    it("is refused when their role holds other areas only", async () => {
+      const { admin, asUser } = makeClients({ role: "teacher", callerTenantId: TENANT_ID });
+      admin.seed("school_roles", [{ id: "role-1", tenant_id: TENANT_ID, name: "Exams officer", areas: ["academics"] }]);
+      admin.seed("staff_role_assignments", [{ tenant_id: TENANT_ID, profile_id: SUPER_ADMIN_ID, role_id: "role-1" }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("never adds an administrator", async () => {
+      const { admin, asUser } = withArea("teacher", ["people"]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("is refused with only other areas", async () => {
+      const { admin, asUser } = withArea("staff", ["fees", "visitors"]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("is refused at another school", async () => {
+      const { admin, asUser } = withArea("teacher", ["people"], "some-other-tenant");
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
+
+    it("counts only for teachers and other staff, whatever a stray row says", async () => {
+      const { admin, asUser } = withArea("parent", ["people"]);
+      const res = await handle(request({ tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher" }), { admin, asUser });
       assertEquals(res.status, 403);
     });
   });
@@ -286,5 +369,101 @@ describe("login_id numbering", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("profiles").length, 1);
     assertEquals(admin.deletedUserIds, []);
+  });
+});
+
+describe("invite-admin sign-in email", () => {
+  const teacher = { tenant_id: TENANT_ID, full_name: "Otieno Ouma", role: "teacher", email: "otieno@gmail.com" };
+
+  it("emails a new teacher their login ID and one-time password when there's an address and email is set up", async () => {
+    const { admin, asUser } = makeClients({ role: "school_admin", callerTenantId: TENANT_ID });
+    const mailer = new FakeMailer();
+    const res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "otieno@gmail.com" });
+    assertEquals(mailer.sent.length, 1);
+    const sent = mailer.sent[0];
+    assertEquals(sent.to, "otieno@gmail.com");
+    assertEquals(sent.subject, "Your Figbloom account at Green Valley School");
+    assertMatch(sent.text, /Login ID: TC-0001/);
+    assertMatch(sent.text, new RegExp(`One-time password: ${out.password}`));
+    assertMatch(sent.text, /https:\/\/app\.example\.test\/s\/green-valley\/teacher/);
+    assertMatch(sent.text, /Jane Figbloom \(school admin\) added you/);
+    // still single-use: the emailed password must be changed at first sign-in
+    assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-admin-1")?.must_change_password, true);
+  });
+
+  it("emails a new school administrator at their login email", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    const out = await res.json();
+    assertEquals(out.emailed.status, "sent");
+    assertMatch(mailer.sent[0].text, /Email: wanjiru@school\.ac\.ke/);
+    assertMatch(mailer.sent[0].text, /\/s\/green-valley\/admin/);
+  });
+
+  it("sends nothing for a teacher with no email, and says so", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request({ ...teacher, email: undefined }), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals((await res.json()).emailed, { status: "no_address" });
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("skips cleanly when email isn't set up: the account and the on-screen password are as before", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request(teacher), { admin, asUser });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "not_configured" });
+    assertEquals(out.login_id, "TC-0001");
+    assertMatch(out.password, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{10}$/);
+  });
+
+  it("a failed email doesn't fail the account: it's created, the password is returned, and the reason given", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    mailer.answer = { status: "failed", reason: "Resend answered 403: domain not verified" };
+    const res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "failed", to: "otieno@gmail.com", reason: "Resend answered 403: domain not verified" });
+    assert(out.password);
+    assert(admin.rowsIn("profiles").some((p) => p.id === "new-admin-1"));
+    assertEquals(admin.deletedUserIds, []);
+  });
+
+  it("a throwing mailer doesn't fail the account either, and the password never reaches the logs", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    mailer.throws = new Error("network down");
+    let res: Response | undefined;
+    let password = "";
+    const logs = await captureLogs(async () => {
+      res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter() });
+      password = (await res.clone().json()).password;
+    });
+    assertEquals(res!.status, 200);
+    assertEquals((await res!.json()).emailed.status, "failed");
+    assert(password);
+    assert(!logs.includes(password), "password logged");
+  });
+
+  it("stops emailing past the caller's hourly limit, without failing the account", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request(teacher), { admin, asUser, mailer, limiter: countingLimiter(0) });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).emailed.status, "failed");
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("refuses a contact email that doesn't look like one, before creating anything", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request({ ...teacher, email: "otieno at gmail" }), { admin, asUser, mailer: new FakeMailer() });
+    assertEquals(res.status, 400);
+    assertEquals(admin.rowsIn("profiles").length, 1);
   });
 });
