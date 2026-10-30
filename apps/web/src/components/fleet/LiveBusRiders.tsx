@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  arrangeRiders, listActiveTrips, listRouteStops, listTripRiders, stopsInTravelOrder,
+  arrangeRiders, listActiveTrips, listRouteStops, listTripRiders, riderMarkedAt, stopsInTravelOrder,
   type ArrangedRider, type DriverOption, type Route, type Trip, type Vehicle,
 } from "@figbloom/shared";
 import { Avatar } from "../Avatar";
@@ -90,7 +90,7 @@ export function LiveBusRiders({ tenantId, vehicles, routes, drivers }: {
                     <Avatar id={r.student_id} name={r.full_name} url={r.avatar_url} size={30} />
                     <span className="min-w-0 flex-1">
                       <span className={`block truncate text-[13px] font-medium ${r.struck ? "line-through" : ""} ${r.faded ? "text-ink-muted" : ""}`}>{r.full_name}</span>
-                      <span className="block truncate text-[11.5px] text-ink-faint">{(r.stop_id ? stopName.get(r.stop_id) : null) ?? "No stop set"}</span>
+                      <span className="block truncate text-[11.5px] text-ink-faint">{[(r.stop_id ? stopName.get(r.stop_id) : null) ?? "No stop set", riderMarkedAt(r)].filter(Boolean).join(" · ")}</span>
                     </span>
                     <Badge tone={PLACE[r.place].tone}>{PLACE[r.place].label}</Badge>
                   </li>

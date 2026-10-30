@@ -312,6 +312,15 @@ export function arrangeRiders(riders: TripRider[], stopOrder: string[]): Arrange
     .sort((a, b) => PLACE_ORDER[a.place] - PLACE_ORDER[b.place] || at(a) - at(b) || a.full_name.localeCompare(b.full_name));
 }
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-KE", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Africa/Nairobi" });
+
+/** When the driver marked them, for the lists: "Dropped off 3:42 pm", "On since 7:12 am"; null while still waiting. */
+export function riderMarkedAt(r: Pick<TripRider, "status" | "boarded_at" | "alighted_at">): string | null {
+  if (r.status === "alighted" && r.alighted_at) return `Dropped off ${clock(r.alighted_at)}`;
+  if (r.status === "boarded" && r.boarded_at) return `On since ${clock(r.boarded_at)}`;
+  return null;
+}
+
 /** Whose families a breakdown reaches: on the bus, or still waiting for it. Mirrors report_breakdown(). */
 export function breakdownAffected(riders: TripRider[]): TripRider[] {
   return riders.filter((r) => {

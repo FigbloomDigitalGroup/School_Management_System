@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrangeRiders, breakdownAffected, distanceM, fmtDistance, isLive, locationPingRow, riderMarkRow, routeProgress, type TripRider } from "./fleet";
+import { arrangeRiders, breakdownAffected, distanceM, fmtDistance, isLive, locationPingRow, riderMarkedAt, riderMarkRow, routeProgress, type TripRider } from "./fleet";
 
 // Three stops roughly 1.5-3km apart along a line, Nakuru-ish.
 const STOPS = [
@@ -137,5 +137,20 @@ describe("riderMarkRow", () => {
   it("sends no time for not-here or an undo back to expected", () => {
     expect(riderMarkRow({ ...base, status: "absent" })).not.toHaveProperty("boarded_at");
     expect(riderMarkRow({ ...base, status: "expected" })).not.toHaveProperty("alighted_at");
+  });
+});
+
+describe("riderMarkedAt", () => {
+  const r = { status: "expected" as const, boarded_at: null, alighted_at: null };
+  it("says when they got off, in Nairobi time", () => {
+    // 12:42 UTC is 3:42 pm in Nairobi
+    expect(riderMarkedAt({ ...r, status: "alighted", boarded_at: "2026-10-30T12:05:00Z", alighted_at: "2026-10-30T12:42:00Z" })).toMatch(/^Dropped off 3:42\s?pm$/i);
+  });
+  it("says since when they've been on", () => {
+    expect(riderMarkedAt({ ...r, status: "boarded", boarded_at: "2026-10-30T04:12:00Z" })).toMatch(/^On since 7:12\s?am$/i);
+  });
+  it("says nothing while they're still waiting, or with no time recorded", () => {
+    expect(riderMarkedAt(r)).toBeNull();
+    expect(riderMarkedAt({ ...r, status: "alighted" })).toBeNull();
   });
 });
