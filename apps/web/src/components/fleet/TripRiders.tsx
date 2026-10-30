@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  arrangeRiders, breakdownAffected, listTripRiders, markRider, pushRiderUpdates, reportBreakdown, riderMarkRow,
+  arrangeRiders, breakdownAffected, riderMarkedAt, listTripRiders, markRider, pushRiderUpdates, reportBreakdown, riderMarkRow,
   type ArrangedRider, type RiderStatus, type Trip, type TripRider,
 } from "@figbloom/shared";
 import { queue } from "../../lib/queue";
@@ -77,7 +77,13 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
     try {
       if (online) await markRider(input);
       else await queue.enqueue("trip_riders", [riderMarkRow(input)]);
-      setRiders((prev) => prev?.map((p) => (p.student_id === r.student_id ? { ...p, status } : p)) ?? prev);
+      // the tap's own time, so "Dropped off 3:42 pm" shows straight away, not after a reload
+      const at = input.markedAt;
+      setRiders((prev) => prev?.map((p) => (p.student_id === r.student_id ? {
+        ...p, status,
+        boarded_at: status === "boarded" ? p.boarded_at ?? at : status === "expected" ? null : p.boarded_at,
+        alighted_at: status === "alighted" ? at : null,
+      } : p)) ?? prev);
     } catch (err) {
       setError(err instanceof Error ? `Could not mark ${r.full_name}: ${err.message}` : `Could not mark ${r.full_name}.`);
     } finally {
@@ -101,10 +107,11 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
   const isOpen = (s: (typeof sections)[number]) => opened[s.key] ?? s.open;
 
   const row = (r: ArrangedRider, showStop: boolean) => {
-    const note = PLACE_NOTE[r.place];
+    // "Dropped off 3:42 pm" / "On since 7:12 am" when the driver has marked them
+    const note = riderMarkedAt(r) ?? PLACE_NOTE[r.place];
     const stop = r.stop_id ? stopName.get(r.stop_id) : null;
-    // under a section heading, "On the bus" and the stop name would repeat it
-    const sub = showStop ? [note, stop ?? "No stop set"].filter(Boolean).join(" · ") : "";
+    // under a section heading the stop name would repeat it; the time still says something
+    const sub = showStop ? [note, stop ?? "No stop set"].filter(Boolean).join(" · ") : riderMarkedAt(r) ?? "";
     return (
       <li key={r.student_id} className={`flex items-center gap-2 px-3 py-2 ${r.faded ? "bg-page" : ""}`}>
         <span className={r.faded ? "opacity-50" : ""}><Avatar id={r.student_id} name={r.full_name} url={r.avatar_url} size={36} /></span>

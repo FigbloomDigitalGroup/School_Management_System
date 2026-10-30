@@ -312,6 +312,15 @@ export function arrangeRiders(riders: TripRider[], stopOrder: string[]): Arrange
     .sort((a, b) => PLACE_ORDER[a.place] - PLACE_ORDER[b.place] || at(a) - at(b) || a.full_name.localeCompare(b.full_name));
 }
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-KE", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Africa/Nairobi" });
+
+/** When the driver marked them, for the lists: "Dropped off 3:42 pm", "On since 7:12 am"; null while still waiting. */
+export function riderMarkedAt(r: Pick<TripRider, "status" | "boarded_at" | "alighted_at">): string | null {
+  if (r.status === "alighted" && r.alighted_at) return `Dropped off ${clock(r.alighted_at)}`;
+  if (r.status === "boarded" && r.boarded_at) return `On since ${clock(r.boarded_at)}`;
+  return null;
+}
+
 /** Whose families a breakdown reaches: on the bus, or still waiting for it. Mirrors report_breakdown(). */
 export function breakdownAffected(riders: TripRider[]): TripRider[] {
   return riders.filter((r) => {
@@ -398,6 +407,14 @@ export async function activeDirections(): Promise<Map<string, TripDirection>> {
   const { data } = await supabase().from("trips").select("vehicle_id, direction").eq("status", "active")
     .returns<{ vehicle_id: string; direction: TripDirection }[]>();
   return new Map((data ?? []).map((t) => [t.vehicle_id, t.direction]));
+}
+
+/** The trips on the road now, for the office's live rider lists (trips isn't in realtime, so it polls). */
+export async function listActiveTrips(tenantId: string): Promise<Trip[]> {
+  const { data, error } = await supabase().from("trips").select("*").eq("tenant_id", tenantId).eq("status", "active")
+    .order("started_at").returns<Trip[]>();
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**
