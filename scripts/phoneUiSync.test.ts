@@ -12,10 +12,13 @@ import { describe, expect, it } from "vitest";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const [mobile, teacher] = ["apps/mobile", "apps/teacher-mobile"].map((a) => join(root, a));
 
+/** Components outside src/ui that both apps use as they are (a view of one list, with nothing app-specific in it). */
+const alsoShared = ["src/components/IssuedItems.tsx"];
+
 const kitFiles = (app: string) => {
   const ui = join(app, "src/ui");
   const inUi = existsSync(ui) ? readdirSync(ui).filter((f) => !/\.test\.tsx?$/.test(f)).map((f) => `src/ui/${f}`) : [];
-  return ["src/theme.ts", ...inUi];
+  return ["src/theme.ts", ...alsoShared, ...inUi];
 };
 
 // Line endings are not drift: git on Windows may check the same file out with CRLF.

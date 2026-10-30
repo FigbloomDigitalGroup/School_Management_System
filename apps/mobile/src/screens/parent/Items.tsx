@@ -17,7 +17,7 @@ export function ParentItems() {
       sub="Books and equipment the school has lent them"
       headerRight={<ChildSwitcher children={kids} index={index} onChange={setIndex} tint={tint} />}
     >
-      <IssuedItemsView key={child.id} studentId={child.id} whose={child.first} tint={tint} />
+      <IssuedItemsView key={child.id} holder={{ kind: "learner", studentId: child.id }} whose={child.first} tint={tint} />
     </SubScreen>
   );
 }

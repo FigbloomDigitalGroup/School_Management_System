@@ -1,7 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
-  Bus, CalendarOff, ChevronRight, Clock, DoorOpen, FileText, MessageSquare, PencilLine, Sparkles, TrendingUp, UserRound, Users, Video,
+  Bus, CalendarOff, ChevronRight, Clock, DoorOpen, FileText, MessageSquare, Package, PencilLine, Sparkles, TrendingUp, UserRound, Users, Video,
   type LucideIcon,
 } from "lucide-react-native";
 import { useChatSession } from "../../lib/chatSession";
@@ -12,7 +12,7 @@ import { accentFor, s, t } from "../../theme";
 import { Tap } from "../../ui/Tap";
 import type { TeacherSession } from "../../navigation";
 
-const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Visitors" | "Performance" | "ReportCards" | "Bloom" | "LiveClass" | "Classes" | "Leave" | "Buses" | "Account"; label: string; icon: LucideIcon }[] = [
+const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Visitors" | "Performance" | "ReportCards" | "Bloom" | "LiveClass" | "Classes" | "Leave" | "Items" | "Buses" | "Account"; label: string; icon: LucideIcon }[] = [
   { to: "Chats", label: "Chats", icon: MessageSquare },
   { to: "Visitors", label: "Your visitors", icon: DoorOpen },
   { to: "Performance", label: "Performance", icon: TrendingUp },
@@ -23,6 +23,7 @@ const ITEMS: { to: "Timetable" | "Homework" | "Chats" | "Visitors" | "Performanc
   { to: "Homework", label: "Homework", icon: PencilLine },
   { to: "Classes", label: "My classes", icon: Users },
   { to: "Leave", label: "Leave", icon: CalendarOff },
+  { to: "Items", label: "My items", icon: Package },
   { to: "Buses", label: "School buses", icon: Bus },
   { to: "Account", label: "Account", icon: UserRound },
 ];

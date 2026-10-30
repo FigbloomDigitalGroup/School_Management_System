@@ -16,6 +16,7 @@ import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherLeave } from "./screens/teacher/Leave";
 import { TeacherHomework } from "./screens/teacher/Homework";
+import { TeacherItems } from "./screens/teacher/Items";
 import { useQueueSync } from "./lib/useQueueSync";
 import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
@@ -77,6 +78,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="Homework">{() => <TeacherHomework session={session} />}</Stack.Screen>
       <Stack.Screen name="Classes">{() => <TeacherClasses session={session} />}</Stack.Screen>
       <Stack.Screen name="Leave">{() => <TeacherLeave session={session} />}</Stack.Screen>
+      <Stack.Screen name="Items">{() => <TeacherItems session={session} />}</Stack.Screen>
       <Stack.Screen name="Buses">{() => <TeacherBuses session={session} />}</Stack.Screen>
       <Stack.Screen name="Account">{() => <TeacherAccount session={session} />}</Stack.Screen>
       {/* One-to-one chats with parents; the whole-class Messages tab stays as it is. */}
