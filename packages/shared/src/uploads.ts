@@ -1,5 +1,6 @@
 import { safeFileName } from "./materials";
 import { supabase } from "./supabase";
+import { uploadFile } from "./storageUpload";
 
 /**
  * Uploads from the phone apps. The web app uploads a browser File; React
@@ -42,8 +43,7 @@ export function prescriptionPath(tenantId: string, studentId: string, fileName: 
 /** Puts a prescription photo in the child's medical folder; returns the path for the medication request to name. */
 export async function uploadPrescriptionFile(tenantId: string, studentId: string, file: UploadableFile): Promise<string> {
   const path = prescriptionPath(tenantId, studentId, file.name);
-  const { error } = await supabase().storage.from(PRIVATE_DOCS_BUCKET).upload(path, file.blob, { contentType: file.mimeType, upsert: false });
-  if (error) throw new Error(error.message);
+  await uploadFile(PRIVATE_DOCS_BUCKET, path, file);
   return path;
 }
 
