@@ -238,6 +238,9 @@ test.describe("teacher", () => {
     await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
     await signInWithId(page, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
     await page.goto("/s/alliance/teacher/attendance");
+    // Wait for the roster: until it has loaded the page holds an EMPTY register, and a click on Submit then queues rows: [] and
+    // reports "register is in" with nobody saved (QA 10). The tests below meant to submit the class, so they must see its learners first.
+    await expect(page.getByText(/^[1-9]\d* learners$/)).toBeVisible();
   });
 
   test("an all-present register asks for one confirmation", async ({ page }) => {
