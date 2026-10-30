@@ -400,6 +400,14 @@ export async function activeDirections(): Promise<Map<string, TripDirection>> {
   return new Map((data ?? []).map((t) => [t.vehicle_id, t.direction]));
 }
 
+/** The trips on the road now, for the office's live rider lists (trips isn't in realtime, so it polls). */
+export async function listActiveTrips(tenantId: string): Promise<Trip[]> {
+  const { data, error } = await supabase().from("trips").select("*").eq("tenant_id", tenantId).eq("status", "active")
+    .order("started_at").returns<Trip[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
 /**
  * Stops in the order the bus will reach them. Sequence 1 is the school end of
  * a route (see the seeds), so a trip from school runs in sequence order and a
