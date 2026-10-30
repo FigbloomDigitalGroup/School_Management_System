@@ -1,6 +1,7 @@
-import { Linking, Text, TouchableOpacity, View } from "react-native";
+import { Linking, Text, View } from "react-native";
 import { DELETE_ACCOUNT_URL, PRIVACY_POLICY_URL } from "@figbloom/shared";
 import { s, t } from "../theme";
+import { Tap } from "../ui/Tap";
 
 const ROWS = [
   { label: "Privacy policy", note: "What the app collects, and why.", url: PRIVACY_POLICY_URL },
@@ -18,7 +19,7 @@ export function PrivacyLinks({ tint }: { tint: string }) {
       <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Your data</Text>
       <View style={[s.card, { padding: 0 }]}>
         {ROWS.map((r, i) => (
-          <TouchableOpacity
+          <Tap
             key={r.url}
             accessibilityRole="link"
             accessibilityLabel={r.label}
@@ -33,7 +34,7 @@ export function PrivacyLinks({ tint }: { tint: string }) {
               <Text style={s.faint}>{r.note}</Text>
             </View>
             <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Open</Text>
-          </TouchableOpacity>
+          </Tap>
         ))}
       </View>
     </>

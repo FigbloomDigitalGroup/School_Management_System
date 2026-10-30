@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { fetchClassMaterials, groupBySubject, type MaterialRow } from "@figbloom/shared";
 import { accentFor, s } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { MediaRow } from "../../components/MediaLinks";
+import { BackLink } from "../../ui/BackLink";
 
 /**
  * A class's published learning materials, by subject. Read-only: a tap
@@ -38,9 +39,7 @@ export function MaterialsScreen({ classId, tint, title, sub, emptyText, headerRi
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 13.5, fontWeight: "600" }}>‹ Back</Text>
-        </TouchableOpacity>
+        <BackLink onPress={() => nav.goBack()} />
         <View style={[s.row, { justifyContent: "space-between" }]}>
           <View style={{ flex: 1 }}>
             <Text style={s.headerTitle}>{title}</Text>

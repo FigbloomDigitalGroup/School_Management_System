@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, FlatList, Modal, Platform, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Platform, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AndroidAudioTypePresets, AudioSession, isTrackReference, LiveKitRoom, useConnectionState, useLocalParticipant,
@@ -8,6 +8,7 @@ import {
 import { ConnectionState, Track, type LocalVideoTrack } from "livekit-client";
 import type { RoomPass } from "@figbloom/shared";
 import { ensureCallPermissions } from "./callPermissions";
+import { Tap } from "../ui/Tap";
 
 const INK = "#fff";
 const MUTED = "rgba(255,255,255,0.65)";
@@ -57,9 +58,9 @@ export function CallRoom({ pass, title, subtitle, audio, video, toolbar, notice,
             <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: "600", color: INK }}>{title}</Text>
             {!!subtitle && <Text numberOfLines={1} style={{ fontSize: 12, color: MUTED }}>{subtitle}</Text>}
           </View>
-          <TouchableOpacity accessibilityRole="button" onPress={onLeave} style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 12, backgroundColor: "#B4472B", alignItems: "center", justifyContent: "center" }}>
+          <Tap accessibilityRole="button" onPress={onLeave} style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 12, backgroundColor: "#B4472B", alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontWeight: "700", color: "#fff" }}>Leave</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
         {!!notice && <Text style={{ backgroundColor: "rgba(255,255,255,0.12)", color: INK, fontSize: 12.5, textAlign: "center", paddingHorizontal: 16, paddingVertical: 8 }}>{notice}</Text>}
         {toolbar}
@@ -174,7 +175,7 @@ function RoomView({ startWithVideo }: { startWithVideo: boolean }) {
 
 function Control({ label, on, disabled, onPress }: { label: string; on: boolean; disabled?: boolean; onPress: () => void }) {
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="button"
       accessibilityState={{ selected: on, disabled: !!disabled }}
       disabled={disabled}
@@ -182,6 +183,6 @@ function Control({ label, on, disabled, onPress }: { label: string; on: boolean;
       style={{ minHeight: 48, minWidth: 88, paddingHorizontal: 16, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: on ? "#fff" : "rgba(255,255,255,0.14)", opacity: disabled ? 0.4 : 1 }}
     >
       <Text style={{ fontSize: 13.5, fontWeight: "600", color: on ? "#111" : INK }}>{label}</Text>
-    </TouchableOpacity>
+    </Tap>
   );
 }

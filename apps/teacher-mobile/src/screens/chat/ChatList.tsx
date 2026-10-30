@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, RefreshControl, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, RefreshControl, Text, TextInput, View } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import {
   chatRoleWord, conversationPreview, fetchChatContacts, fetchMyConversations, startConversation, subscribeChatMessages,
@@ -8,6 +8,8 @@ import {
 import { useChatSession } from "../../lib/chatSession";
 import { s, t } from "../../theme";
 import { ChatAvatar } from "./ChatAvatar";
+import { BackLink } from "../../ui/BackLink";
+import { Tap } from "../../ui/Tap";
 
 function when(iso: string | null): string {
   if (!iso) return "";
@@ -60,17 +62,15 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>‹ Back</Text>
-        </TouchableOpacity>
+        <BackLink onPress={() => nav.goBack()} />
         <View style={[s.row, { justifyContent: "space-between" }]}>
           <View style={{ flex: 1 }}>
             <Text style={s.headerTitle}>Chats</Text>
             <Text style={s.headerSub}>{blurb}</Text>
           </View>
-          <TouchableOpacity accessibilityRole="button" onPress={() => setPicking(true)} style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+          <Tap accessibilityRole="button" onPress={() => setPicking(true)} style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontWeight: "700", color: tint }}>New chat</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
       </View>
 
@@ -91,7 +91,7 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
             </View>
           ) : null}
           renderItem={({ item: c }) => (
-            <TouchableOpacity accessibilityRole="button" onPress={() => open(c)} style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}>
+            <Tap accessibilityRole="button" onPress={() => open(c)} style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}>
               <ChatAvatar id={c.otherId} name={c.otherName} />
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
@@ -108,7 +108,7 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
                   )}
                 </View>
               </View>
-            </TouchableOpacity>
+            </Tap>
           )}
         />
       )}
@@ -139,7 +139,7 @@ function ContactPicker({ visible, tint, onClose, onPick }: { visible: boolean; t
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={[s.header, { backgroundColor: tint }]}>
-          <Text style={[s.eyebrow, { color: "rgba(255,255,255,0.75)" }]}>CHATS</Text>
+          <Text style={s.headerEyebrow}>CHATS</Text>
           <Text style={s.headerTitle}>Start a chat</Text>
           <Text style={s.headerSub}>Only people you can chat with are listed.</Text>
         </View>
@@ -163,19 +163,19 @@ function ContactPicker({ visible, tint, onClose, onPick }: { visible: boolean; t
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={<Text style={[s.small, { textAlign: "center", marginTop: 24 }]}>{contacts.length ? "No one matches that search." : "There's no one you can chat with yet."}</Text>}
               renderItem={({ item: c }) => (
-                <TouchableOpacity accessibilityRole="button" onPress={() => onPick(c)} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 6 }}>
+                <Tap accessibilityRole="button" onPress={() => onPick(c)} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 6 }}>
                   <ChatAvatar id={c.profileId} name={c.name} size={36} />
                   <View style={{ flex: 1 }}>
                     <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "600" }}>{c.name}</Text>
                     <Text numberOfLines={1} style={s.faint}>{c.detail}</Text>
                   </View>
-                </TouchableOpacity>
+                </Tap>
               )}
             />
           )}
-          <TouchableOpacity accessibilityRole="button" onPress={onClose} style={{ minHeight: 48, alignItems: "center", justifyContent: "center" }}>
+          <Tap accessibilityRole="button" onPress={onClose} style={{ minHeight: 48, alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontSize: 14.5, fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
       </KeyboardAvoidingView>
     </Modal>

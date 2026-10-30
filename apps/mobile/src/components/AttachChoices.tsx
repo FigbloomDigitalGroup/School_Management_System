@@ -1,6 +1,7 @@
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import type { FileSource } from "../lib/pickFile";
 import { t } from "../theme";
+import { Tap } from "../ui/Tap";
 
 const CHOICES: { source: FileSource; label: string }[] = [
   { source: "camera", label: "📷 Take a photo" },
@@ -17,7 +18,7 @@ export function AttachChoices({ onChoose, disabled = false }: { onChoose: (sourc
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {CHOICES.map((c) => (
-        <TouchableOpacity
+        <Tap
           key={c.source}
           accessibilityRole="button"
           disabled={disabled}
@@ -25,7 +26,7 @@ export function AttachChoices({ onChoose, disabled = false }: { onChoose: (sourc
           style={{ flexGrow: 1, minHeight: 44, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: disabled ? 0.5 : 1 }}
         >
           <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.appSurface.ink }}>{c.label}</Text>
-        </TouchableOpacity>
+        </Tap>
       ))}
     </View>
   );

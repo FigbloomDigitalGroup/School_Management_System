@@ -1,5 +1,5 @@
 import { PermissionsAndroid, Platform } from "react-native";
-import { errorCodes, isErrorWithCode, pick, types } from "@react-native-documents/picker";
+import { errorCodes, isErrorWithCode, keepLocalCopy, pick, types } from "@react-native-documents/picker";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import { mimeForFile, safeFileName, type UploadableFile } from "@figbloom/shared";
 
@@ -59,11 +59,42 @@ async function pickDocument(documentTypes: string[]): Promise<PickedFile | null>
   if (!doc.hasRequestedType) throw new Error("That kind of file can not be sent here.");
   const name = safeFileName(doc.name ?? `file-${Date.now()}`);
   // A provider may report a generic type for a PDF; the name tells the storage what it really is.
-  return { uri: doc.uri, name, mimeType: mimeForFile({ name, type: doc.type }) ?? doc.type ?? "application/octet-stream", sizeBytes: doc.size };
+  return { uri: await localCopy(doc.uri, name), name, mimeType: mimeForFile({ name, type: doc.type }) ?? doc.type ?? "application/octet-stream", sizeBytes: doc.size };
+}
+
+/**
+ * The app's own copy of a picked document. The file browser hands back a content:// address that belongs
+ * to it; a copy in the app's cache is a plain file that reads the same whichever app it came from. If the
+ * copy can't be made (a virtual file, no space) the original address is still tried.
+ */
+async function localCopy(uri: string, fileName: string): Promise<string> {
+  try {
+    const [copy] = await keepLocalCopy({ files: [{ uri, fileName }], destination: "cachesDirectory" });
+    return copy && copy.status === "success" ? copy.localUri : uri;
+  } catch {
+    return uri;
+  }
+}
+
+/**
+ * Reads a file on the phone into a Blob. XMLHttpRequest rather than fetch(): fetch answers a local address with
+ * status 0, which its own polyfill then throws on from inside a timer, so the promise it returned never settles
+ * and a screen waiting on it waits for ever. This one always either resolves or rejects.
+ */
+function readLocalBlob(uri: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const unreadable = () => reject(new Error("Could not read that file. Choose it again."));
+    const xhr = new XMLHttpRequest();
+    xhr.onload = () => (xhr.response ? resolve(xhr.response as Blob) : unreadable());
+    xhr.onerror = unreadable;
+    xhr.ontimeout = unreadable;
+    xhr.responseType = "blob";
+    xhr.open("GET", uri, true);
+    xhr.send(null);
+  });
 }
 
 /** Reads the picked file into what the shared upload helpers take. */
 export async function readPickedFile(file: PickedFile): Promise<UploadableFile> {
-  const blob = await (await fetch(file.uri)).blob();
-  return { blob, name: file.name, mimeType: file.mimeType };
+  return { blob: await readLocalBlob(file.uri), name: file.name, mimeType: file.mimeType };
 }

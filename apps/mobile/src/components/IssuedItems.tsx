@@ -1,31 +1,40 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
+import { Package } from "lucide-react-native";
 import {
-  daysOverdue, fetchLearnerInventory, formatShortDate, isOverdue, ISSUE_STATUS_LABEL, ITEM_CONDITION_LABEL, sortIssues,
-  type InventoryIssueRow,
+  daysOverdue, fetchLearnerInventory, fetchMyInventory, formatShortDate, isOverdue, ISSUE_STATUS_LABEL, ITEM_CONDITION_LABEL, sortIssues,
+  type InventoryIssueRow, type IssueHolder,
 } from "@figbloom/shared";
 import { s, t } from "../theme";
+import { EmptyState, ErrorState } from "../ui/StateView";
 
 /**
- * What a learner has been issued from the school's inventory, read-only:
- * out first with anything overdue on top, then what has been handed back.
- * Used by the learner (whose = "you") and by their parent (whose = a first name).
+ * What a learner or a member of staff has been issued from the school's
+ * inventory, read-only: out first with anything overdue on top, then what has
+ * been handed back. Used by the learner (whose = "you"), by their parent
+ * (whose = a first name) and by a teacher (holder = their own profile).
+ * The same file is in both phone apps; change both.
  */
-export function IssuedItemsView({ studentId, whose, tint }: { studentId: string; whose: string; tint: string }) {
+export function IssuedItemsView({ holder, whose, tint }: { holder: IssueHolder; whose: string; tint: string }) {
   const [rows, setRows] = useState<InventoryIssueRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** The load failed: not the same as "nothing issued", and it can be retried. */
+  const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  // `holder` is a new object on every render of the caller; what identifies it is its kind and id.
+  const kind = holder.kind;
+  const id = holder.kind === "learner" ? holder.studentId : holder.profileId;
 
   useEffect(() => {
     let alive = true;
     setRows(null);
-    setError(null);
-    fetchLearnerInventory([studentId])
+    setFailed(false);
+    (kind === "learner" ? fetchLearnerInventory([id]) : fetchMyInventory(id))
       .then((r) => { if (alive) setRows(r); })
-      .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : "Could not load issued items."); });
+      .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
-  }, [studentId]);
+  }, [kind, id, reloadKey]);
 
-  if (error) return <Text style={[s.small, { color: t.status.warnInk }]}>Could not load issued items: {error}</Text>;
+  if (failed) return <ErrorState title="Couldn't load issued items" onRetry={() => setReloadKey((k) => k + 1)} />;
   if (!rows) return <ActivityIndicator color={tint} style={{ marginTop: 24 }} />;
 
   const sorted = sortIssues(rows);
@@ -50,14 +59,17 @@ export function IssuedItemsView({ studentId, whose, tint }: { studentId: string;
       </View>
 
       {sorted.length === 0 ? (
-        <View style={[s.card, { alignItems: "center", padding: 24 }]}>
-          <Text style={{ fontSize: 15, fontWeight: "600" }}>Nothing issued</Text>
-          <Text style={[s.small, { marginTop: 6, textAlign: "center" }]}>
-            {yourself
-              ? "Textbooks, equipment and anything else the school hands you will be listed here."
-              : `Textbooks and anything else the school hands ${whose} will be listed here, with when it's due back.`}
-          </Text>
-        </View>
+        <EmptyState
+          icon={Package}
+          title="Nothing issued"
+          body={
+            holder.kind === "staff"
+              ? "A laptop, lab keys or a class set the school issues you will be listed here, with when it's due back."
+              : yourself
+                ? "Textbooks, equipment and anything else the school hands you will be listed here."
+                : `Textbooks and anything else the school hands ${whose} will be listed here, with when it's due back.`
+          }
+        />
       ) : sorted.map((r) => {
         const late = r.status === "out" ? daysOverdue(r) : 0;
         const tone = r.status === "out" ? { bg: t.status.infoBg, ink: t.status.infoInk } : r.status === "returned" ? { bg: t.status.okBg, ink: t.status.okInk } : { bg: t.status.warnBg, ink: t.status.warnInk };

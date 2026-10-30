@@ -9,7 +9,7 @@ export function StudentItems() {
   const tint = accentFor(accent).deep;
   return (
     <SubScreen tint={tint} title="My items" sub="Books and equipment the school has lent you, and when to bring them back.">
-      <IssuedItemsView studentId={data.studentId} whose="you" tint={tint} />
+      <IssuedItemsView holder={{ kind: "learner", studentId: data.studentId }} whose="you" tint={tint} />
     </SubScreen>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
   CAPACITY_LABEL, fetchClassReportCards, fetchDocumentSignatures, fetchReportCardSetup, signatureFor, signDocuments,
   type ReportCardSetup, type SignatureMark, type StoredReportCard, type StoredSignature,
@@ -11,6 +11,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { SignSheet } from "../../components/SignSheet";
 import { useMyName } from "../../lib/useMyName";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 /**
  * A class teacher's report cards for a term: read each learner's card, and sign
@@ -117,9 +118,9 @@ export function TeacherReportCards({ session }: { session: TeacherSession }) {
                 {cards.length - unsigned.length} of {cards.length} signed by you
               </Text>
               {unsigned.length > 0 && (
-                <TouchableOpacity accessibilityRole="button" onPress={() => { setNote(null); setSigning(true); }} style={[s.primary, { backgroundColor: a.deep }]}>
+                <Tap accessibilityRole="button" onPress={() => { setNote(null); setSigning(true); }} style={[s.primary, { backgroundColor: a.deep }]}>
                   <Text style={s.primaryLabel}>Sign {unsigned.length} report card{unsigned.length === 1 ? "" : "s"}</Text>
-                </TouchableOpacity>
+                </Tap>
               )}
               <Text style={s.faint}>Open a card to read it first. Preparing the cards, writing comments and sending them to families are done on the website.</Text>
             </View>
@@ -135,7 +136,7 @@ export function TeacherReportCards({ session }: { session: TeacherSession }) {
               ].filter(Boolean).join(" · ");
               return (
                 <View key={c.id} style={[s.card, { padding: 0 }]}>
-                  <TouchableOpacity
+                  <Tap
                     accessibilityRole="button"
                     accessibilityState={{ expanded: open }}
                     onPress={() => setOpenId(open ? null : c.id)}
@@ -146,7 +147,7 @@ export function TeacherReportCards({ session }: { session: TeacherSession }) {
                       <Text numberOfLines={1} style={s.faint}>{detail}</Text>
                     </View>
                     <Text style={{ fontSize: 12.5, fontWeight: "700", color: sig ? t.status.okInk : t.appSurface.inkMuted }}>{sig ? "Signed" : "Not signed"}</Text>
-                  </TouchableOpacity>
+                  </Tap>
                   {open && (
                     <View style={{ paddingHorizontal: 14, paddingBottom: 14, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft }}>
                       <ReportCardBody card={c} signatures={signatures} />

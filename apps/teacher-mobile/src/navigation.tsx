@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { View } from "react-native";
-import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
+import { fetchMyConversations, type MaterialRow, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Bell, Mail, Menu, SquareCheck, Table2, type LucideIcon } from "lucide-react-native";
-import { accentFor } from "./theme";
+import { accentFor, fontSize, t } from "./theme";
 
 import { TeacherAttendance } from "./screens/teacher/Attendance";
 import { TeacherGradebook } from "./screens/teacher/Gradebook";
@@ -16,6 +16,9 @@ import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherLeave } from "./screens/teacher/Leave";
 import { TeacherHomework } from "./screens/teacher/Homework";
+import { TeacherItems } from "./screens/teacher/Items";
+import { TeacherMaterials } from "./screens/teacher/Materials";
+import { TeacherMaterialEditor } from "./screens/teacher/MaterialEditor";
 import { useQueueSync } from "./lib/useQueueSync";
 import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
@@ -75,8 +78,11 @@ function MoreStack({ session }: { session: TeacherSession }) {
       <Stack.Screen name="MoreMenu">{() => <TeacherMore session={session} />}</Stack.Screen>
       <Stack.Screen name="Timetable">{() => <TeacherTimetable session={session} />}</Stack.Screen>
       <Stack.Screen name="Homework">{() => <TeacherHomework session={session} />}</Stack.Screen>
+      <Stack.Screen name="Materials">{() => <TeacherMaterials session={session} />}</Stack.Screen>
+      <Stack.Screen name="MaterialEditor">{({ route }: { route: unknown }) => <TeacherMaterialEditor session={session} route={route as { params?: { material?: MaterialRow } }} />}</Stack.Screen>
       <Stack.Screen name="Classes">{() => <TeacherClasses session={session} />}</Stack.Screen>
       <Stack.Screen name="Leave">{() => <TeacherLeave session={session} />}</Stack.Screen>
+      <Stack.Screen name="Items">{() => <TeacherItems session={session} />}</Stack.Screen>
       <Stack.Screen name="Buses">{() => <TeacherBuses session={session} />}</Stack.Screen>
       <Stack.Screen name="Account">{() => <TeacherAccount session={session} />}</Stack.Screen>
       {/* One-to-one chats with parents; the whole-class Messages tab stays as it is. */}
@@ -108,8 +114,12 @@ export function Navigation({ session }: { session: TeacherSession }) {
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: a.deep,
-          tabBarInactiveTintColor: "#9A908E",
-          tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600" },
+          tabBarInactiveTintColor: t.appSurface.inkFaint,
+          tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
+          // The bar is a fixed height, so its labels stay put under large system text;
+          // it also steps aside for the keyboard instead of eating a third of a form.
+          tabBarAllowFontScaling: false,
+          tabBarHideOnKeyboard: true,
           tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         }}
       >

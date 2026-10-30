@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import type { Weekday } from "@figbloom/shared";
 import { accentFor, HIT, s, t } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { Tap } from "../../ui/Tap";
 
 const DAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_LABEL: Record<Weekday, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
@@ -26,7 +27,7 @@ export function StudentTimetable() {
         {DAYS.map((d) => {
           const on = d === day;
           return (
-            <TouchableOpacity
+            <Tap
               key={d}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
@@ -38,7 +39,7 @@ export function StudentTimetable() {
               }}
             >
               <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{d}</Text>
-            </TouchableOpacity>
+            </Tap>
           );
         })}
       </View>

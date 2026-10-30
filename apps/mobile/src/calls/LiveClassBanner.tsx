@@ -1,7 +1,8 @@
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import { s, t } from "../theme";
 import { useCalls } from "./CallProvider";
 import { useRunningLiveClasses } from "./useRunningLiveClasses";
+import { Tap } from "../ui/Tap";
 
 /**
  * "Live now" for a learner or a parent: one card per live class running in their
@@ -25,7 +26,7 @@ export function LiveClassBanner({ tenantId, classIds, tint }: { tenantId: string
             </View>
             <Text style={[s.faint, { marginTop: 3 }]}>A live class in Figbloom. No other app needed.</Text>
           </View>
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             accessibilityLabel={`Join ${lc.title}`}
             disabled={busy}
@@ -33,7 +34,7 @@ export function LiveClassBanner({ tenantId, classIds, tint }: { tenantId: string
             style={{ minHeight: 44, paddingHorizontal: 18, borderRadius: 12, backgroundColor: tint, alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}
           >
             <Text style={{ fontWeight: "700", color: "#fff" }}>Join</Text>
-          </TouchableOpacity>
+          </Tap>
         </View>
       ))}
     </View>

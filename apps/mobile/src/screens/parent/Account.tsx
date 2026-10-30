@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Switch, Text, View } from "react-native";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   fetchChildLogins,
@@ -16,6 +16,7 @@ import { useChild, useChildren } from "../../data";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
+import { Tap } from "../../ui/Tap";
 
 interface Profile {
   id: string;
@@ -154,7 +155,7 @@ export function ParentAccount() {
 
         <PrivacyLinks tint={a.deep} />
 
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           disabled={signingOut}
           onPress={signOut}
@@ -163,7 +164,7 @@ export function ParentAccount() {
           <Text style={{ fontSize: 15, fontWeight: "600", color: t.status.warnInk }}>
             {signingOut ? "Signing out…" : "Sign out"}
           </Text>
-        </TouchableOpacity>
+        </Tap>
       </ScrollView>
     </View>
   );
@@ -233,11 +234,11 @@ function ChildLogins({ kids, schoolName, tint }: { kids: { id: string; name: str
                   <Text selectable style={[s.mono, { marginTop: 2, fontWeight: "700" }]}>Password  {r.password}</Text>
                 </View>
               ) : (
-                <TouchableOpacity accessibilityRole="button" disabled={busyId === k.id} onPress={() => confirmReset(k)} style={{ marginTop: 6, minHeight: 36, justifyContent: "center" }}>
+                <Tap accessibilityRole="button" disabled={busyId === k.id} onPress={() => confirmReset(k)} style={{ marginTop: 6, minHeight: 36, justifyContent: "center" }}>
                   {busyId === k.id
                     ? <ActivityIndicator color={tint} />
                     : <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Reset {k.first}'s app password</Text>}
-                </TouchableOpacity>
+                </Tap>
               )}
             </View>
           );

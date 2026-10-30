@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from "react-native";
 import {
   createCbeAssessment, fetchCbeAssessments, fetchCbeEntries, fetchStrandsForGrade, GRADE_INK, isRetryable, publishCbeAssessment,
   rubricFor, saveCbeEntries, summariseStrands, yearLabel,
@@ -10,6 +10,7 @@ import { PillPicker } from "../../components/PillPicker";
 import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 const cellKey = (studentId: string, strandId: string) => `${studentId}|${strandId}`;
 /** Not a rubric code — the explicit "not yet judged" option in every strand's chip row. */
@@ -235,13 +236,13 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
           />
         )}
         {!!areaId && (
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             onPress={() => setCreating((c) => !c)}
             style={{ ...HIT, alignSelf: "flex-start", paddingHorizontal: 12, borderRadius: 10, backgroundColor: t.appSurface.lineSoft, alignItems: "center", justifyContent: "center" }}
           >
             <Text style={{ fontSize: 12.5, fontWeight: "700" }}>{creating ? "Cancel" : "+ New assessment"}</Text>
-          </TouchableOpacity>
+          </Tap>
         )}
         {!!assessment && strandList.length > 0 && (
           <PillPicker items={strandList} selectedId={strandId} onPick={setStrandId} accent={session.accent} />
@@ -261,7 +262,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
               {(["summative", "formative"] as const).map((k) => {
                 const on = newKind === k;
                 return (
-                  <TouchableOpacity
+                  <Tap
                     key={k}
                     accessibilityRole="button"
                     accessibilityState={{ selected: on }}
@@ -271,18 +272,18 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
                     <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>
                       {k === "summative" ? "Summative" : "Formative"}
                     </Text>
-                  </TouchableOpacity>
+                  </Tap>
                 );
               })}
             </View>
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={!newTitle.trim() || busy}
               onPress={() => void createAssessment()}
               style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !newTitle.trim() || busy ? 0.6 : 1 }]}
             >
               {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Create</Text>}
-            </TouchableOpacity>
+            </Tap>
           </View>
         </View>
       )}
@@ -331,7 +332,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
                   {[{ code: UNJUDGED, label: "Not yet judged" }, ...rubric].map((lvl) => {
                     const on = !!strandId && level(student.id, strandId) === lvl.code;
                     return (
-                      <TouchableOpacity
+                      <Tap
                         key={lvl.code || "blank"}
                         accessibilityRole="button"
                         accessibilityState={{ selected: on }}
@@ -347,7 +348,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
                         <Text style={{ fontSize: 12.5, fontWeight: "700", color: on && lvl.code ? GRADE_INK[lvl.code] : t.appSurface.inkMuted }}>
                           {lvl.code || "—"}
                         </Text>
-                      </TouchableOpacity>
+                      </Tap>
                     );
                   })}
                 </View>
@@ -373,16 +374,16 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card }}>
           {!!status && <Text style={[s.small, { marginBottom: 10 }]}>{status}</Text>}
           <View style={{ flexDirection: "row", gap: 10 }}>
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={busy}
               onPress={() => void saveDraft()}
               style={[s.primary, { ...HIT, flex: 1, backgroundColor: t.appSurface.lineSoft, opacity: busy ? 0.6 : 1 }]}
             >
               <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>{assessment.published_at ? "Save changes" : "Save draft"}</Text>
-            </TouchableOpacity>
+            </Tap>
             {!assessment.published_at && (
-              <TouchableOpacity
+              <Tap
                 accessibilityRole="button"
                 disabled={busy || filled < totalCells}
                 onPress={() => void publish()}
@@ -391,7 +392,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
                 {busy ? <ActivityIndicator color="#fff" /> : (
                   <Text style={s.primaryLabel}>{filled < totalCells ? `${totalCells - filled} left` : "Publish"}</Text>
                 )}
-              </TouchableOpacity>
+              </Tap>
             )}
           </View>
         </View>

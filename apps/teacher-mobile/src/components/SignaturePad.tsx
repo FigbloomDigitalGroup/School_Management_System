@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from "react";
-import { PanResponder, StyleSheet, Text, TouchableOpacity, View, type GestureResponderEvent } from "react-native";
+import { PanResponder, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { normaliseStrokes, SIGNATURE_BOX, type Stroke } from "@figbloom/shared";
 import { s, t } from "../theme";
+import { Tap } from "../ui/Tap";
 
 type Point = { x: number; y: number };
 
@@ -91,9 +92,9 @@ export function SignaturePad({ onChange, onDrawing, disabled }: {
           {empty && <View pointerEvents="none" style={{ position: "absolute", left: 24, top: 12 }}><Text style={s.faint}>Sign here</Text></View>}
         </View>
       </View>
-      <TouchableOpacity accessibilityRole="button" disabled={disabled || empty} onPress={clear} style={{ alignSelf: "flex-end", minHeight: 36, justifyContent: "center", opacity: disabled || empty ? 0.4 : 1 }}>
+      <Tap accessibilityRole="button" disabled={disabled || empty} onPress={clear} style={{ alignSelf: "flex-end", minHeight: 36, justifyContent: "center", opacity: disabled || empty ? 0.4 : 1 }}>
         <Text style={{ fontSize: 13, fontWeight: "600", color: t.appSurface.inkMuted }}>Clear</Text>
-      </TouchableOpacity>
+      </Tap>
     </View>
   );
 }

@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import {
   BLOOD_GROUPS, COMMON_ALLERGIES, COMMON_CONDITIONS, fetchStudentHealth, healthFlags, healthToInput, normaliseList,
   saveStudentHealth, setLearnerHome, splitList, supabase, type StudentHealthInput,
 } from "@figbloom/shared";
 import { s, t } from "../theme";
 import { Skeleton } from "./Skeleton";
+import { Button } from "../ui/Button";
+import { Field as Input } from "../ui/Field";
+import { Tap } from "../ui/Tap";
 
 /**
  * A child's health details and home address, which the parent can keep up to
@@ -62,9 +65,9 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <Text style={s.h2}>{childFirst}'s health and home</Text>
         {value && !editing && (
-          <TouchableOpacity accessibilityRole="button" onPress={() => { setEditing(true); setNote(null); }}>
+          <Tap accessibilityRole="button" onPress={() => { setEditing(true); setNote(null); }}>
             <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Edit</Text>
-          </TouchableOpacity>
+          </Tap>
         )}
       </View>
       <View style={[s.card, { padding: 14, gap: 10 }]}>
@@ -99,14 +102,8 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
             <Field label="Landmark" value={home.landmark} onChange={(landmark) => setHome({ ...home, landmark: landmark ?? "" })} />
             {note && <Text style={[s.small, { color: "#B4472B" }]}>{note}</Text>}
             <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
-              <TouchableOpacity accessibilityRole="button" disabled={saving} onPress={() => void save()}
-                style={{ flex: 1, backgroundColor: tint, borderRadius: 12, paddingVertical: 12, alignItems: "center", opacity: saving ? 0.6 : 1 }}>
-                <Text style={{ color: "#fff", fontWeight: "600" }}>{saving ? "Saving…" : "Save"}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" disabled={saving} onPress={() => setEditing(false)}
-                style={{ paddingHorizontal: 16, borderRadius: 12, paddingVertical: 12, borderWidth: 1, borderColor: t.appSurface.line }}>
-                <Text style={{ fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
+              <Button label="Save" tint={tint} loading={saving} onPress={() => void save()} style={{ flex: 1 }} />
+              <Button variant="secondary" label="Cancel" disabled={saving} onPress={() => setEditing(false)} />
             </View>
           </>
         )}
@@ -116,25 +113,19 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
 }
 
 const label = { fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 };
-const input = { borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: t.appSurface.ink };
 
 function Field({ label: text, value, onChange, keyboard }: { label: string; value: string | null; onChange: (v: string | null) => void; keyboard?: "phone-pad" }) {
-  return (
-    <View>
-      <Text style={label}>{text}</Text>
-      <TextInput value={value ?? ""} onChangeText={(v) => onChange(v)} keyboardType={keyboard} style={input} />
-    </View>
-  );
+  return <Input label={text} value={value ?? ""} onChangeText={(v) => onChange(v)} keyboardType={keyboard} />;
 }
 
 function Pill({ text, on, tint, onPress, danger }: { text: string; on: boolean; tint: string; onPress: () => void; danger?: boolean }) {
   const bg = on ? (danger ? "#FBE9E6" : tint) : "transparent";
   const fg = on ? (danger ? "#9B2C1C" : "#fff") : t.appSurface.inkMuted;
   return (
-    <TouchableOpacity accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress}
+    <Tap accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress}
       style={{ borderRadius: 999, borderWidth: 1, borderColor: on ? (danger ? "#F1C7BF" : tint) : t.appSurface.line, backgroundColor: bg, paddingHorizontal: 10, paddingVertical: 4 }}>
       <Text style={{ fontSize: 12, fontWeight: "600", color: fg }}>{on ? `${text} ×` : `+ ${text}`}</Text>
-    </TouchableOpacity>
+    </Tap>
   );
 }
 
@@ -149,7 +140,7 @@ function Chips({ title, items, suggestions, onChange, danger }: { title: string;
         {items.map((it) => <Pill key={it} text={it} on tint="#17402A" danger={danger} onPress={() => onChange(items.filter((x) => x !== it))} />)}
         {suggestions.filter((sg) => !has(sg)).slice(0, 8).map((sg) => <Pill key={sg} text={sg} on={false} tint="#17402A" onPress={() => onChange([...items, sg])} />)}
       </View>
-      <TextInput value={draft} onChangeText={setDraft} onSubmitEditing={add} onBlur={add} placeholder="Type another and press return" returnKeyType="done" style={input} />
+      <Input label="Add another" value={draft} onChangeText={setDraft} onSubmitEditing={add} onBlur={add} placeholder="Type another and press return" returnKeyType="done" />
     </View>
   );
 }

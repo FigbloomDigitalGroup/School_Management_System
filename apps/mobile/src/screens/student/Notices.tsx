@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { accentFor, s } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { OwnerAttachments } from "../../components/MediaLinks";
+import { Tap } from "../../ui/Tap";
+import { BackLink } from "../../ui/BackLink";
+import { School } from "lucide-react-native";
 
 export function StudentNotices() {
   const { data, accent, markNoticeRead } = useStudentData();
@@ -19,9 +22,7 @@ export function StudentNotices() {
           <Text style={s.headerSub}>{open.from} · {open.when}</Text>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <TouchableOpacity onPress={() => setOpenId(null)} style={{ ...s.row, minHeight: 44 }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>‹ All notices</Text>
-          </TouchableOpacity>
+          <BackLink label="All notices" color={a.deep} onPress={() => setOpenId(null)} />
           <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8, lineHeight: 26 }}>{open.subject}</Text>
           <Text style={[s.body, { marginTop: 16 }]}>{open.body}</Text>
           <OwnerAttachments owner="announcement" id={open.id} tint={a.deep} />
@@ -45,13 +46,13 @@ export function StudentNotices() {
           notices.map((n) => {
             const unread = n.unread;
             return (
-              <TouchableOpacity
+              <Tap
                 key={n.id}
                 onPress={() => { markNoticeRead(n.id); setOpenId(n.id); }}
                 style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}
               >
                 <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: unread ? a.deep : "#F1EDEC" }}>
-                  <Text style={{ fontSize: 13, color: unread ? "#fff" : "#6B605F" }}>{"◈"}</Text>
+                  <School size={18} color={unread ? "#fff" : "#6B605F"} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: unread ? "700" : "500" }}>{n.from}</Text>
@@ -59,7 +60,7 @@ export function StudentNotices() {
                   <Text numberOfLines={2} style={[s.small, { marginTop: 4 }]}>{n.body.split("\n")[0]}</Text>
                 </View>
                 <Text style={s.faint}>{n.when}</Text>
-              </TouchableOpacity>
+              </Tap>
             );
           })
         )}

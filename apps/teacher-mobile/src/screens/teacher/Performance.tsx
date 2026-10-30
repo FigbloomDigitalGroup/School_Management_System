@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
   describeChange, examsOf, fetchClassLearnerMeans, fetchClassPerformance, fetchTeacherClasses, GRADE_BANDS, gradeDistributions,
   gradingSchemeFor, movers, overallMeans, subjectComparison, subjectMeans,
@@ -13,6 +13,7 @@ import { fmt, MAX_SERIES, SERIES_COLORS, VIZ } from "../../components/charts/tok
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
+import { Tap } from "../../ui/Tap";
 
 /**
  * Results over time for a class the teacher teaches or is class teacher of:
@@ -151,7 +152,7 @@ export function TeacherPerformance({ session }: { session: TeacherSession }) {
                     const idx = chosen.indexOf(x.id);
                     const on = idx >= 0;
                     return (
-                      <TouchableOpacity
+                      <Tap
                         key={x.id}
                         accessibilityRole="button"
                         accessibilityState={{ selected: on }}
@@ -161,7 +162,7 @@ export function TeacherPerformance({ session }: { session: TeacherSession }) {
                       >
                         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: on ? SERIES_COLORS[idx] : t.appSurface.line }} />
                         <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? t.appSurface.ink : t.appSurface.inkMuted }}>{x.name}</Text>
-                      </TouchableOpacity>
+                      </Tap>
                     );
                   })}
                 </View>

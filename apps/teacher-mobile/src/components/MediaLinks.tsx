@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Linking, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Linking, Text, View } from "react-native";
 import { FileText, Image as ImageIcon, Link2, Music, PlayCircle, type LucideIcon } from "lucide-react-native";
 import {
   fetchAttachments, mediaSummary, openableUrl, type AttachmentOwner, type MaterialKind, type MediaItem,
 } from "@figbloom/shared";
 import { s, t } from "../theme";
+import { Tap } from "../ui/Tap";
 
 /**
  * Files and links from a teacher or the school: a worksheet, a lesson
@@ -39,7 +40,7 @@ export function MediaRow({ item, tint }: { item: MediaItem; tint: string }) {
   }
 
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="link"
       accessibilityLabel={`Open ${item.title}`}
       disabled={opening}
@@ -56,7 +57,7 @@ export function MediaRow({ item, tint }: { item: MediaItem; tint: string }) {
         </Text>
       </View>
       {opening ? <ActivityIndicator color={tint} /> : <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Open</Text>}
-    </TouchableOpacity>
+    </Tap>
   );
 }
 

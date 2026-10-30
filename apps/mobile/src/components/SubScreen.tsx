@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { s } from "../theme";
+import { BackLink } from "../ui/BackLink";
 
 /** A screen opened from a home card: tinted header with a way back, then the content in a scroll. */
 export function SubScreen({ tint, title, sub, headerRight, children }: {
@@ -15,9 +16,7 @@ export function SubScreen({ tint, title, sub, headerRight, children }: {
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 13.5, fontWeight: "600" }}>‹ Back</Text>
-        </TouchableOpacity>
+        <BackLink onPress={() => nav.goBack()} />
         <View style={[s.row, { justifyContent: "space-between" }]}>
           <View style={{ flex: 1 }}>
             <Text style={s.headerTitle}>{title}</Text>

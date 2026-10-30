@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, Keyboard, Modal, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, AppState, Keyboard, Modal, Text, View } from "react-native";
 import { Fingerprint } from "lucide-react-native";
 import { supabase } from "@figbloom/shared";
 import {
   confirmFingerprint, fingerprintSupport, forgetFingerprintUnlock, readFingerprintUnlock, saveFingerprintUnlock,
 } from "../lib/fingerprintUnlock";
 import { accentFor, HIT } from "../theme";
+import { RIPPLE_ON_DARK } from "../ui/color";
+import { Tap } from "../ui/Tap";
 
 /** How long the app can sit in the background before it asks for the fingerprint again. */
 const GRACE_MS = 30_000;
@@ -163,24 +165,25 @@ function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onU
         </Text>
 
         {state !== "unavailable" && (
-          <TouchableOpacity
+          <Tap
             accessibilityRole="button"
             disabled={state === "asking"}
             onPress={() => void ask()}
             style={{ ...HIT, marginTop: 28, paddingHorizontal: 24, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", opacity: state === "asking" ? 0.6 : 1 }}
           >
             <Text style={{ fontSize: 15, fontWeight: "600", color: a.deep }}>Unlock with fingerprint</Text>
-          </TouchableOpacity>
+          </Tap>
         )}
 
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           disabled={signingOut}
           onPress={() => void signOut()}
+          ripple={RIPPLE_ON_DARK}
           style={{ ...HIT, marginTop: 12, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: signingOut ? 0.6 : 1 }}
         >
           <Text style={{ fontSize: 13.5, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
-        </TouchableOpacity>
+        </Tap>
       </View>
     </Modal>
   );

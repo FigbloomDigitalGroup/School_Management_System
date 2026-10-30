@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeVisits, visitAlert } from "@figbloom/shared";
 import { s, t } from "../theme";
+import { Tap } from "../ui/Tap";
+import { X } from "lucide-react-native";
 
 /** How long an arrival stays on screen before it tucks itself away. */
 const SHOW_MS = 12_000;
@@ -35,13 +37,13 @@ export function VisitAlerts({ tenantId, profileId, onOpen }: { tenantId: string;
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top + 8, left: 12, right: 12, zIndex: 50 }}>
       <View style={[s.card, { flexDirection: "row", alignItems: "center", gap: 10, padding: 0, borderColor: t.brand.orange, borderWidth: 1.5, elevation: 8 }]} accessibilityRole="alert" accessibilityLiveRegion="assertive">
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${alert.title}. Open your visitors`} onPress={() => { setAlert(null); onOpen(); }} style={{ flex: 1, minHeight: 56, padding: 12, justifyContent: "center" }}>
+        <Tap accessibilityRole="button" accessibilityLabel={`${alert.title}. Open your visitors`} onPress={() => { setAlert(null); onOpen(); }} style={{ flex: 1, minHeight: 56, padding: 12, justifyContent: "center" }}>
           <Text style={{ fontSize: 14, fontWeight: "700", color: t.appSurface.ink }}>{alert.title}</Text>
           <Text numberOfLines={2} style={[s.small, { marginTop: 2 }]}>{alert.body}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => setAlert(null)} style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontSize: 16, color: t.appSurface.inkMuted }}>✕</Text>
-        </TouchableOpacity>
+        </Tap>
+        <Tap accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => setAlert(null)} style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" }}>
+          <X size={18} color={t.appSurface.inkMuted} />
+        </Tap>
       </View>
     </View>
   );

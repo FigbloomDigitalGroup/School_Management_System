@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attachmentFilePath, defaultLinkTitle, draftTitle, fileProblem, formatFileSize, groupBySubject, isHttpsUrl, kindForLink,
-  kindForMime, materialFilePath, MAX_FILE_BYTES, mediaSummary, mimeForFile, parseEmbed, safeFileName, validateLink,
+  kindForMime, materialFilePath, MAX_FILE_BYTES, mediaSummary, mimeForFile, newMaterialId, parseEmbed, safeFileName, validateLink,
   validateMaterial, type MediaItem,
 } from "./materials";
 
@@ -195,5 +195,29 @@ describe("fileProblem with the project's upload limit", () => {
 
   it("never allows more than the bucket does", () => {
     expect(fileProblem({ name: "a.mp4", size: MAX_FILE_BYTES + 1, type: "video/mp4" }, 10 * MAX_FILE_BYTES)).toMatch(/up to 2\.0 GB/);
+  });
+});
+
+describe("newMaterialId", () => {
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it("is a version-4 uuid, which the database's uuid column takes", () => {
+    for (let i = 0; i < 200; i++) expect(newMaterialId()).toMatch(UUID_V4);
+  });
+
+  it("marks the version nibble 4 and the variant nibble 8 to b whatever the random source says", () => {
+    expect(newMaterialId(() => 0)).toBe("00000000-0000-4000-8000-000000000000");
+    expect(newMaterialId(() => 0.999999)).toBe("ffffffff-ffff-4fff-bfff-ffffffffffff");
+  });
+
+  it("does not repeat", () => {
+    expect(new Set(Array.from({ length: 2000 }, () => newMaterialId())).size).toBe(2000);
+  });
+
+  it("builds the file path the database checks: under the tenant and the material's own folder", () => {
+    const id = newMaterialId(() => 0);
+    const path = materialFilePath("t1", id, "Notes.pdf");
+    expect(path.startsWith(`t1/materials/${id}/`)).toBe(true);
+    expect(path.endsWith("-Notes.pdf")).toBe(true);
   });
 });

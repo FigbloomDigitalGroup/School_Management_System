@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Image, RefreshControl, ScrollView, Text, View } from "react-native";
-import { isLive, listBusUpdates, myChildBus, subscribeBusUpdates, type BusOnRoute, type BusUpdate } from "@figbloom/shared";
+import { isLive, listBusUpdates, myChildBus, subscribeBusUpdates, subscribeVehiclePositions, type BusOnRoute, type BusUpdate } from "@figbloom/shared";
 import { accentFor, s } from "../../theme";
 import { useChild, useChildren, useTenantId } from "../../data";
 import { Skeleton } from "../../components/Skeleton";
 import { BusMap } from "../../components/BusMap";
+import { useRouteTrace } from "../../lib/useRouteTrace";
+
+const NO_STOPS: BusOnRoute["stops"] = [];
 
 /** A child and the bus they ride, if any. */
 interface Ride { childId: string; first: string; bus: BusOnRoute | null; routeName: string | null; stopName: string | null }
 
 const ICON: Record<BusUpdate["kind"], string> = { trip_started: "🚌", distance: "📍", arrived: "✅", delay: "⏱", boarded: "🟢", alighted: "🏠", absent: "⚠️", breakdown: "🛠" };
-/** Bus position and "on the road" state refresh this often while the tab is open. */
+/**
+ * Positions arrive live (subscribeVehiclePositions); this slower refresh is the safety net for a
+ * dropped connection or a missed event, and it re-reads which bus a child rides.
+ */
 const REFRESH_MS = 30_000;
+/** "Updated 2 min ago" and the on-the-road dot are re-worked this often between pings. */
+const CLOCK_MS = 15_000;
 
 function startOfToday(): Date {
   const d = new Date();
@@ -73,7 +81,13 @@ export function ParentBus() {
     const off = subscribeBusUpdates(tenantId, (u) => {
       if (u.student_ids.some((id) => ids.includes(id))) setUpdates((prev) => [u, ...prev.filter((p) => p.id !== u.id)]);
     });
-    return () => { clearInterval(timer); sub.remove(); off(); };
+    // The bus moves on the map as each ping lands, not at the next refresh.
+    const offPositions = subscribeVehiclePositions(tenantId, (v) => {
+      setRides((prev) => prev?.map((r) => (r.bus && r.bus.vehicle.id === v.id ? { ...r, bus: { ...r.bus, vehicle: { ...r.bus.vehicle, ...v } } } : r)) ?? prev);
+      setNow(Date.now());
+    });
+    const clock = setInterval(() => setNow(Date.now()), CLOCK_MS);
+    return () => { clearInterval(timer); clearInterval(clock); sub.remove(); off(); offPositions(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id list
   }, [load, tenantId]);
 
@@ -104,6 +118,7 @@ export function ParentBus() {
 
 function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint: string; updates: BusUpdate[] }) {
   const { bus } = ride;
+  const path = useRouteTrace(bus?.stops ?? NO_STOPS);
   if (!bus) {
     return (
       <View style={[s.card, { padding: 14 }]}>
@@ -135,7 +150,7 @@ function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint:
       </View>
 
       <View style={{ marginTop: 10 }}>
-        <BusMap bus={bus} tint={tint} />
+        <BusMap bus={bus} tint={tint} path={path} />
       </View>
 
       <Text style={[s.faint, { marginTop: 6 }]}>{ago(bus.vehicle.last_ping_at, now)}</Text>

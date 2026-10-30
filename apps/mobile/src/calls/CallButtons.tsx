@@ -1,5 +1,7 @@
-import { Text, TouchableOpacity, View } from "react-native";
+import { Text, View } from "react-native";
 import { useCalls } from "./CallProvider";
+import { RIPPLE_ON_DARK } from "../ui/color";
+import { Tap } from "../ui/Tap";
 
 /**
  * Voice and video buttons for the other person in a chat, for the thread's
@@ -11,16 +13,17 @@ export function CallButtons({ otherId, name }: { otherId: string; name: string }
   return (
     <View style={{ flexDirection: "row", gap: 8 }}>
       {([["Call", false], ["Video", true]] as const).map(([label, video]) => (
-        <TouchableOpacity
+        <Tap
           key={label}
           accessibilityRole="button"
           accessibilityLabel={`${video ? "Video call" : "Call"} ${name}`}
           disabled={busy}
           onPress={() => void call(otherId, video)}
+          ripple={RIPPLE_ON_DARK}
           style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.6)", alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}
         >
           <Text style={{ fontSize: 13, fontWeight: "600", color: "#fff" }}>{label}</Text>
-        </TouchableOpacity>
+        </Tap>
       ))}
     </View>
   );

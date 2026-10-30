@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { mimeForFile, safeFileName } from "./materials";
 import type { Role } from "./types";
+import { uploadFile } from "./storageUpload";
 import type { UploadableFile } from "./uploads";
 
 /**
@@ -264,8 +265,7 @@ export async function uploadChatFile(tenantId: string, conversationId: string, f
 /** The same, for a file the phone has read into a Blob (React Native has no File to give a name). */
 export async function uploadChatBlob(tenantId: string, conversationId: string, file: UploadableFile): Promise<ChatFileDraft> {
   const path = chatFilePath(tenantId, conversationId, file.name);
-  const { error } = await supabase().storage.from(CHAT_FILES_BUCKET).upload(path, file.blob, { contentType: file.mimeType, upsert: false });
-  if (error) throw new Error(error.message);
+  await uploadFile(CHAT_FILES_BUCKET, path, file);
   return { path, name: file.name, mimeType: file.mimeType, sizeBytes: file.blob.size };
 }
 

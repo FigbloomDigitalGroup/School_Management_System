@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
   daysFromToday, doneByWords, dueWords, HAND_IN_PARENT_LABEL, minutesWords, setHomeworkDone, splitHomework,
@@ -10,6 +10,8 @@ import { useChild, useChildren } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import { useParentHomework } from "../../lib/useParentHomework";
+import { Tap } from "../../ui/Tap";
+import { BackLink } from "../../ui/BackLink";
 
 /**
  * The selected child's homework from the last three weeks, opened from the
@@ -47,9 +49,7 @@ export function ParentHomework() {
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 13.5, fontWeight: "600" }}>‹ Back</Text>
-        </TouchableOpacity>
+        <BackLink onPress={() => nav.goBack()} />
         <View style={[s.row, { justifyContent: "space-between" }]}>
           <View style={{ flex: 1 }}>
             <Text style={s.headerTitle}>{child.first}'s homework</Text>
@@ -155,20 +155,20 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, failed, tint, on
           <Text style={[s.small, { color: t.status.okInk, flex: 1 }]}>{doneByWords(item.doneBy, childFirst)}</Text>
           {/* Only what this parent ticked can be unticked here, and never one with a file attached. */}
           {canMark && item.doneBy === "you" && !item.hasFile && (
-            <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => onMark(false)} style={{ paddingVertical: 8, paddingLeft: 12 }}>
+            <Tap accessibilityRole="button" disabled={busy} onPress={() => onMark(false)} style={{ paddingVertical: 8, paddingLeft: 12 }}>
               <Text style={{ fontSize: 13, fontWeight: "600", color: t.appSurface.inkMuted }}>{busy ? "Saving…" : "Undo"}</Text>
-            </TouchableOpacity>
+            </Tap>
           )}
         </View>
       ) : canMark ? (
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           disabled={busy}
           onPress={() => onMark(true)}
           style={[s.primary, { backgroundColor: tint, marginTop: 10, paddingVertical: 12, opacity: busy ? 0.6 : 1 }]}
         >
           <Text style={s.primaryLabel}>{busy ? "Saving…" : "Mark done"}</Text>
-        </TouchableOpacity>
+        </Tap>
       ) : (
         <Text style={[s.faint, { marginTop: 8 }]}>{childFirst} marks it done when it's finished.</Text>
       )}

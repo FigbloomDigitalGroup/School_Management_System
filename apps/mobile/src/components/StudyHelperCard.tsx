@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Text, TouchableOpacity } from "react-native";
+import { Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { fetchAiHelperStatus } from "@figbloom/shared";
 import { s } from "../theme";
+import { Tap } from "../ui/Tap";
+import { OpenLabel } from "../ui/OpenLabel";
 
 /**
  * The way into the study helper from a learner's Today screen. Shown only where
@@ -24,7 +26,7 @@ export function StudyHelperCard({ tint }: { tint: string }) {
 
   if (!on) return null;
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="button"
       accessibilityLabel="Ask Bloom, your study helper"
       onPress={() => nav.navigate("StudyHelper")}
@@ -32,7 +34,9 @@ export function StudyHelperCard({ tint }: { tint: string }) {
     >
       <Text style={s.eyebrow}>ASK BLOOM</Text>
       <Text style={[s.small, { marginTop: 4 }]}>An AI tutor for your schoolwork. It explains, and asks you questions back.</Text>
-      <Text style={{ fontSize: 13, fontWeight: "600", color: tint, marginTop: 6 }}>Open ›</Text>
-    </TouchableOpacity>
+      <View style={{ marginTop: 6, alignSelf: "flex-start" }}>
+        <OpenLabel tint={tint} />
+      </View>
+    </Tap>
   );
 }
