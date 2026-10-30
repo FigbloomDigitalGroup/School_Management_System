@@ -261,6 +261,8 @@ export interface TripRider {
   status: RiderStatus;
   boarded_at: string | null;
   alighted_at: string | null;
+  /** The learner's photo (20261104500000); null when there isn't one, or before that migration is applied. */
+  avatar_url?: string | null;
   /** Evening trips only: marked absent or excused in class today, so not expected at the bus. */
   absent_from_class: boolean;
 }
