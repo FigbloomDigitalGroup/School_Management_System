@@ -4,6 +4,7 @@ import {
   type ArrangedRider, type RiderStatus, type Trip, type TripRider,
 } from "@figbloom/shared";
 import { queue } from "../../lib/queue";
+import { Avatar } from "../Avatar";
 
 type Section = "waiting" | "on_bus" | "done";
 import type { LatLng } from "./LiveRouteMap";
@@ -106,6 +107,7 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
     const sub = showStop ? [note, stop ?? "No stop set"].filter(Boolean).join(" · ") : "";
     return (
       <li key={r.student_id} className={`flex items-center gap-2 px-3 py-2 ${r.faded ? "bg-page" : ""}`}>
+        <span className={r.faded ? "opacity-50" : ""}><Avatar id={r.student_id} name={r.full_name} url={r.avatar_url} size={36} /></span>
         <div className={`min-w-0 flex-1 ${r.faded ? "opacity-50" : ""}`}>
           <div className={`truncate text-body font-semibold text-ink ${r.struck ? "line-through" : ""}`}>{r.full_name}</div>
           {sub && <div className="truncate text-[11.5px] text-ink-muted">{sub}</div>}

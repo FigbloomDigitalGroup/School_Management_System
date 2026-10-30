@@ -228,6 +228,8 @@ export interface Student {
   home_lng?: number | null;
   home_landmark?: string | null;
   home_address?: string | null;
+  /** Their photo (public-assets), if the school has added one. */
+  avatar_url?: string | null;
 }
 
 /** A parent may have several children; a child may have several guardians. */
