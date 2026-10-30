@@ -1,5 +1,5 @@
 # https://schoolmanagement.figbloom.org/robots.txt
-# The marketing page (/) and /privacy.html are public. Everything below is the
+# The marketing page (/), /privacy.html and /delete-account.html are public. Everything below is the
 # signed-in app: it has no search value and is never linked from public pages.
 # /signin and /signup stay crawlable (so their noindex tag can be read) but are
 # kept out of the index via <meta name="robots"> and the X-Robots-Tag header.

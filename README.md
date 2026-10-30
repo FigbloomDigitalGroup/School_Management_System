@@ -65,7 +65,7 @@ a school's URL survives a domain change. Mobile bakes the slug into the session.
 
 ## SEO for the marketing page
 
-Only `/` (and `/privacy.html`) is meant to be found on Google; everything else is
+Only `/` (and `/privacy.html` and `/delete-account.html`) is meant to be found on Google; everything else is
 the signed-in app.
 
 - **Metadata lives in `apps/web/index.html`** (title, description, canonical, Open

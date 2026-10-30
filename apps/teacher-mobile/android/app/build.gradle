@@ -112,6 +112,21 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    // A small APK for sending to phones directly. The release workflow passes
+    // -PsmallApk to its APK step only; the Play bundle and everyday builds are
+    // unchanged. It stores the native libraries compressed (about 29 MB of them
+    // become about 11 MB), for more room on the phone once installed. It expects
+    // the native build to be limited to the two phone architectures, arm64-v8a
+    // and armeabi-v7a, with -PreactNativeArchitectures=armeabi-v7a,arm64-v8a.
+    // That is still one APK that installs on every phone; only x86 and x86_64
+    // (emulators, Chromebooks) are left out, so use a debug build there.
+    if (project.hasProperty("smallApk")) {
+        packaging {
+            jniLibs {
+                useLegacyPackaging = true
+            }
+        }
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')

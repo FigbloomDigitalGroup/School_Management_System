@@ -33,8 +33,8 @@ Work top to bottom; tick an item in the same commit that fixes it.
 - [ ] **Found in the 2026-10-26 RLS audit after the sync with `main`** (every public table has RLS on; none of the new migrations touch the fixes above):
   - `vehicle_alerts_ack` lets any staff member UPDATE any column of an alert (kind, detail, position), not just acknowledge it. Same fix as the vehicle trigger.
   - `signature_requests_read` / `signatures_read` let every teacher read every signature request and signature in the school.
-  - `may_read_conversation()` lets the school admin read every private chat, including teacher-parent ones. Decide whether that is intended and say so in the privacy policy (FIG-1002).
-  - Bloom (staff drafting and chat) is **on by default** for every school (`tenants.ai_enabled default true`); the learner tutor is off. Staff text goes to the AI provider (OpenAI by default), so the privacy policy and the school-facing switch need to say so.
+  - `may_read_conversation()` lets the school admin read every private chat, including teacher-parent ones. Decide whether that is intended. The privacy policy now says so (2026-10-29: "the school's administrators can read the conversations in their school"); if you decide against it, change the policy with it.
+  - Bloom (staff drafting and chat) is **on by default** for every school (`tenants.ai_enabled default true`); the learner tutor is off. Staff text goes to the AI provider (OpenAI by default), The privacy policy now says so (2026-10-29), including what Bloom is and is not sent; the school's own switch for Bloom is not changed.
   - e2e: "an all-present register asks for one confirmation" fails about one run in four on a loaded machine: clicking Submit the moment the roster paints gives a confirmation reading "There is nobody on this roster yet" (the tally is computed before the roster state settles). Not new, but a fast teacher could hit it.
 - [ ] STK push: any guardian/staff can prompt any phone; throttle isn't atomic; pending payments never reconciled (a scheduled job could run the same Daraja STK query `mpesa-callback` now uses). Fixed: amounts must be whole shillings, CORS preflight, bad JSON → 400.
 
@@ -80,16 +80,16 @@ The repo isn't linked to a project (no `supabase/.temp/project-ref`); deploys ar
 - [ ] `versionCode 1` hard-coded in both apps — derive from CI.
 - [x] **Driver GPS crashed on "Start trip"** (confirmed on the emulator: `IncompatibleClassChangeError` in `FusedLocationProviderClient`): `react-native-geolocation-service` was built against play-services-location 18 while `react-native-maps` brings 21.3. Fixed with `playServicesLocationVersion` in `apps/mobile/android/build.gradle`; verified: trip starts, pings reach the database, and the bus shows on the parent's map.
 - [ ] Drop `ACCESS_BACKGROUND_LOCATION` (confirmed on the emulator: "Start trip" sends the driver to system settings to choose "Allow all the time") (foreground service is enough) or add the prominent disclosure + Play declaration.
-- [ ] Teacher app: drop `READ_MEDIA_IMAGES`, use the system photo picker.
+- [x] Teacher app: drop `READ_MEDIA_IMAGES`, use the system photo picker. The manifest no longer declares it; `react-native-image-picker` already uses the Android photo picker, which needs no permission.
 - [ ] Upgrade `@react-navigation/native-stack` 5.0.5 → ^7 and revisit the blanket Fabric keep rule.
 - [x] Mobile typecheck fails inside `react-native-maps` 1.26.0's source. Fixed with a type shim (`apps/mobile/src/types/react-native-maps.d.ts`); delete it when the pin is lifted.
 - [x] CI doesn't write `MAPS_API_KEY`, so CI-built maps are blank. The release workflow now writes it from a `MAPS_API_KEY` secret and fails if it's missing. The `MAPS_API_KEY` secret is now in GitHub (checked 2026-10-23). **Still to do:** add the upload key's SHA-1 to the key's restrictions in Google Cloud, and run the release workflow once to see a map render in the built app.
 - [ ] Offline launch lands on Sign-in (`auth.getUser()` needs network) — use the cached session.
 - [ ] Driver: enforce `must_change_password`; restart tracking after process death (confirmed on the emulator: after the app restarts the trip shows "Waiting for the first location fix…" but nothing is tracking); fix ping queue blocking after a trip ends.
 - [ ] Sign-out should delete the device token, cached data and queue.
-- [ ] Store collateral: real privacy-policy URL + contact email, Data safety form, teacher 512px icon, final feature graphics, student/driver screenshots.
-- [ ] Account deletion request path (web URL at minimum).
-- [ ] iOS: team, push entitlement, `GoogleService-Info.plist`, Firebase init, `PrivacyInfo.xcprivacy` data types.
+- [ ] Store collateral: privacy policy rewritten for the current apps (done, awaiting legal review) and the deletion page added; answers for the Data safety form, permission declarations and App Privacy are in `store-assets/data-safety.md` (done). Still open: confirm privacy@figbloom.org is a real inbox, teacher 512px icon, final feature graphics, student/driver screenshots.
+- [x] Account deletion request path: `apps/web/public/delete-account.html`, linked from the privacy policy, the landing footer and both apps' Account screens ("Your data"). Deleting itself still goes through the school (staff via `delete-account`, learners by archiving); there is no self-service deletion in the apps.
+- [ ] iOS: team, push entitlement, `GoogleService-Info.plist`, Firebase init. (`PrivacyInfo.xcprivacy` data types are declared, 13 types, none for tracking.)
 
 ## P3 — Ops
 

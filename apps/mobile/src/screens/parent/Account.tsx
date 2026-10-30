@@ -14,6 +14,7 @@ import {
 import { accentFor, s, t } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
 import { Tap } from "../../ui/Tap";
 
@@ -151,6 +152,8 @@ export function ParentAccount() {
         </Text>
 
         <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
 
         <Tap
           accessibilityRole="button"
