@@ -4,6 +4,7 @@ import { accentFor, HIT, s, t } from "../../theme";
 import { useChild, useSubjects } from "../../data";
 import { Skeleton } from "../../components/Skeleton";
 import { CbeResults } from "../../components/CbeResults";
+import { ChildExamPapers } from "../../components/ChildExamPapers";
 import { ExamAbsences } from "../../components/ExamAbsences";
 import { ExamSwitcher } from "../../components/ExamSwitcher";
 import { ReportCards } from "../../components/ReportCards";
@@ -108,6 +109,7 @@ export function ParentResults() {
             {!view.loading && !view.failed && <ExamAbsences studentId={child.id} examId={view.examId} />}
           </>
         )}
+        <ChildExamPapers studentId={child.id} classId={child.classId} />
         <ReportCards studentId={child.id} tint={tint} />
       </ScrollView>
     </View>

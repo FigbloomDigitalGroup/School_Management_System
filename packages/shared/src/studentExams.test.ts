@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LearnerExamState } from "./examExtensions";
 import type { AttemptRow, ExamPaperRow } from "./examPapers";
-import { canStartPaper, paperResitWaiting, paperStanding, studentWindow, type StudentPaper } from "./studentExams";
+import { canStartPaper, familyPaperGroups, paperResitWaiting, paperStanding, studentWindow, type StudentPaper } from "./studentExams";
 
 const OPEN = "2026-11-03T05:00:00.000Z";
 const CLOSE = "2026-11-03T07:00:00.000Z";
@@ -127,5 +127,66 @@ describe("paperStanding: a paper sat online", () => {
   it("a waiting resit outranks the result of the first sitting, but not once its window has closed", () => {
     expect(paperStanding(view({}, resit(), marked()), DURING)).toEqual({ label: "Resit open", tone: "warn", done: false });
     expect(paperStanding(view({}, resit(), marked()), AFTER)).toEqual({ label: "Results out", tone: "ok", done: true });
+  });
+});
+
+describe("familyPaperGroups", () => {
+  /** The same view under another id, so lists can be compared by name. */
+  const named = (v: StudentPaper, id: string): StudentPaper => ({ ...v, paper: { ...v.paper, id, title: id } });
+  const ids = (vs: StudentPaper[]) => vs.map((v) => v.paper.id);
+  const read = (id: string, opensAt: string, closesAt: string) => named(view({ mode: "read", opensAt, closesAt }, null), id);
+
+  it("shows what is open or coming up, soonest first", () => {
+    const later = read("later", "2026-11-05T05:00:00.000Z", "2026-11-05T07:00:00.000Z");
+    const sooner = read("sooner", "2026-11-03T05:00:00.000Z", "2026-11-03T07:00:00.000Z");
+    expect(ids(familyPaperGroups([later, sooner], DURING).upcoming)).toEqual(["sooner", "later"]);
+  });
+
+  it("leaves a closed paper out of coming up", () => {
+    expect(familyPaperGroups([read("old", "2026-11-01T05:00:00.000Z", "2026-11-01T07:00:00.000Z")], DURING).upcoming).toEqual([]);
+  });
+
+  it("shows nothing for a paper handed in and waiting to be marked: a parent sees outcomes, not sittings", () => {
+    const handedIn = named(view({}, state({ status: "submitted", attemptsUsed: 1, submittedAt: "2026-11-03T05:40:00.000Z" })), "handed-in");
+    const markedNotReleased = named(view({}, state({ status: "marked", attemptsUsed: 1, submittedAt: "2026-11-03T05:40:00.000Z" })), "marked");
+    const g = familyPaperGroups([handedIn, markedNotReleased], DURING);
+    expect(g).toEqual({ upcoming: [], notSat: [], released: [] });
+  });
+
+  it("lists a missed or excused online paper as not sat, never as coming up or as a result", () => {
+    const missed = named(view({}, state({ status: "missed" })), "missed");
+    const excused = named(view({}, state({ status: "excused" })), "excused");
+    const g = familyPaperGroups([missed, excused], AFTER);
+    expect(ids(g.notSat)).toEqual(["missed", "excused"]);
+    expect(g.upcoming).toEqual([]);
+    expect(g.released).toEqual([]);
+  });
+
+  it("a paper that is excused while its window is still open is not coming up either", () => {
+    expect(ids(familyPaperGroups([named(view({}, state({ status: "excused" })), "excused")], DURING).upcoming)).toEqual([]);
+  });
+
+  it("lists released results, and a released paper is never also coming up", () => {
+    const done = named(view({}, state({ status: "marked", attemptsUsed: 1, submittedAt: "2026-11-03T05:40:00.000Z" }), marked()), "done");
+    const g = familyPaperGroups([done], DURING);
+    expect(ids(g.released)).toEqual(["done"]);
+    expect(g.upcoming).toEqual([]);
+    expect(g.notSat).toEqual([]);
+  });
+
+  it("a paper with a result is never coming up, even while its window is still open and it has no sitting of its own", () => {
+    const readWithResult = named(view({ mode: "read" }, null, marked()), "read-result");
+    const g = familyPaperGroups([readWithResult], DURING);
+    expect(ids(g.released)).toEqual(["read-result"]);
+    expect(g.upcoming).toEqual([]);
+  });
+
+  it("keeps the lists short: six coming up, six not sat, ten results", () => {
+    const many = (n: number, make: (i: number) => StudentPaper) => Array.from({ length: n }, (_, i) => make(i));
+    const upcoming = many(9, (i) => read(`u${i}`, "2026-11-03T05:00:00.000Z", "2026-11-03T07:00:00.000Z"));
+    const notSat = many(9, (i) => named(view({}, state({ status: "missed" })), `n${i}`));
+    const released = many(12, (i) => named(view({}, state({ status: "marked", attemptsUsed: 1, submittedAt: "2026-11-03T05:40:00.000Z" }), marked()), `r${i}`));
+    const g = familyPaperGroups([...upcoming, ...notSat, ...released], DURING);
+    expect([g.upcoming.length, g.notSat.length, g.released.length]).toEqual([6, 6, 10]);
   });
 });

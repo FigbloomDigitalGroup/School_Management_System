@@ -74,6 +74,33 @@ export function paperStanding(v: StudentPaper, nowMs: number): PaperStanding {
   return { label: "Open now", tone: "warn", done: false };
 }
 
+export interface FamilyPaperGroups {
+  /** Open or coming up, soonest first. */
+  upcoming: StudentPaper[];
+  /** Online papers the child missed or was excused from: no mark, and never shown as a 0. */
+  notSat: StudentPaper[];
+  /** Results released, with the score and the teacher's feedback. */
+  released: StudentPaper[];
+}
+
+/**
+ * What a parent is shown for a child: what is coming up, what was not sat, and
+ * the released results. A parent sees the outcome, not the questions or the
+ * answers (those stay with the learner), so a paper the child has handed in
+ * and is waiting to be marked appears in none of the three.
+ */
+export function familyPaperGroups(papers: StudentPaper[], nowMs: number): FamilyPaperGroups {
+  const status = (v: StudentPaper) => v.state?.status;
+  const upcoming = papers
+    .filter((v) => !v.result && paperWindow(studentWindow(v), nowMs) !== "closed"
+      && status(v) !== "excused" && status(v) !== "submitted" && status(v) !== "marked")
+    .sort((a, b) => a.paper.opensAt.localeCompare(b.paper.opensAt))
+    .slice(0, 6);
+  const notSat = papers.filter((v) => !v.result && (status(v) === "missed" || status(v) === "excused")).slice(0, 6);
+  const released = papers.filter((v) => !!v.result).slice(0, 10);
+  return { upcoming, notSat, released };
+}
+
 /** Every published paper for the learner's class, with their standing on each. */
 export async function loadStudentPapers(classId: string, studentId: string): Promise<StudentPaper[]> {
   const [papers, states, results] = await Promise.all([fetchClassPapers(classId), fetchLearnerExamStates(studentId), fetchReleasedAttempts(studentId)]);
