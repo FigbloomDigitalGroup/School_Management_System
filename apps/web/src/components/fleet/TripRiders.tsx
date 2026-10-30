@@ -4,6 +4,8 @@ import {
   type ArrangedRider, type RiderStatus, type Trip, type TripRider,
 } from "@figbloom/shared";
 import { queue } from "../../lib/queue";
+
+type Section = "waiting" | "on_bus" | "done";
 import type { LatLng } from "./LiveRouteMap";
 
 const PLACE_NOTE: Record<ArrangedRider["place"], string | null> = {
@@ -85,6 +87,56 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
   const onBoard = arranged.filter((r) => r.place === "on_bus").length;
   const waiting = arranged.filter((r) => r.place === "waiting").length;
 
+  // A full bus is 30-odd rows: the driver needs the next stop's children, not
+  // a scroll past everyone already aboard. Still-to-pick-up first, by stop;
+  // on the bus folds away while anyone is waiting (open on the way home, when
+  // it's the list being dropped off); the done ones stay folded.
+  const [opened, setOpened] = useState<Partial<Record<Section, boolean>>>({});
+  const sections: { key: Section; title: string; riders: ArrangedRider[]; open: boolean; byStop: boolean }[] = [
+    { key: "waiting", title: "To pick up", riders: arranged.filter((r) => r.place === "waiting"), open: true, byStop: true },
+    { key: "on_bus", title: "On the bus", riders: arranged.filter((r) => r.place === "on_bus"), open: waiting === 0, byStop: true },
+    { key: "done", title: "Dropped off, not here or absent", riders: arranged.filter((r) => r.faded), open: false, byStop: false },
+  ];
+  const isOpen = (s: (typeof sections)[number]) => opened[s.key] ?? s.open;
+
+  const row = (r: ArrangedRider, showStop: boolean) => {
+    const note = PLACE_NOTE[r.place];
+    const stop = r.stop_id ? stopName.get(r.stop_id) : null;
+    // under a section heading, "On the bus" and the stop name would repeat it
+    const sub = showStop ? [note, stop ?? "No stop set"].filter(Boolean).join(" · ") : "";
+    return (
+      <li key={r.student_id} className={`flex items-center gap-2 px-3 py-2 ${r.faded ? "bg-page" : ""}`}>
+        <div className={`min-w-0 flex-1 ${r.faded ? "opacity-50" : ""}`}>
+          <div className={`truncate text-body font-semibold text-ink ${r.struck ? "line-through" : ""}`}>{r.full_name}</div>
+          {sub && <div className="truncate text-[11.5px] text-ink-muted">{sub}</div>}
+        </div>
+        {actionsFor(r).map((a) => (
+          <button
+            key={a.status}
+            onClick={() => void mark(r, a.status)}
+            disabled={busy === r.student_id}
+            className={`hit shrink-0 rounded-lg px-3 py-2 text-small font-semibold disabled:opacity-60 ${
+              a.primary ? "bg-forest text-white" : "border border-line text-ink-muted"
+            }`}
+          >
+            {a.label}
+          </button>
+        ))}
+      </li>
+    );
+  };
+
+  /** Consecutive riders at the same stop (arrangeRiders already sorts by stop) under one heading. */
+  const byStop = (list: ArrangedRider[]) => {
+    const groups: { stopId: string | null; riders: ArrangedRider[] }[] = [];
+    for (const r of list) {
+      const last = groups[groups.length - 1];
+      if (last && last.stopId === r.stop_id) last.riders.push(r);
+      else groups.push({ stopId: r.stop_id, riders: [r] });
+    }
+    return groups;
+  };
+
   return (
     <section className="mt-3" aria-label="Children on this bus">
       <div className="flex items-baseline justify-between gap-2">
@@ -97,34 +149,31 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
       ) : !arranged.length ? (
         <p className="mt-1 text-small text-ink-muted">Nobody is assigned to this route yet.</p>
       ) : (
-        <ul className="mt-1.5 divide-y divide-line rounded-xl border border-line">
-          {arranged.map((r) => {
-            const note = PLACE_NOTE[r.place];
-            const stop = r.stop_id ? stopName.get(r.stop_id) : null;
-            return (
-              <li key={r.student_id} className={`flex items-center gap-2 px-3 py-2 ${r.faded ? "bg-page" : ""}`}>
-                <div className={`min-w-0 flex-1 ${r.faded ? "opacity-50" : ""}`}>
-                  <div className={`truncate text-body font-semibold text-ink ${r.struck ? "line-through" : ""}`}>{r.full_name}</div>
-                  <div className="truncate text-[11.5px] text-ink-muted">
-                    {[note, stop ?? "No stop set"].filter(Boolean).join(" · ")}
+        <div className="mt-1.5 grid gap-2">
+          {sections.filter((s) => s.riders.length).map((s) => (
+            <div key={s.key} className="overflow-hidden rounded-xl border border-line">
+              <button
+                type="button"
+                onClick={() => setOpened((o) => ({ ...o, [s.key]: !isOpen(s) }))}
+                aria-expanded={isOpen(s)}
+                className="hit flex w-full items-center justify-between gap-2 bg-page px-3 py-2 text-left"
+              >
+                <span className="text-small font-semibold text-ink">{s.title} · {s.riders.length}</span>
+                <span className="text-[11.5px] font-semibold text-ink-muted">{isOpen(s) ? "Hide" : "Show"}</span>
+              </button>
+              {isOpen(s) && (s.byStop ? byStop(s.riders).map((g) => (
+                <div key={g.stopId ?? "none"}>
+                  <div className="border-t border-line px-3 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">
+                    {(g.stopId ? stopName.get(g.stopId) : null) ?? "No stop set"} · {g.riders.length}
                   </div>
+                  <ul className="divide-y divide-line border-t border-line-soft">{g.riders.map((r) => row(r, false))}</ul>
                 </div>
-                {actionsFor(r).map((a) => (
-                  <button
-                    key={a.status}
-                    onClick={() => void mark(r, a.status)}
-                    disabled={busy === r.student_id}
-                    className={`hit shrink-0 rounded-lg px-3 py-2 text-small font-semibold disabled:opacity-60 ${
-                      a.primary ? "bg-forest text-white" : "border border-line text-ink-muted"
-                    }`}
-                  >
-                    {a.label}
-                  </button>
-                ))}
-              </li>
-            );
-          })}
-        </ul>
+              )) : (
+                <ul className="divide-y divide-line border-t border-line">{s.riders.map((r) => row(r, true))}</ul>
+              ))}
+            </div>
+          ))}
+        </div>
       )}
 
       <ReportBreakdown tripId={trip.id} affected={riders ? breakdownAffected(riders).length : null} online={online} pos={pos} />
