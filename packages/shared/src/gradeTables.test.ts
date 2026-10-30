@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { gradeFor, parseScoreInput, pointsFor, summarise } from "./grading";
 import { CBC_RUBRIC_4, CBC_RUBRIC_8, summariseStrands } from "./gradingSchemes";
 import { creditWeightedGpa, letterAndPoints, weightedScore } from "./gpa";
+import { CBC, KCSE, expected } from "./gradeTables.fixture";
 
 /**
  * QA 09 (FIG-1242): marks to grades, worked out BY HAND and typed here, not read from the code under test.
@@ -20,20 +21,6 @@ import { creditWeightedGpa, letterAndPoints, weightedScore } from "./gpa";
  *    protection for the scale the product ships, not a check against an official table.
  * Marks are whole numbers (marks.score is an integer column), so every integer from 0 to 100 is checked, not just samples.
  */
-
-type Band = [grade: string, points: number, lo: number, hi: number];
-
-const KCSE: Band[] = [
-  ["A", 12, 80, 100], ["A-", 11, 75, 79], ["B+", 10, 70, 74], ["B", 9, 65, 69], ["B-", 8, 60, 64], ["C+", 7, 55, 59],
-  ["C", 6, 50, 54], ["C-", 5, 45, 49], ["D+", 4, 40, 44], ["D", 3, 35, 39], ["D-", 2, 30, 34], ["E", 1, 0, 29],
-];
-
-const CBC: Band[] = [
-  ["EE1", 8, 90, 100], ["EE2", 7, 75, 89], ["ME1", 6, 58, 74], ["ME2", 5, 41, 57],
-  ["AE1", 4, 31, 40], ["AE2", 3, 21, 30], ["BE1", 2, 11, 20], ["BE2", 1, 1, 10],
-];
-
-const expected = (table: Band[], mark: number) => table.find(([, , lo, hi]) => mark >= lo && mark <= hi);
 
 describe("KCSE: every whole mark from 0 to 100", () => {
   for (let mark = 0; mark <= 100; mark++) {
