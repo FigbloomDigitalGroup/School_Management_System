@@ -4,8 +4,8 @@ import {
   PAPER_KIND_LABEL, familyPaperGroups, loadStudentPapers, paperWindow, scoreLabel, studentWindow, windowLabel,
   type StudentPaper,
 } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { Skeleton } from "./Skeleton";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * A child's exams and tests, for the parent: what is coming up, what was not
@@ -14,6 +14,7 @@ import { Skeleton } from "./Skeleton";
  * learner. Nothing at all when there is nothing to show.
  */
 export function ChildExamPapers({ studentId, classId }: { studentId: string; classId: string | null }) {
+  const { t, s } = useTheme();
   const [papers, setPapers] = useState<StudentPaper[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -73,7 +74,7 @@ export function ChildExamPapers({ studentId, classId }: { studentId: string; cla
           <View key={r.key} style={{ paddingVertical: 11, borderBottomWidth: i === rows.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
             <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start", gap: 8 }]}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13.5, fontWeight: "600" }}>{r.title}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600" }}>{r.title}</Text>
                 <Text style={[s.faint, { marginTop: 2 }]}>{r.meta}</Text>
               </View>
               {r.pill && (
@@ -81,7 +82,7 @@ export function ChildExamPapers({ studentId, classId }: { studentId: string; cla
                   <Text style={[s.pillLabel, { color: r.pill.ink }]}>{r.pill.label}</Text>
                 </View>
               )}
-              {!!r.score && <Text style={[s.mono, { fontWeight: "700" }]}>{r.score}</Text>}
+              {!!r.score && <Text style={[{ color: t.appSurface.ink }, s.mono, { fontWeight: "700" }]}>{r.score}</Text>}
             </View>
             {!!r.feedback && <Text style={[s.small, { marginTop: 6, lineHeight: 18 }]}>{r.feedback}</Text>}
           </View>

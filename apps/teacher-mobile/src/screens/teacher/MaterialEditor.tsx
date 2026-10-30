@@ -7,7 +7,7 @@ import {
   formatFileSize, kindForLink, kindForMime, mediaSummary, mimeForFile, setMaterialPublished, updateMaterial, validateLink, validateMaterial,
   type ClassGroup, type MaterialRow, type Subject,
 } from "@figbloom/shared";
-import { accentFor, fieldLine, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ANY_FILE, pickFile, readPickedFile, type PickedFile } from "../../lib/pickFile";
@@ -15,6 +15,7 @@ import type { TeacherSession } from "../../navigation";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 type Source = "file" | "link";
 
@@ -26,6 +27,7 @@ type Source = "file" | "link";
  * To use a different file or link, add a new material and delete the old one.
  */
 export function TeacherMaterialEditor({ session, route }: { session: TeacherSession; route: { params?: { material?: MaterialRow } } }) {
+  const { t, s, fieldLine, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const a = accentFor(session.accent);
   const material = route.params?.material;
@@ -136,7 +138,7 @@ export function TeacherMaterialEditor({ session, route }: { session: TeacherSess
       <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
         <View style={[s.card, { gap: 14 }]}>
           {classes === null ? (
-            <ActivityIndicator color={a.deep} />
+            <ActivityIndicator color={accentInk(a.deep)} />
           ) : classes.length === 0 ? (
             <Text style={s.small}>You aren't assigned to any classes yet. Ask the school admin to add you to a class.</Text>
           ) : (
@@ -147,7 +149,7 @@ export function TeacherMaterialEditor({ session, route }: { session: TeacherSess
               </View>
               <View>
                 <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 }]}>Subject</Text>
-                {subjects === null ? <ActivityIndicator color={a.deep} /> : noSubjects ? (
+                {subjects === null ? <ActivityIndicator color={accentInk(a.deep)} /> : noSubjects ? (
                   <Text style={s.faint}>You aren't assigned a subject in this class. Ask the school admin.</Text>
                 ) : (
                   <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />
@@ -156,9 +158,9 @@ export function TeacherMaterialEditor({ session, route }: { session: TeacherSess
 
               {material ? (
                 <View style={[s.row, { gap: 10, padding: 12, borderRadius: t.radius.lg, backgroundColor: t.appSurface.page }]}>
-                  <FileText size={20} color={a.deep} />
+                  <FileText size={20} color={accentInk(a.deep)} />
                   <View style={{ flex: 1 }}>
-                    <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "600" }}>{material.fileName ?? material.url}</Text>
+                    <Text numberOfLines={1} style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600" }}>{material.fileName ?? material.url}</Text>
                     <Text style={s.faint}>{mediaSummary(material)}. To use a different file or link, add a new material and delete this one.</Text>
                   </View>
                 </View>
@@ -177,7 +179,7 @@ export function TeacherMaterialEditor({ session, route }: { session: TeacherSess
                           accessibilityState={{ selected: on, disabled: saving }}
                           disabled={saving}
                           onPress={() => { setSource(key); setError(""); }}
-                          style={{ ...HIT, borderRadius: t.radius.lg, padding: 12, borderWidth: on ? 2 : 1, borderColor: on ? a.deep : fieldLine, backgroundColor: on ? `${a.deep}14` : t.appSurface.card }}
+                          style={{ ...HIT, borderRadius: t.radius.lg, padding: 12, borderWidth: on ? 2 : 1, borderColor: on ? accentInk(a.deep) : fieldLine, backgroundColor: on ? `${a.deep}14` : t.appSurface.card }}
                         >
                           <Text style={{ fontSize: 14, fontWeight: "600", color: t.appSurface.ink }}>{label}</Text>
                           <Text style={[s.faint, { marginTop: 2 }]}>{hint}</Text>

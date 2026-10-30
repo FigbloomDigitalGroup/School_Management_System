@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { fetchTeacherNotices, markNoticeRead, subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import type { TeacherSession } from "../../navigation";
 import { OwnerAttachments } from "../../components/MediaLinks";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { Tap } from "../../ui/Tap";
 import { BackLink } from "../../ui/BackLink";
+import { useTheme } from "../../ui/ThemeContext";
 
 const NOTICE_POLL_MS = 20_000;
 
@@ -17,6 +18,7 @@ const NOTICE_POLL_MS = 20_000;
  * (subscribeAnnouncements) with a poll as fallback, same as web.
  */
 export function TeacherNotices({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const [notices, setNotices] = useState<NoticeInfo[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
   if (!notices) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -64,8 +66,8 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
           <Text style={s.headerSub}>{selected.from} · {selected.when}</Text>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <BackLink label="All notices" color={a.deep} onPress={() => setOpenId(null)} />
-          <Text style={{ fontSize: 18, fontWeight: "600", marginTop: 8, lineHeight: 25 }}>{selected.subject}</Text>
+          <BackLink label="All notices" color={accentInk(a.deep)} onPress={() => setOpenId(null)} />
+          <Text style={{ color: t.appSurface.ink, fontSize: 18, fontWeight: "600", marginTop: 8, lineHeight: 25 }}>{selected.subject}</Text>
           <Text style={[s.body, { marginTop: 14 }]}>{selected.body}</Text>
           <OwnerAttachments owner="announcement" id={selected.id} tint={a.deep} />
         </ScrollView>
@@ -97,7 +99,7 @@ export function TeacherNotices({ session }: { session: TeacherSession }) {
               {n.unread && <View style={{ width: 7, height: 7, borderRadius: 4, marginTop: 6, backgroundColor: t.brand.orange }} />}
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                  <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: n.unread ? "700" : "500", flex: 1 }}>{n.subject}</Text>
+                  <Text numberOfLines={1} style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: n.unread ? "700" : "500", flex: 1 }}>{n.subject}</Text>
                   <Text style={s.faint}>{n.when}</Text>
                 </View>
                 <Text style={s.faint}>{n.from}</Text>

@@ -5,8 +5,8 @@ import {
   daysOverdue, fetchLearnerInventory, fetchMyInventory, formatShortDate, isOverdue, ISSUE_STATUS_LABEL, ITEM_CONDITION_LABEL, sortIssues,
   type InventoryIssueRow, type IssueHolder,
 } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { EmptyState, ErrorState } from "../ui/StateView";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * What a learner or a member of staff has been issued from the school's
@@ -16,6 +16,7 @@ import { EmptyState, ErrorState } from "../ui/StateView";
  * The same file is in both phone apps; change both.
  */
 export function IssuedItemsView({ holder, whose, tint }: { holder: IssueHolder; whose: string; tint: string }) {
+  const { t, s, accentInk } = useTheme();
   const [rows, setRows] = useState<InventoryIssueRow[] | null>(null);
   /** The load failed: not the same as "nothing issued", and it can be retried. */
   const [failed, setFailed] = useState(false);
@@ -35,7 +36,7 @@ export function IssuedItemsView({ holder, whose, tint }: { holder: IssueHolder; 
   }, [kind, id, reloadKey]);
 
   if (failed) return <ErrorState title="Couldn't load issued items" onRetry={() => setReloadKey((k) => k + 1)} />;
-  if (!rows) return <ActivityIndicator color={tint} style={{ marginTop: 24 }} />;
+  if (!rows) return <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />;
 
   const sorted = sortIssues(rows);
   const out = sorted.filter((r) => r.status === "out");
@@ -48,7 +49,7 @@ export function IssuedItemsView({ holder, whose, tint }: { holder: IssueHolder; 
       <View style={[s.row, { gap: 10, alignItems: "stretch" }]}>
         <View style={[s.card, { flex: 1, padding: 14 }]}>
           <Text style={s.eyebrow}>WITH {yourself ? "YOU" : whose.toUpperCase()}</Text>
-          <Text style={{ fontSize: 24, fontWeight: "600", marginTop: 4 }}>{out.reduce((a, r) => a + r.quantity, 0).toLocaleString()}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 24, fontWeight: "600", marginTop: 4 }}>{out.reduce((a, r) => a + r.quantity, 0).toLocaleString()}</Text>
           <Text style={s.faint}>items out now</Text>
         </View>
         <View style={[s.card, { flex: 1, padding: 14 }]}>
@@ -77,7 +78,7 @@ export function IssuedItemsView({ holder, whose, tint }: { holder: IssueHolder; 
           <View key={r.id} style={[s.card, { padding: 14 }]}>
             <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start" }]}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14.5, fontWeight: "600" }}>{r.itemName}{r.quantity > 1 ? ` × ${r.quantity}` : ""}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "600" }}>{r.itemName}{r.quantity > 1 ? ` × ${r.quantity}` : ""}</Text>
                 {!!r.assetTag && <Text style={[s.mono, { color: t.appSurface.inkFaint, marginTop: 2 }]}>{r.assetTag}</Text>}
               </View>
               <View style={[s.pill, { backgroundColor: tone.bg, marginLeft: 8 }]}>

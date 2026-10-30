@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { QueuedWrite } from "@figbloom/shared";
-import { HIT, s, t } from "../theme";
+import { HIT } from "../theme";
 import { queue } from "../storage";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 const WHAT: Record<string, string> = {
   attendance: "A register",
@@ -19,6 +20,7 @@ const WHAT: Record<string, string> = {
  * once they have seen it (or entered it again) rather than carrying it silently.
  */
 export function QueueNotice() {
+  const { t, s } = useTheme();
   const [refused, setRefused] = useState<QueuedWrite[]>([]);
 
   useEffect(() => {

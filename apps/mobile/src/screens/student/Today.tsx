@@ -1,14 +1,16 @@
 import { ScrollView, Text, View } from "react-native";
 import { currentPeriodIndex, todayWeekday } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { LiveClassBanner } from "../../calls/LiveClassBanner";
 import { ChatsCard } from "../../components/ChatsCard";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { StudyHelperCard } from "../../components/StudyHelperCard";
 import { useStudentData } from "../../studentData";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** Where am I meant to be, and what is late. Nothing else above the fold. */
 export function StudentToday() {
+  const { t, s, accentInk } = useTheme();
   const { data, timetable, accent, tenantId } = useStudentData();
   const a = accentFor(accent);
 
@@ -32,11 +34,11 @@ export function StudentToday() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <View style={[s.card, now ? { borderLeftWidth: 4, borderLeftColor: a.deep } : null]}>
+        <View style={[s.card, now ? { borderLeftWidth: 4, borderLeftColor: accentInk(a.deep) } : null]}>
           {now ? (
             <>
-              <Text style={[s.eyebrow, { color: a.deep }]}>NOW</Text>
-              <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8 }}>{now[1]}</Text>
+              <Text style={[s.eyebrow, { color: accentInk(a.deep) }]}>NOW</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 19, fontWeight: "600", marginTop: 8 }}>{now[1]}</Text>
               <Text style={s.small}>{[now[2], now[3]].filter(Boolean).join(" · ")} · {now[0]}</Text>
             </>
           ) : (
@@ -45,7 +47,7 @@ export function StudentToday() {
           {next && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft }}>
               <Text style={[s.eyebrow, { letterSpacing: 1 }]}>NEXT</Text>
-              <Text style={{ fontSize: 13, fontWeight: "500" }}>{next[1]}</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 13, fontWeight: "500" }}>{next[1]}</Text>
               <Text style={[s.small, { marginLeft: "auto" }]}>{[next[0], next[2], next[3]].filter(Boolean).join(" · ")}</Text>
             </View>
           )}
@@ -87,9 +89,9 @@ export function StudentToday() {
           restOfDay.map(([time, subject, room, teacher]) => (
             <View key={time} style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }]}>
               <Text style={[s.mono, { width: 44, color: t.appSurface.inkMuted }]}>{time}</Text>
-              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: a.hex }} />
+              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: accentInk(a.hex) }} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: "500" }}>{subject}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "500" }}>{subject}</Text>
                 <Text style={s.faint}>{[room, teacher].filter(Boolean).join(" · ")}</Text>
               </View>
             </View>

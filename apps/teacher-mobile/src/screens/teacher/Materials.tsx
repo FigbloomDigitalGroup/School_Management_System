@@ -5,12 +5,13 @@ import {
   MATERIAL_KIND_LABEL, deleteMaterial, fetchMaterials, fetchMyTeachingPairs, fetchTeacherClasses, formatShortDate, localIsoDate, setMaterialPublished,
   type MaterialRow,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { MediaRow } from "../../components/MediaLinks";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
 import { Button } from "../../ui/Button";
 import { EmptyState, ErrorState } from "../../ui/StateView";
+import { useTheme } from "../../ui/ThemeContext";
 
 type State =
   | { kind: "loading" }
@@ -25,6 +26,7 @@ type State =
  * its own screen. Read again whenever this comes back into view.
  */
 export function TeacherMaterials({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const a = accentFor(session.accent);
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -81,7 +83,7 @@ export function TeacherMaterials({ session }: { session: TeacherSession }) {
       <ScreenHeader title="Learning materials" sub="Share with a class you teach" color={a.deep} back />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         {state.kind === "loading" ? (
-          <ActivityIndicator color={a.deep} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={accentInk(a.deep)} style={{ marginTop: 24 }} />
         ) : state.kind === "failed" ? (
           <ErrorState title="Couldn't load your materials" onRetry={() => { setState({ kind: "loading" }); read(); }} />
         ) : !ready!.hasClasses ? (

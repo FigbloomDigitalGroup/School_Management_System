@@ -5,7 +5,7 @@ import {
   fetchAiChatMessages, fetchAiChats, fetchAiStatus, formatFileSize, saveAiChatTurns, setAiChatWebSearch, sourceHost,
   type AiChat, type AiChatSource, type AiChatTurn, type AiStatus, type ChatAttachment,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { Markdown } from "../../components/Markdown";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { BLOOM_FILE_TYPES, readBloomAttachment } from "../../lib/bloomFiles";
@@ -13,6 +13,7 @@ import { pickFile } from "../../lib/pickFile";
 import type { TeacherSession } from "../../navigation";
 import { Tap } from "../../ui/Tap";
 import { BackLink } from "../../ui/BackLink";
+import { useTheme } from "../../ui/ThemeContext";
 
 const STARTERS = [
   "Draft a circular to parents about half term",
@@ -32,6 +33,7 @@ const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: 
  * regenerating an answer and importing an exam paper are on the website.
  */
 export function TeacherBloom({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   // undefined: still asking. null: the school has no settings row to read.
   const [status, setStatus] = useState<AiStatus | null | undefined>(undefined);
@@ -83,7 +85,7 @@ export function TeacherBloom({ session }: { session: TeacherSession }) {
         {error ? (
           <View style={s.card}><Text style={[s.small, { color: t.status.warnInk }]}>{error}</Text></View>
         ) : status === undefined || !chats ? (
-          <ActivityIndicator color={a.deep} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={accentInk(a.deep)} style={{ marginTop: 32 }} />
         ) : status && !status.aiEnabled ? (
           <View style={[s.card, { padding: 16 }]}>
             <Text style={[s.h2, { marginBottom: 4 }]}>Bloom is off</Text>
@@ -133,6 +135,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
   webSearchAllowed: boolean;
   onBack: () => void;
 }) {
+  const { t, s, accentInk } = useTheme();
   const initialId = initial === "new" ? null : initial.id;
   const [chat, setChat] = useState<AiChat | null>(initial === "new" ? null : initial);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -257,7 +260,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
         keyboardShouldPersistTaps="handled"
       >
         {loading ? (
-          <ActivityIndicator color={tint} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 32 }} />
         ) : (
           <>
             {turns.length === 0 && (
@@ -267,7 +270,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
                     key={q}
                     accessibilityRole="button"
                     onPress={() => setDraft(q)}
-                    style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: "#fff" }}
+                    style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: t.appSurface.card }}
                   >
                     <Text style={{ fontSize: 13, color: t.appSurface.ink }}>{q}</Text>
                   </Tap>
@@ -288,7 +291,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
                       <Text style={s.eyebrow}>SOURCES</Text>
                       {m.sources.map((src, n) => !!src.url && (
                         <Tap key={n} accessibilityRole="link" onPress={() => { void Linking.openURL(src.url).catch(() => {}); }} style={{ minHeight: 36, justifyContent: "center" }}>
-                          <Text numberOfLines={2} style={{ fontSize: 12.5, color: tint }}>{n + 1}. {src.title} · {sourceHost(src.url)}</Text>
+                          <Text numberOfLines={2} style={{ fontSize: 12.5, color: accentInk(tint) }}>{n + 1}. {src.title} · {sourceHost(src.url)}</Text>
                         </Tap>
                       ))}
                     </View>
@@ -298,7 +301,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
             ))}
             {busy && (
               <View style={[s.card, { alignSelf: "flex-start", padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
-                <ActivityIndicator color={tint} />
+                <ActivityIndicator color={accentInk(tint)} />
                 <Text style={s.faint}>Bloom is thinking…</Text>
               </View>
             )}
@@ -307,11 +310,11 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
         {!!error && <Text style={{ fontSize: 12.5, color: t.status.warnInk }}>{error}</Text>}
       </ScrollView>
 
-      <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 10, gap: 6 }}>
+      <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card, padding: 10, gap: 6 }}>
         {webSearchAllowed && (
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Text style={{ fontSize: 13, color: t.appSurface.ink }}>Search the web</Text>
-            <Switch value={webSearch} onValueChange={toggleWebSearch} disabled={busy} accessibilityLabel="Search the web" trackColor={{ true: tint }} />
+            <Switch value={webSearch} onValueChange={toggleWebSearch} disabled={busy} accessibilityLabel="Search the web" trackColor={{ true: accentInk(tint) }} />
           </View>
         )}
         {attachments.map((f, i) => (
@@ -330,7 +333,7 @@ function BloomThread({ chat: initial, session, tint, webSearchAllowed, onBack }:
             onPress={() => void attach()}
             style={{ width: 44, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: busy || attaching ? 0.5 : 1 }}
           >
-            {attaching ? <ActivityIndicator color={tint} /> : <Text style={{ fontSize: 18 }}>📎</Text>}
+            {attaching ? <ActivityIndicator color={accentInk(tint)} /> : <Text style={{ color: t.appSurface.ink, fontSize: 18 }}>📎</Text>}
           </Tap>
           <TextInput
             value={draft}

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { breakdownAffected, listTripRiders, reportBreakdown } from "@figbloom/shared";
-import { s, t } from "../../theme";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /**
  * "The bus has broken down": the office gets an alert, and the families of
@@ -13,6 +13,7 @@ import { Tap } from "../../ui/Tap";
  * school office instead, as the web driver screen does.
  */
 export function ReportBreakdown({ tripId, lat, lng }: { tripId: string; lat: number | null; lng: number | null }) {
+  const { t, s } = useTheme();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
@@ -62,7 +63,7 @@ export function ReportBreakdown({ tripId, lat, lng }: { tripId: string; lat: num
 
   return (
     <View style={{ marginTop: 16, borderRadius: 13, borderWidth: 1.5, borderColor: t.status.warnInk, padding: 14 }}>
-      <Text style={{ fontSize: 15, fontWeight: "600" }}>The bus has broken down</Text>
+      <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>The bus has broken down</Text>
       <Text style={[s.small, { marginTop: 4 }]}>
         The office is alerted
         {affected ? `, and the families of the ${affected === 1 ? "1 child" : `${affected} children`} on the bus or still waiting are told` : ""}.

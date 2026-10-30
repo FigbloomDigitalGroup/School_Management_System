@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { fetchSittingQuestions, scoreLabel, totalPoints, type SittingQuestion } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { SubScreen } from "../../components/SubScreen";
 import { useStudentData } from "../../studentData";
 import { useStudentPapers } from "../../lib/useStudentPapers";
 import { EmptyState, ErrorState } from "../../ui/StateView";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** A marked paper looked back at: the score, the teacher's feedback, and for each question what was answered, the marks and any note. */
 export function StudentExamReview({ route }: { route: { params: { paperId: string } } }) {
+  const { t, s, accentInk } = useTheme();
   const { paperId } = route.params;
   const { accent } = useStudentData();
   const tint = accentFor(accent).deep;
@@ -31,7 +33,7 @@ export function StudentExamReview({ route }: { route: { params: { paperId: strin
   return (
     <SubScreen tint={tint} title={view?.paper.title ?? "Marked paper"} sub={view ? `${view.paper.subjectName} · marked` : "Your marked paper"}>
       {state.kind === "loading" ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
       ) : state.kind === "failed" ? (
         <ErrorState title="Couldn't load this paper" onRetry={retry} />
       ) : !attempt ? (
@@ -39,7 +41,7 @@ export function StudentExamReview({ route }: { route: { params: { paperId: strin
       ) : failed ? (
         <ErrorState title="Couldn't load the questions" onRetry={() => { setQuestions(null); setReloadKey((k) => k + 1); }} />
       ) : !questions ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
       ) : (
         <View style={{ gap: 12 }}>
           <View style={[s.card, { backgroundColor: t.status.okBg, gap: 6 }]}>
@@ -56,7 +58,7 @@ export function StudentExamReview({ route }: { route: { params: { paperId: strin
             return (
               <View key={q.id} style={[s.card, { gap: 8 }]}>
                 <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start", gap: 8 }]}>
-                  <Text style={{ flex: 1, fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{i + 1}. {q.prompt}</Text>
+                  <Text style={{ color: t.appSurface.ink, flex: 1, fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{i + 1}. {q.prompt}</Text>
                   <Text accessibilityLabel={`${got} out of ${q.points} marks`} style={[s.mono, { fontWeight: "700", color: markInk }]}>{got} / {q.points}</Text>
                 </View>
                 <Text style={[s.small, { lineHeight: 19 }]}>

@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import { Text, View } from "react-native";
 import { formatMoney, formatShortDate, type FeeCharge, type FeeItem, type Receipt } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { useReceiptSignatures } from "../lib/useReceiptSignatures";
 import { Button } from "../ui/Button";
 import { PaymentMethodsCard, usePaymentMethods } from "./PaymentMethods";
 import { PaymentProofCard } from "./PaymentProofCard";
 import { ReceiptSignature } from "./SignatureMark";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * One term's fees as the family or the learner sees them: what is owed, what
@@ -35,6 +35,7 @@ export function FeesView({ tint, country, tenantId, uploadedBy, balance, billed,
   afterBalance?: ReactNode;
   onPay: () => void;
 }) {
+  const { t, s, accentInk } = useTheme();
   const methods = usePaymentMethods(tenantId);
   const receiptSigs = useReceiptSignatures(receipts.map((r) => r.id));
   const paid = billed - balance;
@@ -45,11 +46,11 @@ export function FeesView({ tint, country, tenantId, uploadedBy, balance, billed,
       <View style={s.card}>
         <Text style={s.eyebrow}>BALANCE</Text>
         <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 6 }}>
-          <Text style={{ fontSize: 26, fontWeight: "700" }}>{formatMoney(balance, country)}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 26, fontWeight: "700" }}>{formatMoney(balance, country)}</Text>
           <Text style={s.small}>{dueOn ? `due ${formatShortDate(dueOn)}` : "nothing due"}</Text>
         </View>
         <View style={{ height: 8, borderRadius: 4, backgroundColor: t.appSurface.lineSoft, marginTop: 12, overflow: "hidden" }}>
-          <View style={{ height: 8, borderRadius: 4, width: `${paidPct}%`, backgroundColor: tint }} />
+          <View style={{ height: 8, borderRadius: 4, width: `${paidPct}%`, backgroundColor: accentInk(tint) }} />
         </View>
         <Text style={[s.faint, { marginTop: 8 }]}>{formatMoney(paid, country)} paid of {formatMoney(billed, country)}</Text>
       </View>
@@ -63,8 +64,8 @@ export function FeesView({ tint, country, tenantId, uploadedBy, balance, billed,
         ) : (
           items.map((i, idx) => (
             <View key={i.id} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: idx === items.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
-              <Text style={{ fontSize: 13 }}>{i.name}</Text>
-              <Text style={s.mono}>{formatMoney(i.amount_cents, country)}</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 13 }}>{i.name}</Text>
+              <Text style={[s.mono, { color: t.appSurface.ink }]}>{formatMoney(i.amount_cents, country)}</Text>
             </View>
           ))
         )}
@@ -73,11 +74,11 @@ export function FeesView({ tint, country, tenantId, uploadedBy, balance, billed,
             <Text style={[s.eyebrow, { paddingTop: 12, paddingBottom: 2 }]}>CHARGES ADDED THIS TERM</Text>
             {charges.map((c, idx) => (
               <View key={c.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, paddingVertical: 10, borderBottomWidth: idx === charges.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
-                <Text style={{ flex: 1, fontSize: 13 }}>
+                <Text style={{ color: t.appSurface.ink, flex: 1, fontSize: 13 }}>
                   {c.reason}
                   <Text style={s.faint}>{"  "}{formatShortDate(c.createdAt.slice(0, 10))}</Text>
                 </Text>
-                <Text style={s.mono}>{formatMoney(c.amountCents, country)}</Text>
+                <Text style={[s.mono, { color: t.appSurface.ink }]}>{formatMoney(c.amountCents, country)}</Text>
               </View>
             ))}
           </View>
@@ -93,7 +94,7 @@ export function FeesView({ tint, country, tenantId, uploadedBy, balance, billed,
             <View key={r.id} style={{ paddingVertical: 11, borderBottomWidth: i === receipts.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <View>
-                  <Text style={{ fontSize: 13, fontWeight: "500" }}>{formatMoney(r.amount, country)}</Text>
+                  <Text style={{ color: t.appSurface.ink, fontSize: 13, fontWeight: "500" }}>{formatMoney(r.amount, country)}</Text>
                   <Text style={[s.mono, { color: t.appSurface.inkFaint, marginTop: 2 }]}>{r.when} · {r.ref}</Text>
                 </View>
                 <View style={[s.pill, { backgroundColor: t.status.okBg }]}>

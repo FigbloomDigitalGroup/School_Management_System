@@ -2,8 +2,8 @@ import { useMemo, useRef, useState } from "react";
 import { PanResponder, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { normaliseStrokes, SIGNATURE_BOX, type Stroke } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 type Point = { x: number; y: number };
 
@@ -30,6 +30,7 @@ export function SignaturePad({ onChange, onDrawing, disabled }: {
   onDrawing?: (drawing: boolean) => void;
   disabled?: boolean;
 }) {
+  const { t, s } = useTheme();
   const strokes = useRef<Point[][]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [, redraw] = useState(0);

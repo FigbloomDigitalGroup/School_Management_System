@@ -5,7 +5,7 @@ import {
   gradingSchemeFor, movers, overallMeans, subjectComparison, subjectMeans,
   type ClassGroup, type ClassPerformanceRow, type LearnerMeanRow, type Mover,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { BarList } from "../../components/charts/BarList";
 import { DistributionBars } from "../../components/charts/DistributionBars";
 import { LineChart } from "../../components/charts/LineChart";
@@ -14,6 +14,7 @@ import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /**
  * Results over time for a class the teacher teaches or is class teacher of:
@@ -24,6 +25,7 @@ import { Tap } from "../../ui/Tap";
  * down. The CBE rubric chart and the one-learner view are on the web.
  */
 export function TeacherPerformance({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk, scheme: colourScheme } = useTheme();
   const a = accentFor(session.accent);
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
@@ -106,15 +108,15 @@ export function TeacherPerformance({ session }: { session: TeacherSession }) {
         {error ? (
           <View style={s.card}><Text style={[s.small, { color: t.status.warnInk }]}>Could not load performance: {error}</Text></View>
         ) : !classes || (classId && !rows) ? (
-          <ActivityIndicator color={a.deep} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={accentInk(a.deep)} style={{ marginTop: 32 }} />
         ) : classes.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
-            <Text style={{ fontSize: 15, fontWeight: "600" }}>No classes yet</Text>
+            <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>No classes yet</Text>
             <Text style={[s.small, { marginTop: 6, textAlign: "center" }]}>Once the office assigns you a class or subject, its results over time appear here.</Text>
           </View>
         ) : exams.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
-            <Text style={{ fontSize: 15, fontWeight: "600" }}>Nothing published yet</Text>
+            <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>Nothing published yet</Text>
             <Text style={[s.small, { marginTop: 6, textAlign: "center" }]}>Trends for {cls?.name ?? "this class"} appear once marks are published in the Gradebook.</Text>
           </View>
         ) : (
@@ -126,7 +128,7 @@ export function TeacherPerformance({ session }: { session: TeacherSession }) {
                   label="SINCE LAST EXAM"
                   value={delta === null ? "—" : `${delta >= 0 ? "+" : "−"}${fmt(Math.abs(delta))}`}
                   sub={prevExam ? `Against ${prevExam.name}` : "First published exam"}
-                  tone={delta === null ? undefined : delta >= 0 ? VIZ.up : VIZ.down}
+                  tone={delta === null ? undefined : delta >= 0 ? VIZ[colourScheme].up : VIZ[colourScheme].down}
                 />
                 <Stat label="SUBJECTS OUT" value={String(comparison.length)} sub={`${comparison.reduce((n, x) => n + x.learners, 0).toLocaleString()} marks`} />
               </View>
@@ -203,6 +205,7 @@ export function TeacherPerformance({ session }: { session: TeacherSession }) {
 }
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: string }) {
+  const { t, s } = useTheme();
   return (
     <View style={[s.card, { flex: 1, padding: 12 }]}>
       <Text style={[s.eyebrow, { fontSize: 8.5 }]}>{label}</Text>
@@ -213,6 +216,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub: 
 }
 
 function Movers({ title, rows, empty }: { title: string; rows: Mover[]; empty: string }) {
+  const { t, s, scheme: colourScheme } = useTheme();
   return (
     <View style={s.card}>
       <Text style={s.h2}>{title}</Text>
@@ -222,7 +226,7 @@ function Movers({ title, rows, empty }: { title: string; rows: Mover[]; empty: s
         <View key={m.studentId} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: t.appSurface.lineSoft, marginTop: i === 0 ? 6 : 0 }}>
           <Text numberOfLines={1} style={{ flex: 1, fontSize: 13.5, color: t.appSurface.ink }}>{m.name}</Text>
           <Text style={[s.mono, { color: t.appSurface.inkFaint }]}>{fmt(m.from)} → {fmt(m.to)}</Text>
-          <Text style={[s.mono, { width: 52, textAlign: "right", fontWeight: "700", color: m.change >= 0 ? VIZ.up : VIZ.down }]}>
+          <Text style={[s.mono, { width: 52, textAlign: "right", fontWeight: "700", color: m.change >= 0 ? VIZ[colourScheme].up : VIZ[colourScheme].down }]}>
             {m.change >= 0 ? "+" : "−"}{fmt(Math.abs(m.change))}
           </Text>
         </View>

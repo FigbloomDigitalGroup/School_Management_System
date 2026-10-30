@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { ABSENCE_LABEL, fetchExamAbsences, type MarkAbsence } from "@figbloom/shared";
-import { s, t } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * Subjects of one exam a learner has no score in because they missed the
@@ -11,6 +11,7 @@ import { s, t } from "../theme";
  * if the read fails: it explains the list, it isn't part of it.
  */
 export function ExamAbsences({ studentId, examId }: { studentId: string; examId: string | null }) {
+  const { t, s } = useTheme();
   const [rows, setRows] = useState<{ name: string; absence: MarkAbsence }[]>([]);
 
   useEffect(() => {

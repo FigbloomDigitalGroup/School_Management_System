@@ -6,10 +6,10 @@ import {
   type ChatContact, type ConversationSummary,
 } from "@figbloom/shared";
 import { useChatSession } from "../../lib/chatSession";
-import { s, t } from "../../theme";
 import { ChatAvatar } from "./ChatAvatar";
 import { BackLink } from "../../ui/BackLink";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 function when(iso: string | null): string {
   if (!iso) return "";
@@ -25,6 +25,7 @@ function when(iso: string | null): string {
  * that would then be refused.
  */
 export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; empty: string }) {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const session = useChatSession();
   const [list, setList] = useState<ConversationSummary[] | null>(null);
@@ -77,16 +78,16 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
       {error && <Text style={[s.small, { color: t.status.warnInk, padding: 16, paddingBottom: 0 }]}>{error}</Text>}
 
       {!list && !error ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 40 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 40 }} />
       ) : (
         <FlatList
           data={list ?? []}
           keyExtractor={(c) => c.id}
           contentContainerStyle={{ padding: 16, flexGrow: 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} tintColor={tint} onRefresh={() => { setRefreshing(true); void reload().finally(() => setRefreshing(false)); }} />}
+          refreshControl={<RefreshControl refreshing={refreshing} tintColor={accentInk(tint)} onRefresh={() => { setRefreshing(true); void reload().finally(() => setRefreshing(false)); }} />}
           ListEmptyComponent={list ? (
             <View style={[s.card, { alignItems: "center", padding: 24 }]}>
-              <Text style={{ fontSize: 15, fontWeight: "600" }}>No chats yet.</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>No chats yet.</Text>
               <Text style={[s.small, { marginTop: 6, textAlign: "center" }]}>{empty}</Text>
             </View>
           ) : null}
@@ -95,7 +96,7 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
               <ChatAvatar id={c.otherId} name={c.otherName} />
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                  <Text numberOfLines={1} style={{ flex: 1, fontSize: 14, fontWeight: c.unread ? "700" : "500" }}>{c.otherName}</Text>
+                  <Text numberOfLines={1} style={{ color: t.appSurface.ink, flex: 1, fontSize: 14, fontWeight: c.unread ? "700" : "500" }}>{c.otherName}</Text>
                   <Text style={s.faint}>{when(c.lastMessageAt)}</Text>
                 </View>
                 <Text style={s.faint}>{chatRoleWord(c.otherRole)}</Text>
@@ -119,6 +120,7 @@ export function ChatList({ tint, blurb, empty }: { tint: string; blurb: string; 
 }
 
 function ContactPicker({ visible, tint, onClose, onPick }: { visible: boolean; tint: string; onClose: () => void; onPick: (c: ChatContact) => void }) {
+  const { t, s, accentInk } = useTheme();
   const [contacts, setContacts] = useState<ChatContact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -150,12 +152,12 @@ function ContactPicker({ visible, tint, onClose, onPick }: { visible: boolean; t
             placeholder="Search by name, class or subject"
             placeholderTextColor={t.appSurface.inkFaint}
             accessibilityLabel="Search contacts"
-            style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: t.appSurface.ink, backgroundColor: "#fff", marginBottom: 10 }}
+            style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: t.appSurface.ink, backgroundColor: t.appSurface.card, marginBottom: 10 }}
           />
           {error ? (
             <Text style={[s.small, { color: t.status.warnInk }]}>{error}</Text>
           ) : !contacts ? (
-            <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+            <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
           ) : (
             <FlatList
               data={shown}
@@ -166,7 +168,7 @@ function ContactPicker({ visible, tint, onClose, onPick }: { visible: boolean; t
                 <Tap accessibilityRole="button" onPress={() => onPick(c)} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 6 }}>
                   <ChatAvatar id={c.profileId} name={c.name} size={36} />
                   <View style={{ flex: 1 }}>
-                    <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "600" }}>{c.name}</Text>
+                    <Text numberOfLines={1} style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "600" }}>{c.name}</Text>
                     <Text numberOfLines={1} style={s.faint}>{c.detail}</Text>
                   </View>
                 </Tap>

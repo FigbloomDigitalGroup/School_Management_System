@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Animated, type DimensionValue, type StyleProp, type ViewStyle } from "react-native";
-import { motion, t } from "../theme";
+import { motion } from "../theme";
 import { useReducedMotion } from "../ui/useReducedMotion";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * A placeholder shaped like the content that is on its way. Shown only on
@@ -14,6 +15,7 @@ export function Skeleton({ width = "100%", height = 12, radius = 6, style }: {
   radius?: number;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { t } = useTheme();
   const pulse = useRef(new Animated.Value(0.5)).current;
   const reduceMotion = useReducedMotion();
 

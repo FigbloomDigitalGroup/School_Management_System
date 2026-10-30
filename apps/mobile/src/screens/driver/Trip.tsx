@@ -4,7 +4,7 @@ import {
   endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder, supabase,
   type AssignmentRow, type RouteStop, type Trip, type TripDirection,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { queue } from "../../storage";
@@ -15,6 +15,8 @@ import { TripMap } from "./TripMap";
 import { TripRiders } from "./TripRiders";
 import { RIPPLE_ON_DARK } from "../../ui/color";
 import { Tap } from "../../ui/Tap";
+import { AppearanceSetting } from "../../ui/AppearanceSetting";
+import { useTheme } from "../../ui/ThemeContext";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
 
@@ -41,6 +43,7 @@ interface DriverProps {
  * browser-tab version could not do that at all.
  */
 export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(accent);
   // Marks and pings held on this phone belong to this driver. Set while rendering, so the
   // flush on mount below already knows who is signed in.
@@ -173,7 +176,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   if (loading) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -181,10 +184,10 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   if (!assignment) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center", padding: 24 }]}>
-        <Text style={{ fontSize: 16, fontWeight: "600", textAlign: "center" }}>You are not assigned to a vehicle yet</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 16, fontWeight: "600", textAlign: "center" }}>You are not assigned to a vehicle yet</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8 }]}>Contact the school office to be assigned to a bus and route.</Text>
         <Tap onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line }]}>
-          <Text style={{ fontSize: 15, fontWeight: "600" }}>Sign out</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>Sign out</Text>
         </Tap>
       </View>
     );
@@ -205,7 +208,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <View style={[s.card, { marginTop: -10 }]}>
           <Text style={s.eyebrow}>VEHICLE · ROUTE</Text>
-          <Text style={{ fontSize: 24, fontWeight: "700", marginTop: 4 }}>{assignment.vehicle?.plate_number ?? "—"}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 24, fontWeight: "700", marginTop: 4 }}>{assignment.vehicle?.plate_number ?? "—"}</Text>
           <Text style={s.small}>{assignment.route?.name ?? "No route assigned"}</Text>
         </View>
 
@@ -223,7 +226,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
                   <Tap
                     key={d}
                     onPress={() => setDirection(d)}
-                    style={[s.card, { flex: 1, alignItems: "center", padding: 16, borderWidth: 1.5, borderColor: on ? a.deep : t.appSurface.line, backgroundColor: on ? a.deep : t.appSurface.card }]}
+                    style={[s.card, { flex: 1, alignItems: "center", padding: 16, borderWidth: 1.5, borderColor: on ? accentInk(a.deep) : t.appSurface.line, backgroundColor: on ? a.deep : t.appSurface.card }]}
                   >
                     <Text style={{ fontSize: 15, fontWeight: "600", color: on ? "#fff" : t.appSurface.ink }}>{DIRECTION_LABEL[d]}</Text>
                   </Tap>
@@ -283,6 +286,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
           screen locked.
         </Text>
 
+        <AppearanceSetting tint={a.deep} />
         <FingerprintSetting tint={a.deep} />
 
         <PrivacyLinks tint={a.deep} />

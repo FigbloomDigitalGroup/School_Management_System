@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import { GRADE_INK, formatShortDate, type CbeLearningAreaResult } from "@figbloom/shared";
-import { s, t } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * A learner's published CBE results: per learning area, the overall rubric
@@ -9,6 +9,7 @@ import { s, t } from "../theme";
  * codes, because "ME2" means nothing to a parent on its own.
  */
 export function CbeResults({ results, heading = "Learning areas" }: { results: CbeLearningAreaResult[]; heading?: string }) {
+  const { t, s } = useTheme();
   if (!results.length) return null;
   return (
     <View>

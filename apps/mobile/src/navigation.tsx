@@ -1,10 +1,10 @@
 import { useEffect } from "react";
-import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
-import { accentFor, fontSize, t } from "./theme";
+import { accentFor, fontSize, themes } from "./theme";
 import { useChild, useMessages } from "./data";
 import { useStudentData } from "./studentData";
 
@@ -42,11 +42,32 @@ import { StudentExamReview } from "./screens/student/ExamReview";
 import { StudentStudyHelper } from "./screens/student/StudyHelper";
 import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
+import { useTheme } from "./ui/ThemeContext";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 /** Lets a tapped push, which arrives from outside the navigator, open a screen inside it. */
 const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
+
+/**
+ * React Navigation's own colours: the page behind a transition, the tab bar's card and its edge. Light is the
+ * library's default with the app's page colour; dark is the app's dark surfaces, so a screen sliding in never
+ * flashes a light page.
+ */
+const NAV_THEME = {
+  light: { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: themes.light.t.appSurface.page } },
+  dark: {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      primary: themes.dark.t.appSurface.ink,
+      background: themes.dark.t.appSurface.page,
+      card: themes.dark.t.appSurface.card,
+      text: themes.dark.t.appSurface.ink,
+      border: themes.dark.t.appSurface.line,
+    },
+  },
+};
 
 /** What to do once the navigator exists: a tap that opened the app from nothing arrives before it is ready. */
 let afterReady: (() => void) | null = null;
@@ -85,6 +106,7 @@ interface NavigationProps {
 
 /** Which app opens is decided by the signed-in role, not by a picker. */
 export function Navigation({ role, accent, profileId, driver }: NavigationProps) {
+  const { scheme } = useTheme();
   // Tapping a push opens what it is about. (Before the driver's early return below: a hook can't come after one.)
   useEffect(() => {
     if (role === "driver") return;
@@ -99,7 +121,7 @@ export function Navigation({ role, accent, profileId, driver }: NavigationProps)
 
   return (
     <CallProvider profileId={profileId}>
-    <NavigationContainer ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
+    <NavigationContainer theme={NAV_THEME[scheme]} ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       {role === "parent" ? (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {/* component, not an inline children render-prop: the latter is a
@@ -179,6 +201,7 @@ function StudentChatThread() {
 }
 
 function ParentTabs() {
+  const { t, accentInk } = useTheme();
   const { accent } = useChild();
   const a = accentFor(accent);
   const unread = useMessages().filter((m) => m.unread).length;
@@ -186,7 +209,7 @@ function ParentTabs() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: a.deep,
+        tabBarActiveTintColor: accentInk(a.deep),
         tabBarInactiveTintColor: t.appSurface.inkFaint,
         tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
         // The bar is a fixed height, so its labels stay put under large system text;
@@ -219,12 +242,13 @@ function StudentTabsScreen({ route }: { route: { params?: { accent?: string } } 
  *  called while mounted under StudentDataProvider \u2014 Navigation itself also
  *  renders for the parent and driver roles, which don't provide it. */
 function StudentTabs({ a }: { a: ReturnType<typeof accentFor> }) {
+  const { t, accentInk } = useTheme();
   const unread = useStudentData().data.notices.filter((n) => n.unread).length;
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: a.deep,
+        tabBarActiveTintColor: accentInk(a.deep),
         tabBarInactiveTintColor: t.appSurface.inkFaint,
         tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
         // The bar is a fixed height, so its labels stay put under large system text;

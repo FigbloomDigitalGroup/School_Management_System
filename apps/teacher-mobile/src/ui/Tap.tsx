@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { Animated, Easing, Platform, Pressable, StyleSheet, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
 import { motion, PRESS_SCALE } from "../theme";
-import { rippleFor } from "./color";
+import { rippleFor, RIPPLE_ON_DARK, RIPPLE_ON_LIGHT } from "./color";
+import { useTheme } from "./ThemeContext";
 import { useReducedMotion } from "./useReducedMotion";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -24,6 +25,7 @@ export interface TapProps extends Omit<PressableProps, "style"> {
 export function Tap({ style, ripple, pressedScale = PRESS_SCALE, accessibilityRole = "button", onPressIn, onPressOut, ...rest }: TapProps) {
   const scale = useRef(new Animated.Value(1)).current;
   const reduceMotion = useReducedMotion();
+  const { scheme } = useTheme();
 
   const animateTo = (toValue: number) => {
     if (reduceMotion || pressedScale === 1) return;
@@ -40,7 +42,7 @@ export function Tap({ style, ripple, pressedScale = PRESS_SCALE, accessibilityRo
     <AnimatedPressable
       {...rest}
       accessibilityRole={accessibilityRole}
-      android_ripple={{ color: ripple ?? rippleFor(flat?.backgroundColor), foreground: true }}
+      android_ripple={{ color: ripple ?? rippleFor(flat?.backgroundColor, scheme === "dark" ? RIPPLE_ON_DARK : RIPPLE_ON_LIGHT), foreground: true }}
       onPressIn={(e) => { animateTo(pressedScale); onPressIn?.(e); }}
       onPressOut={(e) => { animateTo(1); onPressOut?.(e); }}
       style={[style, clip, { transform: [{ scale }] }]}

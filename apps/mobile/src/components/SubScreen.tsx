@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { s } from "../theme";
 import { BackLink } from "../ui/BackLink";
+import { useTheme } from "../ui/ThemeContext";
 
 /** A screen opened from a home card: tinted header with a way back, then the content in a scroll. */
 export function SubScreen({ tint, title, sub, headerRight, children }: {
@@ -12,6 +12,7 @@ export function SubScreen({ tint, title, sub, headerRight, children }: {
   headerRight?: ReactNode;
   children: ReactNode;
 }) {
+  const { s } = useTheme();
   const nav = useNavigation<any>();
   return (
     <View style={s.screen}>

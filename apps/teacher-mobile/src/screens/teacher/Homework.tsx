@@ -6,7 +6,7 @@ import {
   minutesWords, NEED_CHIPS, notifyHomeworkParents, removeNeed, retoneGuide, updateHomework, validateHomework,
   type ClassGroup, type HandIn, type HomeworkRow, type ParentGuide, type Subject,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
@@ -16,6 +16,7 @@ import { Field } from "../../ui/Field";
 import { EmptyState } from "../../ui/StateView";
 import { Tap } from "../../ui/Tap";
 import { Check } from "lucide-react-native";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** Today as YYYY-MM-DD in the teacher's own timezone (toISOString alone is UTC, a day behind after midnight in Nairobi). */
 const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -28,6 +29,7 @@ const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 
  * opens it; new work can be announced to the class's parents as it's set.
  */
 export function TeacherHomework({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
@@ -186,12 +188,12 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
             <Text style={s.eyebrow}>{editingId ? "EDIT HOMEWORK" : "NEW HOMEWORK"}</Text>
 
             <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>Class</Text>
-            {classes === null ? <ActivityIndicator color={a.deep} /> : (
+            {classes === null ? <ActivityIndicator color={accentInk(a.deep)} /> : (
               <PillPicker items={classes} selectedId={classId} onPick={pickClass} accent={session.accent} />
             )}
 
             <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>Subject</Text>
-            {subjects === null ? <ActivityIndicator color={a.deep} /> : noSubjects ? (
+            {subjects === null ? <ActivityIndicator color={accentInk(a.deep)} /> : noSubjects ? (
               <Text style={s.faint}>You aren't assigned a subject in this class. Ask the school admin.</Text>
             ) : (
               <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />
@@ -299,7 +301,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                 onPress={() => setTellParents((v) => !v)}
                 style={{ ...HIT, flexDirection: "row", alignItems: "center", gap: 10 }}
               >
-                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: a.deep, backgroundColor: tellParents ? a.deep : "transparent", alignItems: "center", justifyContent: "center" }}>
+                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: accentInk(a.deep), backgroundColor: tellParents ? a.deep : "transparent", alignItems: "center", justifyContent: "center" }}>
                   {tellParents && <Check size={14} color="#fff" strokeWidth={3} />}
                 </View>
                 <Text style={[s.small, { flex: 1 }]}>Tell parents: send the class's parents a message with the due date and this guide.</Text>
@@ -316,13 +318,13 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
 
         <Text style={[s.eyebrow, { marginTop: 20, marginBottom: 8 }]}>HOMEWORK YOU'VE SET</Text>
         {work === null ? (
-          <ActivityIndicator color={a.deep} />
+          <ActivityIndicator color={accentInk(a.deep)} />
         ) : work.rows.length === 0 ? (
           <EmptyState title="Nothing set yet" body="Homework you set for your classes shows here, with how many learners have handed it in." />
         ) : (
           work.rows.map((w) => (
             <View key={w.id} style={[s.card, { marginBottom: 8, padding: 12 }]}>
-              <Text style={{ fontSize: 14, fontWeight: "600" }}>{w.title}</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "600" }}>{w.title}</Text>
               <Text style={[s.faint, { marginTop: 2 }]}>
                 {w.className} · {w.subjectName} · due {formatShortDate(w.dueOn)}{w.dueOn < today ? " (past due)" : w.dueOn === today ? " (today)" : ""}
                 {isGuideEmpty(w.guide) ? "" : " · parent guide"}

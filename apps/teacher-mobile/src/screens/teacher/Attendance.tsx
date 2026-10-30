@@ -4,16 +4,25 @@ import { CalendarOff, Users } from "lucide-react-native";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
   fetchHealthForStudents, healthFlags, type HealthFlags,
-  MARK_LABEL, MARK_SHORT, MARK_STYLE, newRegister, nextMark, submitWarning, tally, toRecords,
+  MARK_LABEL, MARK_SHORT, newRegister, nextMark, submitWarning, tally, toRecords,
   type AttendanceMark, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT, perScheme } from "../../theme";
 import { queue } from "../../storage";
 import { PillPicker } from "../../components/PillPicker";
 import { QueueNotice } from "../../components/QueueNotice";
 import type { TeacherSession } from "../../navigation";
 import { EmptyState, ErrorState } from "../../ui/StateView";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
+
+/** The register's mark colours: shared MARK_STYLE's own values in light (they are these status tokens), dark washes in dark. */
+const MARK_TONE = perScheme((t): Record<AttendanceMark, { bg: string; ink: string }> => ({
+  present: { bg: t.status.okBg, ink: t.status.okInk },
+  absent: { bg: t.status.warnBg, ink: t.status.warnInk },
+  late: { bg: t.brand.orangeSoft, ink: t.brand.orangeInk },
+  excused: { bg: t.status.mutedBg, ink: t.status.mutedInk },
+}));
 
 const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 
@@ -25,6 +34,7 @@ const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day
  * the first real caller of packages/shared's WriteQueue on mobile.
  */
 export function TeacherAttendance({ session }: { session: TeacherSession }) {
+  const { t, s, scheme, accentInk } = useTheme();
   const a = accentFor(session.accent);
 
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
@@ -189,7 +199,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   if (!classes || !cls || submitted === null) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -241,8 +251,8 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
 
       <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
         {(["present", "absent", "late"] as AttendanceMark[]).map((k) => (
-          <View key={k} style={[s.pill, { backgroundColor: MARK_STYLE[k].bg }]}>
-            <Text style={[s.pillLabel, { color: MARK_STYLE[k].ink }]}>{counts[k]} {MARK_LABEL[k].toLowerCase()}</Text>
+          <View key={k} style={[s.pill, { backgroundColor: MARK_TONE[scheme][k].bg }]}>
+            <Text style={[s.pillLabel, { color: MARK_TONE[scheme][k].ink }]}>{counts[k]} {MARK_LABEL[k].toLowerCase()}</Text>
           </View>
         ))}
       </View>
@@ -254,7 +264,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
           return (
             <View key={student.id} style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
               <Tap accessibilityRole="button" onPress={() => cycle(student.id)} style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Text style={s.faint}>ADM {student.admission_no}</Text>
                   <HealthChip flags={health.get(student.id)} name={student.full_name} />
@@ -271,10 +281,10 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
                       onPress={() => setMark(student.id, k)}
                       style={{
                         ...HIT, borderRadius: 10, alignItems: "center", justifyContent: "center",
-                        backgroundColor: on ? MARK_STYLE[k].bg : t.appSurface.lineSoft,
+                        backgroundColor: on ? MARK_TONE[scheme][k].bg : t.appSurface.lineSoft,
                       }}
                     >
-                      <Text style={{ fontSize: 13, fontWeight: "700", color: on ? MARK_STYLE[k].ink : t.appSurface.inkMuted }}>
+                      <Text style={{ fontSize: 13, fontWeight: "700", color: on ? MARK_TONE[scheme][k].ink : t.appSurface.inkMuted }}>
                         {MARK_SHORT[k]}
                       </Text>
                     </Tap>
@@ -317,6 +327,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
 
 /** Red "Allergy" (amber "Medical") on a learner's row; tap for the details. */
 function HealthChip({ flags, name }: { flags: HealthFlags | undefined; name: string }) {
+  const { t } = useTheme();
   if (!flags) return null;
   const allergy = flags.allergy;
   return (
@@ -326,9 +337,9 @@ function HealthChip({ flags, name }: { flags: HealthFlags | undefined; name: str
       onPress={() => Alert.alert(name, flags.summary.replace(/ · /g, "\n"))}
       hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
       style={{ borderRadius: 999, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1,
-        backgroundColor: allergy ? "#FBE9E6" : "#FDF3E1", borderColor: allergy ? "#F1C7BF" : "#F0DDB8" }}
+        backgroundColor: allergy ? t.status.badBg : t.status.cautionBg, borderColor: allergy ? t.status.badLine : t.status.cautionLine }}
     >
-      <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: allergy ? "#9B2C1C" : "#8A5A0B" }}>
+      <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: allergy ? t.status.badInk : t.status.cautionInk }}>
         {allergy ? "ALLERGY" : flags.medical ? "MEDICAL" : "DIET"}
       </Text>
     </Tap>

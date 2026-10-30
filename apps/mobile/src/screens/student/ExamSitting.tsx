@@ -5,13 +5,14 @@ import {
   fetchSittingQuestions, formatTimeLeft, saveExamAttempt, startExamAttempt, timeLeftMs,
   type Answers, type AttemptSession, type ExamPaperRow, type SittingQuestion,
 } from "@figbloom/shared";
-import { accentFor, fieldLine, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { BackLink } from "../../ui/BackLink";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { EmptyState, ErrorState } from "../../ui/StateView";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** Answers are saved this often while there is something unsaved, and whenever the app leaves the screen. */
 const AUTOSAVE_MS = 15_000;
@@ -27,6 +28,7 @@ const LOW_MS = 5 * 60_000;
  * and asks, since the clock keeps running while you are away.
  */
 export function StudentExamSitting({ route }: { route: { params: { paper: ExamPaperRow } } }) {
+  const { t, s, fieldLine, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { accent } = useStudentData();
   const tint = accentFor(accent).deep;
@@ -200,7 +202,7 @@ export function StudentExamSitting({ route }: { route: { params: { paper: ExamPa
           <ErrorState title="Couldn't start this paper" body={loadError} onRetry={() => setLoadKey((k) => k + 1)} />
         </View>
       ) : !session || !questions ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 32 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 32 }} />
       ) : handedIn ? (
         <View style={{ padding: 16, gap: 16 }}>
           <View style={[s.card, { backgroundColor: t.status.okBg, flexDirection: "row", gap: 8, alignItems: "flex-start" }]}>
@@ -222,7 +224,7 @@ export function StudentExamSitting({ route }: { route: { params: { paper: ExamPa
             {questions.map((q, i) => (
               <View key={q.id} style={[s.card, { gap: 10 }]}>
                 <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start", gap: 8 }]}>
-                  <Text style={{ flex: 1, fontSize: 15, fontWeight: "600", lineHeight: 21 }}>{i + 1}. {q.prompt}</Text>
+                  <Text style={{ color: t.appSurface.ink, flex: 1, fontSize: 15, fontWeight: "600", lineHeight: 21 }}>{i + 1}. {q.prompt}</Text>
                   <Text style={[s.mono, { color: t.appSurface.inkFaint }]}>{q.points} mark{q.points === 1 ? "" : "s"}</Text>
                 </View>
                 {q.kind === "choice" ? (
@@ -238,11 +240,11 @@ export function StudentExamSitting({ route }: { route: { params: { paper: ExamPa
                           onPress={() => answer(q.id, k)}
                           style={{
                             ...HIT, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
-                            borderWidth: on ? 2 : 1, borderColor: on ? tint : fieldLine, backgroundColor: on ? `${tint}14` : t.appSurface.card,
+                            borderWidth: on ? 2 : 1, borderColor: on ? accentInk(tint) : fieldLine, backgroundColor: on ? `${tint}14` : t.appSurface.card,
                           }}
                         >
-                          <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? tint : fieldLine, alignItems: "center", justifyContent: "center" }}>
-                            {on && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: tint }} />}
+                          <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? accentInk(tint) : fieldLine, alignItems: "center", justifyContent: "center" }}>
+                            {on && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: accentInk(tint) }} />}
                           </View>
                           <Text style={[s.mono, { color: t.appSurface.inkFaint }]}>{String.fromCharCode(65 + k)}</Text>
                           <Text style={{ flex: 1, fontSize: 14.5, color: t.appSurface.ink }}>{o}</Text>
@@ -259,7 +261,7 @@ export function StudentExamSitting({ route }: { route: { params: { paper: ExamPa
                     onBlur={() => void save(false)}
                     multiline
                     numberOfLines={q.kind === "long" ? 8 : 3}
-                    focusColor={tint}
+                    focusColor={accentInk(tint)}
                   />
                 )}
               </View>

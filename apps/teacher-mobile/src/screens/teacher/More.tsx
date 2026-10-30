@@ -8,9 +8,10 @@ import { useChatSession } from "../../lib/chatSession";
 import { visitQueue } from "@figbloom/shared";
 import { useChatUnread } from "../../lib/chatUnread";
 import { useDayVisits } from "../../lib/useDayVisits";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { Tap } from "../../ui/Tap";
 import type { TeacherSession } from "../../navigation";
+import { useTheme } from "../../ui/ThemeContext";
 
 const ITEMS: { to: "Timetable" | "Homework" | "Materials" | "Chats" | "Visitors" | "Performance" | "ReportCards" | "Bloom" | "LiveClass" | "Classes" | "Leave" | "Items" | "Buses" | "Account"; label: string; icon: LucideIcon }[] = [
   { to: "Chats", label: "Chats", icon: MessageSquare },
@@ -32,6 +33,7 @@ const ITEMS: { to: "Timetable" | "Homework" | "Materials" | "Chats" | "Visitors"
 /** The tab bar has room for 5 — everything past Attendance/Gradebook/
  *  Messages/Notices lives here instead of crowding it further. */
 export function TeacherMore({ session }: { session: TeacherSession }) {
+  const { t, s } = useTheme();
   const a = accentFor(session.accent);
   const navigation = useNavigation<{ navigate: (screen: string) => void }>();
   const chat = useChatSession();

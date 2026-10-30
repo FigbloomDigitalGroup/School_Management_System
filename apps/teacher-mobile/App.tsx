@@ -9,6 +9,7 @@ import { registerPushToken } from "./src/pushNotifications";
 import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { SignIn } from "./src/screens/SignIn";
 import { accentFor } from "./src/theme";
+import { ThemeProvider, useTheme } from "./src/ui/ThemeContext";
 
 /**
  * Teacher-only app — no role branching like the parent/student/driver app
@@ -16,7 +17,8 @@ import { accentFor } from "./src/theme";
  * tenant_id is a data problem (every teacher belongs to exactly one
  * school), not a session this app can serve.
  */
-export default function App() {
+function AppContent() {
+  const { t, accentInk } = useTheme();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<TeacherSession | null>(null);
   // Login ID while the school-issued password still has to be replaced; null once it has.
@@ -66,8 +68,8 @@ export default function App() {
   if (loading) {
     return (
       <SafeAreaProvider>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}>
-          <ActivityIndicator size="large" color={a.deep} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.page }}>
+          <ActivityIndicator size="large" color={accentInk(a.deep)} />
         </View>
       </SafeAreaProvider>
     );
@@ -89,5 +91,14 @@ export default function App() {
         </FingerprintLock>
       ) : <SignIn />}
     </SafeAreaProvider>
+  );
+}
+
+/** The theme is chosen once, here, so everything below it -- including the loading screen and sign-in -- is in the right scheme from the first frame. */
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Image, RefreshControl, ScrollView, Text, View } from "react-native";
 import { isLive, listBusUpdates, myChildBus, subscribeBusUpdates, subscribeVehiclePositions, type BusOnRoute, type BusUpdate } from "@figbloom/shared";
-import { accentFor, s } from "../../theme";
+import { accentFor } from "../../theme";
 import { useChild, useChildren, useTenantId } from "../../data";
 import { Skeleton } from "../../components/Skeleton";
 import { BusMap } from "../../components/BusMap";
 import { useRouteTrace } from "../../lib/useRouteTrace";
+import { useTheme } from "../../ui/ThemeContext";
 
 const NO_STOPS: BusOnRoute["stops"] = [];
 
@@ -40,6 +41,7 @@ function ago(iso: string | null, now: number): string {
  * notifications from bus-tick with the app closed; this is the trail.
  */
 export function ParentBus() {
+  const { t, s } = useTheme();
   const children = useChildren();
   const tenantId = useTenantId();
   const { accent, index } = useChild();
@@ -100,7 +102,7 @@ export function ParentBus() {
         <Text style={s.headerSub}>You'll get a notification as the bus gets close</Text>
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}>
-        {error && <Text style={[s.small, { color: "#B4472B" }]}>{error}</Text>}
+        {error && <Text style={[s.small, { color: t.status.badText }]}>{error}</Text>}
         {!rides && !error && children.map((c) => (
           <View key={c.id} style={[s.card, { padding: 14, gap: 8 }]}>
             <Skeleton width="35%" height={14} />
@@ -117,12 +119,13 @@ export function ParentBus() {
 }
 
 function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint: string; updates: BusUpdate[] }) {
+  const { t, s, accentInk } = useTheme();
   const { bus } = ride;
   const path = useRouteTrace(bus?.stops ?? NO_STOPS);
   if (!bus) {
     return (
       <View style={[s.card, { padding: 14 }]}>
-        <Text style={{ fontSize: 14, fontWeight: "600" }}>{ride.first}</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "600" }}>{ride.first}</Text>
         <Text style={[s.small, { marginTop: 2 }]}>
           {ride.routeName ? `${ride.routeName} has no bus assigned yet.` : "Not on a bus route. Contact the school office if this seems wrong."}
         </Text>
@@ -133,19 +136,19 @@ function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint:
   const d = bus.driver;
 
   return (
-    <View style={[s.card, { padding: 14, borderLeftWidth: 4, borderLeftColor: tint }]}>
+    <View style={[s.card, { padding: 14, borderLeftWidth: 4, borderLeftColor: accentInk(tint) }]}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14, fontWeight: "600" }}>{ride.first}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "600" }}>{ride.first}</Text>
           <Text numberOfLines={1} style={[s.small, { marginTop: 2 }]}>
-            <Text style={[s.mono, { fontWeight: "700", color: tint }]}>{bus.vehicle.plate_number}</Text>
+            <Text style={[s.mono, { fontWeight: "700", color: accentInk(tint) }]}>{bus.vehicle.plate_number}</Text>
             {bus.route ? ` · ${bus.route.name}` : ""}
           </Text>
           {ride.stopName && <Text style={[s.faint, { marginTop: 2 }]}>Stop: {ride.stopName}</Text>}
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: live ? "#2EA45A" : "#A3ABA5" }} />
-          <Text style={[s.faint, { fontWeight: "600", color: live ? "#1E7A43" : undefined }]}>{live ? "On the road" : "Not on the road"}</Text>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: live ? t.status.liveDot : t.status.idleDot }} />
+          <Text style={[s.faint, { fontWeight: "600", color: live ? t.status.liveInk : t.appSurface.inkFaint }]}>{live ? "On the road" : "Not on the road"}</Text>
         </View>
       </View>
 
@@ -156,13 +159,13 @@ function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint:
       <Text style={[s.faint, { marginTop: 6 }]}>{ago(bus.vehicle.last_ping_at, now)}</Text>
 
       {updates.length > 0 && (
-        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#EEEAE8", gap: 8 }}>
+        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: t.appSurface.line, gap: 8 }}>
           <Text style={s.eyebrow}>Today</Text>
           {updates.slice(0, 5).map((u) => (
             <View key={u.id} style={{ flexDirection: "row", gap: 8 }}>
-              <Text style={{ width: 18, textAlign: "center" }}>{ICON[u.kind]}</Text>
+              <Text style={{ color: t.appSurface.ink, width: 18, textAlign: "center" }}>{ICON[u.kind]}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: u.kind === "delay" || u.kind === "absent" || u.kind === "breakdown" ? "#B4472B" : undefined }}>{u.title}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: u.kind === "delay" || u.kind === "absent" || u.kind === "breakdown" ? t.status.badText : t.appSurface.ink }}>{u.title}</Text>
                 <Text style={s.small}>{u.body}</Text>
               </View>
               <Text style={s.faint}>{new Date(u.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
@@ -172,16 +175,16 @@ function RideCard({ ride, now, tint, updates }: { ride: Ride; now: number; tint:
       )}
 
       {d && (
-        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#EEEAE8", flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: t.appSurface.line, flexDirection: "row", alignItems: "center", gap: 10 }}>
           {d.avatarUrl ? (
             <Image source={{ uri: d.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18 }} accessibilityLabel={`Photo of ${d.name}`} />
           ) : (
-            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#F1EDEC", alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontSize: 13, fontWeight: "700", color: "#6B605F" }}>{d.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}</Text>
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.appSurface.lineSoft, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: t.appSurface.inkMuted }}>{d.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}</Text>
             </View>
           )}
           <View>
-            <Text style={{ fontSize: 13, fontWeight: "600" }}>{d.name}</Text>
+            <Text style={{ color: t.appSurface.ink, fontSize: 13, fontWeight: "600" }}>{d.name}</Text>
             <Text style={s.faint}>{d.title ?? "Driver"}</Text>
           </View>
         </View>

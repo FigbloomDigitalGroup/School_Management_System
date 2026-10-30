@@ -1,11 +1,12 @@
 import { Text, View } from "react-native";
-import { s, t } from "../../theme";
 import { fmt, SERIES_COLORS } from "./tokens";
+import { useTheme } from "../../ui/ThemeContext";
 
 export interface Bar { key: string; label: string; value: number; detail?: string }
 
 /** Marks compared side by side, strongest first as given: a name, a bar out of 100, and the mean. */
 export function BarList({ title, summary, bars }: { title: string; summary?: string | null; bars: Bar[] }) {
+  const { t, s } = useTheme();
   return (
     <View style={s.card}>
       <Text style={s.h2}>{title}</Text>

@@ -1,7 +1,8 @@
 import { ScrollView, Text } from "react-native";
 import type { PublishedExam } from "@figbloom/shared";
-import { HIT, t } from "../theme";
+import { HIT } from "../theme";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * Moves between the exams a learner has results for. Teachers publish a class
@@ -15,6 +16,7 @@ export function ExamSwitcher({ exams, value, onPick, tint }: {
   onPick: (examId: string) => void;
   tint: string;
 }) {
+  const { t } = useTheme();
   if (exams.length < 2) return null;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>

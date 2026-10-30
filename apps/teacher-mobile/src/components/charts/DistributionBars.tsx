@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import type { Distribution } from "@figbloom/shared";
-import { s, t } from "../../theme";
 import { BAND_COLORS } from "./tokens";
+import { useTheme } from "../../ui/ThemeContext";
 
 const pct = (n: number, total: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
 
@@ -17,6 +17,7 @@ export function DistributionBars({ title, summary, bands, rows, noun }: {
   rows: Distribution[];
   noun: string;
 }) {
+  const { t, s, scheme } = useTheme();
   return (
     <View style={s.card}>
       <Text style={s.h2}>{title}</Text>
@@ -24,7 +25,7 @@ export function DistributionBars({ title, summary, bands, rows, noun }: {
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
         {bands.map((b, i) => (
           <View key={b} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: BAND_COLORS[i] }} />
+            <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: BAND_COLORS[scheme][i] }} />
             <Text style={s.small}>{b}</Text>
           </View>
         ))}
@@ -43,7 +44,7 @@ export function DistributionBars({ title, summary, bands, rows, noun }: {
               <Text style={[s.faint, s.mono]}>{r.total}</Text>
             </View>
             <View style={{ flexDirection: "row", height: 14, borderRadius: 4, overflow: "hidden", marginTop: 4, backgroundColor: t.appSurface.lineSoft }}>
-              {r.counts.map((c, i) => c > 0 && <View key={bands[i]} style={{ flex: c, backgroundColor: BAND_COLORS[i] }} />)}
+              {r.counts.map((c, i) => c > 0 && <View key={bands[i]} style={{ flex: c, backgroundColor: BAND_COLORS[scheme][i] }} />)}
             </View>
             <Text style={[s.faint, { marginTop: 3 }]}>
               {r.counts.map((c, i) => (c > 0 ? `${bands[i]} ${c}` : null)).filter(Boolean).join(" · ")}

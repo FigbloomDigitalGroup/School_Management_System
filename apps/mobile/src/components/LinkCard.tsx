@@ -1,11 +1,12 @@
 import { Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { s, t } from "../theme";
 import { Tap } from "../ui/Tap";
 import { OpenLabel } from "../ui/OpenLabel";
+import { useTheme } from "../ui/ThemeContext";
 
 /** A way into a screen that has no tab: a small card on a home screen (the tab bars are already full). */
 export function LinkCard({ label, blurb, tint, to, badge }: { label: string; blurb: string; tint: string; to: string; badge?: number }) {
+  const { t, s } = useTheme();
   const nav = useNavigation<any>();
   return (
     <Tap

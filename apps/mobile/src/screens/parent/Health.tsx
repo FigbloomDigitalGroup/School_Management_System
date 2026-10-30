@@ -6,7 +6,7 @@ import {
   requestDraftProblem, requestMedication, uploadPrescriptionFile, uploadProblem, VISIT_OUTCOME_LABEL, withdrawMedicationRequest,
   type ChildMedical, type MedicationRequestDraft, type VisitOutcome,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor, perScheme } from "../../theme";
 import { useChild, useChildren, useTenantId } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { SubScreen } from "../../components/SubScreen";
@@ -17,6 +17,7 @@ import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { Tap } from "../../ui/Tap";
 import { CircleAlert } from "lucide-react-native";
+import { useTheme } from "../../ui/ThemeContext";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const hm = (iso: string) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -28,13 +29,13 @@ function when(iso: string): string {
   return `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, ${hm(iso)}`;
 }
 
-const OUTCOME_TONE: Record<VisitOutcome, { bg: string; ink: string }> = {
+const OUTCOME_TONE = perScheme((t): Record<VisitOutcome, { bg: string; ink: string }> => ({
   class: { bg: t.status.okBg, ink: t.status.okInk },
   rest: { bg: t.status.infoBg, ink: t.status.infoInk },
   home: { bg: t.status.warnBg, ink: t.status.warnInk },
   hospital: { bg: t.status.warnBg, ink: t.status.warnInk },
   admitted: { bg: t.status.warnBg, ink: t.status.warnInk },
-};
+}));
 
 /**
  * The selected child's sick bay visits (what the nurse saw and did, and where
@@ -45,6 +46,7 @@ const OUTCOME_TONE: Record<VisitOutcome, { bg: string; ink: string }> = {
  * read.
  */
 export function ParentHealth() {
+  const { t, s, accentInk, scheme } = useTheme();
   const { child, index, setIndex, accent } = useChild();
   const kids = useChildren();
   // Opened from a sick bay push: show the child it is about, not whichever one was last picked.
@@ -107,7 +109,7 @@ export function ParentHealth() {
       {error ? (
         <Text style={[s.small, { color: t.status.warnInk }]}>Could not load the health records: {error}</Text>
       ) : !data ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
       ) : (
         <View style={{ gap: 16 }}>
           {!!note && <Text style={[s.small, { color: t.status.okInk }]}>{note}</Text>}
@@ -143,7 +145,7 @@ export function ParentHealth() {
               {data.notices.slice(0, 5).map((n, i) => (
                 <Row key={n.id} first={i === 0}>
                   <View style={[s.row, { alignItems: "flex-start", justifyContent: "space-between", gap: 8 }]}>
-                    <Text style={{ flex: 1, fontSize: 13.5, fontWeight: "600" }}>{n.title}</Text>
+                    <Text style={{ color: t.appSurface.ink, flex: 1, fontSize: 13.5, fontWeight: "600" }}>{n.title}</Text>
                     {!n.read_at && <Pill bg={t.status.infoBg} ink={t.status.infoInk} label="New" />}
                   </View>
                   <Text style={s.faint}>{when(n.created_at)}</Text>
@@ -157,7 +159,7 @@ export function ParentHealth() {
             {data.visits.length === 0 ? (
               <Row first><Text style={s.small}>When {child.first} sees the school nurse, the visit shows here.</Text></Row>
             ) : data.visits.map((v, i) => {
-              const tone = v.outcome ? OUTCOME_TONE[v.outcome] : { bg: t.status.infoBg, ink: t.status.infoInk };
+              const tone = v.outcome ? OUTCOME_TONE[scheme][v.outcome] : { bg: t.status.infoBg, ink: t.status.infoInk };
               const details = [
                 v.temperature_c != null ? `Temperature ${v.temperature_c}°C` : null, v.assessment, v.treatment && `Treatment: ${v.treatment}`,
                 v.referred_to && `At: ${v.referred_to}`, v.follow_up && `Follow-up: ${v.follow_up}`,
@@ -165,7 +167,7 @@ export function ParentHealth() {
               return (
                 <Row key={v.id} first={i === 0}>
                   <View style={[s.row, { alignItems: "flex-start", justifyContent: "space-between", gap: 8 }]}>
-                    <Text style={{ flex: 1, fontSize: 13.5, fontWeight: "600" }}>{v.complaint}</Text>
+                    <Text style={{ color: t.appSurface.ink, flex: 1, fontSize: 13.5, fontWeight: "600" }}>{v.complaint}</Text>
                     <Pill bg={tone.bg} ink={tone.ink} label={v.outcome ? VISIT_OUTCOME_LABEL[v.outcome] : "Being seen"} />
                   </View>
                   <Text style={s.faint}>{when(v.time_in)}</Text>
@@ -189,13 +191,13 @@ export function ParentHealth() {
               return (
                 <Row key={sc.id} first={i === 0}>
                   <View style={[s.row, { alignItems: "flex-start", justifyContent: "space-between", gap: 8 }]}>
-                    <Text style={{ flex: 1, fontSize: 13.5, fontWeight: "600" }}>{sc.drug} {sc.dose}</Text>
+                    <Text style={{ color: t.appSurface.ink, flex: 1, fontSize: 13.5, fontWeight: "600" }}>{sc.drug} {sc.dose}</Text>
                     <Pill bg={running ? t.status.okBg : t.status.mutedBg} ink={running ? t.status.okInk : t.status.mutedInk} label={running ? "Running" : "Finished"} />
                   </View>
                   <Text style={s.small}>at {sc.times.join(", ")}, {sc.starts_on} to {sc.ends_on ?? "until stopped"}</Text>
                   {doses.slice(0, 9).map((d) => (
                     <Text key={d.id} style={[s.faint, { marginTop: 2 }]}>
-                      <Text style={s.mono}>{d.due_on} {d.due_time}</Text> · {DOSE_STATUS_LABEL[d.status]}{d.note ? ` (${d.note})` : ""}
+                      <Text style={[s.mono, { color: t.appSurface.ink }]}>{d.due_on} {d.due_time}</Text> · {DOSE_STATUS_LABEL[d.status]}{d.note ? ` (${d.note})` : ""}
                     </Text>
                   ))}
                 </Row>
@@ -216,7 +218,7 @@ export function ParentHealth() {
                     {!!r.decision_note && <Text style={[s.small, { marginTop: 2 }]}>{r.decision_note}</Text>}
                     {r.status === "pending" && (
                       <Tap accessibilityRole="button" onPress={() => confirmWithdraw(r.id)} style={{ minHeight: 40, justifyContent: "center", alignSelf: "flex-start" }}>
-                        <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Withdraw</Text>
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Withdraw</Text>
                       </Tap>
                     )}
                   </Row>
@@ -231,6 +233,7 @@ export function ParentHealth() {
 }
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
+  const { s } = useTheme();
   return (
     <View style={{ gap: 8 }}>
       <Text style={s.eyebrow}>{title.toUpperCase()}</Text>
@@ -240,10 +243,12 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Row({ first, children }: { first?: boolean; children: ReactNode }) {
+  const { t } = useTheme();
   return <View style={{ paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: first ? 0 : 1, borderTopColor: t.appSurface.lineSoft }}>{children}</View>;
 }
 
 function Pill({ bg, ink, label }: { bg: string; ink: string; label: string }) {
+  const { s } = useTheme();
   return (
     <View style={[s.pill, { backgroundColor: bg, flexShrink: 1 }]}>
       <Text style={[s.pillLabel, { color: ink }]}>{label}</Text>
@@ -251,7 +256,7 @@ function Pill({ bg, ink, label }: { bg: string; ink: string; label: string }) {
   );
 }
 
-const labelStyle = { fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 };
+const LABEL = perScheme((t) => ({ fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 }));
 
 /** For medicine a doctor prescribed, or that the family wants the school to give: the nurse checks it and puts it on the round. Dates are typed as YYYY-MM-DD. */
 function RequestForm({ first, tint, onCancel, onSend }: {
@@ -260,6 +265,7 @@ function RequestForm({ first, tint, onCancel, onSend }: {
   onCancel: () => void;
   onSend: (draft: MedicationRequestDraft, file: PickedFile | null) => Promise<void>;
 }) {
+  const { t, s, scheme } = useTheme();
   const [drug, setDrug] = useState("");
   const [dose, setDose] = useState("");
   const [times, setTimes] = useState("3");
@@ -330,7 +336,7 @@ function RequestForm({ first, tint, onCancel, onSend }: {
         </View>
       ) : (
         <View style={{ gap: 6 }}>
-          <Text style={labelStyle}>Add a photo or PDF of the prescription (optional)</Text>
+          <Text style={LABEL[scheme]}>Add a photo or PDF of the prescription (optional)</Text>
           <AttachChoices disabled={busy} onChoose={(source) => void chooseFile(source)} />
         </View>
       )}

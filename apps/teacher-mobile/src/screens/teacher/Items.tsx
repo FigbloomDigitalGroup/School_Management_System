@@ -1,11 +1,13 @@
 import { ScrollView, View } from "react-native";
-import { accentFor, s } from "../../theme";
+import { accentFor } from "../../theme";
 import { IssuedItemsView } from "../../components/IssuedItems";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** What the school has issued this teacher: a laptop, lab keys, a class set they're holding. Returns are recorded by the office. */
 export function TeacherItems({ session }: { session: TeacherSession }) {
+  const { s } = useTheme();
   const a = accentFor(session.accent);
   return (
     <View style={s.screen}>

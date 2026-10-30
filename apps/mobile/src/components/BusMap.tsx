@@ -3,6 +3,8 @@ import { Text, View } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { stopsInTravelOrder, type BusOnRoute, type Vehicle } from "@figbloom/shared";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
+import { DARK_MAP_STYLE } from "./mapStyle";
 
 interface LatLng { latitude: number; longitude: number }
 
@@ -46,6 +48,7 @@ const GLIDE_MAX_MS = 5_000;
  * A family watching the bus pans for themselves, so they leave it off.
  */
 export function BusMap({ bus, tint, height = 180, follow = false, path = null }: { bus: BusMapBus; tint: string; height?: number; follow?: boolean; path?: LatLng[] | null }) {
+  const { t, accentInk, scheme } = useTheme();
   const stops = stopsInTravelOrder(bus.stops, bus.direction);
   const busPos: LatLng | null =
     bus.vehicle.last_lat != null && bus.vehicle.last_lng != null
@@ -93,6 +96,7 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
         ref={mapRef}
         style={{ flex: 1 }}
         initialRegion={initialRegion.current}
+        customMapStyle={scheme === "dark" ? DARK_MAP_STYLE : undefined}
         pitchEnabled={false}
         toolbarEnabled={false}
         onPanDrag={follow ? () => setFollowing(false) : undefined}
@@ -100,7 +104,7 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
         {(path && path.length > 1) || stops.length > 1 ? (
           <Polyline
             coordinates={path && path.length > 1 ? path : stops.map((s) => ({ latitude: s.lat, longitude: s.lng }))}
-            strokeColor={tint}
+            strokeColor={accentInk(tint)}
             strokeWidth={4}
           />
         ) : null}
@@ -114,7 +118,7 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
         {firstFix.current && (
           <Marker ref={busMarker} coordinate={firstFix.current} title={bus.vehicle.plate_number} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: tint, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ fontSize: 13 }}>🚌</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 13 }}>🚌</Text>
             </View>
           </Marker>
         )}
@@ -124,9 +128,9 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
           accessibilityRole="button"
           accessibilityLabel="Follow the bus"
           onPress={() => setFollowing(true)}
-          style={{ position: "absolute", right: 8, bottom: 8, minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 3 }}
+          style={{ position: "absolute", right: 8, bottom: 8, minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: t.appSurface.card, alignItems: "center", justifyContent: "center", elevation: 3 }}
         >
-          <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Follow the bus</Text>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Follow the bus</Text>
         </Tap>
       )}
     </View>

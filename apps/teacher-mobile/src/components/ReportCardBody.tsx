@@ -1,21 +1,23 @@
 import type { ReactNode } from "react";
 import { Text, View } from "react-native";
 import { clubsLine, formatMoney, signatureFor, type StoredReportCard, type StoredSignature } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { SignatureMark } from "./SignatureMark";
+import { useTheme } from "../ui/ThemeContext";
 
 const longDate = (day: string) => new Date(`${day}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
 function Stat({ label, value }: { label: string; value: string }) {
+  const { t, s } = useTheme();
   return (
     <View>
       <Text style={s.eyebrow}>{label}</Text>
-      <Text style={[s.mono, { fontSize: 20, marginTop: 2 }]}>{value}</Text>
+      <Text style={[{ color: t.appSurface.ink }, s.mono, { fontSize: 20, marginTop: 2 }]}>{value}</Text>
     </View>
   );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
+  const { s } = useTheme();
   return (
     <View style={{ marginTop: 16 }}>
       <Text style={[s.eyebrow, { marginBottom: 6 }]}>{title}</Text>
@@ -32,6 +34,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * card is unchanged since it was made.
  */
 export function ReportCardBody({ card, signatures }: { card: StoredReportCard; signatures: StoredSignature[] | null }) {
+  const { t, s } = useTheme();
   const d = card.data;
   const teacherSig = signatures && signatureFor(signatures, card.id, "class_teacher", { currentOnly: true });
   const principalSig = signatures && signatureFor(signatures, card.id, "principal", { currentOnly: true });
@@ -65,7 +68,7 @@ export function ReportCardBody({ card, signatures }: { card: StoredReportCard; s
                   {!!detail && <Text style={s.faint}>{detail}</Text>}
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
-                  <Text style={[s.mono, { fontSize: 16 }]}>{sub.average ?? "—"}</Text>
+                  <Text style={[{ color: t.appSurface.ink }, s.mono, { fontSize: 16 }]}>{sub.average ?? "—"}</Text>
                   <Text style={{ fontSize: 12, fontWeight: "700", color: t.appSurface.inkMuted }}>{sub.grade ?? ""}</Text>
                 </View>
               </View>

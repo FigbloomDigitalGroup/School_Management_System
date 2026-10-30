@@ -5,13 +5,14 @@ import {
   COUNTING_LABEL, PAPER_KIND_LABEL, canStartPaper, fetchPaperText, paperResitWaiting, paperWindow, scoreLabel, studentWindow, windowLabel,
   type StudentPaper,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { SubScreen } from "../../components/SubScreen";
 import { useStudentData } from "../../studentData";
 import { openExamFile } from "../../lib/examFile";
 import { useStudentPapers } from "../../lib/useStudentPapers";
 import { Button } from "../../ui/Button";
 import { EmptyState, ErrorState } from "../../ui/StateView";
+import { useTheme } from "../../ui/ThemeContext";
 
 const mins = (n: number) => `${n} minute${n === 1 ? "" : "s"}`;
 
@@ -22,6 +23,7 @@ const mins = (n: number) => `${n} minute${n === 1 ? "" : "s"}`;
  * time it comes back into view, so it is right after a sitting.
  */
 export function StudentExamPaper({ route }: { route: { params: { paperId: string } } }) {
+  const { accentInk } = useTheme();
   const { accent } = useStudentData();
   const tint = accentFor(accent).deep;
   const { state, retry } = useStudentPapers();
@@ -40,7 +42,7 @@ export function StudentExamPaper({ route }: { route: { params: { paperId: string
       sub={view ? `${PAPER_KIND_LABEL[view.paper.kind]} · ${view.paper.subjectName}` : "Exams & tests"}
     >
       {state.kind === "loading" ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
       ) : state.kind === "failed" ? (
         <ErrorState title="Couldn't load this paper" onRetry={retry} />
       ) : !view ? (
@@ -53,6 +55,7 @@ export function StudentExamPaper({ route }: { route: { params: { paperId: string
 }
 
 function PaperDetail({ view, now, tint }: { view: StudentPaper; now: number; tint: string }) {
+  const { t, s } = useTheme();
   const nav = useNavigation<any>();
   const { paper, state, result, total } = view;
   const win = studentWindow(view);
@@ -98,12 +101,12 @@ function PaperDetail({ view, now, tint }: { view: StudentPaper; now: number; tin
       <View style={[s.card, { gap: 12 }]}>
         <View>
           <Text style={s.eyebrow}>WHEN</Text>
-          <Text style={{ fontSize: 13.5, fontWeight: "600", marginTop: 4 }}>{windowLabel(win, now)}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600", marginTop: 4 }}>{windowLabel(win, now)}</Text>
           {ownWindow && <Text style={[s.faint, { marginTop: 2 }]}>Your own time, set by your teacher</Text>}
         </View>
         <View>
           <Text style={s.eyebrow}>{paper.mode === "online" ? "TIME ALLOWED" : "HOW"}</Text>
-          <Text style={{ fontSize: 13.5, fontWeight: "600", marginTop: 4 }}>{timeAllowed}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600", marginTop: 4 }}>{timeAllowed}</Text>
         </View>
       </View>
 
