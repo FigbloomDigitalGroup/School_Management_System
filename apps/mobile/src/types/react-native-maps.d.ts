@@ -38,7 +38,10 @@ export interface MarkerProps {
   anchor?: { x: number; y: number };
   children?: ReactNode;
 }
-export class Marker extends Component<MarkerProps> {}
+export class Marker extends Component<MarkerProps> {
+  /** Slides the marker to a new position, natively, over `duration` ms (default 500). */
+  animateMarkerToCoordinate(coordinate: LatLng, duration?: number): void;
+}
 
 export interface PolylineProps {
   coordinates: LatLng[];

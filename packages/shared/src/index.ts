@@ -28,6 +28,7 @@ export * from "./gpa";
 export * from "./courseGrades";
 export * from "./fleet";
 export * from "./routePlanning";
+export * from "./routeTrace";
 export * from "./studentHealth";
 export * from "./notificationPreferences";
 export * from "./supabase";

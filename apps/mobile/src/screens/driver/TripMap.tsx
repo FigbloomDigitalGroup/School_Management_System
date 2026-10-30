@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { fmtDistance, fmtEta, roughEta, routeProgress, stopsInTravelOrder, type RouteStop, type TripDirection } from "@figbloom/shared";
 import { BusMap } from "../../components/BusMap";
 import { s, t } from "../../theme";
+import { useRouteTrace } from "../../lib/useRouteTrace";
 
 /**
  * The driver's route on a map with their own bus following their GPS, and under it the next
@@ -19,6 +20,7 @@ export function TripMap({ direction, stops, plate, pos, tint }: {
   tint: string;
 }) {
   const ordered = useMemo(() => stopsInTravelOrder(stops, direction), [stops, direction]);
+  const path = useRouteTrace(stops);
   if (!ordered.length && !pos) return null;
 
   const progress = pos ? routeProgress(ordered, pos) : null;
@@ -34,6 +36,7 @@ export function TripMap({ direction, stops, plate, pos, tint }: {
         tint={tint}
         height={240}
         follow
+        path={path}
       />
       {next ? (
         <View style={[s.card, { marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }]}>
