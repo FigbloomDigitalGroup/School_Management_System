@@ -33,6 +33,8 @@ import { ParentItems } from "./screens/parent/Items";
 import { ParentStudyHelper } from "./screens/parent/StudyHelper";
 import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
+import { StudentFees } from "./screens/student/Fees";
+import { StudentPay } from "./screens/student/Pay";
 import { StudentStudyHelper } from "./screens/student/StudyHelper";
 import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
@@ -129,6 +131,9 @@ export function Navigation({ role, accent, profileId, driver }: NavigationProps)
           <Stack.Screen name="ChatThread" component={StudentChatThread} />
           <Stack.Screen name="Activities" component={StudentActivities} />
           <Stack.Screen name="Items" component={StudentItems} />
+          {/* Fees opens from the Work tab; paying is a modal for the same reason the parent's is. */}
+          <Stack.Screen name="Fees" component={StudentFees} />
+          <Stack.Screen name="Pay" component={StudentPay} options={{ presentation: "modal" }} />
           {/* The study helper opens from a Today card. */}
           <Stack.Screen name="StudyHelper" component={StudentStudyHelper} />
         </Stack.Navigator>

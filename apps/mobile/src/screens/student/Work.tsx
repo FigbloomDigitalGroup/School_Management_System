@@ -70,6 +70,7 @@ export function StudentWork() {
 
         <LinkCard label="Sports & activities" blurb="Your clubs and teams, what's coming up, and what you've won." tint={a.deep} to="Activities" />
         <LinkCard label="My items" blurb="Books and equipment the school has lent you, and when to bring them back." tint={a.deep} to="Items" />
+        <LinkCard label="Fees" blurb="What you owe this term, what it covers, your receipts, and how to pay." tint={a.deep} to="Fees" />
         <View style={{ height: 12 }} />
 
         {work.length === 0 ? (
