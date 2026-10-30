@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from "react-native";
 import { signatureProblem, type SignatureMark, type SignatureStyle, type Stroke } from "@figbloom/shared";
 import { s, t } from "../theme";
 import { SignatureInk } from "./SignatureMark";
 import { SignaturePad } from "./SignaturePad";
+import { Button } from "../ui/Button";
+import { Field } from "../ui/Field";
 import { Tap } from "../ui/Tap";
 import { Check, CircleAlert } from "lucide-react-native";
 
@@ -70,10 +72,7 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
             ))}
           </View>
 
-          <View>
-            <Text style={labelStyle}>Your full name</Text>
-            <TextInput value={fullName} onChangeText={setFullName} maxLength={120} autoComplete="name" editable={!saving} style={inputStyle} />
-          </View>
+          <Field label="Your full name" value={fullName} onChangeText={setFullName} maxLength={120} autoComplete="name" editable={!saving} />
 
           {style === "drawn" ? (
             <SignaturePad onChange={setStrokes} onDrawing={setDrawing} disabled={saving} />
@@ -112,17 +111,10 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
 
           <Text style={s.faint}>A signature can't be changed once made. If something is wrong, ask the school office to void it.</Text>
 
-          <Tap accessibilityRole="button" disabled={saving} onPress={() => void sign()} style={[s.primary, { backgroundColor: tint, opacity: saving ? 0.7 : 1 }]}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Sign</Text>}
-          </Tap>
-          <Tap accessibilityRole="button" disabled={saving} onPress={onClose} style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ fontSize: 14.5, fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel</Text>
-          </Tap>
+          <Button label="Sign" tint={tint} loading={saving} onPress={() => void sign()} />
+          <Button variant="quiet" tint={t.appSurface.inkMuted} label="Cancel" disabled={saving} onPress={onClose} />
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
-
-const labelStyle = { fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 };
-const inputStyle = { borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: t.appSurface.ink, backgroundColor: "#fff" };

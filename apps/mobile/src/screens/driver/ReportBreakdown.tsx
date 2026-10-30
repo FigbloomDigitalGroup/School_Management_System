@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, TextInput, View } from "react-native";
+import { Text, View } from "react-native";
 import { breakdownAffected, listTripRiders, reportBreakdown } from "@figbloom/shared";
 import { s, t } from "../../theme";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
 import { Tap } from "../../ui/Tap";
 
 /**
@@ -66,27 +68,20 @@ export function ReportBreakdown({ tripId, lat, lng }: { tripId: string; lat: num
         {affected ? `, and the families of the ${affected === 1 ? "1 child" : `${affected} children`} on the bus or still waiting are told` : ""}.
         Families of children already dropped off are not.
       </Text>
-      <Text style={{ marginTop: 10, fontSize: 12, fontWeight: "600", color: t.appSurface.inkMuted }}>What happened (optional)</Text>
-      <TextInput
+      <Field
+        label="What happened (optional)"
         value={note}
         onChangeText={setNote}
         maxLength={300}
         multiline
         editable={!sending}
         placeholder="Flat tyre near Imara Daima, waiting for help"
-        placeholderTextColor={t.appSurface.inkFaint}
-        accessibilityLabel="What happened"
-        textAlignVertical="top"
-        style={{ marginTop: 4, minHeight: 64, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: t.appSurface.ink }}
+        style={{ marginTop: 10 }}
       />
       {!!result && !result.ok && <Text style={{ marginTop: 8, fontSize: 12.5, lineHeight: 19, color: t.status.warnInk }}>{result.text}</Text>}
       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-        <Tap accessibilityRole="button" disabled={sending} onPress={() => setOpen(false)} style={{ flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel</Text>
-        </Tap>
-        <Tap accessibilityRole="button" disabled={sending} onPress={() => void send()} style={{ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: t.status.warnInk, alignItems: "center", justifyContent: "center", opacity: sending ? 0.6 : 1 }}>
-          {sending ? <ActivityIndicator color="#fff" /> : <Text style={{ fontWeight: "600", color: "#fff" }}>Tell the school</Text>}
-        </Tap>
+        <Button variant="secondary" label="Cancel" disabled={sending} onPress={() => setOpen(false)} style={{ flex: 1 }} />
+        <Button label="Tell the school" tint={t.status.warnInk} loading={sending} onPress={() => void send()} style={{ flex: 1 }} />
       </View>
     </View>
   );

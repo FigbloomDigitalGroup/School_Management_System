@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import {
   formatFileSize, formatMoney, listPaymentProofs, parsePaymentSms, PAYMENT_PROOF_LABEL, PAYMENT_SMS_MAX, PAYMENT_SMS_SOURCE_LABEL,
   paymentSmsFlags, sendPaymentProof, uploadProblem, type PaymentProof, type PaymentSmsFlag,
@@ -7,6 +7,8 @@ import {
 import { pickFile, readPickedFile, type FileSource, type PickedFile } from "../lib/pickFile";
 import { s, t } from "../theme";
 import { AttachChoices } from "./AttachChoices";
+import { Button } from "../ui/Button";
+import { Field } from "../ui/Field";
 import { Tap } from "../ui/Tap";
 
 // What a family is told about a flag: gentler than the office's label, and
@@ -109,19 +111,16 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
       <View style={s.card}>
         {canSend && (
           <View style={{ gap: 10, paddingBottom: proofs?.length ? 12 : 0 }}>
-            <Text style={{ fontSize: 12, fontWeight: "600" }}>Paid already? Paste the confirmation message</Text>
-            <TextInput
+            <Field
+              label="Paid already? Paste the confirmation message"
               value={sms}
               onChangeText={(v) => setSms(v.slice(0, PAYMENT_SMS_MAX))}
               multiline
               numberOfLines={4}
-              textAlignVertical="top"
               editable={!sending}
               placeholder="e.g. SJQ4ABC12D Confirmed. Ksh15,000.00 sent to … for account … on 26/10/26 at 10:15 AM …"
-              placeholderTextColor={t.appSurface.inkFaint}
-              style={{ minHeight: 88, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, padding: 10, fontFamily: "monospace", fontSize: 12, color: t.appSurface.ink }}
+              hint="The M-Pesa, Airtel Money or bank SMS, copied whole. No screenshot needed; a photo or PDF can go with it or instead."
             />
-            <Text style={s.faint}>The M-Pesa, Airtel Money or bank SMS, copied whole. No screenshot needed; a photo or PDF can go with it or instead.</Text>
 
             {parsed && (
               <View style={{ borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: t.appSurface.page, padding: 12, gap: 6 }} accessibilityLiveRegion="polite">
@@ -157,22 +156,8 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
               </View>
             )}
 
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              editable={!sending}
-              placeholder="Note (optional), e.g. paid at the school office"
-              placeholderTextColor={t.appSurface.inkFaint}
-              style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13.5, color: t.appSurface.ink }}
-            />
-            <Tap
-              accessibilityRole="button"
-              disabled={!ready || sending}
-              onPress={() => void send()}
-              style={[s.primary, { backgroundColor: tint, opacity: !ready || sending ? 0.5 : 1 }]}
-            >
-              {sending ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Send proof</Text>}
-            </Tap>
+            <Field label="Note (optional)" value={note} onChangeText={setNote} editable={!sending} placeholder="e.g. paid at the school office" />
+            <Button label="Send proof" tint={tint} loading={sending} disabled={!ready} onPress={() => void send()} />
           </View>
         )}
         {!!message && <Text style={{ fontSize: 12.5, color: message.bad ? t.status.warnInk : t.status.okInk, paddingTop: canSend ? 4 : 0, paddingBottom: proofs?.length ? 8 : 0 }}>{message.text}</Text>}

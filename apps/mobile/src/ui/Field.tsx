@@ -18,7 +18,7 @@ export interface FieldProps extends Omit<TextInputProps, "style"> {
 }
 
 /**
- * A labelled single-line input. The label sits above, always, so it never
+ * A labelled input, one line or (with `multiline`) a few. The label sits above, always, so it never
  * vanishes under what is typed. The edge is 3:1 against the page (the divider
  * colour is not), grows to 2px on focus and turns warn-coloured with an icon on
  * error (never colour alone), and the error is announced to a screen reader the
@@ -46,7 +46,7 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
           secureTextEntry={secret && !shown}
           onFocus={(e) => { setFocused(true); onFocus?.(e); }}
           onBlur={(e) => { setFocused(false); onBlur?.(e); }}
-          style={[styles.input, { paddingLeft: wide ? 13 : 14 }]}
+          style={[styles.input, input.multiline && styles.multiline, { paddingLeft: wide ? 13 : 14 }]}
         />
         {secret && (
           <Tap
@@ -75,6 +75,8 @@ const styles = StyleSheet.create({
   label: { fontSize: fontSize.small, fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 },
   box: { flexDirection: "row", alignItems: "center", borderRadius: t.radius.lg, backgroundColor: t.appSurface.card },
   input: { flex: 1, minHeight: 48, paddingVertical: 0, paddingRight: 8, fontSize: fontSize.lead, color: t.appSurface.ink, textAlignVertical: "center" },
+  /** Three lines tall to start; the text grows it, and large system text only makes it taller. */
+  multiline: { minHeight: 96, paddingVertical: 12, textAlignVertical: "top" },
   toggle: { ...HIT, alignItems: "center", justifyContent: "center", borderRadius: t.radius.lg },
   message: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 6 },
   errorText: { flex: 1, fontSize: fontSize.caption, lineHeight: 17, color: t.status.warnInk },

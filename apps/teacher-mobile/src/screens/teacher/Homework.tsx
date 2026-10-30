@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 import {
   addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchClassSizes, fetchMyHomework, fetchTeacherClasses,
   fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty,
@@ -11,6 +11,9 @@ import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import type { TeacherSession } from "../../navigation";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { EmptyState } from "../../ui/StateView";
 import { Tap } from "../../ui/Tap";
 import { Check } from "lucide-react-native";
 
@@ -182,52 +185,33 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
           <View style={[s.card, { gap: 10 }]}>
             <Text style={s.eyebrow}>{editingId ? "EDIT HOMEWORK" : "NEW HOMEWORK"}</Text>
 
-            <Text style={[s.small, { fontWeight: "600" }]}>Class</Text>
+            <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>Class</Text>
             {classes === null ? <ActivityIndicator color={a.deep} /> : (
               <PillPicker items={classes} selectedId={classId} onPick={pickClass} accent={session.accent} />
             )}
 
-            <Text style={[s.small, { fontWeight: "600" }]}>Subject</Text>
+            <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>Subject</Text>
             {subjects === null ? <ActivityIndicator color={a.deep} /> : noSubjects ? (
               <Text style={s.faint}>You aren't assigned a subject in this class. Ask the school admin.</Text>
             ) : (
               <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />
             )}
 
-            <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Title</Text>
-              <TextInput
-                value={title}
-                onChangeText={setTitle}
-                placeholder="e.g. Exercise 4.2, page 61"
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14 }}
-              />
-            </View>
+            <Field label="Title" value={title} onChangeText={setTitle} placeholder="e.g. Exercise 4.2, page 61" />
 
-            <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Instructions (optional)</Text>
-              <TextInput
-                value={body}
-                onChangeText={setBody}
-                placeholder="Anything learners need to know"
-                multiline
-                numberOfLines={3}
-                style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, padding: 12, fontSize: 14, minHeight: 72, textAlignVertical: "top" }}
-              />
-              <Text style={[s.faint, { marginTop: 6 }]}>To attach a worksheet, video or link, edit this homework on the web.</Text>
-            </View>
+            <Field
+              label="Instructions (optional)"
+              value={body}
+              onChangeText={setBody}
+              placeholder="Anything learners need to know"
+              multiline
+              hint="To attach a worksheet, video or link, edit this homework on the web."
+            />
 
-            <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Due date</Text>
-              <TextInput
-                value={dueOn}
-                onChangeText={setDueOn}
-                placeholder="YYYY-MM-DD"
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14, fontFamily: "monospace" }}
-              />
-            </View>
+            <Field label="Due date" value={dueOn} onChangeText={setDueOn} placeholder="YYYY-MM-DD" />
 
-            <Text style={[s.small, { fontWeight: "600" }]}>How to hand in</Text>
+
+            <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>How to hand in</Text>
             <PillPicker
               items={HAND_IN_OPTIONS.map((o) => ({ id: o.value, name: o.label }))}
               selectedId={handIn}
@@ -242,7 +226,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
               style={{ ...HIT, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={[s.small, { fontWeight: "600" }]}>For parents</Text>
+                <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>For parents</Text>
                 {!isGuideEmpty(guide) && <Check size={14} color={t.status.okInk} strokeWidth={3} />}
               </View>
               <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>{guideOpen ? "Hide" : "Show"}</Text>
@@ -257,7 +241,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                 </Text>
                 <GuideInput label="What it's about" value={guide.about} placeholder={GUIDE_PLACEHOLDERS[tone].about} onChange={(about) => setGuide((g) => ({ ...g, about }))} />
 
-                <Text style={[s.small, { fontWeight: "600" }]}>Your child will need</Text>
+                <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>Your child will need</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {[...NEED_CHIPS, ...guide.needs.filter((n) => !NEED_CHIPS.some((c) => c.toLowerCase() === n.toLowerCase()))].map((n) => {
                     const on = guide.needs.some((x) => x.toLowerCase() === n.toLowerCase());
@@ -275,38 +259,36 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
                     );
                   })}
                 </View>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TextInput
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-end" }}>
+                  <Field
+                    label="Something else"
                     value={customNeed}
                     onChangeText={setCustomNeed}
-                    placeholder="Something else"
+                    placeholder="e.g. Protractor"
+                    returnKeyType="done"
                     onSubmitEditing={() => { setGuide((g) => ({ ...g, needs: addNeed(g.needs, customNeed) })); setCustomNeed(""); }}
-                    style={{ ...HIT, flex: 1, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14 }}
+                    style={{ flex: 1 }}
                   />
-                  <Tap
-                    accessibilityRole="button"
+                  <Button
+                    variant="secondary"
+                    label="Add"
                     disabled={!customNeed.trim()}
                     onPress={() => { setGuide((g) => ({ ...g, needs: addNeed(g.needs, customNeed) })); setCustomNeed(""); }}
-                    style={{ ...HIT, justifyContent: "center", paddingHorizontal: 8, opacity: customNeed.trim() ? 1 : 0.4 }}
-                  >
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: t.brand.orange }}>Add</Text>
-                  </Tap>
+                    style={{ minWidth: 72 }}
+                  />
                 </View>
 
                 <GuideInput label="How you can help" value={guide.help} placeholder={GUIDE_PLACEHOLDERS[tone].help} onChange={(help) => setGuide((g) => ({ ...g, help }))} />
                 <GuideInput label="Please avoid" value={guide.avoid} placeholder={GUIDE_PLACEHOLDERS[tone].avoid} onChange={(avoid) => setGuide((g) => ({ ...g, avoid }))} />
 
-                <View>
-                  <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Time it should take (minutes)</Text>
-                  <TextInput
-                    value={guide.minutes === null ? "" : String(guide.minutes)}
-                    onChangeText={(v) => setGuide((g) => ({ ...g, minutes: v.trim() === "" ? null : Number(v.replace(/[^0-9]/g, "")) || null }))}
-                    keyboardType="number-pad"
-                    placeholder="Optional"
-                    style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14 }}
-                  />
-                  {!!minutesWords(guide.minutes) && <Text style={[s.faint, { marginTop: 4 }]}>{minutesWords(guide.minutes)}</Text>}
-                </View>
+                <Field
+                  label="Time it should take (minutes)"
+                  value={guide.minutes === null ? "" : String(guide.minutes)}
+                  onChangeText={(v) => setGuide((g) => ({ ...g, minutes: v.trim() === "" ? null : Number(v.replace(/[^0-9]/g, "")) || null }))}
+                  keyboardType="number-pad"
+                  placeholder="Optional"
+                  hint={minutesWords(guide.minutes) || undefined}
+                />
               </View>
             )}
 
@@ -324,20 +306,11 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
               </Tap>
             )}
 
-            <Tap
-              accessibilityRole="button"
-              disabled={saving || noSubjects}
-              onPress={() => void save()}
-              style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: saving || noSubjects ? 0.6 : 1 }]}
-            >
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>{editingId ? "Save changes" : "Set homework"}</Text>}
-            </Tap>
+            <Button label={editingId ? "Save changes" : "Set homework"} loading={saving} disabled={noSubjects} onPress={() => void save()} />
             {!!editingId && (
-              <Tap accessibilityRole="button" onPress={() => { reset(); setStatus(null); }} style={{ ...HIT, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.appSurface.inkMuted }}>Cancel editing</Text>
-              </Tap>
+              <Button variant="quiet" tint={t.appSurface.inkMuted} label="Cancel editing" onPress={() => { reset(); setStatus(null); }} />
             )}
-            {!!status && <Text style={s.small}>{status}</Text>}
+            {!!status && <Text accessibilityLiveRegion="polite" style={s.small}>{status}</Text>}
           </View>
         )}
 
@@ -345,7 +318,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
         {work === null ? (
           <ActivityIndicator color={a.deep} />
         ) : work.rows.length === 0 ? (
-          <Text style={s.faint}>Nothing set yet.</Text>
+          <EmptyState title="Nothing set yet" body="Homework you set for your classes shows here, with how many learners have handed it in." />
         ) : (
           work.rows.map((w) => (
             <View key={w.id} style={[s.card, { marginBottom: 8, padding: 12 }]}>
@@ -374,16 +347,5 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
 
 /** One multi-line field of the "For parents" section. */
 function GuideInput({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (v: string) => void }) {
-  return (
-    <View>
-      <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        multiline
-        style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, padding: 12, fontSize: 14, minHeight: 60, textAlignVertical: "top" }}
-      />
-    </View>
-  );
+  return <Field label={label} value={value} onChangeText={onChange} placeholder={placeholder} multiline />;
 }

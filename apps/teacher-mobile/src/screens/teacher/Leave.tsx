@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
   cancelLeaveRequest, fetchMyLeaveRequests, formatShortDate, requestLeave,
   type LeaveRequest, type LeaveStatus,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, s, t } from "../../theme";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
-import { Tap } from "../../ui/Tap";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { EmptyState, ErrorState } from "../../ui/StateView";
 
 const STATUS_LABEL: Record<LeaveStatus, string> = {
   pending: "Awaiting review", approved: "Approved", rejected: "Rejected", cancelled: "Cancelled",
@@ -25,24 +27,28 @@ const STATUS_STYLE: Record<LeaveStatus, { bg: string; ink: string }> = {
 export function TeacherLeave({ session }: { session: TeacherSession }) {
   const a = accentFor(session.accent);
   const [requests, setRequests] = useState<LeaveRequest[] | null>(null);
+  /** The list failed to load: not the same as "nothing requested", and it can be retried. */
+  const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [startsOn, setStartsOn] = useState("");
   const [endsOn, setEndsOn] = useState("");
+  const [dateError, setDateError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
+    setFailed(false);
     fetchMyLeaveRequests(session.profileId)
       .then((r) => { if (alive) setRequests(r); })
-      .catch(() => { if (alive) setRequests([]); });
+      .catch(() => { if (alive) { setRequests([]); setFailed(true); } });
     return () => { alive = false; };
   }, [session.profileId, reloadKey]);
 
   async function submit() {
     if (!startsOn || !endsOn) { setStatus("Pick a start and end date."); return; }
-    if (endsOn < startsOn) { setStatus("The end date is before the start date."); return; }
+    if (endsOn < startsOn) { setDateError("The end date is before the start date."); return; }
     setSaving(true);
     setStatus(null);
     try {
@@ -74,55 +80,43 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
 
       <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
         <View style={[s.card, { gap: 10 }]}>
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>From</Text>
-              <TextInput
-                value={startsOn}
-                onChangeText={setStartsOn}
-                placeholder="YYYY-MM-DD"
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14, fontFamily: "monospace" }}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>To</Text>
-              <TextInput
-                value={endsOn}
-                onChangeText={setEndsOn}
-                placeholder="YYYY-MM-DD"
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14, fontFamily: "monospace" }}
-              />
-            </View>
-          </View>
-
-          <View>
-            <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Reason (optional)</Text>
-            <TextInput
-              value={reason}
-              onChangeText={setReason}
-              placeholder="e.g. Family event out of town"
-              multiline
-              numberOfLines={3}
-              style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, padding: 12, fontSize: 14, minHeight: 72, textAlignVertical: "top" }}
+          <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+            <Field
+              label="From"
+              value={startsOn}
+              onChangeText={(v) => { setStartsOn(v); setDateError(null); }}
+              placeholder="YYYY-MM-DD"
+              style={{ flex: 1 }}
+            />
+            <Field
+              label="To"
+              value={endsOn}
+              onChangeText={(v) => { setEndsOn(v); setDateError(null); }}
+              placeholder="YYYY-MM-DD"
+              error={dateError ?? undefined}
+              style={{ flex: 1 }}
             />
           </View>
 
-          <Tap
-            accessibilityRole="button"
-            disabled={!startsOn || !endsOn || saving}
-            onPress={() => void submit()}
-            style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !startsOn || !endsOn || saving ? 0.6 : 1 }]}
-          >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Request leave</Text>}
-          </Tap>
-          {!!status && <Text style={s.small}>{status}</Text>}
+          <Field
+            label="Reason (optional)"
+            value={reason}
+            onChangeText={setReason}
+            placeholder="e.g. Family event out of town"
+            multiline
+          />
+
+          <Button label="Request leave" loading={saving} disabled={!startsOn || !endsOn} onPress={() => void submit()} />
+          {!!status && <Text accessibilityLiveRegion="polite" style={s.small}>{status}</Text>}
         </View>
 
         <Text style={[s.eyebrow, { marginTop: 20, marginBottom: 8 }]}>YOUR REQUESTS</Text>
         {requests === null ? (
           <ActivityIndicator color={a.deep} />
+        ) : failed ? (
+          <ErrorState title="Couldn't load your requests" onRetry={() => { setRequests(null); setReloadKey((k) => k + 1); }} />
         ) : requests.length === 0 ? (
-          <Text style={s.faint}>Nothing requested yet.</Text>
+          <EmptyState title="Nothing requested yet" body="Leave you ask for, and the school's decision on it, shows here." />
         ) : (
           requests.map((r) => {
             const style = STATUS_STYLE[r.status];
@@ -141,9 +135,7 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
                   </View>
                 </View>
                 {r.status === "pending" && (
-                  <Tap accessibilityRole="button" onPress={() => void withdraw(r.id)} style={{ marginTop: 8 }}>
-                    <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.status.warnInk }}>Withdraw</Text>
-                  </Tap>
+                  <Button variant="quiet" label="Withdraw" tint={t.status.warnInk} onPress={() => void withdraw(r.id)} style={{ alignSelf: "flex-start", marginTop: 4 }} />
                 )}
               </View>
             );

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions, payWithMpesa, type PaymentFailure } from "@figbloom/shared";
 import { accentFor, s, t } from "../../theme";
 import { useChild, useReloadParentData, useTenantId } from "../../data";
 import { PaymentMethodsCard, usePaymentMethods } from "../../components/PaymentMethods";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
 import { Tap } from "../../ui/Tap";
-import { Check } from "lucide-react-native";
+import { Check, CircleAlert } from "lucide-react-native";
 
 type Screen = "form" | "sending" | "prompting" | "success" | "failed" | "unconfirmed" | "unavailable";
 
@@ -32,7 +34,8 @@ export function ParentPay() {
   const [amount, setAmount] = useState(child.balance);
   // No stand-in number: a prefilled demo MSISDN would send a real prompt to a stranger's phone.
   const [phone, setPhone] = useState("");
-  const [error, setError] = useState("");
+  /** Where a problem shows: under the field it is about, or (form) by the button when it is about neither. */
+  const [errors, setErrors] = useState<{ amount?: string; phone?: string; form?: string }>({});
   const [failure, setFailure] = useState<PaymentFailure>("timeout");
   const [receipt, setReceipt] = useState<string | null>(null);
   const [balanceBefore, setBalanceBefore] = useState(child.balance);
@@ -44,12 +47,12 @@ export function ParentPay() {
 
   async function send() {
     const p = normaliseMsisdn(phone);
-    if (!p.ok) { setError(p.message); return; }
-    if (amount <= 0) { setError("Enter how much you are paying."); return; }
-    if (amount > child.balance) { setError(`That is more than the ${formatMoney(child.balance, country)} still owed.`); return; }
-    if (!child.invoiceId) { setError("The school hasn't billed this term yet, so there is nothing to pay online."); return; }
+    if (!p.ok) { setErrors({ phone: p.message }); return; }
+    if (amount <= 0) { setErrors({ amount: "Enter how much you are paying." }); return; }
+    if (amount > child.balance) { setErrors({ amount: `That is more than the ${formatMoney(child.balance, country)} still owed.` }); return; }
+    if (!child.invoiceId) { setErrors({ form: "The school hasn't billed this term yet, so there is nothing to pay online." }); return; }
 
-    setError("");
+    setErrors({});
     setBalanceBefore(child.balance);
     setScreen("sending");
     const controller = new AbortController();
@@ -64,11 +67,11 @@ export function ParentPay() {
         case "failed": setFailure(result.reason); setScreen("failed"); break;
         case "unconfirmed": setScreen("unconfirmed"); reload(); break;
         case "unavailable": setScreen("unavailable"); break;
-        case "rejected": setError(result.message); setScreen("form"); break;
+        case "rejected": setErrors({ form: result.message }); setScreen("form"); break;
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
-      setError("Something went wrong. Nothing was charged. Try again.");
+      setErrors({ form: "Something went wrong. Nothing was charged. Try again." });
       setScreen("form");
     }
   }
@@ -107,9 +110,7 @@ export function ParentPay() {
           ))}
         </View>
 
-        <Tap onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
-          <Text style={s.primaryLabel}>Done</Text>
-        </Tap>
+        <Button label="Done" tint={tint} onPress={() => nav.goBack()} style={{ marginTop: 20, width: "100%" }} />
       </ScrollView>
     );
   }
@@ -125,9 +126,7 @@ export function ParentPay() {
           If you entered your PIN, the payment may still come through, and your balance will update when it does. Check Receipts in a few minutes
           before paying again, so you don't pay twice.
         </Text>
-        <Tap onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
-          <Text style={s.primaryLabel}>Back to fees</Text>
-        </Tap>
+        <Button label="Back to fees" tint={tint} onPress={() => nav.goBack()} style={{ marginTop: 20, width: "100%" }} />
       </View>
     );
   }
@@ -149,9 +148,7 @@ export function ParentPay() {
         <Text style={[s.faint, { marginTop: 14, lineHeight: 18 }]}>
           After you pay, the school records it and {child.first}'s balance updates. Keep your receipt or SMS until it does.
         </Text>
-        <Tap onPress={() => nav.goBack()} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
-          <Text style={s.primaryLabel}>Back to fees</Text>
-        </Tap>
+        <Button label="Back to fees" tint={tint} onPress={() => nav.goBack()} style={{ marginTop: 20 }} />
       </ScrollView>
     );
   }
@@ -168,18 +165,14 @@ export function ParentPay() {
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
           {PAYMENT_FAILURES[failure]}
         </Text>
-        <Tap onPress={() => setScreen("form")} style={[s.primary, { backgroundColor: tint, marginTop: 20, width: "100%" }]}>
-          <Text style={s.primaryLabel}>Try again</Text>
-        </Tap>
-        <Tap onPress={() => nav.goBack()} style={[s.primary, { marginTop: 8, width: "100%", borderWidth: 1, borderColor: t.appSurface.line }]}>
-          <Text style={{ fontSize: 15, fontWeight: "600" }}>Pay at the school office instead</Text>
-        </Tap>
+        <Button label="Try again" tint={tint} onPress={() => setScreen("form")} style={{ marginTop: 20, width: "100%" }} />
+        <Button variant="secondary" label="Pay at the school office instead" onPress={() => nav.goBack()} style={{ marginTop: 8, width: "100%" }} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={s.screen} contentContainerStyle={{ padding: 16 }}>
+    <ScrollView style={s.screen} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
       <View style={s.card}>
         <Text style={s.eyebrow}>PAYING FOR</Text>
         <Text style={{ fontSize: 16, fontWeight: "600", marginTop: 4 }}>{child.name}</Text>
@@ -201,27 +194,34 @@ export function ParentPay() {
         );
       })}
 
-      <Text style={[s.small, { fontWeight: "600", marginTop: 8, marginBottom: 6 }]}>Amount</Text>
-      <TextInput
+      <Field
+        label="Amount"
         keyboardType="number-pad"
         value={amount ? String(amount / 100) : ""}
-        onChangeText={(v) => setAmount(Number(v.replace(/[^0-9]/g, "")) * 100)}
-        style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, fontFamily: "monospace" }}
+        onChangeText={(v) => { setAmount(Number(v.replace(/[^0-9]/g, "")) * 100); setErrors({}); }}
+        error={errors.amount}
+        style={{ marginTop: 8 }}
       />
 
-      <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>M-Pesa number</Text>
-      <TextInput
+      <Field
+        label="M-Pesa number"
         keyboardType="phone-pad"
         value={phone}
-        onChangeText={setPhone}
+        onChangeText={(v) => { setPhone(v); setErrors({}); }}
         placeholder="e.g. 0712 345 678"
-        style={{ borderWidth: 1, borderColor: error ? t.status.warnInk : t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, fontFamily: "monospace" }}
+        autoComplete="tel"
+        error={errors.phone}
+        style={{ marginTop: 14 }}
       />
-      {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 6 }}>{error}</Text>}
 
-      <Tap onPress={() => void send()} style={[s.primary, { backgroundColor: tint, marginTop: 20 }]}>
-        <Text style={s.primaryLabel}>Send M-Pesa prompt</Text>
-      </Tap>
+      {!!errors.form && (
+        <View accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 14 }}>
+          <CircleAlert size={14} color={t.status.warnInk} style={{ marginTop: 2 }} />
+          <Text style={{ flex: 1, fontSize: 12.5, lineHeight: 18, color: t.status.warnInk }}>{errors.form}</Text>
+        </View>
+      )}
+
+      <Button label="Send M-Pesa prompt" tint={tint} onPress={() => void send()} style={{ marginTop: 20 }} />
       <Text style={[s.faint, { textAlign: "center", marginTop: 12, lineHeight: 18 }]}>
         You will get a prompt on {phone || "that number"}. Nothing leaves your account until you enter your PIN.
       </Text>
