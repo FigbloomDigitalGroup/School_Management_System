@@ -44,6 +44,7 @@ export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";
 export * from "./examExtensions";
+export * from "./studentExams";
 export * from "./paperImport";
 export * from "./homework";
 export * from "./materials";

@@ -35,6 +35,10 @@ import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
 import { StudentFees } from "./screens/student/Fees";
 import { StudentPay } from "./screens/student/Pay";
+import { StudentExams } from "./screens/student/Exams";
+import { StudentExamPaper } from "./screens/student/ExamPaper";
+import { StudentExamSitting } from "./screens/student/ExamSitting";
+import { StudentExamReview } from "./screens/student/ExamReview";
 import { StudentStudyHelper } from "./screens/student/StudyHelper";
 import { CallProvider } from "./calls/CallProvider";
 import { listenForPushTaps } from "./pushTaps";
@@ -134,6 +138,11 @@ export function Navigation({ role, accent, profileId, driver }: NavigationProps)
           {/* Fees opens from the Work tab; paying is a modal for the same reason the parent's is. */}
           <Stack.Screen name="Fees" component={StudentFees} />
           <Stack.Screen name="Pay" component={StudentPay} options={{ presentation: "modal" }} />
+          {/* Exams opens from the Work tab: the list, one paper, sitting it, and looking back at it marked. */}
+          <Stack.Screen name="Exams" component={StudentExams} />
+          <Stack.Screen name="ExamPaper" component={StudentExamPaper} />
+          <Stack.Screen name="ExamSitting" component={StudentExamSitting} options={{ gestureEnabled: false }} />
+          <Stack.Screen name="ExamReview" component={StudentExamReview} />
           {/* The study helper opens from a Today card. */}
           <Stack.Screen name="StudyHelper" component={StudentStudyHelper} />
         </Stack.Navigator>

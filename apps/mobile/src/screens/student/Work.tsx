@@ -68,6 +68,8 @@ export function StudentWork() {
           <OpenLabel tint={a.deep} />
         </Tap>
 
+        {/* Only for a learner in a class: that is who a school's exams are for. */}
+        {!!data.classId && <LinkCard label="Exams & tests" blurb="Papers and tests for your class: sit them online, and see your results." tint={a.deep} to="Exams" />}
         <LinkCard label="Sports & activities" blurb="Your clubs and teams, what's coming up, and what you've won." tint={a.deep} to="Activities" />
         <LinkCard label="My items" blurb="Books and equipment the school has lent you, and when to bring them back." tint={a.deep} to="Items" />
         <LinkCard label="Fees" blurb="What you owe this term, what it covers, your receipts, and how to pay." tint={a.deep} to="Fees" />
