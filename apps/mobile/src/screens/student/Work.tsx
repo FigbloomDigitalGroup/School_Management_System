@@ -95,7 +95,7 @@ export function StudentWork() {
                       </Text>
                     )}
                   </View>
-                  <View style={[s.pill, { backgroundColor: tag.bg }]}>
+                  <View style={[s.pill, { backgroundColor: tag.bg, alignSelf: "flex-start" }]}>
                     <Text style={[s.pillLabel, { color: tag.ink }]}>
                       {state === "done" ? "Done" : formatDueLabel(w.dueOn, state === "late")}
                     </Text>
