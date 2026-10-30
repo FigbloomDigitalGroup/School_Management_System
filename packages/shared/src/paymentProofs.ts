@@ -1,5 +1,6 @@
 import { safeFileName } from "./materials";
 import type { ParsedPaymentSms } from "./paymentSms";
+import { uploadFile } from "./storageUpload";
 import { supabase } from "./supabase";
 import { PRIVATE_DOCS_BUCKET, type UploadableFile } from "./uploads";
 
@@ -65,8 +66,7 @@ export async function sendPaymentProof(input: {
   let path: string | null = null;
   if (input.file) {
     path = paymentProofFilePath(input.tenantId, input.invoiceId, input.file.name);
-    const { error: upErr } = await supabase().storage.from(PRIVATE_DOCS_BUCKET).upload(path, input.file.blob, { contentType: input.file.mimeType, upsert: false });
-    if (upErr) throw new Error(upErr.message);
+    await uploadFile(PRIVATE_DOCS_BUCKET, path, input.file);
   }
 
   const p = input.sms?.parsed;

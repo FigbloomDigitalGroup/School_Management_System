@@ -40,6 +40,8 @@ export * from "./mpesaPay";
 export * from "./paymentSms";
 export * from "./paymentProofs";
 export * from "./uploads";
+export * from "./storageUpload";
+export * from "./materialUpload";
 export * from "./exams";
 export * from "./examResults";
 export * from "./examPapers";

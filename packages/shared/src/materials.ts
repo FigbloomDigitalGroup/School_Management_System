@@ -145,6 +145,20 @@ export type AttachmentOwner = "announcement" | "homework";
 
 const OWNER_FOLDER: Record<AttachmentOwner, string> = { announcement: "announcements", homework: "homework" };
 
+/**
+ * A random version-4 id, for a material whose row and file path are made
+ * before the database has seen it (the file lives under the material's own
+ * id). Math.random rather than crypto.randomUUID(): a phone has no
+ * crypto.randomUUID. It only has to be unique, not secret. `random` is a
+ * parameter so a test can fix it.
+ */
+export function newMaterialId(random: () => number = Math.random): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const n = Math.floor(random() * 16);
+    return (c === "x" ? n : (n & 0x3) | 0x8).toString(16);
+  });
+}
+
 /** Where a material's file lives. The database checks it's under the material's own folder. */
 export function materialFilePath(tenantId: string, materialId: string, fileName: string): string {
   return `${tenantId}/materials/${materialId}/${Date.now()}-${safeFileName(fileName)}`;
