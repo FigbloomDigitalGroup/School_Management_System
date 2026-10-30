@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- appSurfaceDark.page in packages/shared/src/tokens.ts. -->
+    <color name="app_page">#141011</color>
+</resources>
