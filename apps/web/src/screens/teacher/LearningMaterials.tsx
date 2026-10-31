@@ -18,6 +18,7 @@ import { useToast } from "../../components/ui/Toast";
 import { UploadCancelled, uploadLearningMedia, type UploadHandle } from "../../lib/resumableUpload";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 type Option = { id: string; name: string };
 
@@ -70,7 +71,7 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
   const materials = data ?? [];
 
   async function togglePublish(m: MaterialRow) {
-    if (m.publishedAt && !window.confirm(`Unpublish "${m.title}"? ${m.className} won't see it any more.`)) return;
+    if (m.publishedAt && !(await confirmDialog({ title: `Unpublish "${m.title}"?`, body: `${m.className} won't see it any more.`, confirmLabel: "Unpublish" }))) return;
     try {
       await setMaterialPublished(m.id, !m.publishedAt);
       toast(m.publishedAt ? "Unpublished. Only staff can see it now." : `Published. ${m.className} can see it now.`);
@@ -81,7 +82,7 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
   }
 
   async function remove(m: MaterialRow) {
-    if (!window.confirm(`Delete "${m.title}" for ${m.className}?${m.filePath ? " The file is deleted too." : ""}`)) return;
+    if (!(await confirmDialog({ title: `Delete "${m.title}" for ${m.className}?`, body: m.filePath ? "The file is deleted too." : undefined, confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteMaterial(m);
       toast("Material deleted");
@@ -274,8 +275,8 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
     }
   }
 
-  function close() {
-    if (upload.current && !window.confirm("The file is still uploading. Stop and close?")) return;
+  async function close() {
+    if (upload.current && !(await confirmDialog({ title: "Stop uploading and close?", body: "The file is still uploading.", confirmLabel: "Stop and close" }))) return;
     upload.current?.cancel();
     onClose();
   }

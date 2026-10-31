@@ -19,6 +19,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AI_DRAFT_NOTE, useAiStatus } from "../../lib/useAi";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /**
  * Report cards for a class and term. The office picks which exams count,
@@ -146,8 +147,11 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   });
 
   const publish = (ids: string[], on: boolean) => run(on ? "publish" : "withdraw", async () => {
-    const what = on ? `Send ${ids.length} report card${ids.length === 1 ? "" : "s"} to families? They can then download them from Results.` : `Withdraw ${ids.length} report card${ids.length === 1 ? "" : "s"}? Families will no longer see them.`;
-    if (!window.confirm(what)) return;
+    const cards = `${ids.length} report card${ids.length === 1 ? "" : "s"}`;
+    const ok = await confirmDialog(on
+      ? { title: `Send ${cards} to families?`, body: "They can then download them from Results.", confirmLabel: "Send" }
+      : { title: `Withdraw ${cards}?`, body: "Families will no longer see them.", confirmLabel: "Withdraw" });
+    if (!ok) return;
     await setReportCardsPublished(ids, on);
     toast(on ? "Report cards sent to families." : "Report cards withdrawn.");
     setReloadKey((k) => k + 1);

@@ -9,7 +9,7 @@ describe("admin areas", () => {
   it("are the eleven the database knows (is_admin_area in 20261031000000)", () => {
     expect([...ADMIN_AREAS]).toEqual([
       "people", "fees", "academics", "attendance", "transport", "communication",
-      "inventory", "activities", "visitors", "medical", "leave",
+      "inventory", "activities", "visitors", "medical", "leave", "audit",
     ]);
     for (const a of ADMIN_AREAS) expect(ADMIN_AREA_INFO[a].allows.length).toBeGreaterThan(10);
   });

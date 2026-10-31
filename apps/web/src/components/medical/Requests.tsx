@@ -11,6 +11,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { ErrorLine, when } from "./common";
+import { confirmDialog, promptDialog } from "../ui/Confirm";
 
 const input = "w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-forest";
 const label = "mb-1 block text-[11.5px] font-semibold";
@@ -78,7 +79,7 @@ function DecideModal({ request: r, onClose, onDone }: { request: MedicationReque
   async function approve() {
     const parsed = parseTimes(times);
     if (!parsed) { setProblem("Give the round times as 24-hour times, e.g. 07:00, 13:00, 19:00."); return; }
-    if (parsed.length !== r.times_per_day && !window.confirm(`The family asked for ${r.times_per_day} a day; you've set ${parsed.length}. Approve anyway?`)) return;
+    if (parsed.length !== r.times_per_day && !(await confirmDialog({ title: "Approve with a different number of doses?", body: `The family asked for ${r.times_per_day} a day; you've set ${parsed.length}.`, confirmLabel: "Approve anyway" }))) return;
     setBusy(true);
     try {
       await approveRequest(r.id, { drug, dose, times: parsed, starts_on: startsOn, ends_on: endsOn || null, notes });
@@ -92,7 +93,7 @@ function DecideModal({ request: r, onClose, onDone }: { request: MedicationReque
   }
 
   async function decline() {
-    const why = window.prompt("Tell the family why (they'll see this):");
+    const why = await promptDialog({ title: "Decline this request?", body: "The family sees your reason.", label: "Tell the family why", confirmLabel: "Decline" });
     if (why === null) return;
     setBusy(true);
     try {

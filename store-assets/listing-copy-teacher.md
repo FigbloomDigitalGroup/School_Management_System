@@ -32,7 +32,7 @@ Everyone / 3+ — the app itself has no mature content; it is only usable by
 school staff with a school-issued account.
 
 ## Privacy policy URL
-https://schoolmanagement.figbloom.org/privacy.html
+https://schoolmanagement.figbloom.org/privacy
 (the page is written and current; confirm the production domain before
 submitting, see FIG-780)
 

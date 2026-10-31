@@ -13,6 +13,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /**
  * Bulk entry, keyboard first. A teacher entering 40 marks should never touch
@@ -204,7 +205,7 @@ export function Gradebook() {
 
   async function withdraw() {
     if (!examId || !subject || !exam || !classId) return;
-    if (!window.confirm(`Take ${subject.name} ${exam.name} for ${selectedClass?.name ?? "this class"} back to draft? Parents and learners will stop seeing it until you publish again.`)) return;
+    if (!(await confirmDialog({ title: `Take ${subject.name} ${exam.name} for ${selectedClass?.name ?? "this class"} back to draft?`, body: "Parents and learners will stop seeing it until you publish again.", confirmLabel: "Back to draft" }))) return;
     try {
       await unpublishMarks(examId, classId, subject.id);
     } catch (err) {

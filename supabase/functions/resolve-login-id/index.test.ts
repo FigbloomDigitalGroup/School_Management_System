@@ -23,7 +23,7 @@ function request(body: unknown, opts: { method?: string; ip?: string } = {}) {
   const method = opts.method ?? "POST";
   return new Request("https://example.com/resolve-login-id", {
     method,
-    headers: opts.ip ? { "x-forwarded-for": opts.ip } : undefined,
+    headers: opts.ip ? { "cf-connecting-ip": opts.ip } : undefined,
     body: method === "GET" || method === "HEAD" ? undefined : JSON.stringify(body),
   });
 }
@@ -129,6 +129,16 @@ describe("resolve-login-id handle", () => {
   });
 
   describe("rate limit", () => {
+    it("answers 429 once the school's overall allowance is used, however many addresses ask (FIG-1336)", async () => {
+      const admin = makeClient();
+      const schoolKeys: string[] = [];
+      const withinSchoolLimit = async (k: string) => { schoolKeys.push(k); return false; };
+      const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }, { ip: "203.0.113.7" }), { admin, withinLimit: open, withinSchoolLimit });
+      assertEquals(res.status, 429);
+      await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0002" }, { ip: "198.51.100.9" }), { admin, withinLimit: open, withinSchoolLimit });
+      assertEquals(schoolKeys[0], schoolKeys[1]);
+    });
+
     it("answers 429 without looking anything up once the caller is over its allowance", async () => {
       const admin = makeClient();
       const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), { admin, withinLimit: async () => false });
@@ -142,7 +152,7 @@ describe("resolve-login-id handle", () => {
       const admin = makeClient();
       const keys: string[] = [];
       const withinLimit = async (k: string) => { keys.push(k); return true; };
-      await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }, { ip: "203.0.113.7, 10.0.0.1" }), { admin, withinLimit });
+      await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }, { ip: "203.0.113.7" }), { admin, withinLimit });
       await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0002" }, { ip: "203.0.113.7" }), { admin, withinLimit });
       await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }, { ip: "198.51.100.9" }), { admin, withinLimit });
       assertEquals(keys[0], keys[1]);

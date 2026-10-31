@@ -160,12 +160,31 @@ describe("provision-student handle", () => {
       admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley", organization_id: ORG_ID }]);
       admin.seed("students", [{ id: STUDENT_ID, tenant_id: TENANT_ID, full_name: "Faith Achieng", profile_id: null }]);
       admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: ORG_ID }]);
+      admin.seed("organizations", [{ id: ORG_ID, status: "active" }]);
       admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-student-1", email: attrs.email } }, error: null });
       const asUser = new FakeSupabaseClient();
       asUser.authUser = { id: ORG_ADMIN_ID };
 
       const res = await handle(request(validBody), { admin, asUser });
       assertEquals(res.status, 200);
+    });
+
+    it("refuses an org_admin whose organization is suspended (FIG-1312)", async () => {
+      const admin = new FakeSupabaseClient();
+      const ORG_ADMIN_ID = "org-admin-1";
+      const ORG_ID = "org-1";
+      admin.seed("profiles", [{ id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" }]);
+      admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley", organization_id: ORG_ID }]);
+      admin.seed("students", [{ id: STUDENT_ID, tenant_id: TENANT_ID, full_name: "Faith Achieng", profile_id: null }]);
+      admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: ORG_ID }]);
+      admin.seed("organizations", [{ id: ORG_ID, status: "suspended" }]);
+      admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-student-1", email: attrs.email } }, error: null });
+      const asUser = new FakeSupabaseClient();
+      asUser.authUser = { id: ORG_ADMIN_ID };
+
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.rowsIn("profiles").length, 1);
     });
   });
 });

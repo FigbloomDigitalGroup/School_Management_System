@@ -19,6 +19,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const options = <K extends string>(labels: Record<K, string>) =>
   (Object.keys(labels) as K[]).map((k) => ({ value: k, label: labels[k] }));
@@ -60,7 +61,7 @@ export function Activities({ admin = false }: { admin?: boolean }) {
   const running = activities.filter((a) => a.active);
 
   async function removeEvent(e: ActivityEventRow) {
-    if (!window.confirm(`Delete "${e.title}"? Its participants and results go with it.`)) return;
+    if (!(await confirmDialog({ title: `Delete "${e.title}"?`, body: "Its participants and results go with it.", confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteActivityEvent(e.id);
       toast("Event deleted");
@@ -72,7 +73,7 @@ export function Activities({ admin = false }: { admin?: boolean }) {
 
   async function notify(e: ActivityEventRow) {
     const name = byId.get(e.activityId)?.name ?? "Activity";
-    if (e.notifiedAt && !window.confirm("The families were already told about this event. Send it again?")) return;
+    if (e.notifiedAt && !(await confirmDialog({ title: "Tell the families again?", body: "They were already told about this event.", confirmLabel: "Send again" }))) return;
     try {
       const { reached, pushError } = await notifyEventFamilies({ tenantId: tenant.id, authorId: profile.id, event: e, activityName: name });
       if (!reached) toast("Nobody to tell yet. Add the learners taking part first.", "error");
@@ -273,7 +274,7 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
 
   async function toggleActive() {
     if (!activity) return;
-    if (activity.active && !window.confirm(`Close ${activity.name}? It stays on learners' records but no new events can be added.`)) return;
+    if (activity.active && !(await confirmDialog({ title: `Close ${activity.name}?`, body: "It stays on learners' records but no new events can be added.", confirmLabel: "Close activity" }))) return;
     try {
       await updateActivity(activity.id, { active: !activity.active });
       toast(activity.active ? `${activity.name} closed` : `${activity.name} is running again`);
@@ -284,7 +285,7 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
   }
 
   async function remove() {
-    if (!activity || !window.confirm(`Delete ${activity.name} for good? Its members, events and every learner's results from it are deleted too. To keep the record, close it instead.`)) return;
+    if (!activity || !(await confirmDialog({ title: `Delete ${activity.name} for good?`, body: "Its members, events and every learner's results from it are deleted too. To keep the record, close it instead.", confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteActivity(activity.id);
       toast(`${activity.name} deleted`);
@@ -369,7 +370,7 @@ function MembersEditor({ activity }: { activity: ActivityRow }) {
   }
 
   async function remove(m: { studentId: string; name: string }) {
-    if (!window.confirm(`Take ${m.name} out of ${activity.name}?`)) return;
+    if (!(await confirmDialog({ title: `Take ${m.name} out of ${activity.name}?`, confirmLabel: "Remove" }))) return;
     try {
       await removeActivityMember(activity.id, m.studentId);
       reload();

@@ -142,7 +142,7 @@ function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onU
     setSigningOut(true);
     try {
       await beforeSignOut?.();
-      await supabase().auth.signOut();
+      await supabase().auth.signOut({ scope: "local" });
     } finally {
       setSigningOut(false);
     }

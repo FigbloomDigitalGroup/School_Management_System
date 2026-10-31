@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { normalizeSlug, suggestSlug, supabase, validateSlug } from "@figbloom/shared";
+import { Link } from "react-router-dom";
+import { normalizeSlug, suggestSlug, validateSlug } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { SelectField, TextField } from "../components/ui/Field";
@@ -37,7 +37,6 @@ const KIND_OPTIONS: { value: SignupOrganizationInput["kind"]; label: string }[] 
 ];
 
 export function Signup() {
-  const nav = useNavigate();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -51,6 +50,8 @@ export function Signup() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // the address the confirmation went to: the account works once its link is followed (FIG-1337)
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   const slugValue = normalizeSlug(slugTouched ? slug : (name ? suggestSlug(name) : ""));
   const slugCheck = slugValue ? validateSlug(slugValue) : { ok: false, message: "" };
@@ -69,7 +70,7 @@ export function Signup() {
 
     setBusy(true);
     try {
-      const result = await signupOrganization({
+      await signupOrganization({
         name: name.trim(),
         slug: slugValue,
         kind,
@@ -80,15 +81,28 @@ export function Signup() {
         admin_password: password,
       });
 
-      const { error: signInErr } = await supabase().auth.signInWithPassword({ email: email.trim(), password });
-      if (signInErr) { setError("Your organization was created — sign in from here to continue."); nav("/signin"); return; }
-
-      nav(`/org/${result.slug}/dashboard`);
+      setSentTo(email.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (sentTo) {
+    return (
+      <AuthLayout scene={SCENE} subtitle="GET STARTED" width={440}>
+        <div className="animate-rise">
+          <h2 className="text-[22px] font-semibold tracking-tight">Check your email</h2>
+          <p className="mt-2 text-body text-ink-muted">
+            We sent a link to <span className="font-semibold text-ink">{sentTo}</span>. Open it to confirm the address, then
+            sign in with the password you just chose. Nobody can sign in to the account until the link is used.
+          </p>
+          <p className="mt-3 text-[12.5px] text-ink-faint">Nothing there after a few minutes? Check your spam folder.</p>
+          <Link to="/signin" className="mt-5 inline-block text-[13px] font-semibold text-forest hover:underline">Go to sign in</Link>
+        </div>
+      </AuthLayout>
+    );
   }
 
   return (

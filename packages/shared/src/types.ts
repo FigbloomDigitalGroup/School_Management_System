@@ -228,6 +228,8 @@ export interface Student {
   home_lng?: number | null;
   home_landmark?: string | null;
   home_address?: string | null;
+  /** Their photo (public-assets), if the school has added one. */
+  avatar_url?: string | null;
 }
 
 /** A parent may have several children; a child may have several guardians. */
@@ -382,7 +384,7 @@ export interface AuditEvent {
   actor_id: string | null;
   actor_label: string;
   event: string;
-  category: "provisioning" | "access" | "academic" | "financial";
+  category: "provisioning" | "access" | "academic" | "financial" | "health" | "transport" | "communication" | "operations";
   metadata: Record<string, unknown>;
   created_at: string;
 }

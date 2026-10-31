@@ -16,6 +16,7 @@ import { queue } from "../../lib/queue";
 import { useOnline } from "../../lib/useOnline";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { Avatar } from "../../components/Avatar";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 
 interface AwayStudent { name: string; mark: AttendanceMark; note: string | null }
@@ -379,6 +380,7 @@ export function Attendance() {
               <li key={s.id}>
                 <div className="flex items-center gap-3 border-b border-line-soft bg-white px-5" style={{ minHeight: 56 }}>
                   <span className="w-6 shrink-0 font-mono text-[11px] text-ink-faint">{i + 1}</span>
+                  <Avatar id={s.id} name={s.full_name} url={s.avatar_url} size={34} />
                   <button onClick={() => cycle(s.id)} className="min-w-0 flex-1 py-2 text-left">
                     <div className="truncate text-[14.5px] font-medium">{s.full_name}</div>
                     <div className="font-mono text-[10.5px] text-ink-faint">ADM {s.admission_no}</div>

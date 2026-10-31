@@ -13,6 +13,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { ErrorLine, hm } from "./common";
 import { LearnerPicker } from "./VisitModal";
+import { confirmDialog, promptDialog } from "../ui/Confirm";
 
 const STATE: Record<SlotState, { label: string; tone: Tone }> = {
   given: { label: "Given", tone: "ok" },
@@ -48,7 +49,9 @@ export function MedicationRound({ onOpenLearner }: { onOpenLearner: (id: string,
   async function mark(slot: DoseSlot, status: DoseStatus) {
     let note: string | undefined;
     if (status !== "given") {
-      const why = window.prompt(status === "refused" ? "Why did they refuse? (optional)" : "Why was it missed? (optional)");
+      const why = await promptDialog(status === "refused"
+        ? { title: "Mark this dose as refused", label: "Why did they refuse? (optional)", confirmLabel: "Mark refused" }
+        : { title: "Mark this dose as missed", label: "Why was it missed? (optional)", confirmLabel: "Mark missed" });
       if (why === null) return;
       note = why;
     }
@@ -65,7 +68,7 @@ export function MedicationRound({ onOpenLearner }: { onOpenLearner: (id: string,
   }
 
   async function stop(id: string, what: string) {
-    if (!window.confirm(`Stop ${what}? Doses already recorded are kept.`)) return;
+    if (!(await confirmDialog({ title: `Stop ${what}?`, body: "Doses already recorded are kept.", confirmLabel: "Stop" }))) return;
     try {
       await stopSchedule(id);
       setReloadKey((k) => k + 1);
