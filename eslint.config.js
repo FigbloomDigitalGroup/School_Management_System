@@ -35,8 +35,8 @@ export default tseslint.config(
   {
     // RN tooling loads these as plain CommonJS, not ESM — the rest of the repo is "type": "module".
     files: [
-      "apps/mobile/babel.config.js", "apps/mobile/metro.config.js",
-      "apps/teacher-mobile/babel.config.js", "apps/teacher-mobile/metro.config.js",
+      "apps/mobile/babel.config.js", "apps/mobile/metro.config.js", "apps/mobile/jest.config.js",
+      "apps/teacher-mobile/babel.config.js", "apps/teacher-mobile/metro.config.js", "apps/teacher-mobile/jest.config.js",
     ],
     languageOptions: { sourceType: "commonjs", globals: globals.node },
     rules: { "@typescript-eslint/no-require-imports": "off" },
