@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import { Linking, ScrollView, Text, View } from "react-native";
 import { parseMarkdown, safeHref, type AiChatSource, type Block, type Inline } from "@figbloom/shared";
-import { t } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 /** The answer's sources, for its [^n] markers. */
 const SourcesContext = createContext<AiChatSource[]>([]);
@@ -28,6 +28,7 @@ function InlineView({ nodes, tint }: { nodes: Inline[]; tint: string }) {
 }
 
 function InlineNode({ node, tint }: { node: Inline; tint: string }) {
+  const { t, accentInk } = useTheme();
   const sources = useContext(SourcesContext);
   switch (node.kind) {
     case "text":
@@ -41,13 +42,13 @@ function InlineNode({ node, tint }: { node: Inline; tint: string }) {
     case "link": {
       const href = safeHref(node.href);
       return href
-        ? <Text accessibilityRole="link" style={{ color: tint, textDecorationLine: "underline" }} onPress={() => open(href)}><InlineView nodes={node.children} tint={tint} /></Text>
+        ? <Text accessibilityRole="link" style={{ color: accentInk(tint), textDecorationLine: "underline" }} onPress={() => open(href)}><InlineView nodes={node.children} tint={tint} /></Text>
         : <Text><InlineView nodes={node.children} tint={tint} /></Text>;
     }
     case "cite": {
       const src = sources[node.n - 1];
       return src?.url
-        ? <Text accessibilityRole="link" accessibilityLabel={`Source ${node.n}: ${src.title}`} style={{ fontSize: 11, fontWeight: "700", color: tint }} onPress={() => open(src.url)}> [{node.n}]</Text>
+        ? <Text accessibilityRole="link" accessibilityLabel={`Source ${node.n}: ${src.title}`} style={{ fontSize: 11, fontWeight: "700", color: accentInk(tint) }} onPress={() => open(src.url)}> [{node.n}]</Text>
         : <Text style={{ fontSize: 11, color: t.appSurface.inkFaint }}> [{node.n}]</Text>;
     }
     case "break":
@@ -56,6 +57,7 @@ function InlineNode({ node, tint }: { node: Inline; tint: string }) {
 }
 
 function BlockView({ block, tint }: { block: Block; tint: string }): JSX.Element {
+  const { t } = useTheme();
   const body = { fontSize: 14.5, lineHeight: 22, color: t.appSurface.ink };
   switch (block.kind) {
     case "heading":

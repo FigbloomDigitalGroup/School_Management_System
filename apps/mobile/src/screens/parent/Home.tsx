@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { PencilLine, School, TriangleAlert } from "lucide-react-native";
 import { dueWords, formatMoney, formatShortDate, gradeFor, gradingSchemeFor, newestExamNote, splitHomework } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { useChild, useChildren, useMessages, useParentProfileId, useTenantId, useTermLabel } from "../../data";
 import { ChatsCard } from "../../components/ChatsCard";
 import { ChildBioCard } from "../../components/ChildBioCard";
@@ -17,12 +17,14 @@ import { useCbeResults } from "../../lib/useCbeResults";
 import { useParentHomework } from "../../lib/useParentHomework";
 import { Tap } from "../../ui/Tap";
 import { OpenLabel } from "../../ui/OpenLabel";
+import { useTheme } from "../../ui/ThemeContext";
 
 /**
  * The screen a parent opens. Balance first, because that is what they came for;
  * an unexplained absence second, because that is what they would want to know.
  */
 export function ParentHome() {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { child, index, setIndex, accent, country } = useChild();
   const kids = useChildren();
@@ -51,7 +53,7 @@ export function ParentHome() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 0 }}>
         <View style={[s.card, { marginTop: 12 }]}>
           <Text style={s.eyebrow}>FEE BALANCE{termLabel ? ` · ${termLabel.toUpperCase()}` : ""}</Text>
-          <Text style={{ fontSize: 30, fontWeight: "700", marginTop: 6, color: child.balance > 0 ? tint : t.status.okInk }}>
+          <Text style={{ fontSize: 30, fontWeight: "700", marginTop: 6, color: child.balance > 0 ? accentInk(tint) : t.status.okInk }}>
             {child.balance > 0 ? formatMoney(child.balance, country) : "Cleared"}
           </Text>
           <Text style={[s.small, { marginTop: 6 }]}>
@@ -100,7 +102,7 @@ export function ParentHome() {
                 </View>
               ) : (
                 <>
-                  <Text style={{ fontSize: 24, fontWeight: "600", marginTop: 4 }}>{k.value}</Text>
+                  <Text style={{ color: t.appSurface.ink, fontSize: 24, fontWeight: "600", marginTop: 4 }}>{k.value}</Text>
                   <Text style={s.faint}>{k.note}</Text>
                 </>
               )}
@@ -146,11 +148,11 @@ export function ParentHome() {
             onPress={() => nav.navigate("Inbox", { id: m.id })}
             style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}
           >
-            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: m.who === "school" ? tint : "#F1EDEC", alignItems: "center", justifyContent: "center" }}>
+            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: m.who === "school" ? tint : t.appSurface.lineSoft, alignItems: "center", justifyContent: "center" }}>
               {m.who === "school" ? <School size={18} color="#fff" /> : <PencilLine size={18} color={t.appSurface.inkMuted} />}
             </View>
             <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: m.unread ? "700" : "500" }}>{m.subject}</Text>
+              <Text numberOfLines={1} style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: m.unread ? "700" : "500" }}>{m.subject}</Text>
               <Text numberOfLines={2} style={[s.small, { marginTop: 4 }]}>{m.body.split("\n")[0]}</Text>
             </View>
           </Tap>
@@ -169,6 +171,7 @@ export function ParentHome() {
  * whole list, with each teacher's note for parents, is one tap away.
  */
 function HomeworkCard({ childId, childFirst, tint, onOpen }: { childId: string; childFirst: string; tint: string; onOpen: () => void }) {
+  const { t, s } = useTheme();
   const { byChild, failed } = useParentHomework();
   const mine = byChild?.[childId];
   if (failed && !byChild) return null; // offline: the rest of Home still reads from cache
@@ -189,7 +192,7 @@ function HomeworkCard({ childId, childFirst, tint, onOpen }: { childId: string; 
         </View>
       ) : (
         <>
-          <Text style={{ fontSize: 16, fontWeight: "600", marginTop: 6 }}>
+          <Text style={{ color: t.appSurface.ink, fontSize: 16, fontWeight: "600", marginTop: 6 }}>
             {toDo === 0 ? "Nothing to do right now" : `${toDo} piece${toDo === 1 ? "" : "s"} to do`}
           </Text>
           <Text style={[s.small, { marginTop: 4 }]} numberOfLines={2}>

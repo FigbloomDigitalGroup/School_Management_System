@@ -2,21 +2,22 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { PAPER_KIND_LABEL, paperStanding, studentWindow, windowLabel, type StandingTone, type StudentPaper } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT, perScheme } from "../../theme";
 import { SubScreen } from "../../components/SubScreen";
 import { useStudentData } from "../../studentData";
 import { useStudentPapers } from "../../lib/useStudentPapers";
 import { EmptyState, ErrorState } from "../../ui/StateView";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 type Tab = "coming" | "done";
 
-const TONE: Record<StandingTone, { bg: string; ink: string }> = {
+const TONE = perScheme((t): Record<StandingTone, { bg: string; ink: string }> => ({
   ok: { bg: t.status.okBg, ink: t.status.okInk },
   info: { bg: t.status.infoBg, ink: t.status.infoInk },
   warn: { bg: t.status.warnBg, ink: t.status.warnInk },
   muted: { bg: t.status.mutedBg, ink: t.status.mutedInk },
-};
+}));
 
 /**
  * The exams and tests for the learner's class: what is coming up or open
@@ -25,6 +26,7 @@ const TONE: Record<StandingTone, { bg: string; ink: string }> = {
  * Exams screen, from the same shared code.
  */
 export function StudentExams() {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { accent } = useStudentData();
   const tint = accentFor(accent).deep;
@@ -50,7 +52,7 @@ export function StudentExams() {
       sub={state.kind === "ready" ? `${coming.length} coming up or open` : "Papers and tests for your class"}
     >
       {state.kind === "loading" ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
       ) : state.kind === "failed" ? (
         <ErrorState title="Couldn't load your exams" onRetry={retry} />
       ) : state.kind === "none" ? (
@@ -90,8 +92,9 @@ export function StudentExams() {
 }
 
 function PaperRow({ view, now, onOpen }: { view: StudentPaper; now: number; onOpen: () => void }) {
+  const { t, s, scheme } = useTheme();
   const st = paperStanding(view, now);
-  const tone = TONE[st.tone];
+  const tone = TONE[scheme][st.tone];
   return (
     <Tap
       accessibilityRole="button"
@@ -101,7 +104,7 @@ function PaperRow({ view, now, onOpen }: { view: StudentPaper; now: number; onOp
     >
       <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start", gap: 8 }]}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14.5, fontWeight: "600" }}>{view.paper.title}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "600" }}>{view.paper.title}</Text>
           <Text style={[s.faint, { marginTop: 2 }]}>{PAPER_KIND_LABEL[view.paper.kind]} · {view.paper.subjectName}</Text>
         </View>
         <View style={[s.pill, { backgroundColor: tone.bg }]}>

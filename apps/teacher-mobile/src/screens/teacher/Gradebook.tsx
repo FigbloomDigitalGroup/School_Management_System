@@ -6,13 +6,14 @@ import {
   parseScoreInput, publishMarks, rubricFor, saveExamMarks, summarise, unpublishMarks,
   type ClassGroup, type Exam, type MarkAbsence, type Student, type Subject,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 import { TeacherCbeGradebookBody } from "./CbeGradebook";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** Stand-in for a PillPicker row while its options load — same height, so nothing jumps. */
 function PillsSkeleton() {
@@ -53,6 +54,7 @@ function PillsSkeleton() {
  * has no course-section concept and isn't a partial implementation of it.
  */
 export function TeacherGradebook({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
 
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
@@ -290,7 +292,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
   if (!classes || (classes.length > 0 && !selectedClass)) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -423,7 +425,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
           return (
             <View key={student.id} style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }]}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
                 <Text style={s.faint}>ADM {student.admission_no}</Text>
                 {!!absences[student.id] && raw.trim().toLowerCase().startsWith("abs") && (
                   <Text style={{ fontSize: 11.5, fontWeight: "600", color: absences[student.id] === "missed" ? t.status.warnInk : t.status.infoInk }}>
@@ -447,7 +449,7 @@ export function TeacherGradebook({ session }: { session: TeacherSession }) {
                   aria-invalid={!!err}
                   style={{
                     ...HIT, width: 64, borderWidth: 1, borderRadius: 10, textAlign: "center",
-                    fontFamily: "monospace", fontSize: 14,
+                    fontFamily: "monospace", fontSize: 14, color: t.appSurface.ink,
                     borderColor: err ? t.status.warnInk : t.appSurface.line,
                   }}
                 />

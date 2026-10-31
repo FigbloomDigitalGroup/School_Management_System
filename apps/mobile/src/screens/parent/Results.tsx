@@ -1,6 +1,6 @@
 import { ScrollView, Text, View } from "react-native";
 import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { useChild, useSubjects } from "../../data";
 import { Skeleton } from "../../components/Skeleton";
 import { CbeResults } from "../../components/CbeResults";
@@ -11,9 +11,11 @@ import { ReportCards } from "../../components/ReportCards";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useExamView } from "../../lib/useExamView";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** A mark with its context. No class position — that is a decision, see the web note. */
 export function ParentResults() {
+  const { t, s, accentInk } = useTheme();
   const { child, index, accent, country } = useChild();
   const newestSubjects = useSubjects();
   const cbe = useCbeResults(child.id, country);
@@ -59,7 +61,7 @@ export function ParentResults() {
               <View style={[s.card, { gap: 8 }]}>
                 <Text style={s.small}>Could not load these results. Check your connection, then tap the exam again.</Text>
                 <Tap accessibilityRole="button" onPress={() => view.examId && view.pick(view.examId)} style={{ ...HIT, justifyContent: "center" }}>
-                  <Text style={{ fontSize: 13.5, fontWeight: "600", color: tint }}>Try again</Text>
+                  <Text style={{ fontSize: 13.5, fontWeight: "600", color: accentInk(tint) }}>Try again</Text>
                 </Tap>
               </View>
             ) : view.loading ? (
@@ -88,16 +90,16 @@ export function ParentResults() {
                 {subjects.map((sub) => (
                   <View key={sub.name} style={[s.card, { marginTop: 8, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }]}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, fontWeight: "500" }}>{sub.name}</Text>
+                      <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "500" }}>{sub.name}</Text>
                       <View style={{ height: 6, borderRadius: 3, backgroundColor: t.appSurface.lineSoft, marginTop: 8, overflow: "hidden" }}>
-                        <View style={{ height: 6, borderRadius: 3, width: `${sub.score}%`, backgroundColor: sub.score >= 80 ? "#1B4D2E" : sub.score >= 65 ? "#2E7D4F" : "#F9A05C" }} />
+                        <View style={{ height: 6, borderRadius: 3, width: `${sub.score}%`, backgroundColor: sub.score >= 80 ? t.status.okInk : sub.score >= 65 ? t.status.okDot : t.status.cautionDot }} />
                       </View>
                       <Text style={[s.faint, { marginTop: 6 }]}>
                         {sub.classMean !== null ? againstMean(sub.score, sub.classMean) : "Class mean not available"}
                       </Text>
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[s.mono, { fontSize: 18 }]}>{sub.score}</Text>
+                      <Text style={[{ color: t.appSurface.ink }, s.mono, { fontSize: 18 }]}>{sub.score}</Text>
                       <Text style={{ fontSize: 12, fontWeight: "700", color: GRADE_INK[gradeFor(sub.score, scheme)] }}>
                         {gradeFor(sub.score, scheme)}
                       </Text>

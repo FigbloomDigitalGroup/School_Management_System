@@ -4,11 +4,12 @@ import {
   BIO_FIELD_LABELS, bioChanges, bioFieldList, bioProblem, bioToInput, bioValueLabel, decideBioRequest, fetchLearnerBio,
   fetchPendingBioRequest, saveLearnerBio, splitBioChanges, type BioField, type BioRequest, type LearnerBioInput,
 } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { Skeleton } from "./Skeleton";
 import { Button } from "../ui/Button";
 import { Field as Input } from "../ui/Field";
 import { Tap } from "../ui/Tap";
+import { perScheme } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 const READ_ORDER: BioField[] = ["full_name", "date_of_birth", "gender", "birth_cert_no", "upi_no", "nationality", "religion", "previous_school"];
 
@@ -20,6 +21,7 @@ const READ_ORDER: BioField[] = ["full_name", "date_of_birth", "gender", "birth_c
  * at once. The date of birth is typed as YYYY-MM-DD.
  */
 export function ChildBioCard({ childId, childFirst, tint }: { childId: string; childFirst: string; tint: string }) {
+  const { t, s, accentInk, scheme } = useTheme();
   const [saved, setSaved] = useState<LearnerBioInput | null>(null);
   const [value, setValue] = useState<LearnerBioInput | null>(null);
   const [request, setRequest] = useState<BioRequest | null>(null);
@@ -93,7 +95,7 @@ export function ChildBioCard({ childId, childFirst, tint }: { childId: string; c
         <Text style={s.h2}>{childFirst}'s bio data</Text>
         {value && !editing && (
           <Tap accessibilityRole="button" onPress={() => { setEditing(true); setNote(null); }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Edit</Text>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Edit</Text>
           </Tap>
         )}
       </View>
@@ -109,7 +111,7 @@ export function ChildBioCard({ childId, childFirst, tint }: { childId: string; c
                 <Text style={s.faint}>{BIO_FIELD_LABELS[f]}</Text>
                 <View style={{ flexShrink: 1, alignItems: "flex-end" }}>
                   <Text style={{ fontSize: 13, color: value[f] ? t.appSurface.ink : t.appSurface.inkFaint, textAlign: "right" }}>{bioValueLabel(f, value[f])}</Text>
-                  {pending.has(f) && <Text style={{ fontSize: 10.5, fontWeight: "700", color: "#8A5A0B" }}>Awaiting office</Text>}
+                  {pending.has(f) && <Text style={{ fontSize: 10.5, fontWeight: "700", color: t.status.cautionInk }}>Awaiting office</Text>}
                 </View>
               </View>
             ))}
@@ -126,7 +128,7 @@ export function ChildBioCard({ childId, childFirst, tint }: { childId: string; c
               Changes to name, date of birth, gender, birth certificate or UPI number go to the school office to check first. The rest saves straight away.
             </Text>
             <Field label={BIO_FIELD_LABELS.full_name} value={value.full_name} onChange={(full_name) => set({ full_name: full_name ?? "" })} pending={pending.has("full_name")} />
-            <Text style={label}>{BIO_FIELD_LABELS.gender}{pending.has("gender") ? "  · Awaiting office" : ""}</Text>
+            <Text style={LABEL[scheme]}>{BIO_FIELD_LABELS.gender}{pending.has("gender") ? "  · Awaiting office" : ""}</Text>
             <View style={{ flexDirection: "row", gap: 6 }}>
               {(["female", "male"] as const).map((g) => (
                 <Tap
@@ -134,7 +136,7 @@ export function ChildBioCard({ childId, childFirst, tint }: { childId: string; c
                   accessibilityRole="button"
                   accessibilityState={{ selected: value.gender === g }}
                   onPress={() => set({ gender: value.gender === g ? null : g })}
-                  style={{ borderRadius: 999, borderWidth: 1, borderColor: value.gender === g ? tint : t.appSurface.line, backgroundColor: value.gender === g ? tint : "transparent", paddingHorizontal: 14, paddingVertical: 6 }}
+                  style={{ borderRadius: 999, borderWidth: 1, borderColor: value.gender === g ? accentInk(tint) : t.appSurface.line, backgroundColor: value.gender === g ? tint : "transparent", paddingHorizontal: 14, paddingVertical: 6 }}
                 >
                   <Text style={{ fontSize: 12.5, fontWeight: "600", color: value.gender === g ? "#fff" : t.appSurface.inkMuted }}>{g === "female" ? "Female" : "Male"}</Text>
                 </Tap>
@@ -158,7 +160,7 @@ export function ChildBioCard({ childId, childFirst, tint }: { childId: string; c
   );
 }
 
-const label = { fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 };
+const LABEL = perScheme((t) => ({ fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 }));
 
 function Field({ label: text, value, onChange, pending, placeholder, keyboard, mono }: {
   label: string; value: string | null; onChange: (v: string | null) => void; pending?: boolean;

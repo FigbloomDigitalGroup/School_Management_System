@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Switch, Text, View } from "react-native";
 import { fetchTeacherClasses, liveClassTitle, supabase, type ClassGroup } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { useCalls } from "../../calls/CallProvider";
 import { useRunningLiveClasses } from "../../calls/useRunningLiveClasses";
 import type { TeacherSession } from "../../navigation";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 interface Assignment { class_id: string; subject_id: string; subjects: { name: string } | null }
 
@@ -18,6 +19,7 @@ interface Assignment { class_id: string; subject_id: string; subjects: { name: s
  * Learners and their parents see "Live now" on their home screen and join there.
  */
 export function TeacherLiveClass({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const { goLive, joinClass, busy } = useCalls();
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
@@ -73,7 +75,7 @@ export function TeacherLiveClass({ session }: { session: TeacherSession }) {
         {error ? (
           <View style={s.card}><Text style={[s.small, { color: t.status.warnInk }]}>{error}</Text></View>
         ) : !classes ? (
-          <ActivityIndicator color={a.deep} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={accentInk(a.deep)} style={{ marginTop: 32 }} />
         ) : classes.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
             <Text style={[s.h2, { marginBottom: 4 }]}>No class of yours</Text>
@@ -91,7 +93,7 @@ export function TeacherLiveClass({ session }: { session: TeacherSession }) {
             </View>
             <View style={[s.card, { flexDirection: "row", alignItems: "center", gap: 12 }]}>
               <Text style={{ flex: 1, fontSize: 14, color: t.appSurface.ink }}>Learners may speak and use their cameras</Text>
-              <Switch value={learnersMayPublish} onValueChange={setLearnersMayPublish} accessibilityLabel="Learners may speak and use their cameras" trackColor={{ true: a.deep }} />
+              <Switch value={learnersMayPublish} onValueChange={setLearnersMayPublish} accessibilityLabel="Learners may speak and use their cameras" trackColor={{ true: accentInk(a.deep) }} />
             </View>
 
             {runningHere ? (

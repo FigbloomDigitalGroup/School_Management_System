@@ -4,10 +4,11 @@ import { useNavigation } from "@react-navigation/native";
 import {
   AI_HELPER_REFUSAL_TEXT, askTutor, EdgeError, fetchAiHelperStatus, helperRefusal, type AiHelperStatus, type TutorTurn,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { Tap } from "../../ui/Tap";
 import { BackLink } from "../../ui/BackLink";
+import { useTheme } from "../../ui/ThemeContext";
 
 const STARTERS = [
   "Explain fractions with an example",
@@ -28,6 +29,7 @@ const STARTERS = [
  * refusal that comes back with a question is shown as it is).
  */
 export function StudentStudyHelper() {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { accent } = useStudentData();
   const tint = accentFor(accent).deep;
@@ -90,7 +92,7 @@ export function StudentStudyHelper() {
     return (
       <View style={s.screen}>
         {header}
-        <ActivityIndicator color={tint} style={{ marginTop: 40 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 40 }} />
       </View>
     );
   }
@@ -128,7 +130,7 @@ export function StudentStudyHelper() {
             phone number or address. If something is worrying you, talk to a trusted adult or call Childline Kenya on{" "}
             <Text
               accessibilityRole="link"
-              style={{ fontWeight: "700", color: tint }}
+              style={{ fontWeight: "700", color: accentInk(tint) }}
               onPress={() => { void Linking.openURL("tel:116").catch(() => {}); }}
             >
               116
@@ -151,7 +153,7 @@ export function StudentStudyHelper() {
                 accessibilityRole="button"
                 disabled={busy}
                 onPress={() => void send(q)}
-                style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: "#fff" }}
+                style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: t.appSurface.card }}
               >
                 <Text style={{ fontSize: 13, color: t.appSurface.ink }}>{q}</Text>
               </Tap>
@@ -168,14 +170,14 @@ export function StudentStudyHelper() {
           );
         })}
         {busy && (
-          <View style={{ alignSelf: "flex-start", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: "#fff", borderWidth: 1, borderColor: t.appSurface.line }}>
+          <View style={{ alignSelf: "flex-start", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: t.appSurface.card, borderWidth: 1, borderColor: t.appSurface.line }}>
             <Text style={s.faint}>Thinking…</Text>
           </View>
         )}
         {!!error && <Text style={{ fontSize: 12.5, color: t.status.warnInk }}>{error}</Text>}
       </ScrollView>
 
-      <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 10 }}>
+      <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card, padding: 10 }}>
         {turns.length > 0 && (
           <Tap
             accessibilityRole="button"
@@ -183,7 +185,7 @@ export function StudentStudyHelper() {
             onPress={() => { setTurns([]); setError(""); }}
             style={{ alignSelf: "flex-start", minHeight: 36, justifyContent: "center", opacity: busy ? 0.5 : 1 }}
           >
-            <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>New chat</Text>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>New chat</Text>
           </Tap>
         )}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>

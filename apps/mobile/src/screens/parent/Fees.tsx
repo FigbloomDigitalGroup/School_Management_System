@@ -1,12 +1,14 @@
 import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { itemsForStudent } from "@figbloom/shared";
-import { accentFor, s } from "../../theme";
+import { accentFor } from "../../theme";
 import { useChild, useFeeItems, useParentProfileId, useTenantId, useTermLabel } from "../../data";
 import { FeesView } from "../../components/FeesView";
 import { InvoiceSignature } from "../../components/PendingSignatures";
+import { useTheme } from "../../ui/ThemeContext";
 
 export function ParentFees() {
+  const { s } = useTheme();
   const nav = useNavigation<any>();
   const { child, index, accent, country } = useChild();
   const feeItems = useFeeItems();

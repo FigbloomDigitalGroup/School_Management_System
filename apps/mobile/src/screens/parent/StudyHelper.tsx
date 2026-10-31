@@ -3,11 +3,12 @@ import { ActivityIndicator, Text, View } from "react-native";
 import {
   AI_HELPER_BILLING_AVAILABLE, fetchAiHelperStatus, formatMoney, optInOutcomeText, setAiHelperOptIn, type AiHelperStatus,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { SubScreen } from "../../components/SubScreen";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 const when = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
@@ -21,6 +22,7 @@ const when = (iso: string | null) =>
  * The learner uses the helper from the Today screen of their own app, or the website.
  */
 export function ParentStudyHelper() {
+  const { t, s, accentInk } = useTheme();
   const { child, index, setIndex, accent, country } = useChild();
   const kids = useChildren();
   const a = accentFor(accent);
@@ -68,7 +70,7 @@ export function ParentStudyHelper() {
         {error ? (
           <Text style={[s.small, { color: t.status.warnInk }]}>{error}</Text>
         ) : status === undefined ? (
-          <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
         ) : status ? (
           <Choice status={status} first={first} saving={saving} tint={tint} country={country} onChange={(on) => void change(on)} />
         ) : (
@@ -108,6 +110,7 @@ export function ParentStudyHelper() {
 }
 
 function Info({ title, children }: { title: string; children: ReactNode }) {
+  const { t, s } = useTheme();
   return (
     <View style={[s.card, { padding: 14, gap: 6 }]}>
       <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.appSurface.ink }}>{title}</Text>
@@ -117,6 +120,7 @@ function Info({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Bullets({ items }: { items: string[] }) {
+  const { s } = useTheme();
   return (
     <View style={{ gap: 4 }}>
       {items.map((text) => (
@@ -132,6 +136,7 @@ function Bullets({ items }: { items: string[] }) {
 function Choice({ status, first, saving, tint, country, onChange }: {
   status: AiHelperStatus; first: string; saving: boolean; tint: string; country: string; onChange: (on: boolean) => void;
 }) {
+  const { t, s, accentInk } = useTheme();
   const priced = AI_HELPER_BILLING_AVAILABLE && status.billingEnabled && status.priceCents > 0 && status.access === "opt_in";
   const who = status.status === "on"
     ? status.turnedOnBy ? `Turned on by ${status.turnedOnBy}${status.turnedOnAt ? ` on ${when(status.turnedOnAt)}` : ""}.` : ""
@@ -171,7 +176,7 @@ function Choice({ status, first, saving, tint, country, onChange }: {
           style={[s.primary, { marginTop: 12, backgroundColor: action.on ? tint : t.appSurface.card, borderWidth: action.on ? 0 : 1, borderColor: t.appSurface.line, opacity: saving ? 0.6 : 1 }]}
         >
           {saving
-            ? <ActivityIndicator color={action.on ? "#fff" : tint} />
+            ? <ActivityIndicator color={action.on ? "#fff" : accentInk(tint)} />
             : <Text style={[s.primaryLabel, action.on ? null : { color: t.appSurface.ink }]}>{action.label}</Text>}
         </Tap>
       )}
@@ -188,11 +193,11 @@ function Choice({ status, first, saving, tint, country, onChange }: {
       <View style={{ flexDirection: "row", gap: 24, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft }}>
         <View>
           <Text style={s.faint}>Questions this month</Text>
-          <Text style={[s.mono, { fontSize: 15, fontWeight: "700", marginTop: 2 }]}>{status.questionsThisMonth.toLocaleString()}</Text>
+          <Text style={[{ color: t.appSurface.ink }, s.mono, { fontSize: 15, fontWeight: "700", marginTop: 2 }]}>{status.questionsThisMonth.toLocaleString()}</Text>
         </View>
         <View>
           <Text style={s.faint}>Last used</Text>
-          <Text style={{ fontSize: 13, marginTop: 2 }}>{status.lastUsedAt ? when(status.lastUsedAt) : "Not yet"}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 13, marginTop: 2 }}>{status.lastUsedAt ? when(status.lastUsedAt) : "Not yet"}</Text>
         </View>
       </View>
 

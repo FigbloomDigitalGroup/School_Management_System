@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { accentFor, s } from "../../theme";
+import { accentFor } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { OwnerAttachments } from "../../components/MediaLinks";
 import { Tap } from "../../ui/Tap";
 import { BackLink } from "../../ui/BackLink";
 import { School } from "lucide-react-native";
+import { useTheme } from "../../ui/ThemeContext";
 
 export function StudentNotices() {
+  const { t, s, accentInk } = useTheme();
   const { data, accent, markNoticeRead } = useStudentData();
   const a = accentFor(accent);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -22,8 +24,8 @@ export function StudentNotices() {
           <Text style={s.headerSub}>{open.from} · {open.when}</Text>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <BackLink label="All notices" color={a.deep} onPress={() => setOpenId(null)} />
-          <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8, lineHeight: 26 }}>{open.subject}</Text>
+          <BackLink label="All notices" color={accentInk(a.deep)} onPress={() => setOpenId(null)} />
+          <Text style={{ color: t.appSurface.ink, fontSize: 19, fontWeight: "600", marginTop: 8, lineHeight: 26 }}>{open.subject}</Text>
           <Text style={[s.body, { marginTop: 16 }]}>{open.body}</Text>
           <OwnerAttachments owner="announcement" id={open.id} tint={a.deep} />
         </ScrollView>
@@ -51,12 +53,12 @@ export function StudentNotices() {
                 onPress={() => { markNoticeRead(n.id); setOpenId(n.id); }}
                 style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", gap: 12 }]}
               >
-                <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: unread ? a.deep : "#F1EDEC" }}>
-                  <School size={18} color={unread ? "#fff" : "#6B605F"} />
+                <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: unread ? a.deep : t.appSurface.lineSoft }}>
+                  <School size={18} color={unread ? "#fff" : t.appSurface.inkMuted} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: unread ? "700" : "500" }}>{n.from}</Text>
-                  <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: unread ? "600" : "400", marginTop: 2 }}>{n.subject}</Text>
+                  <Text numberOfLines={1} style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: unread ? "700" : "500" }}>{n.from}</Text>
+                  <Text numberOfLines={1} style={{ color: t.appSurface.ink, fontSize: 13, fontWeight: unread ? "600" : "400", marginTop: 2 }}>{n.subject}</Text>
                   <Text numberOfLines={2} style={[s.small, { marginTop: 4 }]}>{n.body.split("\n")[0]}</Text>
                 </View>
                 <Text style={s.faint}>{n.when}</Text>

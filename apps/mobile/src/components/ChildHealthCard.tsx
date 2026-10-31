@@ -4,11 +4,12 @@ import {
   BLOOD_GROUPS, COMMON_ALLERGIES, COMMON_CONDITIONS, fetchStudentHealth, healthFlags, healthToInput, normaliseList,
   saveStudentHealth, setLearnerHome, splitList, supabase, type StudentHealthInput,
 } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { Skeleton } from "./Skeleton";
 import { Button } from "../ui/Button";
 import { Field as Input } from "../ui/Field";
 import { Tap } from "../ui/Tap";
+import { perScheme } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * A child's health details and home address, which the parent can keep up to
@@ -17,6 +18,7 @@ import { Tap } from "../ui/Tap";
  * the school); this keeps whatever pin there is.
  */
 export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenantId: string; childId: string; childFirst: string; tint: string }) {
+  const { t, s, scheme, accentInk } = useTheme();
   const [value, setValue] = useState<StudentHealthInput | null>(null);
   const [home, setHome] = useState<{ address: string; landmark: string; lat: number | null; lng: number | null } | null>(null);
   const [editing, setEditing] = useState(false);
@@ -66,13 +68,13 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
         <Text style={s.h2}>{childFirst}'s health and home</Text>
         {value && !editing && (
           <Tap accessibilityRole="button" onPress={() => { setEditing(true); setNote(null); }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Edit</Text>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Edit</Text>
           </Tap>
         )}
       </View>
       <View style={[s.card, { padding: 14, gap: 10 }]}>
         {!value || !home ? (
-          note ? <Text style={[s.small, { color: "#B4472B" }]}>{note}</Text> : (
+          note ? <Text style={[s.small, { color: t.status.badText }]}>{note}</Text> : (
             <View style={{ gap: 8 }}><Skeleton width="60%" /><Skeleton width="40%" height={10} /></View>
           )
         ) : !editing ? (
@@ -88,7 +90,7 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
             <Chips title="Allergies" items={value.allergies} suggestions={COMMON_ALLERGIES} onChange={(allergies) => set({ allergies })} danger />
             <Chips title="Medical conditions" items={value.medical_conditions} suggestions={COMMON_CONDITIONS} onChange={(medical_conditions) => set({ medical_conditions })} />
             <Field label="Medication" value={value.medications} onChange={(medications) => set({ medications })} />
-            <Text style={label}>Blood group</Text>
+            <Text style={LABEL[scheme]}>Blood group</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
               {BLOOD_GROUPS.map((g) => (
                 <Pill key={g} text={g} on={value.blood_group === g} tint={tint} onPress={() => set({ blood_group: value.blood_group === g ? null : g })} />
@@ -100,7 +102,7 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
             <Field label="Their phone" value={value.emergency_phone} onChange={(emergency_phone) => set({ emergency_phone })} keyboard="phone-pad" />
             <Field label="Home address" value={home.address} onChange={(address) => setHome({ ...home, address: address ?? "" })} />
             <Field label="Landmark" value={home.landmark} onChange={(landmark) => setHome({ ...home, landmark: landmark ?? "" })} />
-            {note && <Text style={[s.small, { color: "#B4472B" }]}>{note}</Text>}
+            {note && <Text style={[s.small, { color: t.status.badText }]}>{note}</Text>}
             <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
               <Button label="Save" tint={tint} loading={saving} onPress={() => void save()} style={{ flex: 1 }} />
               <Button variant="secondary" label="Cancel" disabled={saving} onPress={() => setEditing(false)} />
@@ -112,33 +114,35 @@ export function ChildHealthCard({ tenantId, childId, childFirst, tint }: { tenan
   );
 }
 
-const label = { fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 };
+const LABEL = perScheme((t) => ({ fontSize: 12, fontWeight: "600" as const, color: t.appSurface.ink, marginBottom: 4 }));
 
 function Field({ label: text, value, onChange, keyboard }: { label: string; value: string | null; onChange: (v: string | null) => void; keyboard?: "phone-pad" }) {
   return <Input label={text} value={value ?? ""} onChangeText={(v) => onChange(v)} keyboardType={keyboard} />;
 }
 
 function Pill({ text, on, tint, onPress, danger }: { text: string; on: boolean; tint: string; onPress: () => void; danger?: boolean }) {
-  const bg = on ? (danger ? "#FBE9E6" : tint) : "transparent";
-  const fg = on ? (danger ? "#9B2C1C" : "#fff") : t.appSurface.inkMuted;
+  const { t, accentInk } = useTheme();
+  const bg = on ? (danger ? t.status.badBg : tint) : "transparent";
+  const fg = on ? (danger ? t.status.badInk : "#fff") : t.appSurface.inkMuted;
   return (
     <Tap accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress}
-      style={{ borderRadius: 999, borderWidth: 1, borderColor: on ? (danger ? "#F1C7BF" : tint) : t.appSurface.line, backgroundColor: bg, paddingHorizontal: 10, paddingVertical: 4 }}>
+      style={{ borderRadius: 999, borderWidth: 1, borderColor: on ? (danger ? t.status.badLine : accentInk(tint)) : t.appSurface.line, backgroundColor: bg, paddingHorizontal: 10, paddingVertical: 4 }}>
       <Text style={{ fontSize: 12, fontWeight: "600", color: fg }}>{on ? `${text} ×` : `+ ${text}`}</Text>
     </Tap>
   );
 }
 
 function Chips({ title, items, suggestions, onChange, danger }: { title: string; items: string[]; suggestions: string[]; onChange: (v: string[]) => void; danger?: boolean }) {
+  const { t, scheme } = useTheme();
   const [draft, setDraft] = useState("");
   const has = (v: string) => items.some((i) => i.toLowerCase() === v.toLowerCase());
   const add = () => { if (draft.trim()) { onChange(normaliseList([...items, ...splitList(draft)])); setDraft(""); } };
   return (
     <View>
-      <Text style={label}>{title}</Text>
+      <Text style={LABEL[scheme]}>{title}</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-        {items.map((it) => <Pill key={it} text={it} on tint="#17402A" danger={danger} onPress={() => onChange(items.filter((x) => x !== it))} />)}
-        {suggestions.filter((sg) => !has(sg)).slice(0, 8).map((sg) => <Pill key={sg} text={sg} on={false} tint="#17402A" onPress={() => onChange([...items, sg])} />)}
+        {items.map((it) => <Pill key={it} text={it} on tint={t.brand.forest} danger={danger} onPress={() => onChange(items.filter((x) => x !== it))} />)}
+        {suggestions.filter((sg) => !has(sg)).slice(0, 8).map((sg) => <Pill key={sg} text={sg} on={false} tint={t.brand.forest} onPress={() => onChange([...items, sg])} />)}
       </View>
       <Input label="Add another" value={draft} onChangeText={setDraft} onSubmitEditing={add} onBlur={add} placeholder="Type another and press return" returnKeyType="done" />
     </View>

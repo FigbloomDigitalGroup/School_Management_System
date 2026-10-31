@@ -1,8 +1,9 @@
 import { forwardRef, useState } from "react";
-import { StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
+import { Text, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
 import { CircleAlert, Eye, EyeOff } from "lucide-react-native";
-import { fieldLine, fontSize, HIT, s, t } from "../theme";
+import { fontSize, HIT } from "../theme";
 import { Tap } from "./Tap";
+import { themedStyles, useTheme } from "./ThemeContext";
 
 export interface FieldProps extends Omit<TextInputProps, "style"> {
   label: string;
@@ -26,13 +27,15 @@ export interface FieldProps extends Omit<TextInputProps, "style"> {
  * Forwards its ref to the TextInput, to focus the next field from "next".
  */
 export const Field = forwardRef<TextInput, FieldProps>(function Field(
-  { label, hint, error, secret = false, focusColor = t.appSurface.ink, style, onFocus, onBlur, accessibilityLabel, ...input },
+  { label, hint, error, secret = false, focusColor, style, onFocus, onBlur, accessibilityLabel, ...input },
   ref,
 ) {
+  const { t, s, fieldLine } = useTheme();
+  const styles = useStyles();
   const [focused, setFocused] = useState(false);
   const [shown, setShown] = useState(false);
   const wide = focused || !!error;
-  const edge = error ? t.status.warnInk : focused ? focusColor : fieldLine;
+  const edge = error ? t.status.warnInk : focused ? focusColor ?? t.appSurface.ink : fieldLine;
 
   return (
     <View style={style}>
@@ -71,7 +74,7 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
   );
 });
 
-const styles = StyleSheet.create({
+const useStyles = themedStyles(({ t }) => ({
   label: { fontSize: fontSize.small, fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 },
   box: { flexDirection: "row", alignItems: "center", borderRadius: t.radius.lg, backgroundColor: t.appSurface.card },
   input: { flex: 1, minHeight: 48, paddingVertical: 0, paddingRight: 8, fontSize: fontSize.lead, color: t.appSurface.ink, textAlignVertical: "center" },
@@ -81,4 +84,4 @@ const styles = StyleSheet.create({
   message: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 6 },
   errorText: { flex: 1, fontSize: fontSize.caption, lineHeight: 17, color: t.status.warnInk },
   hint: { marginTop: 6 },
-});
+}));

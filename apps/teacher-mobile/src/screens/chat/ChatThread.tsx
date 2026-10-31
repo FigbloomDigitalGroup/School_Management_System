@@ -11,11 +11,11 @@ import { notifyChatRead } from "../../lib/chatUnread";
 import { useChatSession } from "../../lib/chatSession";
 import { AttachChoices } from "../../components/AttachChoices";
 import { ANY_FILE, pickFile, readPickedFile, type FileSource, type PickedFile } from "../../lib/pickFile";
-import { s, t } from "../../theme";
 import { ChatAvatar } from "./ChatAvatar";
 import { BackLink } from "../../ui/BackLink";
 import { Tap } from "../../ui/Tap";
 import { Eye } from "lucide-react-native";
+import { useTheme } from "../../ui/ThemeContext";
 
 interface ThreadParams {
   conversationId: string;
@@ -31,6 +31,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: 
 
 /** One conversation: header, the messages by day, and the composer. A photo (taken now or from the gallery), a PDF or another document can be sent; files in a chat open in the phone's viewer. */
 export function ChatThread({ tint }: { tint: string }) {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { conversationId, otherId, name, role, canReply } = useRoute<any>().params as ThreadParams;
   const session = useChatSession();
@@ -127,7 +128,7 @@ export function ChatThread({ tint }: { tint: string }) {
       {error ? (
         <Text style={[s.small, { color: t.status.warnInk, padding: 16 }]}>Could not load this chat: {error}</Text>
       ) : !messages ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 40 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 40 }} />
       ) : (
         <ScrollView
           ref={scroll}
@@ -145,7 +146,7 @@ export function ChatThread({ tint }: { tint: string }) {
                   const mine = m.senderId === myId;
                   return (
                     <View key={m.id} style={{ marginBottom: 8, flexDirection: "row", justifyContent: mine ? "flex-end" : "flex-start" }}>
-                      <View style={{ maxWidth: "82%", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: mine ? tint : "#F1EDEC" }}>
+                      <View style={{ maxWidth: "82%", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: mine ? tint : t.appSurface.lineSoft }}>
                         {!!m.filePath && <ChatFile message={m} mine={mine} />}
                         {!!m.body && <Text selectable style={{ fontSize: 14.5, lineHeight: 21, color: mine ? "#fff" : t.appSurface.ink }}>{m.body}</Text>}
                         <Text style={{ marginTop: 2, fontSize: 10.5, textAlign: "right", color: mine ? "rgba(255,255,255,0.7)" : t.appSurface.inkFaint }}>{time(m.createdAt)}</Text>
@@ -160,7 +161,7 @@ export function ChatThread({ tint }: { tint: string }) {
       )}
 
       {canReply ? (
-        <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 10 }}>
+        <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card, padding: 10 }}>
           {!!sendError && <Text style={{ fontSize: 12, color: t.status.warnInk, marginBottom: 6 }}>{sendError}</Text>}
           {file && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -184,7 +185,7 @@ export function ChatThread({ tint }: { tint: string }) {
               onPress={() => setAttachOpen((open) => !open)}
               style={{ width: 44, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center", opacity: sending ? 0.5 : 1 }}
             >
-              <Text style={{ fontSize: 18 }}>📎</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 18 }}>📎</Text>
             </Tap>
             <TextInput
               value={draft}
@@ -209,7 +210,7 @@ export function ChatThread({ tint }: { tint: string }) {
           </View>
         </View>
       ) : (
-        <Text style={[s.small, { borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: "#fff", padding: 14 }]}>
+        <Text style={[s.small, { borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card, padding: 14 }]}>
           You can read this chat but can no longer reply: the school has changed who teaches this learner.
         </Text>
       )}
@@ -219,6 +220,7 @@ export function ChatThread({ tint }: { tint: string }) {
 
 /** A file in a message opens through a short-lived signed link, in whatever the phone uses for it. */
 function ChatFile({ message, mine }: { message: ChatMessage; mine: boolean }) {
+  const { t } = useTheme();
   const [failed, setFailed] = useState(false);
   const isImage = !!message.mimeType?.startsWith("image/");
   const [src, setSrc] = useState<string | null>(null);
@@ -247,7 +249,7 @@ function ChatFile({ message, mine }: { message: ChatMessage; mine: boolean }) {
   }
   return (
     <Tap accessibilityRole="link" accessibilityLabel={`Open ${message.fileName ?? "file"}`} onPress={() => void open()} style={{ minHeight: 40, marginBottom: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: mine ? "rgba(255,255,255,0.15)" : "#fff" }}>
-      <Text>📎</Text>
+      <Text style={{ color: t.appSurface.ink }}>📎</Text>
       <View style={{ flexShrink: 1 }}>
         <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: "600", color: mine ? "#fff" : t.appSurface.ink }}>{message.fileName}</Text>
         <Text style={{ fontSize: 11, color: failed ? t.status.warnInk : mine ? "rgba(255,255,255,0.7)" : t.appSurface.inkFaint }}>

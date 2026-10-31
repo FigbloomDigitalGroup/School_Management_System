@@ -4,7 +4,7 @@ import {
   CAPACITY_LABEL, fetchClassReportCards, fetchDocumentSignatures, fetchReportCardSetup, signatureFor, signDocuments,
   type ReportCardSetup, type SignatureMark, type StoredReportCard, type StoredSignature,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ReportCardBody } from "../../components/ReportCardBody";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -12,6 +12,7 @@ import { SignSheet } from "../../components/SignSheet";
 import { useMyName } from "../../lib/useMyName";
 import type { TeacherSession } from "../../navigation";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /**
  * A class teacher's report cards for a term: read each learner's card, and sign
@@ -22,6 +23,7 @@ import { Tap } from "../../ui/Tap";
  * office changes afterwards comes back as unsigned.
  */
 export function TeacherReportCards({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const name = useMyName();
   const [setup, setSetup] = useState<ReportCardSetup | null>(null);
@@ -94,7 +96,7 @@ export function TeacherReportCards({ session }: { session: TeacherSession }) {
         {error ? (
           <View style={s.card}><Text style={[s.small, { color: t.status.warnInk }]}>Could not load report cards: {error}</Text></View>
         ) : !setup ? (
-          <ActivityIndicator color={a.deep} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={accentInk(a.deep)} style={{ marginTop: 32 }} />
         ) : setup.classes.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
             <Text style={[s.h2, { marginBottom: 4 }]}>No class of yours</Text>
@@ -105,7 +107,7 @@ export function TeacherReportCards({ session }: { session: TeacherSession }) {
         ) : setup.terms.length === 0 ? (
           <View style={s.card}><Text style={s.small}>The school has not set up a term yet.</Text></View>
         ) : !cards ? (
-          <ActivityIndicator color={a.deep} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={accentInk(a.deep)} style={{ marginTop: 32 }} />
         ) : cards.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
             <Text style={[s.h2, { marginBottom: 4 }]}>No report cards yet</Text>

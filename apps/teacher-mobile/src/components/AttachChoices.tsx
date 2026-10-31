@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import type { FileSource } from "../lib/pickFile";
-import { t } from "../theme";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 const CHOICES: { source: FileSource; label: string }[] = [
   { source: "camera", label: "📷 Take a photo" },
@@ -15,6 +15,7 @@ const CHOICES: { source: FileSource; label: string }[] = [
  * iOS it can not open over a modal that is still on screen.
  */
 export function AttachChoices({ onChoose, disabled = false }: { onChoose: (source: FileSource) => void; disabled?: boolean }) {
+  const { t } = useTheme();
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {CHOICES.map((c) => (

@@ -50,4 +50,21 @@ describe("rippleFor", () => {
     expect(rippleFor("rgba(255,255,255,0.18)")).toBe(RIPPLE_ON_LIGHT);
     expect(rippleFor(42)).toBe(RIPPLE_ON_LIGHT);
   });
+
+  it("gives a light wash on the dark theme's surfaces", () => {
+    for (const hex of ["#141011", "#211A1B", "#2B2425", "#0F0C0D"]) {
+      expect(rippleFor(hex), hex).toBe(RIPPLE_ON_DARK);
+    }
+  });
+
+  it("uses the fallback it is given when there is no readable background: a bare control on a dark page", () => {
+    expect(rippleFor(undefined, RIPPLE_ON_DARK)).toBe(RIPPLE_ON_DARK);
+    expect(rippleFor("transparent", RIPPLE_ON_DARK)).toBe(RIPPLE_ON_DARK);
+    expect(rippleFor("rgba(255,255,255,0.18)", RIPPLE_ON_DARK)).toBe(RIPPLE_ON_DARK);
+  });
+
+  it("ignores the fallback when it can read the fill, so a white button on a dark page keeps the dark wash", () => {
+    expect(rippleFor("#FFFFFF", RIPPLE_ON_DARK)).toBe(RIPPLE_ON_LIGHT);
+    expect(rippleFor("#211A1B", RIPPLE_ON_LIGHT)).toBe(RIPPLE_ON_DARK);
+  });
 });

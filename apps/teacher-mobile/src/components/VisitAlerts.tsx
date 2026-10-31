@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeVisits, visitAlert } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { Tap } from "../ui/Tap";
 import { X } from "lucide-react-native";
+import { useTheme } from "../ui/ThemeContext";
 
 /** How long an arrival stays on screen before it tucks itself away. */
 const SHOW_MS = 12_000;
@@ -17,6 +17,7 @@ const SHOW_MS = 12_000;
  * visitors.
  */
 export function VisitAlerts({ tenantId, profileId, onOpen }: { tenantId: string; profileId: string; onOpen: () => void }) {
+  const { t, s } = useTheme();
   const insets = useSafeAreaInsets();
   const [alert, setAlert] = useState<{ id: string; title: string; body: string } | null>(null);
 

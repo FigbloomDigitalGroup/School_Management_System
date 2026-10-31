@@ -2,8 +2,8 @@ import { useState } from "react";
 import { GestureResponderEvent, Text, TouchableWithoutFeedback, View } from "react-native";
 import Svg, { Circle, G, Line, Polyline, Text as SvgText } from "react-native-svg";
 import { labelEvery, lastValueIndex, nearestIndex, spreadLabels, valueRuns } from "@figbloom/shared";
-import { s, t } from "../../theme";
 import { fmt, SERIES_COLORS, truncate, VIZ } from "./tokens";
+import { useTheme } from "../../ui/ThemeContext";
 
 export interface LinePoint { label: string; sublabel?: string }
 export interface LineSeries { key: string; name: string; values: (number | null)[] }
@@ -28,6 +28,8 @@ export function LineChart({ title, summary, points, series, digits = 1 }: {
   series: LineSeries[];
   digits?: number;
 }) {
+  const { t, s, scheme } = useTheme();
+  const viz = VIZ[scheme];
   const [width, setWidth] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const shown = series.slice(0, SERIES_COLORS.length);
@@ -65,29 +67,29 @@ export function LineChart({ title, summary, points, series, digits = 1 }: {
               <Svg width={width} height={H}>
                 {TICKS.map((tick) => (
                   <G key={tick}>
-                    <Line x1={PAD.left} x2={PAD.left + plotW} y1={y(tick)} y2={y(tick)} stroke={tick === 0 ? VIZ.axis : VIZ.grid} strokeWidth={1} />
-                    <SvgText x={PAD.left - 6} y={y(tick) + 4} textAnchor="end" fontSize={10} fill={VIZ.muted}>{tick}</SvgText>
+                    <Line x1={PAD.left} x2={PAD.left + plotW} y1={y(tick)} y2={y(tick)} stroke={tick === 0 ? viz.axis : viz.grid} strokeWidth={1} />
+                    <SvgText x={PAD.left - 6} y={y(tick) + 4} textAnchor="end" fontSize={10} fill={viz.muted}>{tick}</SvgText>
                   </G>
                 ))}
                 {points.map((p, i) => (i % every === 0 || i === points.length - 1) && (
                   <G key={i}>
-                    <SvgText x={x(i)} y={H - PAD.bottom + 14} textAnchor="middle" fontSize={10} fill={VIZ.ink2}>{truncate(p.label, 12)}</SvgText>
-                    {!!p.sublabel && <SvgText x={x(i)} y={H - PAD.bottom + 26} textAnchor="middle" fontSize={9} fill={VIZ.muted}>{truncate(p.sublabel, 14)}</SvgText>}
+                    <SvgText x={x(i)} y={H - PAD.bottom + 14} textAnchor="middle" fontSize={10} fill={viz.ink2}>{truncate(p.label, 12)}</SvgText>
+                    {!!p.sublabel && <SvgText x={x(i)} y={H - PAD.bottom + 26} textAnchor="middle" fontSize={9} fill={viz.muted}>{truncate(p.sublabel, 14)}</SvgText>}
                   </G>
                 ))}
-                {points.length > 1 && <Line x1={x(active)} x2={x(active)} y1={PAD.top} y2={PAD.top + plotH} stroke={VIZ.axis} strokeWidth={1} />}
+                {points.length > 1 && <Line x1={x(active)} x2={x(active)} y1={PAD.top} y2={PAD.top + plotH} stroke={viz.axis} strokeWidth={1} />}
                 {shown.map((sr, si) => valueRuns(sr.values).map((run, k) => (
                   run.length > 1
                     ? <Polyline key={`${sr.key}-${k}`} points={run.map((i) => `${x(i)},${y(sr.values[i]!)}`).join(" ")} fill="none" stroke={SERIES_COLORS[si]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-                    : <Circle key={`${sr.key}-${k}`} cx={x(run[0]!)} cy={y(sr.values[run[0]!]!)} r={4} fill={SERIES_COLORS[si]} stroke={VIZ.surface} strokeWidth={2} />
+                    : <Circle key={`${sr.key}-${k}`} cx={x(run[0]!)} cy={y(sr.values[run[0]!]!)} r={4} fill={SERIES_COLORS[si]} stroke={viz.surface} strokeWidth={2} />
                 )))}
                 {shown.map((sr, si) => sr.values[active] !== null && sr.values[active] !== undefined && (
-                  <Circle key={`on-${sr.key}`} cx={x(active)} cy={y(sr.values[active]!)} r={5} fill={SERIES_COLORS[si]} stroke={VIZ.surface} strokeWidth={2} />
+                  <Circle key={`on-${sr.key}`} cx={x(active)} cy={y(sr.values[active]!)} r={5} fill={SERIES_COLORS[si]} stroke={viz.surface} strokeWidth={2} />
                 ))}
                 {ends.map((e, k) => (
                   <G key={e.i}>
-                    <Circle cx={x(e.idx)} cy={y(shown[e.i]!.values[e.idx]!)} r={3.5} fill={SERIES_COLORS[e.i]} stroke={VIZ.surface} strokeWidth={1.5} />
-                    <SvgText x={x(e.idx) + 8} y={endYs[k]! + 4} fontSize={11} fontWeight="600" fill={VIZ.ink}>{fmt(shown[e.i]!.values[e.idx], digits)}</SvgText>
+                    <Circle cx={x(e.idx)} cy={y(shown[e.i]!.values[e.idx]!)} r={3.5} fill={SERIES_COLORS[e.i]} stroke={viz.surface} strokeWidth={1.5} />
+                    <SvgText x={x(e.idx) + 8} y={endYs[k]! + 4} fontSize={11} fontWeight="600" fill={viz.ink}>{fmt(shown[e.i]!.values[e.idx], digits)}</SvgText>
                   </G>
                 ))}
               </Svg>

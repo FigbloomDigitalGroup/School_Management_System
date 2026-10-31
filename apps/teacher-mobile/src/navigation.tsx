@@ -1,11 +1,11 @@
 import { useEffect } from "react";
-import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { View } from "react-native";
 import { fetchMyConversations, type MaterialRow, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Bell, Mail, Menu, SquareCheck, Table2, type LucideIcon } from "lucide-react-native";
-import { accentFor, fontSize, t } from "./theme";
+import { accentFor, fontSize, themes } from "./theme";
 
 import { TeacherAttendance } from "./screens/teacher/Attendance";
 import { TeacherGradebook } from "./screens/teacher/Gradebook";
@@ -32,11 +32,32 @@ import { TeacherReportCards } from "./screens/teacher/ReportCards";
 import { TeacherBloom } from "./screens/teacher/Bloom";
 import { TeacherLiveClass } from "./screens/teacher/LiveClass";
 import { VisitAlerts } from "./components/VisitAlerts";
+import { useTheme } from "./ui/ThemeContext";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 /** Lets the visitor alert, which sits above the navigator, open a screen inside it. */
 const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
+
+/**
+ * React Navigation's own colours: the page behind a transition, the tab bar's card and its edge. Light is the
+ * library's default with the app's page colour; dark is the app's dark surfaces, so a screen sliding in never
+ * flashes a light page.
+ */
+const NAV_THEME = {
+  light: { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: themes.light.t.appSurface.page } },
+  dark: {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      primary: themes.dark.t.appSurface.ink,
+      background: themes.dark.t.appSurface.page,
+      card: themes.dark.t.appSurface.card,
+      text: themes.dark.t.appSurface.ink,
+      border: themes.dark.t.appSurface.line,
+    },
+  },
+};
 
 /** What to do once the navigator exists: a tap that opened the app from nothing arrives before it is ready. */
 let afterReady: (() => void) | null = null;
@@ -100,6 +121,7 @@ function MoreStack({ session }: { session: TeacherSession }) {
 }
 
 export function Navigation({ session }: { session: TeacherSession }) {
+  const { t, scheme, accentInk } = useTheme();
   const a = accentFor(session.accent);
   // Registers and marks saved on this phone go out as soon as the app opens, not only when a screen asks.
   useQueueSync(session.profileId);
@@ -109,11 +131,11 @@ export function Navigation({ session }: { session: TeacherSession }) {
   return (
     <CallProvider profileId={session.profileId}>
     <View style={{ flex: 1 }}>
-    <NavigationContainer ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
+    <NavigationContainer theme={NAV_THEME[scheme]} ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: a.deep,
+          tabBarActiveTintColor: accentInk(a.deep),
           tabBarInactiveTintColor: t.appSurface.inkFaint,
           tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
           // The bar is a fixed height, so its labels stay put under large system text;

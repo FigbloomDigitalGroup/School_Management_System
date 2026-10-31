@@ -5,12 +5,13 @@ import {
   rubricFor, saveCbeEntries, summariseStrands, yearLabel,
   type CbeAssessment, type CbeEntry, type ClassGroup, type StrandNode, type Student, type Subject,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { Skeleton } from "../../components/Skeleton";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 const cellKey = (studentId: string, strandId: string) => `${studentId}|${strandId}`;
 /** Not a rubric code — the explicit "not yet judged" option in every strand's chip row. */
@@ -50,6 +51,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
   subject: Subject | undefined;
   roster: Student[] | null;
 }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const rubric = useMemo(() => rubricFor(session.country, cls.level) ?? [], [session.country, cls.level]);
   const areaId = subject?.learning_area_id ?? null;
@@ -241,7 +243,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
             onPress={() => setCreating((c) => !c)}
             style={{ ...HIT, alignSelf: "flex-start", paddingHorizontal: 12, borderRadius: 10, backgroundColor: t.appSurface.lineSoft, alignItems: "center", justifyContent: "center" }}
           >
-            <Text style={{ fontSize: 12.5, fontWeight: "700" }}>{creating ? "Cancel" : "+ New assessment"}</Text>
+            <Text style={{ color: t.appSurface.ink, fontSize: 12.5, fontWeight: "700" }}>{creating ? "Cancel" : "+ New assessment"}</Text>
           </Tap>
         )}
         {!!assessment && strandList.length > 0 && (
@@ -256,7 +258,8 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
               value={newTitle}
               onChangeText={setNewTitle}
               placeholder="e.g. End of Term 1, or Project: water cycle"
-              style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14 }}
+              placeholderTextColor={t.appSurface.inkFaint}
+              style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 12, fontSize: 14, color: t.appSurface.ink }}
             />
             <View style={{ flexDirection: "row", gap: 8 }}>
               {(["summative", "formative"] as const).map((k) => {
@@ -290,7 +293,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 10 }} keyboardShouldPersistTaps="handled">
         {!subject ? (
-          <ActivityIndicator color={a.deep} />
+          <ActivityIndicator color={accentInk(a.deep)} />
         ) : !areaId ? (
           <View style={s.card}>
             <Text style={s.small}>
@@ -321,7 +324,7 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
               <View key={student.id} style={[s.card, { marginBottom: 8, padding: 12, gap: 8 }]}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
+                    <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "500" }}>{student.full_name}</Text>
                     <Text style={s.faint}>ADM {student.admission_no}</Text>
                   </View>
                   <Text style={{ fontFamily: "monospace", fontSize: 13.5, fontWeight: "700", color: overall ? GRADE_INK[overall.code] : t.appSurface.inkFaint }}>
@@ -357,7 +360,8 @@ export function TeacherCbeGradebookBody({ session, cls, termId, subject, roster 
                   onChangeText={(v) => setComments((c) => ({ ...c, [student.id]: v }))}
                   placeholder="Comment for the report (optional)"
                   accessibilityLabel={`Comment for ${student.full_name}`}
-                  style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5 }}
+                  placeholderTextColor={t.appSurface.inkFaint}
+                  style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5, color: t.appSurface.ink }}
                 />
               </View>
             );
