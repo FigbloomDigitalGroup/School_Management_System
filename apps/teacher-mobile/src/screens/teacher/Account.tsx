@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, ScrollView, Text, View } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
 import { fetchMyProfile, supabase, updateMyAvatarUrl, updateMyProfile, type MyProfile } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { uploadAvatar } from "../../lib/uploads";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import type { TeacherSession } from "../../navigation";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { Tap } from "../../ui/Tap";
+import { AppearanceSetting } from "../../ui/AppearanceSetting";
+import { useTheme } from "../../ui/ThemeContext";
+
+/** Shown under the name field (not as a stray line at the bottom) when it is left empty. */
+const NAME_REQUIRED = "A name is required.";
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -16,6 +26,7 @@ function initialsOf(name: string): string {
 /** Editable name/phone/photo — same fields as web's MyAccountFields, same
  *  RLS (profile_update_self). login_id/email stay read-only. */
 export function TeacherAccount({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [fullName, setFullName] = useState("");
@@ -39,7 +50,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
   }, [session.profileId]);
 
   async function save() {
-    if (!fullName.trim()) { setStatus("A name is required."); return; }
+    if (!fullName.trim()) { setStatus(NAME_REQUIRED); return; }
     setSaving(true);
     setStatus(null);
     try {
@@ -85,39 +96,40 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
                 <Text style={{ fontSize: 20, fontWeight: "700", color: "#fff" }}>{initialsOf(fullName || session.fullName)}</Text>
               </View>
             )}
-            <TouchableOpacity
+            <Tap
               accessibilityRole="button"
               disabled={uploading}
               onPress={() => void changePhoto()}
               style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 10, paddingHorizontal: 14, justifyContent: "center" }}
             >
-              {uploading ? <ActivityIndicator color={a.deep} /> : <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>Change photo</Text>}
-            </TouchableOpacity>
+              {uploading ? <ActivityIndicator color={accentInk(a.deep)} /> : <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(a.deep) }}>Change photo</Text>}
+            </Tap>
           </View>
 
-          <View>
-            <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Full name</Text>
-            {loaded ? (
-              <TextInput
+          {loaded ? (
+            <>
+              <Field
+                label="Full name"
                 value={fullName}
-                onChangeText={(v) => { setFullName(v); setDirty(true); }}
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
+                onChangeText={(v) => { setFullName(v); setDirty(true); setStatus(null); }}
+                autoComplete="name"
+                error={status === NAME_REQUIRED ? status : undefined}
               />
-            ) : <Skeleton height={44} radius={12} />}
-          </View>
-
-          <View>
-            <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Phone</Text>
-            {loaded ? (
-              <TextInput
+              <Field
+                label="Phone"
                 value={phone}
                 onChangeText={(v) => { setPhone(v); setDirty(true); }}
                 placeholder="e.g. 0712 345 678"
                 keyboardType="phone-pad"
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
+                autoComplete="tel"
               />
-            ) : <Skeleton height={44} radius={12} />}
-          </View>
+            </>
+          ) : (
+            <>
+              <View><Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 }]}>Full name</Text><Skeleton height={48} radius={12} /></View>
+              <View><Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 }]}>Phone</Text><Skeleton height={48} radius={12} /></View>
+            </>
+          )}
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={s.faint}>Login:</Text>
@@ -126,24 +138,16 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
             ) : <Skeleton width={120} height={10} />}
           </View>
 
-          <TouchableOpacity
-            accessibilityRole="button"
-            disabled={!dirty || saving}
-            onPress={() => void save()}
-            style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !dirty || saving ? 0.6 : 1 }]}
-          >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Save changes</Text>}
-          </TouchableOpacity>
-          {!!status && <Text style={s.small}>{status}</Text>}
+          <Button label="Save changes" loading={saving} disabled={!dirty} onPress={() => void save()} />
+          {!!status && status !== NAME_REQUIRED && <Text accessibilityLiveRegion="polite" style={s.small}>{status}</Text>}
         </View>
 
-        <TouchableOpacity
-          accessibilityRole="button"
-          onPress={() => void supabase().auth.signOut({ scope: "local" })}
-          style={[s.primary, { ...HIT, marginTop: 16, backgroundColor: t.appSurface.lineSoft }]}
-        >
-          <Text style={[s.primaryLabel, { color: t.appSurface.ink }]}>Sign out</Text>
-        </TouchableOpacity>
+        <AppearanceSetting tint={a.deep} />
+        <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
+
+        <Button variant="secondary" label="Sign out" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ marginTop: 16 }} />
       </ScrollView>
     </View>
   );

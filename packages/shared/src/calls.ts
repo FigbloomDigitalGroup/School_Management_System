@@ -66,6 +66,27 @@ export function isRingExpired(call: Pick<Call, "status" | "created_at">, now: Da
   return call.status === "ringing" && now.getTime() - new Date(call.created_at).getTime() > CALL_RING_SECONDS * 1000;
 }
 
+/** How long a ringing call still has to ring, in ms (0 once it is over): when its card should go away. */
+export function ringLeftMs(call: Pick<Call, "created_at">, now: Date = new Date()): number {
+  return Math.max(0, CALL_RING_SECONDS * 1000 - (now.getTime() - new Date(call.created_at).getTime()));
+}
+
+/** What a live class room says under its title: the teacher teaches, everyone else is in the class. */
+export function liveClassSubtitle(role: LiveClassRole): string {
+  return role === "host" ? "You're teaching this live class" : "Live class";
+}
+
+/**
+ * The one line over a live class room for this person, or null: a learner
+ * can't speak until the teacher lets learners, and a parent only watches. The
+ * website and the phone apps show the same words.
+ */
+export function liveClassNotice(role: LiveClassRole, learnersMayPublish: boolean): string | null {
+  if (role === "learner" && !learnersMayPublish) return "Your mic and camera stay off until the teacher lets learners speak.";
+  if (role === "family") return "You're watching. Only the teacher and learners can speak.";
+  return null;
+}
+
 /** "4:07" / "1:02:30" for an answered call; null when it never connected. */
 export function callDuration(call: Pick<Call, "answered_at" | "ended_at">, now: Date = new Date()): string | null {
   if (!call.answered_at) return null;

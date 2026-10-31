@@ -5,7 +5,7 @@ This covers the school bus feature: the live map for drivers, parents, teachers 
 ## TL;DR
 
 - **Web** (`apps/web`) has one shared live map, `LiveRouteMap` (`components/fleet/`). The driver, parent, teacher and admin screens, and the trip replay, all draw on it. Provider: **Google Maps**, via `@vis.gl/react-google-maps`.
-- **Mobile** (`apps/mobile`, the parent's Bus tab, FIG-874) has a deliberately leaner map: bus + numbered stops + a straight line through them, no road-snapping, no satellite/traffic toggle, no glide animation. Provider: **`react-native-maps`** (Apple Maps on iOS, Google Maps SDK on Android). No Leaflet or Mapbox anywhere.
+- **Mobile** (`apps/mobile`, the parent's Bus tab, FIG-874) has a leaner map: bus + numbered stops + the road the buses drive (taken from a trip that has already run the route; a straight line through the stops until one has), and the bus glides between the live positions it reports. No satellite/traffic toggle, and no Directions call from the phone. Provider: **`react-native-maps`** (Apple Maps on iOS, Google Maps SDK on Android). No Leaflet or Mapbox anywhere.
 - **Bus updates** ("on its way, arriving ~7:42", "1 km away", "at your stop", "running ~8 min late") are worked out server-side by the `bus-tick` edge function after each location ping, stored in `bus_updates`, shown live in the app, and pushed to guardians' phones.
 - One shared data layer (`packages/shared/src/fleet.ts`) feeds web and mobile. Postgres/Supabase for storage, realtime and server-side alerting.
 
@@ -33,11 +33,15 @@ This covers the school bus feature: the live map for drivers, parents, teachers 
 ## Mobile map
 
 **`apps/mobile/src/components/BusMap.tsx`** (FIG-874)
-- Renders `<MapView>` → `<Marker>` (bus, numbered stops as plain View children) → `<Polyline>` straight through the stops in travel order.
+- Renders `<MapView>` → `<Marker>` (bus, numbered stops as plain View children) → `<Polyline>`: the road path when it has one (the `path` prop), otherwise straight through the stops in travel order.
 - Used by `screens/parent/Bus.tsx`'s `RideCard`, one map per child's ride. The same screen shows today's bus updates (`listBusUpdates` / `subscribeBusUpdates`); push for them arrives from `bus-tick` whether or not the app is open.
 - No student-facing Bus screen exists yet, only parents get live tracking.
 - `initialRegion` is computed once on mount from the first fix and never recentred: the camera is the viewer's to pan after that.
-- The mobile driver screen (`screens/driver/Trip.tsx`) doesn't render a map; it streams location.
+- The driver's screen (`screens/driver/Trip.tsx` → `TripMap`) draws the same map with `follow` on, and streams location.
+
+**Live movement.** `Bus.tsx` subscribes to `subscribeVehiclePositions` (the same stream the teacher screen and the web map use), so the bus moves as each ping lands. A 30-second refresh stays as the safety net for a dropped connection, and a 15-second clock keeps "Updated 2 min ago" honest between pings. `BusMap` draws the bus marker once, at the first fix, and never changes its `coordinate` prop; every later position slides there natively with `animateMarkerToCoordinate`, over about as long as the bus took to report again (0.4 to 5 seconds). Changing the prop instead would re-place the marker with a jump.
+
+**The road line** (`apps/mobile/src/lib/useRouteTrace.ts`, `packages/shared/src/routeTrace.ts`). A route is stored as stops only, and a phone has no key it may safely use to ask Google for a path (see the keys table below). It doesn't need one: the path a bus has already driven *is* the road. `fetchRouteTrace` takes the newest finished trip on the route whose pings cover it, simplifies them (Douglas-Peucker, 12 m) and the map draws that. A trip counts only if it starts and ends at the route's two end stops (either way round), has at least 8 pings, never goes more than 1.5 km between two pings (a signal dropout would draw a straight line across the gap), and passes within 500 m of every stop; a bus's phone reports at least every 10 s, so an ordinary trip clears this easily. Families may read the pings of trips on their own child's route (`trips_read_family`, `vehicle_locations_read_family`), and drivers their own vehicle's, so no new table, function or key is needed. The phone keeps the path in memory and in AsyncStorage (`figbloom.routeTrace.v1.<routeId>`), shows it at once, re-checks it after a day, and drops a saved path whose ends no longer match the stops (the school moved one). A route that no finished trip has covered yet, or whose trips are always ended early, is drawn as the straight line through its stops until one is. If we ever want a planned road before any bus has run it, the place for that is a server-side Routes API call cached in the database (the `GOOGLE_MAPS_SERVER_KEY` path `bus-tick` already uses), not a key in the app.
 
 ## Config: three separate keys
 
@@ -102,6 +106,7 @@ This logic lives entirely in SQL: the map UI only displays alerts and lets admin
 
 - `react-native-maps` (needs play-services-location 21.3.0) and `react-native-geolocation-service` (defaults to 18.0.0) share one copy of Google's location library at runtime, the newer one. The driver's GPS library must be compiled against the same version, which `playServicesLocationVersion` in `apps/mobile/android/build.gradle` does. Without it the first location request crashes the app with `IncompatibleClassChangeError: Found interface ...FusedLocationProviderClient, but class was expected`.
 - No background tracking beyond the foreground: web only tracks while the driver's tab is open; mobile uses an Android foreground service (required by Android for background location), not a paid background-tracking SDK.
+- Don't switch off marker redrawing on `BusMap`'s markers (`tracksViewChanges={false}`, on a timer) to save work while the bus glides: on Android it froze half-drawn bitmaps, and the stop numbers, the 🚌 and the white ring all vanished. The markers redraw on each render as before; that cost has not been measured on a mid-range phone.
 - Routes are discrete stop points, not polylines. The admin stop editor (`Fleet.tsx` → `StopsEditor`) replaces the whole stop list on save (delete-all-then-insert) rather than diffing. Changing a stop changes the cache key, so the road path is fetched again.
 - RLS, not the map component, enforces that a parent only sees their own child's bus.
 - Ambient `google.maps.*` types come from `@vis.gl/react-google-maps`'s `<APIProvider>`/`useMapsLibrary`. If you hit type errors, check whether `@types/google.maps` needs adding.
@@ -120,7 +125,9 @@ This logic lives entirely in SQL: the map UI only displays alerts and lets admin
 | `apps/web/src/screens/parent/Bus.tsx` | Parent "where's my child's bus" view |
 | `apps/web/src/screens/driver/Trip.tsx` | Web driver GPS reporting, with the map |
 | `apps/mobile/src/screens/driver/locationTask.ts` | Mobile background GPS collection |
-| `apps/mobile/src/components/BusMap.tsx` | Mobile's lean live map (bus + stops + line) |
+| `apps/mobile/src/components/BusMap.tsx` | Mobile's lean live map (bus gliding between pings, stops, road line) |
+| `apps/mobile/src/lib/useRouteTrace.ts` | The road path for a route on the phone: cached, re-checked daily |
+| `packages/shared/src/routeTrace.ts` | Picks and simplifies a finished trip as a route's road path (pure, tested) |
 | `apps/mobile/src/screens/parent/Bus.tsx` | Parent "where's my child's bus" view (mobile) |
 | `packages/shared/src/fleet.ts` | All fleet queries/mutations (ping, list, subscribe, updates, alerts) |
 | `packages/shared/src/queue.ts` + `apps/web/src/lib/queue.ts` | Offline write queue for GPS pings |

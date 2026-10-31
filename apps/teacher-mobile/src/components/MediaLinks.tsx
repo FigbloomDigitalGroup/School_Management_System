@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Linking, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Linking, Text, View } from "react-native";
 import { FileText, Image as ImageIcon, Link2, Music, PlayCircle, type LucideIcon } from "lucide-react-native";
 import {
   fetchAttachments, mediaSummary, openableUrl, type AttachmentOwner, type MaterialKind, type MediaItem,
 } from "@figbloom/shared";
-import { s, t } from "../theme";
+import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * Files and links from a teacher or the school: a worksheet, a lesson
@@ -22,6 +23,7 @@ const KIND_ICON: Record<MaterialKind, LucideIcon> = {
 };
 
 export function MediaRow({ item, tint }: { item: MediaItem; tint: string }) {
+  const { t, s, accentInk } = useTheme();
   const [opening, setOpening] = useState(false);
   const [failed, setFailed] = useState(false);
   const Icon = KIND_ICON[item.kind];
@@ -39,7 +41,7 @@ export function MediaRow({ item, tint }: { item: MediaItem; tint: string }) {
   }
 
   return (
-    <TouchableOpacity
+    <Tap
       accessibilityRole="link"
       accessibilityLabel={`Open ${item.title}`}
       disabled={opening}
@@ -47,20 +49,21 @@ export function MediaRow({ item, tint }: { item: MediaItem; tint: string }) {
       style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44, paddingVertical: 6 }}
     >
       <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: t.appSurface.page, alignItems: "center", justifyContent: "center" }}>
-        <Icon color={tint} size={17} />
+        <Icon color={accentInk(tint)} size={17} />
       </View>
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "600", color: t.appSurface.ink }}>{item.title}</Text>
-        <Text numberOfLines={1} style={[s.faint, { marginTop: 2, color: failed ? "#B4472B" : t.appSurface.inkFaint }]}>
+        <Text numberOfLines={1} style={[s.faint, { marginTop: 2, color: failed ? t.status.badText : t.appSurface.inkFaint }]}>
           {failed ? "Could not open it. Check your connection and try again." : mediaSummary(item)}
         </Text>
       </View>
-      {opening ? <ActivityIndicator color={tint} /> : <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Open</Text>}
-    </TouchableOpacity>
+      {opening ? <ActivityIndicator color={accentInk(tint)} /> : <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Open</Text>}
+    </Tap>
   );
 }
 
 export function MediaLinks({ items, tint, heading = "ATTACHED" }: { items: MediaItem[]; tint: string; heading?: string }) {
+  const { s } = useTheme();
   if (!items.length) return null;
   return (
     <View style={{ marginTop: 10 }}>

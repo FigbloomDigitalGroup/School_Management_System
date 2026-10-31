@@ -36,7 +36,7 @@ export async function mayNotify(admin: any, caller: { id: string; role: string; 
   return caller.role === "school_admin" || await holdsArea(admin, caller, tenantId, "medical");
 }
 
-interface Notice { id: string; profile_id: string; title: string; body: string }
+interface Notice { id: string; profile_id: string; student_id: string; title: string; body: string }
 
 export async function handle(req: Request, { admin, asUser, account = serviceAccountFromEnv() }: Deps, fetchImpl: typeof fetch = fetch, now = new Date()): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
@@ -65,7 +65,7 @@ export async function handle(req: Request, { admin, asUser, account = serviceAcc
     .update({ pushed_at: now.toISOString() })
     .eq("visit_id", visit.id).is("pushed_at", null)
     .gte("created_at", new Date(now.getTime() - FRESH_MS).toISOString())
-    .select("id, profile_id, title, body");
+    .select("id, profile_id, student_id, title, body");
   if (error) return json(failure("medical-notify", "read the notices to send", error), 500);
   const notices = (claimed ?? []) as Notice[];
   if (!notices.length) return json({ sent: 0, failed: 0 });
@@ -83,7 +83,10 @@ export async function handle(req: Request, { admin, asUser, account = serviceAcc
     for (const n of notices) {
       for (const t of tokens.filter((t) => t.profile_id === n.profile_id)) {
         // one notification per visit: "resting" is replaced by "sent home"
-        const r = await sendToToken(fetchImpl, account.project_id, accessToken, t.token, n.title, n.body, { tag: `sick-bay-${visit.id}` });
+        // a tap opens the parent's Health screen, on the child the notice is about
+        const r = await sendToToken(fetchImpl, account.project_id, accessToken, t.token, n.title, n.body, {
+          tag: `sick-bay-${visit.id}`, data: { type: "health", visit_id: String(visit.id), student_id: String(n.student_id) },
+        });
         if (r.ok) sent++;
         else {
           failed++;

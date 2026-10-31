@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 import { mimeForFile, safeFileName } from "./materials";
 import type { Role } from "./types";
+import { uploadFile } from "./storageUpload";
+import type { UploadableFile } from "./uploads";
 
 /**
  * One-to-one chats between families and the school, and between staff
@@ -257,10 +259,14 @@ export async function sendChatMessage(conversationId: string, body: string | nul
 
 /** Puts a file in the conversation's folder before its message is sent. */
 export async function uploadChatFile(tenantId: string, conversationId: string, file: Blob & { name: string }, mimeType: string): Promise<ChatFileDraft> {
+  return uploadChatBlob(tenantId, conversationId, { blob: file, name: file.name, mimeType });
+}
+
+/** The same, for a file the phone has read into a Blob (React Native has no File to give a name). */
+export async function uploadChatBlob(tenantId: string, conversationId: string, file: UploadableFile): Promise<ChatFileDraft> {
   const path = chatFilePath(tenantId, conversationId, file.name);
-  const { error } = await supabase().storage.from(CHAT_FILES_BUCKET).upload(path, file, { contentType: mimeType, upsert: false });
-  if (error) throw new Error(error.message);
-  return { path, name: file.name, mimeType, sizeBytes: file.size };
+  await uploadFile(CHAT_FILES_BUCKET, path, file);
+  return { path, name: file.name, mimeType: file.mimeType, sizeBytes: file.blob.size };
 }
 
 /** Takes back a file whose message never got sent. */

@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import type { Weekday } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 const DAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_LABEL: Record<Weekday, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
@@ -10,6 +12,7 @@ const TODAY: Weekday = DAYS[(new Date().getDay() + 6) % 7] ?? "Mon";
 
 /** One day at a time — a phone has no room for the desktop's full-week grid. */
 export function StudentTimetable() {
+  const { t, s, accentInk } = useTheme();
   const { data, timetable, accent } = useStudentData();
   const a = accentFor(accent);
   const [day, setDay] = useState<Weekday>(TODAY);
@@ -26,7 +29,7 @@ export function StudentTimetable() {
         {DAYS.map((d) => {
           const on = d === day;
           return (
-            <TouchableOpacity
+            <Tap
               key={d}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
@@ -38,7 +41,7 @@ export function StudentTimetable() {
               }}
             >
               <Text style={{ fontSize: 12.5, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{d}</Text>
-            </TouchableOpacity>
+            </Tap>
           );
         })}
       </View>
@@ -52,9 +55,9 @@ export function StudentTimetable() {
           rows.map(([time, subject, room, teacher], i) => (
             <View key={`${time}-${i}`} style={[s.card, { marginBottom: 8, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }]}>
               <Text style={[s.mono, { width: 44, color: t.appSurface.inkMuted }]}>{time}</Text>
-              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: a.hex }} />
+              <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: accentInk(a.hex) }} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: "500" }}>{subject}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "500" }}>{subject}</Text>
                 {!!(room || teacher) && <Text style={s.faint}>{[room, teacher].filter(Boolean).join(" · ")}</Text>}
               </View>
             </View>

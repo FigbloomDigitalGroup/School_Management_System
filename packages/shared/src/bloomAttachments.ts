@@ -79,6 +79,29 @@ export function checkChatAttachment(
   return null;
 }
 
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/**
+ * Bytes as base64 (RFC 4648, padded), for a file that goes to Bloom as `data`.
+ * Our own rather than btoa: the phone apps' JS engine isn't guaranteed to have
+ * it, and a file is read as bytes there, not as a string.
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
+  const out: string[] = [];
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1];
+    const c = bytes[i + 2];
+    const n = (a << 16) | ((b ?? 0) << 8) | (c ?? 0);
+    out.push(
+      BASE64[(n >> 18) & 63]!, BASE64[(n >> 12) & 63]!,
+      b === undefined ? "=" : BASE64[(n >> 6) & 63]!,
+      c === undefined ? "=" : BASE64[n & 63]!,
+    );
+  }
+  return out.join("");
+}
+
 /** How a saved question shows its files: "📎 Lesson plan.docx". */
 export function attachmentLabel(name: string): string {
   return `📎 ${name}`;

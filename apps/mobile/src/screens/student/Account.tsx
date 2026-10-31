@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { supabase } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { FingerprintSetting } from "../../components/FingerprintSetting";
+import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
+import { Tap } from "../../ui/Tap";
+import { AppearanceSetting } from "../../ui/AppearanceSetting";
+import { useTheme } from "../../ui/ThemeContext";
 
 interface Profile {
   fullName: string;
@@ -12,6 +17,7 @@ interface Profile {
 
 /** A student's only way to sign out — mirrors the parent app's Account tab. */
 export function StudentAccount() {
+  const { t, s } = useTheme();
   const { data, accent } = useStudentData();
   const a = accentFor(accent);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -58,12 +64,17 @@ export function StudentAccount() {
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <View style={s.card}>
           {profile ? <Text style={s.h2}>{profile.fullName}</Text>
-            : error ? <Text style={[s.small, { color: "#B4472B" }]}>{error}</Text>
+            : error ? <Text style={[s.small, { color: t.status.badText }]}>{error}</Text>
             : <Skeleton width="55%" height={15} style={{ marginVertical: 2 }} />}
           <Text style={[s.small, { marginTop: 4 }]}>{data.className}</Text>
         </View>
 
-        <TouchableOpacity
+        <AppearanceSetting tint={a.deep} />
+        <FingerprintSetting tint={a.deep} />
+
+        <PrivacyLinks tint={a.deep} />
+
+        <Tap
           accessibilityRole="button"
           disabled={signingOut}
           onPress={signOut}
@@ -72,7 +83,7 @@ export function StudentAccount() {
           <Text style={{ fontSize: 15, fontWeight: "600", color: t.status.warnInk }}>
             {signingOut ? "Signing out…" : "Sign out"}
           </Text>
-        </TouchableOpacity>
+        </Tap>
       </ScrollView>
     </View>
   );

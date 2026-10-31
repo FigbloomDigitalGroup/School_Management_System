@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { fetchClassMaterials, groupBySubject, type MaterialRow } from "@figbloom/shared";
-import { accentFor, s } from "../../theme";
+import { accentFor } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { MediaRow } from "../../components/MediaLinks";
+import { BackLink } from "../../ui/BackLink";
+import { useTheme } from "../../ui/ThemeContext";
 
 /**
  * A class's published learning materials, by subject. Read-only: a tap
@@ -20,6 +22,7 @@ export function MaterialsScreen({ classId, tint, title, sub, emptyText, headerRi
   emptyText: string;
   headerRight?: ReactNode;
 }) {
+  const { s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const [items, setItems] = useState<MaterialRow[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -38,9 +41,7 @@ export function MaterialsScreen({ classId, tint, title, sub, emptyText, headerRi
   return (
     <View style={s.screen}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <TouchableOpacity accessibilityRole="button" onPress={() => nav.goBack()} style={{ paddingVertical: 6, marginBottom: 4 }}>
-          <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 13.5, fontWeight: "600" }}>‹ Back</Text>
-        </TouchableOpacity>
+        <BackLink onPress={() => nav.goBack()} />
         <View style={[s.row, { justifyContent: "space-between" }]}>
           <View style={{ flex: 1 }}>
             <Text style={s.headerTitle}>{title}</Text>
@@ -55,7 +56,7 @@ export function MaterialsScreen({ classId, tint, title, sub, emptyText, headerRi
           failed ? (
             <View style={s.card}><Text style={s.small}>Could not load learning materials. Check your connection and try again.</Text></View>
           ) : (
-            <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+            <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
           )
         ) : items.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>

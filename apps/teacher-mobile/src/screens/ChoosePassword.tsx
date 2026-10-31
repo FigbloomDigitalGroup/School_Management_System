@@ -1,7 +1,13 @@
-import { useState } from "react";
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useRef, useState } from "react";
+import { ScrollView, Text, TextInput } from "react-native";
 import { setMyPassword, supabase } from "@figbloom/shared";
-import { HIT, s, t } from "../theme";
+import { fontSize } from "../theme";
+import { Button } from "../ui/Button";
+import { Field } from "../ui/Field";
+import { useTheme } from "../ui/ThemeContext";
+
+/** Which field an error belongs to, so it is shown under that field and not as a line of its own. */
+type Problem = { on: "password" | "confirm" | "form"; text: string };
 
 /**
  * The password the school handed over is only for getting in the first
@@ -15,82 +21,73 @@ export function ChoosePassword({ profileId, fullName, loginId, onDone }: {
   loginId: string | null;
   onDone: () => void;
 }) {
+  const { t, s } = useTheme();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [problem, setProblem] = useState<Problem | null>(null);
   const [busy, setBusy] = useState(false);
+  const confirmRef = useRef<TextInput>(null);
 
   async function submit() {
-    setError("");
-    if (password.length < 8) { setError("At least 8 characters."); return; }
-    if (password !== confirm) { setError("The passwords don't match."); return; }
+    setProblem(null);
+    if (password.length < 8) { setProblem({ on: "password", text: "At least 8 characters." }); return; }
+    if (password !== confirm) { setProblem({ on: "confirm", text: "The passwords don't match." }); return; }
     setBusy(true);
     try {
       await setMyPassword(profileId, password);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not set the password.");
+      setProblem({ on: "form", text: err instanceof Error ? err.message : "Could not set the password." });
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <View style={[s.screen, { justifyContent: "center", padding: 24 }]}>
-      <Text style={{ fontSize: 22, fontWeight: "700", textAlign: "center" }}>Welcome, {fullName.split(" ")[0]}</Text>
+    <ScrollView
+      style={s.screen}
+      contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ fontSize: fontSize.header, fontWeight: "700", textAlign: "center", color: t.appSurface.ink }}>Welcome, {fullName.split(" ")[0]}</Text>
       <Text style={[s.small, { textAlign: "center", marginTop: 4, marginBottom: 24 }]}>
         The password you were given is only for signing in the first time. Choose one only you know
         {loginId ? ` — you'll use it with ${loginId} from now on.` : "."}
       </Text>
 
-      <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>New password</Text>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <TextInput
-          secureTextEntry={!showPassword}
-          autoComplete="new-password"
-          value={password}
-          onChangeText={setPassword}
-          style={[fieldStyle(false), { flex: 1 }]}
-        />
-        <TouchableOpacity accessibilityRole="button" onPress={() => setShowPassword((v) => !v)} style={{ ...HIT, marginLeft: 8, justifyContent: "center" }}>
-          <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.appSurface.inkMuted }}>{showPassword ? "Hide" : "Show"}</Text>
-        </TouchableOpacity>
-      </View>
-      <Text style={[s.faint, { marginTop: 6 }]}>At least 8 characters.</Text>
-
-      <Text style={[s.small, { fontWeight: "600", marginTop: 14, marginBottom: 6 }]}>Type it again</Text>
-      <TextInput
-        secureTextEntry={!showPassword}
+      <Field
+        label="New password"
+        secret
         autoComplete="new-password"
-        value={confirm}
-        onChangeText={setConfirm}
-        style={fieldStyle(!!error)}
+        returnKeyType="next"
+        submitBehavior="submit"
+        value={password}
+        onChangeText={(v) => { setPassword(v); if (problem?.on === "password") setProblem(null); }}
+        onSubmitEditing={() => confirmRef.current?.focus()}
+        hint="At least 8 characters."
+        error={problem?.on === "password" ? problem.text : undefined}
       />
 
-      {!!error && <Text style={{ fontSize: 11.5, color: t.status.warnInk, marginTop: 8 }}>{error}</Text>}
+      <Field
+        ref={confirmRef}
+        label="Type it again"
+        secret
+        autoComplete="new-password"
+        returnKeyType="go"
+        value={confirm}
+        onChangeText={(v) => { setConfirm(v); if (problem?.on === "confirm") setProblem(null); }}
+        onSubmitEditing={() => { if (password && confirm && !busy) void submit(); }}
+        error={problem?.on === "confirm" ? problem.text : undefined}
+        style={{ marginTop: 14 }}
+      />
 
-      <TouchableOpacity
-        accessibilityRole="button"
-        disabled={busy || !password || !confirm}
-        onPress={submit}
-        style={[s.primary, { backgroundColor: t.brand.orange, marginTop: 20, opacity: busy || !password || !confirm ? 0.6 : 1 }]}
-      >
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Save and continue</Text>}
-      </TouchableOpacity>
+      {problem?.on === "form" && (
+        <Text accessibilityLiveRegion="polite" style={{ fontSize: fontSize.caption, color: t.status.warnInk, marginTop: 8 }}>{problem.text}</Text>
+      )}
 
-      <TouchableOpacity accessibilityRole="button" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ ...HIT, alignSelf: "center", justifyContent: "center", marginTop: 12 }}>
-        <Text style={{ fontSize: 13, fontWeight: "600", color: t.appSurface.inkMuted }}>Not you? Sign out</Text>
-      </TouchableOpacity>
-    </View>
+      <Button label="Save and continue" loading={busy} disabled={!password || !confirm} onPress={submit} style={{ marginTop: 20 }} />
+
+      <Button variant="quiet" tint={t.appSurface.inkMuted} label="Not you? Sign out" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ alignSelf: "center", marginTop: 12 }} />
+    </ScrollView>
   );
 }
-
-const fieldStyle = (hasError: boolean) => ({
-  ...HIT,
-  borderWidth: 1,
-  borderColor: hasError ? t.status.warnInk : t.appSurface.line,
-  borderRadius: 12,
-  paddingHorizontal: 14,
-  fontSize: 15,
-});

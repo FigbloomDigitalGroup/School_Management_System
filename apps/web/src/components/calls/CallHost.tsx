@@ -1,7 +1,7 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  CALL_RING_SECONDS, endLiveClass, isRingExpired, joinCall, joinLiveClass, muteAllLearners, setCallStatus, setLearnersMayPublish,
-  startCall, startLiveClass, subscribeMyCalls,
+  CALL_RING_SECONDS, endLiveClass, isRingExpired, joinCall, joinLiveClass, liveClassNotice, liveClassSubtitle, muteAllLearners,
+  ringLeftMs, setCallStatus, setLearnersMayPublish, startCall, startLiveClass, subscribeMyCalls,
   type Call, type LiveClass, type LiveClassRole, type RoomPass,
 } from "@figbloom/shared";
 import { useToast } from "../ui/Toast";
@@ -97,8 +97,7 @@ export function CallHost({ profileId, children }: { profileId: string; children:
 
   useEffect(() => {
     if (!incoming) return;
-    const left = CALL_RING_SECONDS * 1000 - (Date.now() - new Date(incoming.created_at).getTime());
-    const id = window.setTimeout(() => setIncoming((prev) => (prev?.id === incoming.id ? null : prev)), Math.max(0, left));
+    const id = window.setTimeout(() => setIncoming((prev) => (prev?.id === incoming.id ? null : prev)), ringLeftMs(incoming));
     return () => window.clearTimeout(id);
   }, [incoming]);
 
@@ -198,12 +197,10 @@ export function CallHost({ profileId, children }: { profileId: string; children:
             <CallRoom
               pass={active.pass}
               title={active.live.title}
-              subtitle={active.role === "host" ? "You're teaching this live class" : "Live class"}
+              subtitle={liveClassSubtitle(active.role)}
               audio={active.role === "host"}
               video={active.role === "host"}
-              notice={active.role === "learner" && !active.live.learners_may_publish
-                ? "Your mic and camera stay off until the teacher lets learners speak."
-                : active.role === "family" ? "You're watching. Only the teacher and learners can speak." : null}
+              notice={liveClassNotice(active.role, active.live.learners_may_publish)}
               toolbar={active.role === "host" ? (
                 <HostControls
                   live={active.live}

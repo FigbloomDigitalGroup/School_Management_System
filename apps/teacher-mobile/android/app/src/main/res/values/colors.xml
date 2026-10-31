@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- appSurface.page in packages/shared/src/tokens.ts, light. -->
+    <color name="app_page">#FBF9F9</color>
+</resources>

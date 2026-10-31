@@ -1,15 +1,15 @@
 import { useState } from "react";
 import {
-  COUNTING_LABEL, PAPER_KIND_LABEL, canStartSitting, fetchClassPapers, fetchLearnerExamStates, fetchPaperText, fetchPaperTotals,
-  fetchReleasedAttempts, paperWindow, scoreLabel, windowLabel,
-  type AttemptRow, type ExamPaperRow, type LearnerExamState,
+  COUNTING_LABEL, PAPER_KIND_LABEL, canStartPaper, fetchPaperText, loadStudentPapers, paperResitWaiting, paperStanding, paperWindow,
+  scoreLabel, studentWindow, windowLabel,
+  type AttemptRow, type ExamPaperRow, type StudentPaper,
 } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useAsync } from "../../lib/useAsync";
 import { privateDocUrl } from "../../lib/uploads";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, EmptyState } from "../../components/ui/DataTable";
-import { Badge, type Tone } from "../../components/ui/Badge";
+import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -17,48 +17,6 @@ import { ExamSitting } from "./ExamSitting";
 import { confirmDialog } from "../../components/ui/Confirm";
 
 type Tab = "Coming up" | "Done";
-
-interface PaperView {
-  paper: ExamPaperRow;
-  /** This learner's own terms (extensions, resits) and where they stand: online papers only. */
-  state: LearnerExamState | undefined;
-  result: AttemptRow | undefined;
-  total: number | undefined;
-}
-
-/** The window this learner sits in: their own where their teacher gave them one, else the paper's. */
-const windowOf = (v: PaperView) => (v.state ? { opensAt: v.state.terms.opensAt, closesAt: v.state.terms.closesAt } : v.paper);
-
-/** Whether this learner can start a sitting now: their first, or a resit. */
-function canStart(v: PaperView, now: number): boolean {
-  const s = v.state;
-  if (!s) return false;
-  return canStartSitting({
-    terms: { ...s.terms, durationMinutes: v.paper.durationMinutes },
-    attemptsUsed: s.attemptsUsed, lastSubmitted: !!s.submittedAt, excused: s.status === "excused", nowMs: now,
-  });
-}
-
-/** A resit granted and not started yet. */
-const resitWaiting = (v: PaperView) => !!v.state && v.state.attemptsUsed > 0 && !!v.state.submittedAt && v.state.attemptsUsed < v.state.terms.attemptsAllowed;
-
-/** Where a paper stands for this learner, in one word. Missed and excused are never shown as a score. */
-function stateOf(v: PaperView, now: number): { label: string; tone: Tone; done: boolean } {
-  const w = paperWindow(windowOf(v), now);
-  if (v.paper.mode === "read") {
-    if (v.result) return { label: "Results out", tone: "ok", done: true };
-    return w === "upcoming" ? { label: "Coming up", tone: "info", done: false } : w === "open" ? { label: "Open", tone: "warn", done: false } : { label: "Closed", tone: "muted", done: true };
-  }
-  const status = v.state?.status;
-  if (status === "in_progress") return { label: "In progress", tone: "warn", done: false };
-  if (resitWaiting(v) && w !== "closed") return canStart(v, now) ? { label: "Resit open", tone: "warn", done: false } : { label: "Resit coming up", tone: "info", done: false };
-  if (v.result) return { label: "Results out", tone: "ok", done: true };
-  if (status === "excused") return { label: "Excused", tone: "muted", done: true };
-  if (status === "submitted" || status === "marked") return { label: "Handed in", tone: "muted", done: true };
-  if (status === "missed" || w === "closed") return { label: "Missed", tone: "muted", done: true };
-  if (w === "upcoming") return { label: "Coming up", tone: "info", done: false };
-  return { label: "Open now", tone: "warn", done: false };
-}
 
 /**
  * Exam papers and tests for this learner's class. A read-only paper opens as
@@ -75,11 +33,7 @@ export function StudentExams() {
 
   const { data, loading, error } = useAsync(async () => {
     if (!student?.classId) return null;
-    const [papers, states, results] = await Promise.all([
-      fetchClassPapers(student.classId), fetchLearnerExamStates(student.studentId), fetchReleasedAttempts(student.studentId),
-    ]);
-    const totals = await fetchPaperTotals(papers.filter((p) => results.has(p.id)).map((p) => p.id));
-    return papers.map((paper): PaperView => ({ paper, state: states.get(paper.id), result: results.get(paper.id), total: totals.get(paper.id) }));
+    return loadStudentPapers(student.classId, student.studentId);
   }, [student?.classId, student?.studentId, reloadKey]);
 
   const fail = studentError ?? error;
@@ -95,7 +49,7 @@ export function StudentExams() {
 
   const now = Date.now();
   const views = data ?? [];
-  const states = new Map(views.map((v) => [v.paper.id, stateOf(v, now)]));
+  const states = new Map(views.map((v) => [v.paper.id, paperStanding(v, now)]));
   const coming = views.filter((v) => !states.get(v.paper.id)!.done).sort((a, b) => a.paper.opensAt.localeCompare(b.paper.opensAt));
   const done = views.filter((v) => states.get(v.paper.id)!.done);
   const rows = tab === "Done" ? done : coming;
@@ -138,9 +92,9 @@ export function StudentExams() {
                 </div>
               }
               columns={[
-                { key: "title", header: "Paper", width: "1.8fr", render: (v: PaperView) => <Cell sub={`${PAPER_KIND_LABEL[v.paper.kind]} · ${v.paper.subjectName}`}>{v.paper.title}</Cell> },
-                { key: "when", header: "When", width: "1.4fr", render: (v: PaperView) => <span className="text-[12px] text-ink-muted">{windowLabel(windowOf(v), now)}</span> },
-                { key: "state", header: "", align: "right", width: "0.8fr", render: (v: PaperView) => <Badge tone={states.get(v.paper.id)!.tone}>{states.get(v.paper.id)!.label}</Badge> },
+                { key: "title", header: "Paper", width: "1.8fr", render: (v: StudentPaper) => <Cell sub={`${PAPER_KIND_LABEL[v.paper.kind]} · ${v.paper.subjectName}`}>{v.paper.title}</Cell> },
+                { key: "when", header: "When", width: "1.4fr", render: (v: StudentPaper) => <span className="text-[12px] text-ink-muted">{windowLabel(studentWindow(v), now)}</span> },
+                { key: "state", header: "", align: "right", width: "0.8fr", render: (v: StudentPaper) => <Badge tone={states.get(v.paper.id)!.tone}>{states.get(v.paper.id)!.label}</Badge> },
               ]}
               rows={rows}
               rowKey={(v) => v.paper.id}
@@ -175,19 +129,19 @@ export function StudentExams() {
 }
 
 function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
-  view: PaperView;
+  view: StudentPaper;
   now: number;
   onOpenFile: () => void;
   onSit: () => void;
   onReview: () => void;
 }) {
   const { paper, state, result, total } = view;
-  const win = windowOf(view);
+  const win = studentWindow(view);
   const w = paperWindow(win, now);
   const ownWindow = win.opensAt !== paper.opensAt || win.closesAt !== paper.closesAt;
   const extra = state?.terms.extraMinutes ?? 0;
   const minutes = paper.durationMinutes ? paper.durationMinutes + extra : null;
-  const startable = canStart(view, now);
+  const startable = canStartPaper(view, now);
   const resit = (state?.attemptsUsed ?? 0) > 0;
   const isOpen = w !== "upcoming";
   const { data: text } = useAsync(
@@ -257,7 +211,7 @@ function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
         <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ok-ink text-[11px] text-white">✓</span>
           <span className="text-small leading-relaxed text-ok-ink">
-            Handed in. {resitWaiting(view) && w === "upcoming" ? "Your resit opens at the time above. " : ""}Your score appears here once your teacher releases the results.
+            Handed in. {paperResitWaiting(view) && w === "upcoming" ? "Your resit opens at the time above. " : ""}Your score appears here once your teacher releases the results.
           </span>
         </div>
       ) : w === "upcoming" ? (

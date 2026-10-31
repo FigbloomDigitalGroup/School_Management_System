@@ -16,6 +16,13 @@ import { signatureDate, strokeBounds, strokesToSvgPath, type Stroke } from "./si
 
 export interface PdfLogo { bytes: Uint8Array; type: "png" | "jpg" }
 
+/** A downloaded logo as the PDF can use it: PNG or JPEG, told by the file's own first bytes. Anything else (SVG, WebP, an error page) is null. */
+export function logoFromBytes(bytes: Uint8Array): PdfLogo | null {
+  if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return { bytes, type: "png" };
+  if (bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { bytes, type: "jpg" };
+  return null;
+}
+
 /** A signature to stamp on a card's signature line (signatures.ts). */
 export interface PdfSignature {
   fullName: string;
