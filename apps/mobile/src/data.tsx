@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeCharge, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
-import { accentFor, t } from "./theme";
+import { accentFor } from "./theme";
+import { useTheme } from "./ui/ThemeContext";
 
 /**
  * Real parent data — one Supabase query (shared with web), cached to
@@ -85,6 +86,7 @@ interface Ctx {
 const ParentDataCtx = createContext<Ctx | null>(null);
 
 export function ParentDataProvider({ profileId, accent, country, tenantId, children }: { profileId: string; accent: string; country: string; tenantId: string; children: ReactNode }) {
+  const { t } = useTheme();
   const [data, setData] = useState<ParentData | null>(null);
   const [index, setIndex] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
@@ -140,7 +142,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
   if (data.children.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: t.appSurface.page }}>
-        <Text style={{ fontSize: 15, fontWeight: "600", textAlign: "center" }}>No students linked to this account yet</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600", textAlign: "center" }}>No students linked to this account yet</Text>
         <Text style={{ fontSize: 13, color: t.appSurface.inkMuted, textAlign: "center", marginTop: 8 }}>
           Contact the school office to link your child.
         </Text>

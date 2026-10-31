@@ -1,7 +1,7 @@
 import { Linking, Text, View } from "react-native";
 import { DELETE_ACCOUNT_URL, PRIVACY_POLICY_URL } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 const ROWS = [
   { label: "Privacy policy", note: "What the app collects, and why.", url: PRIVACY_POLICY_URL },
@@ -14,6 +14,7 @@ const ROWS = [
  * the phone's browser, so what is read there is always the current page.
  */
 export function PrivacyLinks({ tint }: { tint: string }) {
+  const { t, s, accentInk } = useTheme();
   return (
     <>
       <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Your data</Text>
@@ -30,10 +31,10 @@ export function PrivacyLinks({ tint }: { tint: string }) {
             }}
           >
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{r.label}</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>{r.label}</Text>
               <Text style={s.faint}>{r.note}</Text>
             </View>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Open</Text>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Open</Text>
           </Tap>
         ))}
       </View>

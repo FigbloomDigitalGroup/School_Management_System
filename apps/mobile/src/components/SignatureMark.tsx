@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { CAPACITY_LABEL, SIGNATURE_BOX, signatureDate, strokeBounds, strokesToSvgPath, type StoredSignature } from "@figbloom/shared";
-import { s, t } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 const INK = "#14296B";
 
@@ -32,6 +32,7 @@ export function SignatureInk({ signature, height = 40 }: { signature: Pick<Store
  * than looking signed.
  */
 export function SignatureMark({ signature }: { signature: StoredSignature }) {
+  const { t, s } = useTheme();
   return (
     <View style={{ alignSelf: "flex-start", minWidth: 200 }}>
       <View style={{ height: 44, justifyContent: "flex-end", borderBottomWidth: 1, borderBottomColor: "rgba(34,26,27,0.4)", paddingBottom: 2 }}>
@@ -48,6 +49,7 @@ export function SignatureMark({ signature }: { signature: StoredSignature }) {
 
 /** A receipt's signature under its row: the mark, then who and when. "Not signed" when it isn't. */
 export function ReceiptSignature({ signature }: { signature: StoredSignature | undefined }) {
+  const { s } = useTheme();
   if (!signature) return <Text style={[s.faint, { marginTop: 6 }]}>Not signed</Text>;
   return (
     <View style={{ marginTop: 6 }}>

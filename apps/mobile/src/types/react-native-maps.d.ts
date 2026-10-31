@@ -14,8 +14,17 @@ import type { StyleProp, ViewStyle } from "react-native";
 export interface LatLng { latitude: number; longitude: number }
 export interface Region extends LatLng { latitudeDelta: number; longitudeDelta: number }
 
+/** One rule of a Google Maps style: which features, which part of them, and what to do to it. */
+export interface MapStyleElement {
+  featureType?: string;
+  elementType?: string;
+  stylers: Record<string, string | number | boolean>[];
+}
+
 export interface MapViewProps {
   style?: StyleProp<ViewStyle>;
+  /** A Google Maps style (Android and Google-provider iOS): the dark theme passes a night style. */
+  customMapStyle?: MapStyleElement[];
   initialRegion?: Region;
   region?: Region;
   pitchEnabled?: boolean;

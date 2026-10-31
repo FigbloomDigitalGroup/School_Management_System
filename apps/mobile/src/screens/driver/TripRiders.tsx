@@ -5,8 +5,8 @@ import {
   type ArrangedRider, type QueuedWrite, type RiderStatus, type Trip, type TripRider,
 } from "@figbloom/shared";
 import { queue } from "../../storage";
-import { s, t } from "../../theme";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 const PLACE_NOTE: Record<ArrangedRider["place"], string | null> = {
   on_bus: "On the bus",
@@ -44,6 +44,7 @@ export function TripRiders({ trip, tenantId, stops, tint }: {
   stops: { id: string; name: string }[];
   tint: string;
 }) {
+  const { t, s, accentInk } = useTheme();
   const [riders, setRiders] = useState<TripRider[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -155,7 +156,7 @@ export function TripRiders({ trip, tenantId, stops, tint }: {
       )}
 
       {!riders ? (
-        !error && <ActivityIndicator color={tint} style={{ marginVertical: 12 }} />
+        !error && <ActivityIndicator color={accentInk(tint)} style={{ marginVertical: 12 }} />
       ) : arranged.length === 0 ? (
         <Text style={s.small}>Nobody is assigned to this route yet.</Text>
       ) : (

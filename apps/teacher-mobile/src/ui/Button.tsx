@@ -1,18 +1,17 @@
 import { ActivityIndicator, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import type { LucideIcon } from "lucide-react-native";
-import { CONTROL_FONT_SCALE, fontSize, HIT, s, t } from "../theme";
+import { brand } from "@figbloom/shared";
+import { CONTROL_FONT_SCALE, fontSize, HIT, radius } from "../theme";
 import { Tap } from "./Tap";
+import { useTheme } from "./ThemeContext";
 
 /**
  * The fill of a primary button, in one place on purpose. The brand orange is a
  * design decision, not a code fix: white on #F26A1B is 3.06:1, under the 4.5:1
  * a 15px label needs. When that is settled, change this line (t.status.warnInk
- * is 5.36:1 and the same hue family).
+ * is 5.36:1 and the same hue family). The orange is the same in light and dark.
  */
-export const CTA_FILL = t.brand.orange;
-
-/** Link-style buttons use the same hue as the CTA, dark enough (5.4:1) to read as text. */
-const LINK_INK = t.status.warnInk;
+export const CTA_FILL = brand.orange;
 
 type Variant = "primary" | "secondary" | "quiet";
 
@@ -35,9 +34,11 @@ export function Button({ label, onPress, variant = "primary", tint, loading = fa
   style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
 }) {
+  const { t, s, accentInk } = useTheme();
   const inactive = disabled || loading;
   const fill = variant === "primary" ? tint ?? CTA_FILL : variant === "secondary" ? t.appSurface.lineSoft : "transparent";
-  const ink = variant === "primary" ? "#fff" : variant === "secondary" ? t.appSurface.ink : tint ?? LINK_INK;
+  // A link-style button is read as text: the CTA's hue (dark enough, 5.4:1, on light) unless it was given a tint.
+  const ink = variant === "primary" ? "#fff" : variant === "secondary" ? t.appSurface.ink : tint ? accentInk(tint) : t.status.warnInk;
 
   return (
     <Tap
@@ -61,7 +62,7 @@ export function Button({ label, onPress, variant = "primary", tint, loading = fa
 }
 
 const styles = StyleSheet.create({
-  flat: { ...HIT, borderRadius: t.radius.lg, paddingVertical: 15, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
+  flat: { ...HIT, borderRadius: radius.lg, paddingVertical: 15, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
   content: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   hidden: { opacity: 0 },
   spinner: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },

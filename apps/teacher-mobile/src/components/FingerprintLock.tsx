@@ -8,6 +8,7 @@ import {
 import { accentFor, HIT } from "../theme";
 import { RIPPLE_ON_DARK } from "../ui/color";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 /** How long the app can sit in the background before it asks for the fingerprint again. */
 const GRACE_MS = 30_000;
@@ -43,6 +44,7 @@ interface Props {
  * The choice is per profile and is dropped on sign-out, so signing in again starts with it off.
  */
 export function FingerprintLock({ profileId, accent, beforeSignOut, children }: Props) {
+  const { t } = useTheme();
   // null until the saved choice has been read: rendering the app before then would flash it on a locked phone.
   const [enabled, setEnabledState] = useState<boolean | null>(null);
   const [locked, setLocked] = useState(true);
@@ -87,7 +89,7 @@ export function FingerprintLock({ profileId, accent, beforeSignOut, children }: 
 
   if (enabled === null) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.card }}>
         <ActivityIndicator size="large" color={accentFor(accent).deep} />
       </View>
     );

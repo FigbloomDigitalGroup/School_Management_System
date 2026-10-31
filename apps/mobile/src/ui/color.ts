@@ -27,10 +27,12 @@ export function luminance([r, g, b]: [number, number, number]): number {
  * dark fill, a dark one on a light fill. The line sits at 0.4, not at the
  * 0.18 where black and white labels tie, because mid-tones such as the brand
  * orange carry white labels and want the light wash. A background it can't
- * read (none, translucent, a named colour) gets the dark wash; a control that
- * sits on a dark surface without a fill of its own passes `ripple` itself.
+ * read (none, translucent, a named colour) gets `fallback`: the dark wash by
+ * default, and the light one for a bare control on a dark page. A fill it can
+ * read always wins, so a white button on a dark page still gets the dark wash.
  */
-export function rippleFor(background: unknown): string {
+export function rippleFor(background: unknown, fallback: string = RIPPLE_ON_LIGHT): string {
   const rgb = typeof background === "string" ? parseOpaqueColor(background) : null;
-  return rgb && luminance(rgb) < 0.4 ? RIPPLE_ON_DARK : RIPPLE_ON_LIGHT;
+  if (!rgb) return fallback;
+  return luminance(rgb) < 0.4 ? RIPPLE_ON_DARK : RIPPLE_ON_LIGHT;
 }

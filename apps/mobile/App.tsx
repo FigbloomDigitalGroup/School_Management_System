@@ -12,6 +12,7 @@ import { stopLocationTracking } from "./src/screens/driver/locationTask";
 import { SignIn } from "./src/screens/SignIn";
 import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
+import { ThemeProvider, useTheme } from "./src/ui/ThemeContext";
 
 type Session =
   | { role: "parent"; accent: string; profileId: string; country: string; tenantId: string }
@@ -23,7 +24,8 @@ type Session =
  * mobile has no path to read a tenant slug from, so it is resolved here once
  * at sign-in (and again on every auth state change) and handed down.
  */
-export default function App() {
+function AppContent() {
+  const { t, accentInk } = useTheme();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   // Set while the school-issued password still has to be replaced; null once it has.
@@ -79,8 +81,8 @@ export default function App() {
   if (loading) {
     return (
       <SafeAreaProvider>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}>
-          <ActivityIndicator size="large" color={a.deep} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.page }}>
+          <ActivityIndicator size="large" color={accentInk(a.deep)} />
         </View>
       </SafeAreaProvider>
     );
@@ -118,5 +120,14 @@ export default function App() {
         </FingerprintLock>
       ) : <SignIn />}
     </SafeAreaProvider>
+  );
+}
+
+/** The theme is chosen once, here, so everything below it -- including the loading screen and sign-in -- is in the right scheme from the first frame. */
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

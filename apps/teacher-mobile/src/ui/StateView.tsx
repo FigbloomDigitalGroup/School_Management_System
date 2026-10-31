@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Inbox, TriangleAlert, type LucideIcon } from "lucide-react-native";
-import { fontSize, s, t } from "../theme";
+import { fontSize } from "../theme";
 import { Button } from "./Button";
+import { themedStyles, useTheme } from "./ThemeContext";
 
 /**
  * What a screen shows instead of content. Empty and failed are different
@@ -16,6 +17,8 @@ function StateBlock({ icon: Icon, title, body, action, alert }: {
   action?: ReactNode;
   alert?: boolean;
 }) {
+  const { t, s } = useTheme();
+  const themed = useStyles();
   return (
     <View
       accessible
@@ -23,7 +26,7 @@ function StateBlock({ icon: Icon, title, body, action, alert }: {
       accessibilityLiveRegion={alert ? "polite" : undefined}
       style={styles.block}
     >
-      <View style={styles.tile}>
+      <View style={themed.tile}>
         <Icon size={26} color={t.appSurface.inkMuted} />
       </View>
       <Text style={[s.h2, styles.title]}>{title}</Text>
@@ -53,8 +56,12 @@ export function ErrorState({ title = "Couldn't load this", body = "Check your co
 
 const styles = StyleSheet.create({
   block: { alignItems: "center", paddingVertical: 32, paddingHorizontal: 24 },
-  tile: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.lineSoft },
   title: { marginTop: 14, fontSize: fontSize.title, textAlign: "center" },
   body: { marginTop: 6, textAlign: "center", maxWidth: 320 },
   retry: { marginTop: 18, minWidth: 160 },
 });
+
+/** The one style in this file that is a colour. */
+const useStyles = themedStyles(({ t }) => ({
+  tile: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.lineSoft },
+}));

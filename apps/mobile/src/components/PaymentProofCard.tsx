@@ -5,11 +5,12 @@ import {
   paymentSmsFlags, sendPaymentProof, uploadProblem, type PaymentProof, type PaymentSmsFlag,
 } from "@figbloom/shared";
 import { pickFile, readPickedFile, type FileSource, type PickedFile } from "../lib/pickFile";
-import { s, t } from "../theme";
 import { AttachChoices } from "./AttachChoices";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
 import { Tap } from "../ui/Tap";
+import { perScheme } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 // What a family is told about a flag: gentler than the office's label, and
 // never a refusal -- a part payment is still a payment.
@@ -19,11 +20,11 @@ const FAMILY_FLAG: Partial<Record<PaymentSmsFlag, string>> = {
   future_date: "The date on this message is in the future. Check you pasted the right message.",
 };
 
-const PROOF_TONE: Record<PaymentProof["status"], { bg: string; ink: string }> = {
+const PROOF_TONE = perScheme((t): Record<PaymentProof["status"], { bg: string; ink: string }> => ({
   pending: { bg: t.status.mutedBg, ink: t.status.mutedInk },
   confirmed: { bg: t.status.okBg, ink: t.status.okInk },
   rejected: { bg: t.status.warnBg, ink: t.status.warnInk },
-};
+}));
 
 const formatPaidAt = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -46,6 +47,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
   /** False once the invoice is paid: nothing left to prove, but earlier proofs still list. */
   canSend: boolean;
 }) {
+  const { t, s, accentInk, scheme } = useTheme();
   const [proofs, setProofs] = useState<PaymentProof[] | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [sms, setSms] = useState("");
@@ -126,7 +128,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
               <View style={{ borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, backgroundColor: t.appSurface.page, padding: 12, gap: 6 }} accessibilityLiveRegion="polite">
                 {usable ? (
                   <>
-                    <Text style={{ fontSize: 12, fontWeight: "600" }}>What we read from it. Check before sending:</Text>
+                    <Text style={{ color: t.appSurface.ink, fontSize: 12, fontWeight: "600" }}>What we read from it. Check before sending:</Text>
                     <Row label={`${PAYMENT_SMS_SOURCE_LABEL[parsed.source]} code`} value={parsed.code} mono />
                     <Row label="Amount" value={parsed.amountCents !== null ? formatMoney(parsed.amountCents, country) : null} mono />
                     <Row label="Paid on" value={parsed.paidAt ? formatPaidAt(parsed.paidAt) : null} />
@@ -151,7 +153,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
               </View>
             ) : (
               <View style={{ gap: 6 }}>
-                <Text style={{ fontSize: 12, fontWeight: "600" }}>Add a photo or PDF of the slip (optional)</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 12, fontWeight: "600" }}>Add a photo or PDF of the slip (optional)</Text>
                 <AttachChoices disabled={sending} onChoose={(source) => void chooseFile(source)} />
               </View>
             )}
@@ -163,7 +165,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
         {!!message && <Text style={{ fontSize: 12.5, color: message.bad ? t.status.warnInk : t.status.okInk, paddingTop: canSend ? 4 : 0, paddingBottom: proofs?.length ? 8 : 0 }}>{message.text}</Text>}
 
         {proofs === null ? (
-          <ActivityIndicator color={tint} style={{ paddingVertical: 8 }} />
+          <ActivityIndicator color={accentInk(tint)} style={{ paddingVertical: 8 }} />
         ) : proofs.length === 0 ? (
           !canSend && <Text style={[s.faint, { paddingVertical: 6 }]}>No payment proof sent for this invoice.</Text>
         ) : (
@@ -171,15 +173,15 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
             <View key={p.id} style={{ paddingVertical: 10, borderTopWidth: canSend || i > 0 ? 1 : 0, borderTopColor: t.appSurface.lineSoft }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "500" }}>
+                  <Text style={{ color: t.appSurface.ink, fontSize: 13, fontWeight: "500" }}>
                     {p.txn_amount_cents != null ? formatMoney(p.txn_amount_cents, country) : p.file_name ?? "Proof"}
                   </Text>
                   <Text style={[s.mono, { color: t.appSurface.inkFaint, marginTop: 2 }]}>
                     {[p.txn_code, new Date(p.uploaded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })].filter(Boolean).join(" · ")}
                   </Text>
                 </View>
-                <View style={[s.pill, { backgroundColor: PROOF_TONE[p.status].bg }]}>
-                  <Text style={[s.pillLabel, { color: PROOF_TONE[p.status].ink }]}>{PAYMENT_PROOF_LABEL[p.status]}</Text>
+                <View style={[s.pill, { backgroundColor: PROOF_TONE[scheme][p.status].bg }]}>
+                  <Text style={[s.pillLabel, { color: PROOF_TONE[scheme][p.status].ink }]}>{PAYMENT_PROOF_LABEL[p.status]}</Text>
                 </View>
               </View>
               {p.status === "rejected" && !!p.rejection_reason && <Text style={{ fontSize: 12, color: t.status.warnInk, marginTop: 4 }}>{p.rejection_reason}</Text>}
@@ -192,6 +194,7 @@ export function PaymentProofCard({ tenantId, invoiceId, uploadedBy, balanceCents
 }
 
 function Row({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
+  const { t, s } = useTheme();
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
       <Text style={s.faint}>{label}</Text>

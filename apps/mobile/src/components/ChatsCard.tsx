@@ -2,12 +2,13 @@ import { Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useChatSession } from "../lib/chatSession";
 import { useChatUnread } from "../lib/chatUnread";
-import { s, t } from "../theme";
 import { Tap } from "../ui/Tap";
 import { OpenLabel } from "../ui/OpenLabel";
+import { useTheme } from "../ui/ThemeContext";
 
 /** The way into Chats from a home screen: a card with the unread count, since the tab bar is already full. */
 export function ChatsCard({ tint, blurb }: { tint: string; blurb: string }) {
+  const { t, s } = useTheme();
   const nav = useNavigation<any>();
   const session = useChatSession();
   const unread = useChatUnread(session?.tenantId ?? null);

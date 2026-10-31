@@ -4,13 +4,14 @@ import {
   fetchSentByMe, fetchTeacherClasses, isRetryable, sendClassMessage,
   type Announcement, type ClassGroup, type ClassMessageRecipients,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { EmptyState } from "../../ui/StateView";
+import { useTheme } from "../../ui/ThemeContext";
 
 const RECIPIENT_OPTIONS: { id: ClassMessageRecipients; name: string }[] = [
   { id: "guardians", name: "Parents" },
@@ -27,6 +28,7 @@ function recipientsLabel(r?: ClassMessageRecipients): string {
 /** A teacher's own reach: one class at a time, always in-app — the same
  *  lighter form over `announcements` as the web console's Messages screen. */
 export function TeacherMessages({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
 
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
@@ -98,7 +100,7 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
   if (!classes) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -144,7 +146,7 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
 
         <Text style={[s.eyebrow, { marginTop: 20, marginBottom: 8 }]}>SENT BY YOU</Text>
         {sent === null ? (
-          <ActivityIndicator color={a.deep} />
+          <ActivityIndicator color={accentInk(a.deep)} />
         ) : sent.length === 0 ? (
           <EmptyState title="Nothing sent yet" body="Notes you send to a class show here." />
         ) : (
@@ -154,7 +156,7 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
             return (
               <View key={msg.id} style={[s.card, { marginBottom: 8, padding: 12 }]}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                  <Text style={{ fontSize: 13.5, fontWeight: "600", flex: 1 }} numberOfLines={1}>{msg.subject}</Text>
+                  <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600", flex: 1 }} numberOfLines={1}>{msg.subject}</Text>
                   <Text style={s.faint}>
                     {msg.published_at ? new Date(msg.published_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "Draft"}
                   </Text>

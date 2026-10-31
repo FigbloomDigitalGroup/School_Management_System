@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from "react-native";
 import { signatureProblem, type SignatureMark, type SignatureStyle, type Stroke } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { SignatureInk } from "./SignatureMark";
 import { SignaturePad } from "./SignaturePad";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
 import { Tap } from "../ui/Tap";
 import { Check, CircleAlert } from "lucide-react-native";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * Sign something: draw or type the signature, give your full name, and agree
@@ -25,6 +25,7 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
   onSign: (mark: SignatureMark) => Promise<void>;
   onClose: () => void;
 }) {
+  const { t, s, accentInk } = useTheme();
   const [style, setStyle] = useState<SignatureStyle>("drawn");
   const [fullName, setFullName] = useState(defaultName);
   const [strokes, setStrokes] = useState<Stroke[] | null>(null);
@@ -85,8 +86,8 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
           )}
 
           <View style={{ flexDirection: "row", gap: 24 }}>
-            <View><Text style={s.faint}>Signing as</Text><Text style={{ fontSize: 13.5, fontWeight: "600", marginTop: 2 }}>{capacityLabel}</Text></View>
-            <View><Text style={s.faint}>Date</Text><Text style={{ fontSize: 13.5, fontWeight: "600", marginTop: 2 }}>{today}</Text></View>
+            <View><Text style={s.faint}>Signing as</Text><Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600", marginTop: 2 }}>{capacityLabel}</Text></View>
+            <View><Text style={s.faint}>Date</Text><Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600", marginTop: 2 }}>{today}</Text></View>
           </View>
 
           <Tap
@@ -96,7 +97,7 @@ export function SignSheet({ title, what, capacityLabel, defaultName, tint, onSig
             onPress={() => { setAgreed((a) => !a); setError(null); }}
             style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", minHeight: 44 }}
           >
-            <View style={{ width: 22, height: 22, marginTop: 1, borderRadius: 6, borderWidth: 1.5, borderColor: agreed ? tint : t.appSurface.inkFaint, backgroundColor: agreed ? tint : "#fff", alignItems: "center", justifyContent: "center" }}>
+            <View style={{ width: 22, height: 22, marginTop: 1, borderRadius: 6, borderWidth: 1.5, borderColor: agreed ? accentInk(tint) : t.appSurface.inkFaint, backgroundColor: agreed ? tint : "#fff", alignItems: "center", justifyContent: "center" }}>
               {agreed && <Check size={15} color="#fff" strokeWidth={3} />}
             </View>
             <Text style={[s.small, { flex: 1, color: t.appSurface.ink }]}>I agree that this electronic signature is mine and means the same as signing {what} by hand.</Text>

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Alert, Switch, Text, View } from "react-native";
 import { confirmFingerprint, fingerprintSupport, openFingerprintSettings } from "../lib/fingerprintUnlock";
-import { s, t } from "../theme";
 import { useFingerprintLock } from "./FingerprintLock";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * The "Unlock with fingerprint" switch, for an Account screen. The app cannot enrol a
@@ -10,6 +10,7 @@ import { useFingerprintLock } from "./FingerprintLock";
  * Turning it on or off both ask for the fingerprint, so a phone left open can't have the lock switched off.
  */
 export function FingerprintSetting({ tint }: { tint: string }) {
+  const { t, s, accentInk } = useTheme();
   const { enabled, setEnabled } = useFingerprintLock();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export function FingerprintSetting({ tint }: { tint: string }) {
       <View style={s.card}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13.5, fontWeight: "500" }}>Unlock with fingerprint</Text>
+            <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>Unlock with fingerprint</Text>
             <Text style={s.faint}>Ask for your fingerprint when you open the app, and when you come back to it after a short break.</Text>
           </View>
           <Switch
@@ -56,7 +57,7 @@ export function FingerprintSetting({ tint }: { tint: string }) {
             value={enabled}
             disabled={busy}
             onValueChange={(v) => void change(v)}
-            trackColor={{ true: tint, false: "#DAD5D4" }}
+            trackColor={{ true: accentInk(tint), false: t.appSurface.track }}
             thumbColor="#fff"
           />
         </View>

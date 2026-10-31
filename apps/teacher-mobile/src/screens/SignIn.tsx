@@ -4,10 +4,11 @@ import {
   passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, roleFromLoginId, searchSchools, supabase,
   type ResolvedLogin, type SchoolSearchResult,
 } from "@figbloom/shared";
-import { fontSize, s, t } from "../theme";
+import { fontSize } from "../theme";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * Unified sign-in (FIG-396/403) — no parent/student/driver tabs. The mobile
@@ -24,6 +25,7 @@ import { Tap } from "../ui/Tap";
  * sets a new temporary password.
  */
 export function SignIn() {
+  const { t, s } = useTheme();
   const [school, setSchool] = useState<SchoolSearchResult | null>(null);
   const [schoolQuery, setSchoolQuery] = useState("");
   const [schoolResults, setSchoolResults] = useState<SchoolSearchResult[]>([]);

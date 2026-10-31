@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import { ScrollView, Text, TextInput } from "react-native";
 import { setMyPassword, supabase } from "@figbloom/shared";
-import { fontSize, s, t } from "../theme";
+import { fontSize } from "../theme";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
+import { useTheme } from "../ui/ThemeContext";
 
 /** Which field an error belongs to, so it is shown under that field and not as a line of its own. */
 type Problem = { on: "password" | "confirm" | "form"; text: string };
@@ -20,6 +21,7 @@ export function ChoosePassword({ profileId, fullName, loginId, onDone }: {
   loginId: string | null;
   onDone: () => void;
 }) {
+  const { t, s } = useTheme();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [problem, setProblem] = useState<Problem | null>(null);

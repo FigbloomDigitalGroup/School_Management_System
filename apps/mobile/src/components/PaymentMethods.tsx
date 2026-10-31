@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { fetchPaymentMethods, type PaymentMethods } from "@figbloom/shared";
-import { s, t } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * The school's own ways to pay (paybill, till, bank), as its admin set them.
@@ -20,6 +20,7 @@ export function usePaymentMethods(tenantId: string): PaymentMethods | null | und
 }
 
 export function PaymentMethodsCard({ methods }: { methods: PaymentMethods }) {
+  const { t, s } = useTheme();
   const rows: [string, string][] = [];
   if (methods.paybill) rows.push(["Paybill", methods.paybill]);
   if (methods.till) rows.push(["Till number", methods.till]);
@@ -30,7 +31,7 @@ export function PaymentMethodsCard({ methods }: { methods: PaymentMethods }) {
       {rows.map(([label, value], i) => (
         <View key={label} style={{ paddingVertical: 10, borderBottomWidth: i === rows.length - 1 && !methods.notes ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
           <Text style={s.eyebrow}>{label.toUpperCase()}</Text>
-          <Text style={[label === "Bank" ? { fontSize: 13.5 } : s.mono, { marginTop: 3 }]}>{value}</Text>
+          <Text style={[label === "Bank" ? { fontSize: 13.5 } : s.mono, { marginTop: 3, color: t.appSurface.ink }]}>{value}</Text>
         </View>
       ))}
       {!!methods.notes && <Text style={[s.small, { paddingTop: 10, lineHeight: 18 }]}>{methods.notes}</Text>}

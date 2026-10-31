@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { fetchAiHelperStatus } from "@figbloom/shared";
-import { s } from "../theme";
 import { Tap } from "../ui/Tap";
 import { OpenLabel } from "../ui/OpenLabel";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * The way into the study helper from a learner's Today screen. Shown only where
@@ -13,6 +13,7 @@ import { OpenLabel } from "../ui/OpenLabel";
  * when the school hasn't, or when that can't be checked.
  */
 export function StudyHelperCard({ tint }: { tint: string }) {
+  const { s } = useTheme();
   const nav = useNavigation<any>();
   const [on, setOn] = useState(false);
 

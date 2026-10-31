@@ -11,12 +11,14 @@ import {
   type NotificationPreferences,
   type PasswordResetResult,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { Skeleton } from "../../components/Skeleton";
 import { Tap } from "../../ui/Tap";
+import { AppearanceSetting } from "../../ui/AppearanceSetting";
+import { useTheme } from "../../ui/ThemeContext";
 
 interface Profile {
   id: string;
@@ -34,6 +36,7 @@ const CHANNELS: { key: keyof NotificationPreferences; label: string; note: strin
 
 /** Account details plus "how we reach you" (FIG-872) — the channel toggles persist to notification_preferences. */
 export function ParentAccount() {
+  const { t, s, accentInk } = useTheme();
   const { accent } = useChild();
   const kids = useChildren();
   const a = accentFor(accent);
@@ -105,7 +108,7 @@ export function ParentAccount() {
               <Text style={[s.mono, { color: t.appSurface.inkMuted, marginTop: 4 }]}>{formatPhone(profile.phone)}</Text>
             </>
           ) : error ? (
-            <Text style={[s.small, { color: "#B4472B" }]}>{error}</Text>
+            <Text style={[s.small, { color: t.status.badText }]}>{error}</Text>
           ) : (
             <View style={{ gap: 8, paddingVertical: 2 }}>
               <Skeleton width="55%" height={15} />
@@ -132,14 +135,14 @@ export function ParentAccount() {
               }}
             >
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{c.label}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>{c.label}</Text>
                 <Text style={s.faint}>{c.note}</Text>
               </View>
               <Switch
                 value={prefs[c.key]}
                 disabled={!profile || savingKey === c.key}
                 onValueChange={(v) => void toggleChannel(c.key, v)}
-                trackColor={{ true: a.deep, false: "#DAD5D4" }}
+                trackColor={{ true: accentInk(a.deep), false: t.appSurface.track }}
                 thumbColor="#fff"
               />
             </View>
@@ -151,6 +154,7 @@ export function ParentAccount() {
           cannot afford to miss.
         </Text>
 
+        <AppearanceSetting tint={a.deep} />
         <FingerprintSetting tint={a.deep} />
 
         <PrivacyLinks tint={a.deep} />
@@ -178,6 +182,7 @@ export function ParentAccount() {
  * their own at their next sign-in.
  */
 function ChildLogins({ kids, schoolName, tint }: { kids: { id: string; name: string; first: string }[]; schoolName: string | null; tint: string }) {
+  const { t, s, accentInk } = useTheme();
   const [logins, setLogins] = useState<Map<string, string>>(new Map());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, PasswordResetResult>>({});
@@ -224,20 +229,20 @@ function ChildLogins({ kids, schoolName, tint }: { kids: { id: string; name: str
           const r = results[k.id];
           return (
             <View key={k.id} style={{ paddingVertical: 11, borderBottomWidth: i === withLogin.length - 1 ? 0 : 1, borderBottomColor: t.appSurface.lineSoft }}>
-              <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{k.name}</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>{k.name}</Text>
               {r ? (
                 <View style={{ marginTop: 8 }}>
                   <Text style={s.faint}>
                     Give these to {k.first}{schoolName ? `: pick ${schoolName}, then the ID` : ""}. The password works once; they choose their own when they sign in.
                   </Text>
-                  {r.login_id && <Text selectable style={[s.mono, { marginTop: 6 }]}>ID  {r.login_id}</Text>}
-                  <Text selectable style={[s.mono, { marginTop: 2, fontWeight: "700" }]}>Password  {r.password}</Text>
+                  {r.login_id && <Text selectable style={[{ color: t.appSurface.ink }, s.mono, { marginTop: 6 }]}>ID  {r.login_id}</Text>}
+                  <Text selectable style={[{ color: t.appSurface.ink }, s.mono, { marginTop: 2, fontWeight: "700" }]}>Password  {r.password}</Text>
                 </View>
               ) : (
                 <Tap accessibilityRole="button" disabled={busyId === k.id} onPress={() => confirmReset(k)} style={{ marginTop: 6, minHeight: 36, justifyContent: "center" }}>
                   {busyId === k.id
-                    ? <ActivityIndicator color={tint} />
-                    : <Text style={{ fontSize: 13, fontWeight: "600", color: tint }}>Reset {k.first}'s app password</Text>}
+                    ? <ActivityIndicator color={accentInk(tint)} />
+                    : <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Reset {k.first}'s app password</Text>}
                 </Tap>
               )}
             </View>

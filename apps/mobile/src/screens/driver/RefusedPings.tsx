@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { QueuedWrite } from "@figbloom/shared";
 import { queue } from "../../storage";
-import { s, t } from "../../theme";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** How often to look for location updates the server has refused. */
 const WATCH_MS = 4_000;
@@ -17,6 +17,7 @@ const WATCH_MS = 4_000;
  * the trip card; these will never go out.
  */
 export function RefusedPings() {
+  const { t, s } = useTheme();
   const [refused, setRefused] = useState<QueuedWrite[]>([]);
 
   useEffect(() => {

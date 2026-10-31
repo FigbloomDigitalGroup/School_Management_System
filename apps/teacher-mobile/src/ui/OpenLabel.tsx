@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 import { fontSize } from "../theme";
+import { useTheme } from "./ThemeContext";
 
 /**
  * The "Open ›" at the end of a card that is a way into another screen. A drawn
@@ -8,10 +9,11 @@ import { fontSize } from "../theme";
  * maker's font. It is only a label: the card around it is the control.
  */
 export function OpenLabel({ label = "Open", tint }: { label?: string; tint: string }) {
+  const { accentInk } = useTheme();
   return (
     <View style={styles.row}>
-      <Text style={[styles.text, { color: tint }]}>{label}</Text>
-      <ChevronRight size={16} color={tint} />
+      <Text style={[styles.text, { color: accentInk(tint) }]}>{label}</Text>
+      <ChevronRight size={16} color={accentInk(tint)} />
     </View>
   );
 }

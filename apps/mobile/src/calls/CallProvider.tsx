@@ -6,10 +6,10 @@ import {
   muteAllLearners, ringLeftMs, setCallStatus, setLearnersMayPublish, startCall, startLiveClass, subscribeMyCalls,
   type Call, type LiveClass, type LiveClassRole, type RoomPass,
 } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { CallRoom } from "./CallRoom";
 import { ensureCallPermissions } from "./callPermissions";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 type Active =
   | { kind: "call"; call: Call; pass: RoomPass }
@@ -45,6 +45,7 @@ export function useCalls(): Calls {
  * a push that opened the app arrives while the Realtime connection was asleep.
  */
 export function CallProvider({ profileId, children }: { profileId: string; children: ReactNode }) {
+  const { t, s } = useTheme();
   const insets = useSafeAreaInsets();
   const [active, setActive] = useState<Active | null>(null);
   const [incoming, setIncoming] = useState<Call | null>(null);

@@ -5,13 +5,14 @@ import {
   daysFromToday, doneByWords, dueWords, HAND_IN_PARENT_LABEL, minutesWords, setHomeworkDone, splitHomework,
   type HomeworkItem, type MediaItem,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { useChild, useChildren } from "../../data";
 import { ChildSwitcher } from "../../components/ChildSwitcher";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import { useParentHomework } from "../../lib/useParentHomework";
 import { Tap } from "../../ui/Tap";
 import { BackLink } from "../../ui/BackLink";
+import { useTheme } from "../../ui/ThemeContext";
 
 /**
  * The selected child's homework from the last three weeks, opened from the
@@ -20,6 +21,7 @@ import { BackLink } from "../../ui/BackLink";
  * parents. A parent of a PP1–Grade 3 learner can mark it done for them.
  */
 export function ParentHomework() {
+  const { s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { child, index, setIndex, accent } = useChild();
   const kids = useChildren();
@@ -66,7 +68,7 @@ export function ParentHomework() {
           failed ? (
             <View style={s.card}><Text style={s.small}>Could not load homework. Check your connection and try again.</Text></View>
           ) : (
-            <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+            <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
           )
         ) : !mine || mine.items.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
@@ -113,6 +115,7 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, failed, tint, on
   tint: string;
   onMark: (done: boolean) => void;
 }) {
+  const { t, s } = useTheme();
   const g = item.guide;
   const overdue = !item.done && daysFromToday(item.dueOn) < 0;
   const time = minutesWords(g?.minutes);
@@ -120,13 +123,13 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, failed, tint, on
     ? { bg: t.status.okBg, ink: t.status.okInk, label: "Done" }
     : overdue
       ? { bg: t.status.warnBg, ink: t.status.warnInk, label: dueWords(item.dueOn) }
-      : { bg: "#F1EDEC", ink: "#6B605F", label: dueWords(item.dueOn) };
+      : { bg: t.appSurface.lineSoft, ink: t.appSurface.inkMuted, label: dueWords(item.dueOn) };
 
   return (
     <View style={[s.card, { marginBottom: 10, borderColor: overdue ? t.brand.orangeLine : t.appSurface.line }]}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{item.title}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{item.title}</Text>
           <Text style={[s.faint, { marginTop: 4 }]}>{item.subject} · {item.teacher}</Text>
         </View>
         <View style={[s.pill, { backgroundColor: tag.bg, alignSelf: "flex-start" }]}>
@@ -172,12 +175,13 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, failed, tint, on
       ) : (
         <Text style={[s.faint, { marginTop: 8 }]}>{childFirst} marks it done when it's finished.</Text>
       )}
-      {failed && <Text style={[s.small, { color: "#B4472B", marginTop: 6 }]}>Could not save that. Try again.</Text>}
+      {failed && <Text style={[s.small, { color: t.status.badText, marginTop: 6 }]}>Could not save that. Try again.</Text>}
     </View>
   );
 }
 
 function GuideLine({ label, text }: { label: string; text: string }) {
+  const { t, s } = useTheme();
   return (
     <View>
       <Text style={s.eyebrow}>{label}</Text>

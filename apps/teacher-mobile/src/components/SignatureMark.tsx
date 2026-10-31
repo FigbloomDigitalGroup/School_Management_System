@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { CAPACITY_LABEL, SIGNATURE_BOX, signatureDate, strokeBounds, strokesToSvgPath, type StoredSignature } from "@figbloom/shared";
-import { s, t } from "../theme";
+import { useTheme } from "../ui/ThemeContext";
 
 const INK = "#14296B";
 
@@ -32,6 +32,7 @@ export function SignatureInk({ signature, height = 40 }: { signature: Pick<Store
  * looking signed.
  */
 export function SignatureMark({ signature }: { signature: StoredSignature }) {
+  const { t, s } = useTheme();
   return (
     <View style={{ alignSelf: "flex-start", minWidth: 200 }}>
       <View style={{ height: 44, justifyContent: "flex-end", borderBottomWidth: 1, borderBottomColor: "rgba(34,26,27,0.4)", paddingBottom: 2 }}>

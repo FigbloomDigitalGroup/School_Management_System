@@ -4,27 +4,29 @@ import {
   cancelLeaveRequest, fetchMyLeaveRequests, formatShortDate, requestLeave,
   type LeaveRequest, type LeaveStatus,
 } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor, perScheme } from "../../theme";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
 import { EmptyState, ErrorState } from "../../ui/StateView";
+import { useTheme } from "../../ui/ThemeContext";
 
 const STATUS_LABEL: Record<LeaveStatus, string> = {
   pending: "Awaiting review", approved: "Approved", rejected: "Rejected", cancelled: "Cancelled",
 };
-const STATUS_STYLE: Record<LeaveStatus, { bg: string; ink: string }> = {
+const STATUS_STYLE = perScheme((t): Record<LeaveStatus, { bg: string; ink: string }> => ({
   pending: { bg: t.brand.orangeSoft, ink: t.brand.orangeInk },
   approved: { bg: t.status.okBg, ink: t.status.okInk },
   rejected: { bg: t.appSurface.lineSoft, ink: t.appSurface.inkMuted },
   cancelled: { bg: t.appSurface.lineSoft, ink: t.appSurface.inkMuted },
-};
+}));
 
 /** Request time off, see the school's decision. Dates are plain YYYY-MM-DD
  *  text fields — no native date picker yet, to avoid a second new native
  *  dependency alongside FIG-492's image picker in the same pass. */
 export function TeacherLeave({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk, scheme } = useTheme();
   const a = accentFor(session.accent);
   const [requests, setRequests] = useState<LeaveRequest[] | null>(null);
   /** The list failed to load: not the same as "nothing requested", and it can be retried. */
@@ -112,19 +114,19 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
 
         <Text style={[s.eyebrow, { marginTop: 20, marginBottom: 8 }]}>YOUR REQUESTS</Text>
         {requests === null ? (
-          <ActivityIndicator color={a.deep} />
+          <ActivityIndicator color={accentInk(a.deep)} />
         ) : failed ? (
           <ErrorState title="Couldn't load your requests" onRetry={() => { setRequests(null); setReloadKey((k) => k + 1); }} />
         ) : requests.length === 0 ? (
           <EmptyState title="Nothing requested yet" body="Leave you ask for, and the school's decision on it, shows here." />
         ) : (
           requests.map((r) => {
-            const style = STATUS_STYLE[r.status];
+            const style = STATUS_STYLE[scheme][r.status];
             return (
               <View key={r.id} style={[s.card, { marginBottom: 8, padding: 12 }]}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13.5, fontWeight: "600" }}>
+                    <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600" }}>
                       {formatShortDate(r.starts_on)} – {formatShortDate(r.ends_on)}
                     </Text>
                     {!!r.reason && <Text style={[s.faint, { marginTop: 2 }]}>{r.reason}</Text>}

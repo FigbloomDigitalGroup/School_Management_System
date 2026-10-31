@@ -8,6 +8,7 @@ import { FeesView } from "../../components/FeesView";
 import { SubScreen } from "../../components/SubScreen";
 import { EmptyState, ErrorState } from "../../ui/StateView";
 import type { StudentPayParams } from "./Pay";
+import { useTheme } from "../../ui/ThemeContext";
 
 type State = { kind: "loading" } | { kind: "failed" } | { kind: "none" } | { kind: "ready"; fees: StudentFeeData };
 
@@ -20,6 +21,7 @@ type State = { kind: "loading" } | { kind: "failed" } | { kind: "none" } | { kin
  * happens on a screen above this one.
  */
 export function StudentFees() {
+  const { accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { accent, country, tenantId, profileId } = useStudentData();
   const tint = accentFor(accent).deep;
@@ -48,7 +50,7 @@ export function StudentFees() {
       sub={fees ? `${fees.name}${fees.termLabel ? ` · ${fees.termLabel}` : ""}` : "Your balance, what the term covers and your receipts"}
     >
       {state.kind === "loading" ? (
-        <ActivityIndicator color={tint} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={accentInk(tint)} style={{ marginTop: 24 }} />
       ) : state.kind === "failed" ? (
         <ErrorState title="Couldn't load your fees" onRetry={() => { setState({ kind: "loading" }); read(); }} />
       ) : !fees ? (

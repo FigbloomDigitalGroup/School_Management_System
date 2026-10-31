@@ -4,11 +4,12 @@ import {
   fetchTeacherClasses, fetchTeacherClassTimetable,
   type ClassGroup, type TeacherTimetableRow, type Weekday,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor, HIT } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
 import { Tap } from "../../ui/Tap";
+import { useTheme } from "../../ui/ThemeContext";
 
 const DAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_LABEL: Record<Weekday, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
@@ -21,6 +22,7 @@ const TODAY: Weekday = DAYS[(new Date().getDay() + 6) % 7] ?? "Mon";
  * isn't the one teaching every period on their own homeroom's timetable).
  */
 export function TeacherTimetable({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
   if (!classes) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -104,7 +106,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {!byDay ? (
-          <ActivityIndicator color={a.deep} />
+          <ActivityIndicator color={accentInk(a.deep)} />
         ) : rows.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
             <Text style={s.small}>No periods set for {DAY_LABEL[day]} yet.</Text>
@@ -115,7 +117,7 @@ export function TeacherTimetable({ session }: { session: TeacherSession }) {
               <Text style={[s.mono, { width: 44, color: t.appSurface.inkMuted }]}>{row.time.slice(0, 5)}</Text>
               <View style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: row.mine ? t.brand.orange : t.appSurface.line }} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: "500" }}>{row.label}</Text>
+                <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "500" }}>{row.label}</Text>
                 {!!row.room && <Text style={s.faint}>{row.room}</Text>}
               </View>
               {!row.mine && !!row.teacherName && (

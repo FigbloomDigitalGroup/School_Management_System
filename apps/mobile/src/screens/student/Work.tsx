@@ -2,18 +2,19 @@ import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor, perScheme } from "../../theme";
 import { useStudentData } from "../../studentData";
 import { LinkCard } from "../../components/LinkCard";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
 import { Tap } from "../../ui/Tap";
 import { OpenLabel } from "../../ui/OpenLabel";
+import { useTheme } from "../../ui/ThemeContext";
 
-const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
+const TAG = perScheme((t): Record<WorkItem["state"], { bg: string; ink: string }> => ({
   late: { bg: t.status.warnBg, ink: t.status.warnInk },
-  open: { bg: "#F1EDEC", ink: "#6B605F" },
+  open: { bg: t.appSurface.lineSoft, ink: t.appSurface.inkMuted },
   done: { bg: t.status.okBg, ink: t.status.okInk },
-};
+}));
 
 /**
  * Overdue stays at the top in orange rather than hiding behind a filter.
@@ -22,6 +23,7 @@ const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
  * fallback to fall back on here.
  */
 export function StudentWork() {
+  const { t, s, scheme } = useTheme();
   const nav = useNavigation<any>();
   const { data, accent } = useStudentData();
   const a = accentFor(accent);
@@ -82,12 +84,12 @@ export function StudentWork() {
         ) : (
           work.map((w) => {
             const state: WorkItem["state"] = done[w.id] ? "done" : w.state;
-            const tag = TAG[state];
+            const tag = TAG[scheme][state];
             return (
               <View key={w.id} style={[s.card, { marginBottom: 10, borderColor: state === "late" ? t.brand.orangeLine : t.appSurface.line }]}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{w.title}</Text>
+                    <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{w.title}</Text>
                     <Text style={[s.faint, { marginTop: 4 }]}>{w.subject} · {w.teacher}</Text>
                     {(!!w.needs?.length || !!minutesWords(w.minutes)) && (
                       <Text style={[s.small, { marginTop: 6 }]}>
@@ -114,7 +116,7 @@ export function StudentWork() {
                       <Text style={s.primaryLabel}>{marking[w.id] ? "Marking…" : "Mark as handed in"}</Text>
                     </Tap>
                     {failedId === w.id && (
-                      <Text style={[s.small, { color: "#B4472B", marginTop: 6 }]}>Could not save that. Try again.</Text>
+                      <Text style={[s.small, { color: t.status.badText, marginTop: 6 }]}>Could not save that. Try again.</Text>
                     )}
                   </>
                 )}

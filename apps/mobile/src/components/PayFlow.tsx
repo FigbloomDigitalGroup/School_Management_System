@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions, payWithMpesa, type PaymentFailure } from "@figbloom/shared";
-import { s, t } from "../theme";
 import { PaymentMethodsCard, usePaymentMethods } from "./PaymentMethods";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
 import { Tap } from "../ui/Tap";
 import { Check, CircleAlert } from "lucide-react-native";
+import { useTheme } from "../ui/ThemeContext";
 
 type Screen = "form" | "sending" | "prompting" | "success" | "failed" | "unconfirmed" | "unavailable";
 
@@ -41,6 +41,7 @@ export interface PayTarget {
  * without an answer we say so rather than guess.
  */
 export function PayFlow({ target }: { target: PayTarget }) {
+  const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
   const { balance, invoiceId, country, tint, tenantId } = target;
   // "Faith's" starts a sentence as it is; "your" needs its capital.
@@ -95,8 +96,8 @@ export function PayFlow({ target }: { target: PayTarget }) {
   if (screen === "sending" || screen === "prompting") {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center", padding: 32 }]}>
-        <ActivityIndicator size="large" color={tint} />
-        <Text style={{ fontSize: 17, fontWeight: "600", marginTop: 20 }}>{screen === "sending" ? "Contacting M-Pesa…" : "Check your phone"}</Text>
+        <ActivityIndicator size="large" color={accentInk(tint)} />
+        <Text style={{ color: t.appSurface.ink, fontSize: 17, fontWeight: "600", marginTop: 20 }}>{screen === "sending" ? "Contacting M-Pesa…" : "Check your phone"}</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
           {screen === "sending"
             ? "Sending the request. This takes a few seconds."
@@ -112,7 +113,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: t.status.okBg, alignItems: "center", justifyContent: "center", marginTop: 24 }}>
           <Check size={28} color={t.status.okInk} strokeWidth={2.5} />
         </View>
-        <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16 }}>{formatMoney(amount, country)} received</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 19, fontWeight: "600", marginTop: 16 }}>{formatMoney(amount, country)} received</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
           M-Pesa confirmed it. {Possessive} balance is now {formatMoney(Math.max(balanceBefore - amount, 0), country)}.
         </Text>
@@ -121,7 +122,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
           {[["Paid", formatMoney(amount, country)], ["For", target.name], ["Method", "M-Pesa " + phone], ...(receipt ? [["Receipt", receipt]] : [])].map(([k, v]) => (
             <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.appSurface.lineSoft }}>
               <Text style={s.small}>{k}</Text>
-              <Text style={{ fontSize: 12.5, fontWeight: "500" }}>{v}</Text>
+              <Text style={{ color: t.appSurface.ink, fontSize: 12.5, fontWeight: "500" }}>{v}</Text>
             </View>
           ))}
         </View>
@@ -137,7 +138,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: t.status.warnBg, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 24, color: t.status.warnInk }}>…</Text>
         </View>
-        <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16, textAlign: "center" }}>We haven't heard back from M-Pesa yet</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 19, fontWeight: "600", marginTop: 16, textAlign: "center" }}>We haven't heard back from M-Pesa yet</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 320, lineHeight: 19 }]}>
           If you entered your PIN, the payment may still come through, and your balance will update when it does. Check Receipts in a few minutes
           before paying again, so you don't pay twice.
@@ -150,7 +151,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
   if (screen === "unavailable") {
     return (
       <ScrollView style={s.screen} contentContainerStyle={{ padding: 16 }}>
-        <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 8 }}>Pay using the school's details</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 19, fontWeight: "600", marginTop: 8 }}>Pay using the school's details</Text>
         <Text style={[s.small, { marginTop: 8, marginBottom: 16, lineHeight: 19 }]}>
           Online M-Pesa isn't available for your school right now. Nothing was sent to your phone and nothing was charged.
         </Text>
@@ -159,7 +160,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
         ) : methods === null ? (
           <View style={s.card}><Text style={s.small}>Ask the school office how to pay.</Text></View>
         ) : (
-          <ActivityIndicator color={tint} />
+          <ActivityIndicator color={accentInk(tint)} />
         )}
         <Text style={[s.faint, { marginTop: 14, lineHeight: 18 }]}>
           After you pay, the school records it and {target.possessive} balance updates. Keep your receipt or SMS until it does.
@@ -175,7 +176,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: t.status.warnBg, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 24, color: t.status.warnInk }}>!</Text>
         </View>
-        <Text style={{ fontSize: 19, fontWeight: "600", marginTop: 16, textAlign: "center" }}>
+        <Text style={{ color: t.appSurface.ink, fontSize: 19, fontWeight: "600", marginTop: 16, textAlign: "center" }}>
           The payment did not go through
         </Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8, maxWidth: 300 }]}>
@@ -191,7 +192,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
     <ScrollView style={s.screen} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
       <View style={s.card}>
         <Text style={s.eyebrow}>PAYING FOR</Text>
-        <Text style={{ fontSize: 16, fontWeight: "600", marginTop: 4 }}>{target.name}</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 16, fontWeight: "600", marginTop: 4 }}>{target.name}</Text>
         <Text style={s.small}>{target.context} · balance {formatMoney(balance, country)}</Text>
       </View>
 
@@ -202,10 +203,10 @@ export function PayFlow({ target }: { target: PayTarget }) {
           <Tap
             key={sug.label}
             onPress={() => setAmount(sug.cents)}
-            style={[s.card, { marginBottom: 8, padding: 14, borderWidth: 1.5, borderColor: on ? tint : t.appSurface.line, flexDirection: "row", justifyContent: "space-between" }]}
+            style={[s.card, { marginBottom: 8, padding: 14, borderWidth: 1.5, borderColor: on ? accentInk(tint) : t.appSurface.line, flexDirection: "row", justifyContent: "space-between" }]}
           >
-            <Text style={{ fontSize: 13.5, fontWeight: "500" }}>{sug.label}</Text>
-            {sug.cents > 0 && <Text style={s.mono}>{formatMoney(sug.cents, country)}</Text>}
+            <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>{sug.label}</Text>
+            {sug.cents > 0 && <Text style={[s.mono, { color: t.appSurface.ink }]}>{formatMoney(sug.cents, country)}</Text>}
           </Tap>
         );
       })}

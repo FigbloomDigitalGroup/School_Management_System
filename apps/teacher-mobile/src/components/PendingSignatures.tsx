@@ -6,9 +6,9 @@ import {
 } from "@figbloom/shared";
 import { fileHash } from "../lib/signing";
 import { useMyName } from "../lib/useMyName";
-import { s, t } from "../theme";
 import { SignSheet } from "./SignSheet";
 import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * "Waiting for your signature": the files someone has asked the viewer to
@@ -18,6 +18,7 @@ import { Tap } from "../ui/Tap";
  * parent app's, and the web teacher's Notices page.
  */
 export function PendingSignatures({ tint, compact }: { tint: string; compact?: boolean }) {
+  const { t, s } = useTheme();
   const name = useMyName();
   const [requests, setRequests] = useState<SignatureRequest[] | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -60,13 +61,13 @@ export function PendingSignatures({ tint, compact }: { tint: string; compact?: b
       </View>
       {list.map((r) => (
         <View key={r.requestId} style={{ paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: t.appSurface.lineSoft }}>
-          <Text style={{ fontSize: 13.5, fontWeight: "600" }}>{r.title}</Text>
+          <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600" }}>{r.title}</Text>
           <Text style={s.faint}>{[r.detail, r.requestedByName && `asked by ${r.requestedByName}`].filter(Boolean).join(" · ")}</Text>
           {!!r.note && <Text style={[s.small, { marginTop: 4 }]}>{r.note}</Text>}
           <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
             {!!r.filePath && (
               <Tap accessibilityRole="button" onPress={() => void open(r)} style={{ minHeight: 44, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: t.appSurface.line, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ fontWeight: "600" }}>Read</Text>
+                <Text style={{ color: t.appSurface.ink, fontWeight: "600" }}>Read</Text>
               </Tap>
             )}
             <Tap accessibilityRole="button" onPress={() => { setNote(null); setSigning(r); }} style={{ minHeight: 44, paddingHorizontal: 20, borderRadius: 12, backgroundColor: tint, alignItems: "center", justifyContent: "center" }}>
