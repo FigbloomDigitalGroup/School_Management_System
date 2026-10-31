@@ -69,6 +69,33 @@ describe("parseInline", () => {
   it("keeps HTML as plain text", () => {
     expect(inlineText(parseInline("<script>alert(1)</script>"))).toBe("<script>alert(1)</script>");
   });
+
+  // QA 14 (FIG-1247): Bloom's answers and chat messages are rendered from this parser, so every way of writing a link that is not a
+  // plain web or mail address has to come out as text. A link node is the only thing the screens turn into an href.
+  it.each([
+    "[x](JaVaScRiPt:alert(1))",
+    "[x](  javascript:alert(1))",
+    "[x](\tjavascript:alert(1))",
+    "[x](java\nscript:alert(1))",
+    "[x](vbscript:msgbox(1))",
+    "[x](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)",
+    "[x](//evil.example/x)",
+    "[x](file:///etc/passwd)",
+    "[x](&#106;avascript:alert(1))",
+    "[x](<javascript:alert(1)>)",
+    "![x](javascript:alert(1))",
+    "[x](\u0001javascript:alert(1))",
+    "[x]( javascript:alert(1))",
+  ])("never turns %j into a link", (src) => {
+    expect(parseInline(src).filter((n) => n.kind === "link")).toEqual([]);
+  });
+
+  it("keeps an address that tries to break out of its attribute as one link, with the rest as text", () => {
+    const nodes = parseInline('see https://a.example/x"><img src=x onerror=alert(1)>');
+    expect(nodes.every((n) => n.kind === "text" || n.kind === "link")).toBe(true);
+    for (const n of nodes) if (n.kind === "link") expect(n.href).not.toMatch(/[<>"]/);
+    expect(inlineText(nodes)).toContain("<img src=x onerror=alert(1)>");
+  });
 });
 
 describe("chatTitleFrom", () => {

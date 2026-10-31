@@ -108,7 +108,12 @@ begin
   select id into ex from exams where tenant_id = tid order by id limit 1;
   -- the class that holds the seeded marks and attendance
   select s.class_id into cx from marks m join students s on s.id = m.student_id where m.tenant_id = tid group by s.class_id order by count(*) desc limit 1;
-  select id into other_class from classes where tenant_id = tid and id <> cx order by id limit 1;
+  -- a class that neither the parent's children nor the student are in (the learners' classes differ on every reseed, so "the first other
+  -- class" was sometimes one of the parent's own children's classes, and then the parent rightly reads the notice)
+  select id into other_class from classes where tenant_id = tid and id <> cx
+     and id not in (select s.class_id from students s join guardians g on g.student_id = s.id where g.profile_id = parent and s.class_id is not null)
+     and id not in (select class_id from students where profile_id = stu_p and class_id is not null)
+   order by id limit 1;
   select g.student_id into kid from guardians g where g.profile_id = parent order by (select count(*) from marks m where m.student_id = g.student_id) desc, g.student_id limit 1;   -- the child with results
   select array_agg(g.student_id) into kids from guardians g where g.profile_id = parent;     -- the parent may have several children
   select id into stu_row from students where profile_id = stu_p;
