@@ -104,3 +104,58 @@ ${button}
 
   return { subject, html, text, template: welcome ? "login-welcome" : "login-reset" };
 }
+
+/**
+ * The self-service sign-up emails (FIG-1337), in the same plain style.
+ * "confirm": the link that confirms the address and finishes the sign-up.
+ * "taken":   the address already has an account; whoever signed up gets the
+ *            same answer either way, so only the owner learns it was tried.
+ */
+export interface SignupMail {
+  kind: "confirm" | "taken";
+  fullName: string;
+  orgName: string;
+  /** The confirmation link, or the sign-in page for "taken"; null when APP_URL isn't set. */
+  link: string | null;
+}
+
+export function signupEmail(d: SignupMail): { subject: string; html: string; text: string; template: string } {
+  const confirm = d.kind === "confirm";
+  const subject = oneLine(confirm ? `Confirm your email to set up ${d.orgName} on Figbloom` : "Someone tried to sign up to Figbloom with your email");
+  const first = d.fullName.trim().split(/\s+/)[0] || d.fullName.trim() || "there";
+  const intro = confirm
+    ? `You started setting up ${d.orgName} on Figbloom. Confirm this is your email address to finish, then sign in with the password you chose.`
+    : `Someone, maybe you, tried to set up ${d.orgName} on Figbloom with this email address. It already has a Figbloom account, so nothing new was created.`;
+  const after = confirm
+    ? "The link works once. Until it's used, nobody can sign in to this account."
+    : "If it was you, sign in with your existing password, or use \"Forgot password?\" on the sign-in page.";
+  const notYou = confirm
+    ? "If you didn't sign up, ignore this email: without the link the account can't be used."
+    : "If it wasn't you, you can ignore this email. Your account hasn't changed.";
+  const label = confirm ? "Confirm my email" : "Sign in";
+
+  const text = [`Hello ${first},`, "", intro, "", d.link ? `${label}: ${d.link}` : "Open Figbloom to continue.", "", after, "", notYou, "", "Figbloom School Systems"].join("\n");
+
+  const e = escapeHtml;
+  const button = d.link
+    ? `<p style="margin:24px 0;"><a href="${e(d.link)}" style="display:inline-block;background:#17402A;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:bold;font-size:15px;">${e(label)}</a></p>`
+      + `<p style="margin:0 0 16px;font-size:13px;color:#5b6b61;">Or open this link: <a href="${e(d.link)}" style="color:#17402A;word-break:break-all;">${e(d.link)}</a></p>`
+    : `<p style="margin:16px 0;">Open Figbloom to continue.</p>`;
+  const html = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${e(subject)}</title></head>
+<body style="margin:0;padding:0;background:#f4f1ea;">
+<div style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1d2a22;font-size:15px;line-height:1.5;">
+<div style="background:#ffffff;border:1px solid #e3ddd0;border-radius:10px;padding:24px 20px;">
+<p style="margin:0 0 12px;">Hello ${e(first)},</p>
+<p style="margin:0 0 16px;">${e(intro)}</p>
+${button}
+<p style="margin:0 0 12px;">${e(after)}</p>
+<p style="margin:0;font-size:13px;color:#5b6b61;">${e(notYou)}</p>
+</div>
+<p style="margin:16px 0 0;font-size:12px;color:#8a948d;text-align:center;">Figbloom School Systems</p>
+</div>
+</body>
+</html>`;
+  return { subject, html, text, template: confirm ? "signup-confirm" : "signup-taken" };
+}

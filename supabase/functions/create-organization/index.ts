@@ -20,6 +20,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
+import { onlyAdministersInactiveOrganizations } from "../_shared/organizations.ts";
 
 const ORG_KINDS = new Set(["government", "county", "constituency", "group_owner"]);
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
@@ -55,6 +57,9 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (callerProfile?.role !== "org_admin") {
     return json({ error: "Only an organization admin can create a new organization." }, 403);
   }
+  if (await onlyAdministersInactiveOrganizations(admin, user.id)) {
+    return json({ error: "Your organization is suspended, so you can't create a new one." }, 403);
+  }
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -82,7 +87,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     contact_phone: body.contact_phone?.trim() || null,
     created_by: user.id,
   }).select("id, name").single();
-  if (orgErr || !organization) return json({ error: orgErr?.message ?? "Could not create the organization." }, 500);
+  if (orgErr || !organization) return json(failure("create-organization", "create the organization", orgErr), 500);
 
   const { error: linkErr } = await admin.from("organization_admins").insert({
     profile_id: user.id,
@@ -91,7 +96,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   });
   if (linkErr) {
     await admin.from("organizations").delete().eq("id", organization.id);
-    return json({ error: linkErr.message }, 500);
+    return json(failure("create-organization", "make you its admin", linkErr), 500);
   }
 
   await admin.from("audit_events").insert({

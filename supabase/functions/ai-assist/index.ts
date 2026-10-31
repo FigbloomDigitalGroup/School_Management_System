@@ -36,6 +36,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { chatAttachmentParts, paperImportContent, readStaged } from "./documents.ts";
 import { aiFromEnv, type AiCall, type AiReply, type AiRequest, type WebSearch } from "./providers.ts";
 import {
@@ -76,10 +77,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   let effectiveRole: string = caller.role;
   if (caller.role === "org_admin" && typeof body.tenantId === "string") {
     const { data: school } = await admin.from("tenants").select("id, organization_id").eq("id", body.tenantId).maybeSingle();
-    const { data: membership } = school?.organization_id
-      ? await admin.from("organization_admins").select("id").eq("profile_id", caller.id).eq("organization_id", school.organization_id).maybeSingle()
-      : { data: null };
-    if (membership) { tenantId = school.id; effectiveRole = "school_admin"; }
+    if (school && await administersOrganization(admin, caller.id, school.organization_id)) { tenantId = school.id; effectiveRole = "school_admin"; }
   }
   if (!tenantId) return json({ error: "Bloom is for school accounts." }, 403);
 

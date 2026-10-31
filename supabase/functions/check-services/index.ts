@@ -16,6 +16,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
 
 type Status = "ok" | "degraded" | "down" | "not_configured";
 
@@ -72,7 +73,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const { error: insertErr } = await admin.from("service_status").insert(
     results.map((r) => ({ service: r.service, status: r.status, latency_ms: r.latency_ms, detail: r.detail })),
   );
-  if (insertErr) return json({ error: insertErr.message }, 500);
+  if (insertErr) return json(failure("check-services", "save the service status", insertErr), 500);
 
   return json({ results });
 }

@@ -23,6 +23,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 
 const REMOVABLE_ROLES = new Set(["teacher", "driver", "staff", "school_admin"]);
@@ -63,10 +64,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
-  if (!authorized && callerProfile.role === "org_admin" && tenant.organization_id) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-    authorized = !!link;
+  if (!authorized && callerProfile.role === "org_admin") {
+    authorized = await administersOrganization(admin, user.id, tenant.organization_id);
   }
   if (!authorized && callerProfile.role === "school_admin" && callerProfile.tenant_id === tenant_id) {
     authorized = true;

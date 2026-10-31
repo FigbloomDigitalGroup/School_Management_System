@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions, payWithMpesa, type PaymentFailure } from "@figbloom/shared";
+import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, parseShillings, payableSuggestions, payWithMpesa, wholeShillings, type PaymentFailure } from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { Modal } from "./ui/Modal";
 import { Mono } from "./ui/DataTable";
@@ -35,7 +35,10 @@ interface Props {
 export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents, invoiceId, country, initialPhone, onClose, onSettled }: Props) {
   const { tenant } = useTenantSession();
   const [phase, setPhase] = useState<Phase>("form");
-  const [amount, setAmount] = useState(balanceCents);
+  // what was typed, kept as typed: a decimal point is refused with a reason, never dropped (FIG-1334)
+  const [amountText, setAmountText] = useState(balanceCents > 0 ? String(wholeShillings(balanceCents) / 100) : "");
+  const parsed = parseShillings(amountText);
+  const amount = parsed.ok ? parsed.cents : 0;
   const [phone, setPhone] = useState(initialPhone);
   const [error, setError] = useState("");
   const [failure, setFailure] = useState<PaymentFailure>("timeout");
@@ -48,8 +51,9 @@ export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents
   async function send() {
     const p = normaliseMsisdn(phone);
     if (!p.ok) { setError(p.message); return; }
+    if (!parsed.ok) { setError(parsed.message); return; }
     if (amount <= 0) { setError("Enter how much you are paying."); return; }
-    if (amount > balanceCents) { setError(`That is more than the ${formatMoney(balanceCents, country)} still owed.`); return; }
+    if (amount > wholeShillings(balanceCents)) { setError(`That is more than the ${formatMoney(balanceCents, country)} still owed.`); return; }
     if (!invoiceId) { setError("The school hasn't billed this term yet, so there is nothing to pay online."); return; }
 
     setError("");
@@ -123,7 +127,7 @@ export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents
                   <button
                     key={s.label}
                     type="button"
-                    onClick={() => setAmount(s.cents)}
+                    onClick={() => setAmountText(s.cents > 0 ? String(s.cents / 100) : "")}
                     className="flex items-center justify-between rounded-lg border-[1.5px] bg-white px-3.5 py-2.5 text-left"
                     style={{ borderColor: on ? "var(--accent)" : "#EAE6E5" }}
                   >
@@ -138,11 +142,13 @@ export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents
           <label className="block">
             <span className="mb-1.5 block text-[12.5px] font-semibold">Amount</span>
             <input
-              value={amount ? String(amount / 100) : ""}
+              value={amountText}
               inputMode="numeric"
-              onChange={(e) => setAmount(Number(e.target.value.replace(/[^0-9]/g, "")) * 100)}
-              className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[14px] outline-none"
+              onChange={(e) => setAmountText(e.target.value)}
+              className="w-full rounded-md border px-3 py-2 font-mono text-[14px] outline-none"
+              style={{ borderColor: parsed.ok ? "#D3DAD5" : "#B8460A" }}
             />
+            {!parsed.ok && <span className="mt-1.5 block text-[11.5px] text-warn-ink">{parsed.message}</span>}
           </label>
 
           <label className="block">

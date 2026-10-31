@@ -12,6 +12,7 @@ import { useAsync } from "../../lib/useAsync";
 import { TimetableEditor } from "./TimetableEditor";
 import { SubjectsEditor } from "./SubjectsEditor";
 import { PromoteClass } from "./PromoteClass";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 interface TeacherOption { id: string; full_name: string }
 interface SubjectOption { id: string; name: string }
@@ -121,7 +122,7 @@ export function AdminClasses() {
   async function deleteClass(c: ClassGroup) {
     const count = data?.studentCountByClass.get(c.id) ?? 0;
     if (count > 0) { toast(`${c.name} has ${count} learner${count === 1 ? "" : "s"} on it — move them first.`, "error"); return; }
-    if (!window.confirm(`Delete ${c.name}? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete ${c.name}?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     const { error: err } = await supabase().from("classes").delete().eq("id", c.id);
     if (err) { toast(`Could not delete ${c.name}: ${err.message}`, "error"); return; }
     toast(`${c.name} deleted.`);

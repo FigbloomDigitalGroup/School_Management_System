@@ -7,6 +7,7 @@ import { Button } from "../ui/Button";
 import { Skeleton } from "../ui/Skeleton";
 import type { ToastFn } from "../ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { Avatar } from "../Avatar";
 
 /**
  * Who rides a route, and "Rebuild stops from riders' homes": cluster the
@@ -70,7 +71,10 @@ export function RouteRiders({ routeId, toast, onSaved }: { routeId: string; toas
         <ul className="grid gap-1 sm:grid-cols-2">
           {riders.map((r) => (
             <li key={r.studentId} className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1.5 text-[12.5px]">
-              <span className="min-w-0 truncate font-medium">{r.fullName}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <Avatar id={r.studentId} name={r.fullName} url={r.avatarUrl} size={24} />
+                <span className="min-w-0 truncate font-medium">{r.fullName}</span>
+              </span>
               <span className="shrink-0 text-[11.5px] text-ink-faint">
                 {r.stopId ? stopName.get(r.stopId) ?? "Stop" : "No stop"}{r.home ? "" : " · no home pin"}
               </span>

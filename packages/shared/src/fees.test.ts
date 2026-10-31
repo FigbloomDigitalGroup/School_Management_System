@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, payableSuggestions, planTermBilling, totalCents,
+  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, overpaidCents, parseShillings, payableSuggestions, planTermBilling, totalCents,
+  wholeShillings,
 } from "./fees";
 import type { FeeInvoice, FeeItem } from "./types";
 
@@ -27,6 +28,16 @@ describe("balanceCents", () => {
   });
   it("never goes negative on an overpayment", () => {
     expect(balanceCents(invoice({ total_cents: 10000, paid_cents: 15000 }))).toBe(0);
+  });
+});
+
+describe("overpaidCents", () => {
+  it("is what was paid above the total", () => {
+    expect(overpaidCents({ total_cents: 10000, paid_cents: 15000 })).toBe(5000);
+  });
+  it("is nothing while a balance is owed or exactly cleared", () => {
+    expect(overpaidCents({ total_cents: 10000, paid_cents: 4000 })).toBe(0);
+    expect(overpaidCents({ total_cents: 10000, paid_cents: 10000 })).toBe(0);
   });
 });
 
@@ -152,6 +163,18 @@ describe("payableSuggestions", () => {
     expect(s.some((o) => o.label === "Pay half")).toBe(true);
     expect(s.at(-1)).toEqual({ label: "Another amount", cents: 0 });
   });
+  // FIG-1317: it used to round to the nearest KSh 100, so KSh 250 offered KSh 100
+  it.each([
+    [15000, 7500], [25000, 12500], [35000, 17500], [20000, 10000], [300000, 150000],
+  ])("'Pay half' of %i cents is %i cents", (balance, half) => {
+    expect(payableSuggestions(balance).find((o) => o.label === "Pay half")?.cents).toBe(half);
+  });
+  it("rounds an odd balance's half to the whole shilling, as M-Pesa charges", () => {
+    expect(payableSuggestions(15100).find((o) => o.label === "Pay half")?.cents).toBe(7600);
+  });
+  it("offers no half of KSh 1, which would be nothing", () => {
+    expect(payableSuggestions(100).some((o) => o.label === "Pay half")).toBe(false);
+  });
 });
 
 describe("normaliseMsisdn", () => {
@@ -170,5 +193,35 @@ describe("normaliseMsisdn", () => {
   it("rejects numbers that are not Kenyan mobile numbers", () => {
     expect(normaliseMsisdn("12345").ok).toBe(false);
     expect(normaliseMsisdn("").ok).toBe(false);
+  });
+});
+
+describe("whole shillings (FIG-1334)", () => {
+  it("shows an amount with cents exactly, and a whole one as before", () => {
+    expect(formatMoney(1000050, "KE")).toBe("KSh 10,000.50");
+    expect(formatMoney(12345, "KE")).toBe("KSh 123.45");
+    expect(formatMoney(45, "KE")).toBe("KSh 0.45");
+    expect(formatMoney(150000, "KE")).toBe("KSh 1,500");
+  });
+
+  it("reads whole shillings, with spaces and thousands commas", () => {
+    expect(parseShillings("500")).toEqual({ ok: true, cents: 50000 });
+    expect(parseShillings(" 21,300 ")).toEqual({ ok: true, cents: 2130000 });
+    expect(parseShillings("")).toEqual({ ok: true, cents: 0 });
+  });
+
+  it("refuses a decimal point instead of dropping it: 500.50 never becomes 50,050", () => {
+    for (const typed of ["500.50", "100.5", ".50", "250."]) {
+      const r = parseShillings(typed);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toMatch(/whole shillings/);
+    }
+    expect(parseShillings("12abc").ok).toBe(false);
+  });
+
+  it("offers 'Pay in full' a balance with cents rounded up to the shilling, which M-Pesa can charge", () => {
+    expect(payableSuggestions(12345)[0]).toEqual({ label: "Pay in full", cents: 12400 });
+    expect(wholeShillings(12345)).toBe(12400);
+    expect(wholeShillings(12300)).toBe(12300);
   });
 });

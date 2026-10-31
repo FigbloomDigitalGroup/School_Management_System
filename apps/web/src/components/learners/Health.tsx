@@ -1,26 +1,64 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  BLOOD_GROUPS, COMMON_ALLERGIES, COMMON_CONDITIONS, fetchStudentHealth, healthFlags, healthToInput, isHealthEmpty,
-  normaliseList, saveStudentHealth, splitList, type HealthFlags, type StudentHealthInput,
+  BLOOD_GROUPS, COMMON_ALLERGIES, COMMON_CONDITIONS, describeHealthConsent, fetchHealthConsent, fetchStudentHealth,
+  HEALTH_CONSENT_NO_PRESSURE, HEALTH_CONSENT_PURPOSE, HEALTH_CONSENT_WITHDRAW_WARNING, healthFlags, healthToInput, isHealthEmpty,
+  localDay, normaliseList, saveStudentHealth, setHealthConsent, splitList, type HealthConsent, type HealthFlags, type StudentHealthInput,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
+import { HEALTH_CONSENT_EVENT } from "./HealthConsentRequests";
+import { confirmDialog, promptDialog } from "../ui/Confirm";
 
 /**
  * Health and bio details (student_health): the form, the Manage learner /
  * parent editor around it, and the small red chip a teacher sees on a class
- * list. Nothing here is required; a school fills in what it knows.
+ * list. Nothing here is required. Health details need a parent's or
+ * guardian's consent first (healthConsent.ts); contacts don't.
  */
 
 const input = "w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-[13px] outline-none";
 const label = "mb-1 block text-[11.5px] font-semibold";
 
-export function HealthFields({ value, onChange }: { value: StudentHealthInput; onChange: (v: StudentHealthInput) => void }) {
+/**
+ * The form. healthLocked (no consent on file) leaves only the family doctor
+ * and emergency contact, which consent doesn't cover.
+ */
+export function HealthFields({ value, onChange, healthLocked }: {
+  value: StudentHealthInput; onChange: (v: StudentHealthInput) => void; healthLocked?: boolean;
+}) {
   const set = (patch: Partial<StudentHealthInput>) => onChange({ ...value, ...patch });
   const text = (k: keyof StudentHealthInput) => ({
     value: (value[k] as string | null) ?? "",
     onChange: (e: { target: { value: string } }) => set({ [k]: e.target.value } as Partial<StudentHealthInput>),
   });
+
+  const contacts = (
+    <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <label className="block">
+        <span className={label}>Family doctor</span>
+        <input {...text("doctor_name")} maxLength={120} placeholder="Name or clinic" className={input} />
+      </label>
+      <label className="block">
+        <span className={label}>Doctor's phone</span>
+        <input {...text("doctor_phone")} maxLength={40} placeholder="e.g. 0712 345 678" className={input} />
+      </label>
+      <label className="block">
+        <span className={label}>Emergency contact</span>
+        <input {...text("emergency_name")} maxLength={120} placeholder="If parents can't be reached" className={input} />
+      </label>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label className="block">
+          <span className={label}>Relationship</span>
+          <input {...text("emergency_relationship")} maxLength={60} placeholder="e.g. Aunt" className={input} />
+        </label>
+        <label className="block">
+          <span className={label}>Phone</span>
+          <input {...text("emergency_phone")} maxLength={40} className={input} />
+        </label>
+      </div>
+    </div>
+  );
+  if (healthLocked) return contacts;
 
   return (
     <div className="grid gap-3">
@@ -59,33 +97,12 @@ export function HealthFields({ value, onChange }: { value: StudentHealthInput; o
           <span className={label}>Support needs</span>
           <input {...text("special_needs")} maxLength={1000} placeholder="e.g. Sits near the front (hearing)" className={input} />
         </label>
-        <label className="block">
-          <span className={label}>Family doctor</span>
-          <input {...text("doctor_name")} maxLength={120} placeholder="Name or clinic" className={input} />
-        </label>
-        <label className="block">
-          <span className={label}>Doctor's phone</span>
-          <input {...text("doctor_phone")} maxLength={40} placeholder="e.g. 0712 345 678" className={input} />
-        </label>
-        <label className="block">
-          <span className={label}>Emergency contact</span>
-          <input {...text("emergency_name")} maxLength={120} placeholder="If parents can't be reached" className={input} />
-        </label>
-        <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <label className="block">
-            <span className={label}>Relationship</span>
-            <input {...text("emergency_relationship")} maxLength={60} placeholder="e.g. Aunt" className={input} />
-          </label>
-          <label className="block">
-            <span className={label}>Phone</span>
-            <input {...text("emergency_phone")} maxLength={40} className={input} />
-          </label>
-        </div>
       </div>
       <label className="block">
         <span className={label}>Anything else the school should know</span>
         <textarea {...text("notes")} maxLength={2000} rows={2} className={`${input} resize-y`} />
       </label>
+      {contacts}
     </div>
   );
 }
@@ -133,38 +150,69 @@ function ChipList({ title, items, suggestions, onChange, placeholder, danger }: 
   );
 }
 
-/** Load, edit and save one learner's record: the Manage learner section, and the parent's child profile. */
-export function HealthEditor({ tenantId, studentId, toast, title = "Health and bio", blurb }: {
-  tenantId: string; studentId: string; toast: ToastFn; title?: string; blurb?: string;
+/**
+ * Load, edit and save one learner's record, behind the family's consent:
+ * mode "office" is the Manage learner section, "parent" the parent's child
+ * profile. Without consent only the doctor and emergency contact can be
+ * edited, and details saved before consent was asked for show read-only.
+ */
+export function HealthEditor({ tenantId, studentId, toast, title = "Health and bio", blurb, mode = "office" }: {
+  tenantId: string; studentId: string; toast: ToastFn; title?: string; blurb?: string; mode?: "office" | "parent";
 }) {
   const [value, setValue] = useState<StudentHealthInput | null>(null);
+  const [consent, setConsent] = useState<HealthConsent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let alive = true;
     setValue(null);
-    fetchStudentHealth(studentId)
-      .then((h) => { if (alive) { setValue(healthToInput(h)); setUpdatedAt(h?.updated_at ?? null); } })
+    Promise.all([fetchStudentHealth(studentId), fetchHealthConsent(studentId)])
+      .then(([h, c]) => { if (alive) { setValue(healthToInput(h)); setUpdatedAt(h?.updated_at ?? null); setConsent(c); } })
       .catch((err: Error) => { if (alive) setLoadError(err.message); });
     return () => { alive = false; };
-  }, [studentId]);
+  }, [studentId, reload]);
 
-  async function save() {
-    if (!value) return;
+  const given = consent?.status === "given";
+
+  async function save(next: StudentHealthInput, done = "Health details saved.") {
     setSaving(true);
     try {
-      const saved = await saveStudentHealth(tenantId, studentId, value);
+      const saved = await saveStudentHealth(tenantId, studentId, next);
       setValue(healthToInput(saved));
       setUpdatedAt(saved.updated_at);
-      toast("Health details saved.");
+      toast(done);
     } catch (err) {
       toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
     } finally {
       setSaving(false);
     }
   }
+
+  async function decide(give: boolean, paper?: { signedBy: string; formDate?: string | null }) {
+    if (!give && !(await confirmDialog({ title: "Withdraw consent for health details?", body: HEALTH_CONSENT_WITHDRAW_WARNING, confirmLabel: "Withdraw consent", danger: true }))) return;
+    setSaving(true);
+    try {
+      await setHealthConsent(studentId, give, paper);
+      toast(give ? "Consent recorded. Health details can be added now." : "Consent withdrawn. The health details were deleted.");
+      setReload((n) => n + 1);
+      window.dispatchEvent(new Event(HEALTH_CONSENT_EVENT));
+    } catch (err) {
+      toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function withdrawForParent() {
+    const who = await promptDialog({ title: "Withdraw consent for a parent", label: "Which parent or guardian asked to withdraw consent?", required: true, confirmLabel: "Continue" });
+    if (who) void decide(false, { signedBy: who });
+  }
+
+  const flags = value ? healthFlags(value) : null;
+  const legacy = !given && !!consent?.hasDetails && value;
 
   return (
     <div className="mb-5 border-b border-line-soft pb-5">
@@ -177,9 +225,41 @@ export function HealthEditor({ tenantId, studentId, toast, title = "Health and b
           <p className="text-small text-ink-faint">Loading…</p>
         ) : (
           <>
-            <HealthFields value={value} onChange={setValue} />
+            {consent && !given && (
+              mode === "parent"
+                ? <ParentConsentAsk hasDetails={consent.hasDetails} busy={saving} onAgree={() => void decide(true)} onRemove={() => void decide(false)} />
+                : <OfficeConsentRecord consent={consent} busy={saving} onRecord={(paper) => void decide(true, paper)} />
+            )}
+            {legacy && (
+              <div className="mb-3 rounded-md border border-[#F0DDB8] bg-[#FDF3E1] px-3 py-2 text-[12.5px] text-[#5c4a14]">
+                <p className="font-semibold">On file from before consent was recorded</p>
+                <p className="mt-0.5">{flags ? flags.summary : "Notes or a blood group only."}{value.blood_group ? ` · Blood group ${value.blood_group}` : ""}</p>
+                {mode === "office" && (
+                  <button type="button" disabled={saving} className="mt-1 text-[12px] font-semibold underline"
+                    onClick={async () => {
+                      if (await confirmDialog({ title: "Delete these health details?", body: "The family doctor and emergency contact are kept.", confirmLabel: "Delete", danger: true })) {
+                        void save({ ...value, allergies: [], medical_conditions: [], medications: null, blood_group: null, dietary_needs: null, special_needs: null, notes: null }, "Health details deleted.").then(() => setReload((n) => n + 1));
+                      }
+                    }}>
+                    Delete these details
+                  </button>
+                )}
+              </div>
+            )}
+            {given && consent && (
+              <p className="mb-2 text-[11.5px] text-ink-faint">
+                Consent: {describeHealthConsent(consent)}.{" "}
+                <button type="button" disabled={saving} className="font-semibold text-ink-muted underline"
+                  onClick={() => (mode === "parent" ? void decide(false) : withdrawForParent())}>
+                  Withdraw consent
+                </button>
+              </p>
+            )}
+            <HealthFields value={value} onChange={setValue} healthLocked={!given} />
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button variant="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save health details"}</Button>
+              <Button variant="primary" onClick={() => void save(value, given ? "Health details saved." : "Contacts saved.")} disabled={saving}>
+                {saving ? "Saving…" : given ? "Save health details" : "Save contacts"}
+              </Button>
               {updatedAt && <span className="text-[11.5px] text-ink-faint">Last updated {new Date(updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>}
             </div>
           </>
@@ -189,8 +269,65 @@ export function HealthEditor({ tenantId, studentId, toast, title = "Health and b
   );
 }
 
-/** For adding a learner: the fields folded away until wanted. */
-export function OptionalHealthSection({ value, onChange }: { value: StudentHealthInput; onChange: (v: StudentHealthInput) => void }) {
+/** The parent's choice, before any health details can be added. */
+function ParentConsentAsk({ hasDetails, busy, onAgree, onRemove }: {
+  hasDetails: boolean; busy: boolean; onAgree: () => void; onRemove: () => void;
+}) {
+  return (
+    <div className="mb-3 rounded-md border border-line bg-sunken px-3 py-3 text-[12.5px] leading-relaxed">
+      <p className="font-semibold">
+        {hasDetails ? "The school has health details on file for your child. Do you agree to the school keeping them?" : "Would you like to share your child's health details with the school?"}
+      </p>
+      <p className="mt-1 text-ink-muted">{HEALTH_CONSENT_PURPOSE}</p>
+      <p className="mt-1 text-ink-muted">{HEALTH_CONSENT_NO_PRESSURE}</p>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <Button variant="primary" onClick={onAgree} disabled={busy}>I agree</Button>
+        {hasDetails && <Button onClick={onRemove} disabled={busy}>No, delete them</Button>}
+      </div>
+    </div>
+  );
+}
+
+/** The office records consent from a signed form; a parent can also agree in their app. */
+function OfficeConsentRecord({ consent, busy, onRecord }: {
+  consent: HealthConsent; busy: boolean; onRecord: (paper: { signedBy: string; formDate: string }) => void;
+}) {
+  const [signedBy, setSignedBy] = useState("");
+  const [formDate, setFormDate] = useState(localDay(new Date()));
+  return (
+    <div className="mb-3 rounded-md border border-line bg-sunken px-3 py-3 text-[12.5px] leading-relaxed">
+      <p className="font-semibold">{consent.status === "withdrawn" ? `Consent ${describeHealthConsent(consent).toLowerCase()}.` : "No consent on file for health details."}</p>
+      <p className="mt-0.5 text-ink-muted">
+        A parent or guardian can agree in their app, or you can record a signed consent form here. Families who say no are treated the same.
+      </p>
+      <div className="mt-2 grid gap-2" style={{ gridTemplateColumns: "1.4fr 1fr auto" }}>
+        <label className="block">
+          <span className={label}>Signed by</span>
+          <input value={signedBy} onChange={(e) => setSignedBy(e.target.value)} maxLength={120} placeholder="Parent or guardian's name" className={input} />
+        </label>
+        <label className="block">
+          <span className={label}>Date on the form</span>
+          <input type="date" value={formDate} max={localDay(new Date())} onChange={(e) => setFormDate(e.target.value)} className={input} />
+        </label>
+        <div className="flex items-end">
+          <Button onClick={() => onRecord({ signedBy: signedBy.trim(), formDate })} disabled={busy || !signedBy.trim() || !formDate}>Record consent</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** What adding a learner records when the family has signed a consent form. */
+export interface PaperConsent { signedBy: string; formDate: string }
+
+/**
+ * For adding a learner: the fields folded away until wanted. Health details
+ * need a signed consent form (paper non-null); the doctor and emergency
+ * contact don't.
+ */
+export function OptionalHealthSection({ value, onChange, paper, onPaper }: {
+  value: StudentHealthInput; onChange: (v: StudentHealthInput) => void; paper: PaperConsent | null; onPaper: (p: PaperConsent | null) => void;
+}) {
   const [open, setOpen] = useState(!isHealthEmpty(value));
   return (
     <div className="rounded-lg border border-line-soft">
@@ -198,11 +335,38 @@ export function OptionalHealthSection({ value, onChange }: { value: StudentHealt
         className="flex w-full items-center justify-between px-3 py-2.5 text-left">
         <span>
           <span className="block text-[13px] font-semibold">Health and bio (optional)</span>
-          <span className="block text-[11.5px] text-ink-muted">Allergies, conditions, medication, emergency contact. Parents can fill this in later too.</span>
+          <span className="block text-[11.5px] text-ink-muted">Emergency contact, and health details if the family has signed a consent form. Parents can also agree and fill this in later.</span>
         </span>
         <span aria-hidden className="text-ink-faint">{open ? "−" : "+"}</span>
       </button>
-      {open && <div className="border-t border-line-soft px-3 py-3"><HealthFields value={value} onChange={onChange} /></div>}
+      {open && (
+        <div className="grid gap-3 border-t border-line-soft px-3 py-3">
+          <label className="flex items-start gap-2">
+            <input type="checkbox" checked={!!paper} style={{ accentColor: "#17402A" }} className="mt-0.5"
+              onChange={(e) => {
+                if (e.target.checked) onPaper({ signedBy: "", formDate: localDay(new Date()) });
+                else {
+                  onPaper(null);
+                  onChange({ ...value, allergies: [], medical_conditions: [], medications: null, blood_group: null, dietary_needs: null, special_needs: null, notes: null });
+                }
+              }} />
+            <span className="text-[12.5px]">A parent or guardian has signed a form agreeing to the school keeping health details</span>
+          </label>
+          {paper && (
+            <div className="grid gap-2" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+              <label className="block">
+                <span className={label}>Signed by</span>
+                <input value={paper.signedBy} onChange={(e) => onPaper({ ...paper, signedBy: e.target.value })} maxLength={120} placeholder="Parent or guardian's name" className={input} />
+              </label>
+              <label className="block">
+                <span className={label}>Date on the form</span>
+                <input type="date" value={paper.formDate} max={localDay(new Date())} onChange={(e) => onPaper({ ...paper, formDate: e.target.value })} className={input} />
+              </label>
+            </div>
+          )}
+          <HealthFields value={value} onChange={onChange} healthLocked={!paper} />
+        </div>
+      )}
     </div>
   );
 }

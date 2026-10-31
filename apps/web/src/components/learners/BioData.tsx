@@ -7,6 +7,7 @@ import {
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
 import { SendSignInAgainButton } from "../PasswordReset";
+import { promptDialog } from "../ui/Confirm";
 
 /**
  * Bio data (20261027040000_parent_bio_data.sql): the identity details a
@@ -105,7 +106,12 @@ function RequestLines({ request }: { request: BioRequest }) {
 function DecideButtons({ request, onDone, toast }: { request: BioRequest; onDone: () => void; toast: ToastFn }) {
   const [working, setWorking] = useState(false);
   async function decide(approve: boolean) {
-    const note = approve ? undefined : window.prompt("Why not? The family sees this. (Optional)") ?? undefined;
+    let note: string | undefined;
+    if (!approve) {
+      const why = await promptDialog({ title: "Turn down this change?", body: "The family sees your reason.", label: "Why not? (optional)", confirmLabel: "Turn down" });
+      if (why === null) return;
+      note = why || undefined;
+    }
     setWorking(true);
     try {
       await decideBioRequest(request.id, approve, note);

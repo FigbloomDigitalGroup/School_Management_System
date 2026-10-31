@@ -18,9 +18,10 @@ export interface SignupOrganizationInput {
   admin_password: string;
 }
 
+/** The same whether or not the address already had an account (FIG-1337): the next step is the email. */
 export interface SignupOrganizationResult {
   ok: true;
-  slug: string;
+  confirm_email: true;
 }
 
 export async function signupOrganization(input: SignupOrganizationInput): Promise<SignupOrganizationResult> {

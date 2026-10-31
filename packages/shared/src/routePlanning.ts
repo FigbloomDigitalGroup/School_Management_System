@@ -343,6 +343,8 @@ export function describeSuggestion(s: RouteSuggestion): string {
 export interface RouteRider {
   studentId: string;
   fullName: string;
+  /** Their photo, if the school has added one. */
+  avatarUrl?: string | null;
   stopId: string | null;
   home: (LatLngPoint & { landmark: string | null; address: string | null }) | null;
   /** home_landmark/home_address without a pin: needs placing on the map before it can plan anything */
@@ -352,15 +354,15 @@ export interface RouteRider {
 /** Who rides a route, with their homes. Active learners only. */
 export async function listRouteRiders(routeId: string): Promise<RouteRider[]> {
   const { data, error } = await supabase().from("student_transport")
-    .select("student_id, stop_id, student:students(full_name, active, home_lat, home_lng, home_landmark, home_address)")
+    .select("student_id, stop_id, student:students(full_name, avatar_url, active, home_lat, home_lng, home_landmark, home_address)")
     .eq("route_id", routeId)
-    .returns<{ student_id: string; stop_id: string | null; student: { full_name: string; active: boolean; home_lat: number | null; home_lng: number | null; home_landmark: string | null; home_address: string | null } | null }[]>();
+    .returns<{ student_id: string; stop_id: string | null; student: { full_name: string; avatar_url: string | null; active: boolean; home_lat: number | null; home_lng: number | null; home_landmark: string | null; home_address: string | null } | null }[]>();
   if (error) throw error;
   return (data ?? []).filter((r) => r.student?.active).map((r) => {
     const s = r.student!;
     const hasPin = s.home_lat != null && s.home_lng != null;
     return {
-      studentId: r.student_id, fullName: s.full_name, stopId: r.stop_id,
+      studentId: r.student_id, fullName: s.full_name, avatarUrl: s.avatar_url, stopId: r.stop_id,
       home: hasPin ? { lat: s.home_lat!, lng: s.home_lng!, landmark: s.home_landmark, address: s.home_address } : null,
       addressOnly: !hasPin ? (s.home_address ?? s.home_landmark) : null,
     };

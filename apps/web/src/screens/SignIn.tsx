@@ -197,7 +197,7 @@ export function SignIn() {
 
       const chosen = PORTALS.find((p) => p.id === portal);
       if (chosen && !chosen.roles.includes(profile.role as Role)) {
-        await supabase().auth.signOut();
+        await supabase().auth.signOut({ scope: "local" });
         const right = portalOfRole(profile.role as Role);
         setError(`That's not a ${chosen.label.toLowerCase()} account.${right ? ` Use the ${right.label} portal instead.` : ""}`);
         return;

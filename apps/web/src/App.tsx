@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
+import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
 import { QueueNotice } from "./components/QueueNotice";
@@ -101,8 +102,10 @@ import { StudentItems } from "./screens/student/Items";
 import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
+import { StaffLoans } from "./screens/staff/Loans";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
+import { AdminAuditLog } from "./screens/admin/AuditLog";
 import { ParentHealth } from "./screens/parent/Health";
 import { useMedicalUnread } from "./lib/useMedicalUnread";
 import { TeacherVisitors } from "./screens/teacher/Visitors";
@@ -122,6 +125,7 @@ import { BloomChat } from "./screens/bloom/BloomChat";
 export function App() {
   return (
     <ToastHost>
+      <ConfirmHost />
       <RouteSeo />
       <Routes>
         <Route path="/" element={<Suspense fallback={null}><Landing /></Suspense>} />
@@ -239,6 +243,7 @@ function TenantRoutes() {
           <Route path="admin/medical" element={<AdminShell page="admin/medical"><AdminMedical /></AdminShell>} />
           <Route path="admin/bloom" element={<AdminShell page="admin/bloom"><BloomChat console="admin" /></AdminShell>} />
           <Route path="admin/access" element={<AdminShell page="admin/access"><AccessRoles /></AdminShell>} />
+          <Route path="admin/audit" element={<AdminShell page="admin/audit"><AdminAuditLog /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
@@ -249,6 +254,7 @@ function TenantRoutes() {
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
+          <Route path="teacher/loans" element={<TeacherShell allow={["teacher"]}><StaffLoans /></TeacherShell>} />
           <Route path="teacher/items" element={<TeacherShell allow={["teacher"]}><TeacherItems /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
           <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
@@ -298,6 +304,7 @@ function TenantRoutes() {
           <Route path="staff/notices" element={<StaffShell><StaffNotices /></StaffShell>} />
           <Route path="staff/chats" element={<StaffShell><MyChats role="staff" /></StaffShell>} />
           <Route path="staff/items" element={<StaffShell><TeacherItems /></StaffShell>} />
+          <Route path="staff/loans" element={<StaffShell><StaffLoans /></StaffShell>} />
           <Route path="staff/account" element={<StaffShell><StaffAccount /></StaffShell>} />
           {/* the old gate and reception consoles (before 20261028100001), for a desk left open on one */}
           <Route path="gate" element={<Navigate to="../staff" replace />} />
@@ -619,7 +626,7 @@ function FullPageSkeleton() {
 function PendingOrgHold({ name }: { name: string }) {
   const nav = useNavigate();
   async function signOut() {
-    await supabase().auth.signOut();
+    await supabase().auth.signOut({ scope: "local" });
     nav("/signin", { replace: true });
   }
   return (

@@ -146,8 +146,36 @@ select pg_temp.expect_eq('driver sees no private documents',
 reset role;
 
 -- ---------------------------------------------------------------- anonymous
+-- A policy with no TO clause applies to anon too, and if it calls a helper
+-- anon can't execute, every anonymous query on that table errors instead of
+-- coming back empty (FIG-1295, 20261103700000). Catches the next one.
+select pg_temp.expect_eq('no policy open to every role calls a function anon can''t execute (found: '
+    || coalesce(string_agg(distinct p.schemaname || '.' || p.tablename || ' ' || p.policyname, ', '), 'none') || ')',
+    count(distinct (p.schemaname, p.tablename, p.policyname)), 0)
+  from pg_policies p
+  join pg_proc f on f.pronamespace in ('public'::regnamespace, 'storage'::regnamespace)
+   and (coalesce(p.qual, '') || ' ' || coalesce(p.with_check, '')) ~ ('(^|[^a-z_])' || f.proname || '\(')
+   and not has_function_privilege('anon', f.oid, 'EXECUTE')
+ where p.roles = '{public}' and p.schemaname in ('public', 'storage');
+
+create function pg_temp.expect_empty(label text, query text) returns void language plpgsql as $$
+declare n bigint;
+begin
+  execute 'select count(*) from (' || query || ') q' into n;
+  if n = 0 then raise notice 'PASS %', label; else raise notice 'FAIL %: % rows', label, n; end if;
+exception when others then raise notice 'FAIL %: % %', label, sqlstate, sqlerrm;
+end $$;
+grant execute on function pg_temp.expect_empty(text, text) to anon;
+
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
+select pg_temp.expect_empty('anonymous visitor gets no announcements, not an error', 'select 1 from announcements');
+select pg_temp.expect_empty('anonymous visitor gets no exam papers, not an error', 'select 1 from exam_papers');
+select pg_temp.expect_empty('anonymous visitor gets no marks, not an error', 'select 1 from marks');
+select pg_temp.expect_empty('anonymous visitor gets no chat messages, not an error', 'select 1 from chat_messages');
+select pg_temp.expect_empty('anonymous visitor gets no sick bay visits, not an error', 'select 1 from sick_bay_visits');
+select pg_temp.expect_empty('anonymous visitor gets no private documents, not an error',
+  'select 1 from storage.objects where bucket_id = ''private-documents''');
 select pg_temp.expect_eq('anonymous visitor cannot list public assets',
   (select count(*) from storage.objects where bucket_id = 'public-assets'), 0);
 select pg_temp.expect_denied('anonymous visitor writes to the audit log',
