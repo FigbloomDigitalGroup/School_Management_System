@@ -5,6 +5,7 @@ import {
   type Call, type LiveClass, type LiveClassRole, type RoomPass,
 } from "@figbloom/shared";
 import { useToast } from "../ui/Toast";
+import { confirmDialog } from "../ui/Confirm";
 
 const CallRoom = lazy(() => import("./CallRoom"));
 
@@ -244,8 +245,8 @@ function HostControls({ live, onChange, onEnded, fail }: {
       })}>
         {live.learners_may_publish ? "Lock learners' mics" : "Let learners speak"}
       </button>
-      <button type="button" className={btn} disabled={working} onClick={() => {
-        if (!window.confirm("End the class for everyone? Learners and parents will be disconnected.")) return;
+      <button type="button" className={btn} disabled={working} onClick={async () => {
+        if (!(await confirmDialog({ title: "End the class for everyone?", body: "Learners and parents will be disconnected.", confirmLabel: "End class", danger: true }))) return;
         void run(async () => {
           await endLiveClass(live.id);
           onEnded();

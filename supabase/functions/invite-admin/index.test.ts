@@ -299,19 +299,27 @@ describe("invite-admin handle", () => {
     const ORG_ID = "org-1";
     const OTHER_ORG_ID = "org-2";
 
-    function makeOrgAdminClients(opts: { tenantOrgId?: string | null; linkedOrgId?: string } = {}) {
+    function makeOrgAdminClients(opts: { tenantOrgId?: string | null; linkedOrgId?: string; orgStatus?: string } = {}) {
       const admin = new FakeSupabaseClient();
       admin.seed("profiles", [{ id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" }]);
       admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", organization_id: opts.tenantOrgId === undefined ? ORG_ID : opts.tenantOrgId }]);
       if (opts.linkedOrgId !== undefined) {
         admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: opts.linkedOrgId }]);
       }
+      admin.seed("organizations", [{ id: ORG_ID, status: opts.orgStatus ?? "active" }, { id: OTHER_ORG_ID, status: "active" }]);
       admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-admin-1", email: attrs.email } }, error: null });
 
       const asUser = new FakeSupabaseClient();
       asUser.authUser = { id: ORG_ADMIN_ID };
       return { admin, asUser };
     }
+
+    it("refuses an org_admin whose organization is suspended (FIG-1312)", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ tenantOrgId: ORG_ID, linkedOrgId: ORG_ID, orgStatus: "suspended" });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.rowsIn("profiles").length, 1);
+    });
 
     it("allows an org_admin to invite an admin for a school in their own organization", async () => {
       const { admin, asUser } = makeOrgAdminClients({ tenantOrgId: ORG_ID, linkedOrgId: ORG_ID });

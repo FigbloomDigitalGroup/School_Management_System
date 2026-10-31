@@ -20,13 +20,14 @@ import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type Studen
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
-import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { HealthEditor, OptionalHealthSection, type PaperConsent } from "../../components/learners/Health";
 import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
-import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
+import { emptyHealth, isHealthEmpty, saveStudentHealth, setHealthConsent, type StudentHealthInput } from "@figbloom/shared";
 import { CallButton } from "../../components/calls/CallButton";
 import { AdminAccessEditor } from "../../components/AdminAccess";
 import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
 type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & { avatar_url: string | null };
@@ -201,7 +202,7 @@ export function People() {
   }
 
   async function archiveStudents(ids: string[], who: string) {
-    if (!window.confirm(`Archive ${who}? They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".`)) return;
+    if (!(await confirmDialog({ title: `Archive ${who}?`, body: 'They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".', confirmLabel: "Archive" }))) return;
     await changeLearners(ids, () => archiveLearners(ids), `${who} archived. Find them under "Archived".`, "Could not archive");
   }
 
@@ -210,12 +211,12 @@ export function People() {
   }
 
   async function deleteStudents(ids: string[], who: string) {
-    if (!window.confirm(`Delete ${who} for good? This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.`)) return;
+    if (!(await confirmDialog({ title: `Delete ${who} for good?`, body: "This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.", confirmLabel: "Delete", danger: true }))) return;
     await changeLearners(ids, () => deleteLearners(ids), `${who} deleted.`, "Not deleted");
   }
 
   async function deleteStaff(staff: Pick<StaffRow, "id" | "full_name">) {
-    if (!window.confirm(`Remove ${staff.full_name}? This deletes their login and cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Remove ${staff.full_name}?`, body: "This deletes their login and cannot be undone.", confirmLabel: "Remove", danger: true }))) return;
     setDeletingStaff(true);
     try {
       const r = await deleteAccount({ tenant_id: tenant.id, profile_id: staff.id });
@@ -620,12 +621,17 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
   const [dob, setDob] = useState("");
   const [homeBus, setHomeBus] = useState<HomeBusValue>(EMPTY_HOME_BUS);
   const [health, setHealth] = useState<StudentHealthInput>(emptyHealth);
+  const [paperConsent, setPaperConsent] = useState<PaperConsent | null>(null);
   const { data: routes } = useSchoolRoutes(tenantId);
   const [saving, setSaving] = useState(false);
 
   async function handleAdd() {
     if (!admissionNo.trim() || !fullName.trim() || !classId || !gender) {
       toast("Admission number, name, gender and class are all required.", "error");
+      return;
+    }
+    if (paperConsent && (!paperConsent.signedBy.trim() || !paperConsent.formDate)) {
+      toast("Enter who signed the health consent form and the date on it, or untick it.", "error");
       return;
     }
     if (existingAdmissionNos.has(admissionNo.trim())) {
@@ -655,7 +661,13 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
         const plan = planBus(homeBus, routes, fullName.trim());
         if (plan) await saveBus(created.id, plan).catch(() => later.push("bus route"));
       }
-      if (!isHealthEmpty(health)) await saveStudentHealth(tenantId, created.id, health).catch(() => later.push("health details"));
+      if (!isHealthEmpty(health)) {
+        // consent first: without it the database refuses health details
+        const saved = paperConsent
+          ? setHealthConsent(created.id, true, { signedBy: paperConsent.signedBy.trim(), formDate: paperConsent.formDate }).then(() => saveStudentHealth(tenantId, created.id, health))
+          : saveStudentHealth(tenantId, created.id, health);
+        await saved.catch(() => later.push("health details"));
+      }
       if (later.length) toast(`${fullName.trim()} was added, but the ${later.join(" and ")} didn't save. Open Manage to try again.`, "error");
       onAdded(fullName.trim());
     } catch (err) {
@@ -747,7 +759,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
           <h3 className="mb-2 text-[13px] font-semibold">Home and bus</h3>
           <HomeAndBusFields value={homeBus} onChange={setHomeBus} routes={routes ?? []} boarding={boarding} childName={fullName} />
         </div>
-        <OptionalHealthSection value={health} onChange={setHealth} />
+        <OptionalHealthSection value={health} onChange={setHealth} paper={paperConsent} onPaper={setPaperConsent} />
       </div>
     </Modal>
   );
@@ -808,7 +820,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
       onClose={onClose}
       eyebrow="Students"
       title="Import from CSV"
-      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
+      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Allergies and conditions need the family's signed consent form: add health_consent_signed_by and health_consent_date. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>

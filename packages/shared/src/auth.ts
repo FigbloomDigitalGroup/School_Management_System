@@ -131,6 +131,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "admin/performance", label: "Performance", icon: "chart" },
     { to: "admin/settings", label: "School settings", icon: "gear" },
     { to: "admin/access", label: "Access & roles", icon: "people" },
+    { to: "admin/audit", label: "Audit log", icon: "clock" },
     { to: "admin/account", label: "My account", icon: "pencil" },
   ],
   teacher: [
@@ -150,6 +151,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "teacher/activities", label: "Sports & activities", icon: "trophy" },
     { to: "teacher/buses", label: "Buses", icon: "pulse" },
     { to: "teacher/leave", label: "Leave", icon: "flag" },
+    { to: "teacher/loans", label: "Loans", icon: "receipt" },
     { to: "teacher/visitors", label: "Visitors", icon: "people" },
     { to: "teacher/items", label: "My items", icon: "box" },
     { to: "teacher/account", label: "Account", icon: "pencil" },
@@ -194,6 +196,7 @@ export const NAV: Record<Role, { to: string; label: string; icon: string }[]> = 
     { to: "staff/visitors", label: "Visitors", icon: "people" },
     { to: "staff/notices", label: "Notices", icon: "bell" },
     { to: "staff/chats", label: "Chats", icon: "chat" },
+    { to: "staff/loans", label: "Loans", icon: "receipt" },
     { to: "staff/items", label: "My items", icon: "box" },
     { to: "staff/account", label: "Account", icon: "pencil" },
   ],

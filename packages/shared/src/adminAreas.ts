@@ -6,15 +6,16 @@ import type { Role } from "./types";
  * org admins, super admins) have the whole admin console. A teacher or other
  * staff member can additionally hold areas, each opening one part of it: the
  * deputy keeps their teacher login and gains the admin screens their areas
- * cover. School settings, the overview dashboard, reports, the audit trail
- * and these permissions themselves stay with full admins.
+ * cover. School settings, the overview dashboard, reports and these
+ * permissions themselves stay with full admins; the audit log is an area of
+ * its own (20261104200000), read only.
  *
  * The database checks every area itself (has_perm); this module is what the
  * screens show and hide, and the presets the office picks from.
  */
 export const ADMIN_AREAS = [
   "people", "fees", "academics", "attendance", "transport", "communication",
-  "inventory", "activities", "visitors", "medical", "leave",
+  "inventory", "activities", "visitors", "medical", "leave", "audit",
 ] as const;
 export type AdminArea = (typeof ADMIN_AREAS)[number];
 
@@ -31,6 +32,7 @@ export const ADMIN_AREA_INFO: Record<AdminArea, { label: string; allows: string 
   visitors: { label: "Visitors", allows: "The visitor log at the gate and reception." },
   medical: { label: "Medical", allows: "The sick bay: visits, medication rounds, parents' medication requests and health reports, and learners' health records." },
   leave: { label: "Leave", allows: "Approve or decline staff leave requests." },
+  audit: { label: "Audit log", allows: "Read the school's audit log: who changed what, and when, across every part of the console. Read only." },
 };
 
 export interface AdminPreset {
@@ -145,6 +147,7 @@ export const ADMIN_AREA_PAGES: Record<AdminArea, { to: string; label: string }[]
   visitors: [{ to: "admin/visitors", label: "Visitors" }],
   medical: [{ to: "admin/medical", label: "Sick bay" }],
   leave: [{ to: "admin/leave", label: "Leave requests" }],
+  audit: [{ to: "admin/audit", label: "Audit log" }],
 };
 
 /**
@@ -173,6 +176,7 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/leave": "leave",
   "admin/visitors": "visitors",
   "admin/medical": "medical",
+  "admin/audit": "audit",
   "admin/inventory": "inventory",
   "admin/fleet": "transport",
   "admin/reports": "full",

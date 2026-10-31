@@ -32,6 +32,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
@@ -112,10 +114,8 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile!.role === "super_admin";
-  if (!authorized && callerProfile!.role === "org_admin" && tenant.organization_id) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-    authorized = !!link;
+  if (!authorized && callerProfile!.role === "org_admin") {
+    authorized = await administersOrganization(admin, user.id, tenant.organization_id);
   }
   if (!authorized && role !== "school_admin" && callerProfile!.role === "school_admin" && callerProfile!.tenant_id === tenant_id) {
     authorized = true;
@@ -153,7 +153,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     // Supabase's real message is "...has already been registered" — "been" sits
     // between the two words, so a plain "already registered" substring never matches.
     const already = createErr?.message?.toLowerCase().includes("already been registered");
-    return json({ error: already ? "That email is already in use." : (createErr?.message ?? "Could not create the account.") }, already ? 409 : 500);
+    return json(already ? { error: "That email is already in use." } : failure("invite-admin", "create the account", createErr), already ? 409 : 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -171,7 +171,7 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   if (profileErr) {
     // Roll back the orphaned auth account rather than leaving a login with no profile.
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("invite-admin", "save the profile", profileErr), 500);
   }
 
   const actorSuffix = callerProfile!.role === "super_admin" ? "Figbloom" : callerProfile!.role === "org_admin" ? "org admin"

@@ -147,7 +147,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
 
         <PrivacyLinks tint={a.deep} />
 
-        <Button variant="secondary" label="Sign out" onPress={() => void supabase().auth.signOut()} style={{ marginTop: 16 }} />
+        <Button variant="secondary" label="Sign out" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ marginTop: 16 }} />
       </ScrollView>
     </View>
   );

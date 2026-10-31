@@ -144,10 +144,10 @@ describe("invite-org-admin handle", () => {
     const ORG_ADMIN_ID = "org-admin-1";
     const OTHER_ORG_ID = "org-2";
 
-    function makeOrgAdminClients(opts: { linkedOrgId?: string } = {}) {
+    function makeOrgAdminClients(opts: { linkedOrgId?: string; orgStatus?: string } = {}) {
       const admin = new FakeSupabaseClient();
       admin.seed("profiles", [{ id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" }]);
-      admin.seed("organizations", [{ id: ORG_ID, name: "Nakuru County" }]);
+      admin.seed("organizations", [{ id: ORG_ID, name: "Nakuru County", status: opts.orgStatus ?? "active" }]);
       if (opts.linkedOrgId !== undefined) {
         admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: opts.linkedOrgId }]);
       }
@@ -157,6 +157,13 @@ describe("invite-org-admin handle", () => {
       asUser.authUser = { id: ORG_ADMIN_ID };
       return { admin, asUser };
     }
+
+    it("refuses an org_admin whose organization is suspended (FIG-1312)", async () => {
+      const { admin, asUser } = makeOrgAdminClients({ linkedOrgId: ORG_ID, orgStatus: "suspended" });
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.rowsIn("organization_admins").length, 1);
+    });
 
     it("allows an org_admin to invite a co-admin into their own organization", async () => {
       const { admin, asUser } = makeOrgAdminClients({ linkedOrgId: ORG_ID });

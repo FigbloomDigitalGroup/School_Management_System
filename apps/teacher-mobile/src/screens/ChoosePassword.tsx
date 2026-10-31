@@ -87,7 +87,7 @@ export function ChoosePassword({ profileId, fullName, loginId, onDone }: {
 
       <Button label="Save and continue" loading={busy} disabled={!password || !confirm} onPress={submit} style={{ marginTop: 20 }} />
 
-      <Button variant="quiet" tint={t.appSurface.inkMuted} label="Not you? Sign out" onPress={() => void supabase().auth.signOut()} style={{ alignSelf: "center", marginTop: 12 }} />
+      <Button variant="quiet" tint={t.appSurface.inkMuted} label="Not you? Sign out" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ alignSelf: "center", marginTop: 12 }} />
     </ScrollView>
   );
 }

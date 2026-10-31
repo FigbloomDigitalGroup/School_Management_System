@@ -90,7 +90,7 @@ export function ParentAccount() {
 
   async function signOut() {
     setSigningOut(true);
-    try { await supabase().auth.signOut(); } finally { setSigningOut(false); }
+    try { await supabase().auth.signOut({ scope: "local" }); } finally { setSigningOut(false); }
   }
 
   return (

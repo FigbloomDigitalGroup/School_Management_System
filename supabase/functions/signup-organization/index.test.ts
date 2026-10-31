@@ -1,20 +1,23 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle } from "./index.ts";
 
+/** generateLink creates the account unconfirmed, with id "new-org-admin-1" and a confirmation link. */
 function makeClient() {
   const admin = new FakeSupabaseClient();
-  admin.onCreateUser = (attrs) => ({
-    data: { user: { id: "new-org-admin-1", email: attrs.email } },
-    error: null,
-  });
+  admin.onGenerateLink = (params) => {
+    const user = { id: "new-org-admin-1", email: params.email, email_confirmed_at: null };
+    admin.authUsers.set(user.id, user);
+    return { data: { user, properties: { action_link: "https://auth.example.test/verify?token=confirm-me" } }, error: null };
+  };
   return admin;
 }
 
 /** Lets every attempt through, unless a test says otherwise. */
 const open = async () => true;
-const deps = (admin: FakeSupabaseClient) => ({ admin, withinLimit: open });
+const deps = (admin: FakeSupabaseClient, mailer = new FakeMailer()) => ({ admin, withinLimit: open, mailer });
 
 function request(body: unknown, opts: { method?: string } = {}) {
   const method = opts.method ?? "POST";
@@ -91,21 +94,19 @@ describe("signup-organization handle", () => {
     assertEquals(res.status, 409);
   });
 
-  it("creates the organization active (no approval step for now), the org_admin account, the link, and an audit event", async () => {
+  it("creates the organization active, the org_admin account unconfirmed, the link, and an audit event, and emails the confirmation", async () => {
     const admin = makeClient();
-    const res = await handle(request(validBody), deps(admin));
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), deps(admin, mailer));
     assertEquals(res.status, 200);
-    const out = await res.json();
-    assertEquals(out.ok, true);
-    assertEquals(out.slug, validBody.slug);
+    assertEquals(await res.json(), { ok: true, confirm_email: true });
 
     const orgs = admin.rowsIn("organizations");
     assertEquals(orgs.length, 1);
     assertEquals(orgs[0].status, "active");
     assertEquals(orgs[0].created_by, null);
 
-    const profiles = admin.rowsIn("profiles");
-    const created = profiles.find((p) => p.id === "new-org-admin-1");
+    const created = admin.rowsIn("profiles").find((p) => p.id === "new-org-admin-1");
     assertEquals(created?.role, "org_admin");
     assertEquals(created?.tenant_id, null);
 
@@ -120,14 +121,85 @@ describe("signup-organization handle", () => {
     assertEquals(/pending/.test(audit.event), false);
   });
 
-  it("reports a 409 when the email is already registered", async () => {
-    const admin = makeClient();
-    // The real Supabase Auth message, not a paraphrase — "already registered"
-    // alone would silently defeat the substring check (a bug found and fixed
-    // in invite-admin/invite-org-admin earlier this session).
-    admin.onCreateUser = () => ({ data: { user: null }, error: { message: "A user with this email address has already been registered" } });
-    const res = await handle(request(validBody), deps(admin));
-    assertEquals(res.status, 409);
+  // FIG-1337: nobody can use an address they haven't proved is theirs
+  describe("the address is proved before the account can be used (FIG-1337)", () => {
+    it("creates the account unconfirmed, with the signer's own password, never with email_confirm", async () => {
+      const admin = makeClient();
+      await handle(request(validBody), deps(admin));
+      assertEquals(admin.generatedLinks.length, 1);
+      assertEquals(admin.generatedLinks[0].type, "signup");
+      assertEquals(admin.generatedLinks[0].password, validBody.admin_password);
+      assertEquals("email_confirm" in admin.generatedLinks[0], false);
+      assertEquals(admin.authUsers.get("new-org-admin-1")?.email_confirmed_at, null);
+    });
+
+    it("sends the confirmation link to the address", async () => {
+      const admin = makeClient();
+      const mailer = new FakeMailer();
+      await handle(request(validBody), deps(admin, mailer));
+      assertEquals(mailer.sent.length, 1);
+      assertEquals(mailer.sent[0].to, validBody.admin_email);
+      assertEquals(mailer.sent[0].template, "signup-confirm");
+      assertMatch(mailer.sent[0].text, /https:\/\/auth\.example\.test\/verify\?token=confirm-me/);
+    });
+
+    it("answers an address that already has an account exactly as a new one, creates nothing, and tells only the owner", async () => {
+      const admin = makeClient();
+      admin.seed("profiles", [{ id: "owner-1", email: validBody.admin_email, full_name: "Grace Owner", role: "org_admin" }]);
+      admin.authUsers.set("owner-1", { id: "owner-1", email: validBody.admin_email, email_confirmed_at: "2026-10-01T00:00:00Z" });
+      const mailer = new FakeMailer();
+      const res = await handle(request(validBody), deps(admin, mailer));
+      assertEquals(res.status, 200);
+      assertEquals(await res.json(), { ok: true, confirm_email: true });
+      assertEquals(admin.rowsIn("organizations").length, 0);
+      assertEquals(admin.generatedLinks.length, 0);
+      assertEquals(mailer.sent.map((m) => [m.to, m.template]), [[validBody.admin_email, "signup-taken"]]);
+    });
+
+    it("clears an earlier sign-up that was never confirmed, and lets the real owner sign up", async () => {
+      const admin = makeClient();
+      admin.seed("profiles", [{ id: "squatter-1", email: validBody.admin_email, full_name: "Not Grace", role: "org_admin" }]);
+      admin.authUsers.set("squatter-1", { id: "squatter-1", email: validBody.admin_email, email_confirmed_at: null });
+      admin.seed("organizations", [{ id: "held-org", slug: "held", name: "Held", created_by: null }]);
+      admin.seed("organization_admins", [{ id: "l1", profile_id: "squatter-1", organization_id: "held-org" }]);
+      const mailer = new FakeMailer();
+      const res = await handle(request(validBody), deps(admin, mailer));
+      assertEquals(res.status, 200);
+      assertEquals(admin.deletedUserIds, ["squatter-1"]);
+      assertEquals(admin.rowsIn("organizations").map((o) => o.slug), [validBody.slug]);
+      assertEquals(mailer.sent[0].template, "signup-confirm");
+    });
+
+    it("answers an Auth account left without a profile the same way, and sends nothing", async () => {
+      const admin = makeClient();
+      admin.onGenerateLink = () => ({ data: { user: null, properties: null }, error: { message: "A user with this email address has already been registered" } });
+      const mailer = new FakeMailer();
+      const res = await handle(request(validBody), deps(admin, mailer));
+      assertEquals(res.status, 200);
+      assertEquals(await res.json(), { ok: true, confirm_email: true });
+      assertEquals(mailer.sent.length, 0);
+    });
+
+    it("undoes the whole sign-up when the confirmation can't be sent", async () => {
+      const admin = makeClient();
+      const mailer = new FakeMailer();
+      mailer.answer = { status: "failed", reason: "Resend answered 422" };
+      const res = await handle(request(validBody), deps(admin, mailer));
+      assertEquals(res.status, 502);
+      assertEquals(admin.deletedUserIds, ["new-org-admin-1"]);
+      assertEquals(admin.rowsIn("organizations").length, 0);
+      assertEquals(admin.rowsIn("profiles").length, 0);
+    });
+
+    it("is closed, creating nothing, when there's no mailer to send the confirmation", async () => {
+      const admin = makeClient();
+      const mailer = new FakeMailer();
+      mailer.configured = false;
+      const res = await handle(request(validBody), deps(admin, mailer));
+      assertEquals(res.status, 503);
+      assertEquals(admin.generatedLinks.length, 0);
+      assertEquals(admin.rowsIn("organizations").length, 0);
+    });
   });
 
   it("rolls back the auth account if the organization insert fails", async () => {
@@ -159,9 +231,10 @@ describe("signup-organization handle", () => {
     assertEquals(admin.rowsIn("organizations").length, 0);
     assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-org-admin-1"), undefined);
   });
+
   it("never hands the auth service's own error message to the caller", async () => {
     const admin = makeClient();
-    admin.onCreateUser = () => ({ data: { user: null }, error: { message: "duplicate key value violates unique constraint users_pkey" } });
+    admin.onGenerateLink = () => ({ data: { user: null, properties: null }, error: { message: "duplicate key value violates unique constraint users_pkey" } });
     const res = await handle(request(validBody), deps(admin));
     assertEquals(res.status, 500);
     const raw = await res.text();
@@ -172,7 +245,7 @@ describe("signup-organization handle", () => {
   describe("abuse protection", () => {
     it("answers 429 without creating anything once the caller is over its allowance", async () => {
       const admin = makeClient();
-      const res = await handle(request(validBody), { admin, withinLimit: async () => false });
+      const res = await handle(request(validBody), { admin, withinLimit: async () => false, mailer: new FakeMailer() });
       assertEquals(res.status, 429);
       assertEquals((await res.json()).error, "Too many sign-up attempts from here. Wait a while and try again.");
       assertEquals(admin.rowsIn("organizations").length, 0);

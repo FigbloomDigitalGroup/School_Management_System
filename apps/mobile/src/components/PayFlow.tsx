@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, payableSuggestions, payWithMpesa, type PaymentFailure } from "@figbloom/shared";
+import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, parseShillings, payableSuggestions, payWithMpesa, wholeShillings, type PaymentFailure } from "@figbloom/shared";
 import { PaymentMethodsCard, usePaymentMethods } from "./PaymentMethods";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
@@ -48,7 +48,10 @@ export function PayFlow({ target }: { target: PayTarget }) {
   const Possessive = target.possessive.charAt(0).toUpperCase() + target.possessive.slice(1);
 
   const [screen, setScreen] = useState<Screen>("form");
-  const [amount, setAmount] = useState(balance);
+  // what was typed, kept as typed: a decimal point is refused with a reason, never dropped (FIG-1334)
+  const [amountText, setAmountText] = useState(balance > 0 ? String(wholeShillings(balance) / 100) : "");
+  const parsed = parseShillings(amountText);
+  const amount = parsed.ok ? parsed.cents : 0;
   // No stand-in number: a prefilled demo MSISDN would send a real prompt to a stranger's phone.
   const [phone, setPhone] = useState("");
   /** Where a problem shows: under the field it is about, or (form) by the button when it is about neither. */
@@ -65,8 +68,9 @@ export function PayFlow({ target }: { target: PayTarget }) {
   async function send() {
     const p = normaliseMsisdn(phone);
     if (!p.ok) { setErrors({ phone: p.message }); return; }
+    if (!parsed.ok) { setErrors({ amount: parsed.message }); return; }
     if (amount <= 0) { setErrors({ amount: "Enter how much you are paying." }); return; }
-    if (amount > balance) { setErrors({ amount: `That is more than the ${formatMoney(balance, country)} still owed.` }); return; }
+    if (amount > wholeShillings(balance)) { setErrors({ amount: `That is more than the ${formatMoney(balance, country)} still owed.` }); return; }
     if (!invoiceId) { setErrors({ form: "The school hasn't billed this term yet, so there is nothing to pay online." }); return; }
 
     setErrors({});
@@ -202,7 +206,7 @@ export function PayFlow({ target }: { target: PayTarget }) {
         return (
           <Tap
             key={sug.label}
-            onPress={() => setAmount(sug.cents)}
+            onPress={() => setAmountText(sug.cents > 0 ? String(sug.cents / 100) : "")}
             style={[s.card, { marginBottom: 8, padding: 14, borderWidth: 1.5, borderColor: on ? accentInk(tint) : t.appSurface.line, flexDirection: "row", justifyContent: "space-between" }]}
           >
             <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>{sug.label}</Text>
@@ -214,9 +218,9 @@ export function PayFlow({ target }: { target: PayTarget }) {
       <Field
         label="Amount"
         keyboardType="number-pad"
-        value={amount ? String(amount / 100) : ""}
-        onChangeText={(v) => { setAmount(Number(v.replace(/[^0-9]/g, "")) * 100); setErrors({}); }}
-        error={errors.amount}
+        value={amountText}
+        onChangeText={(v) => { setAmountText(v); setErrors({}); }}
+        error={errors.amount ?? (parsed.ok ? undefined : parsed.message)}
         style={{ marginTop: 8 }}
       />
 

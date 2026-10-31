@@ -21,7 +21,7 @@ const footerLinks = [
       { label: 'Request Demo', href: '#contact' },
       { label: 'Contact', href: '#contact' },
       { label: 'FAQ', href: '#faq' },
-      { label: 'Privacy policy', href: '/privacy.html' },
+      { label: 'Privacy policy', href: '/privacy' },
       { label: 'Delete your data', href: '/delete-account.html' },
       { label: 'Login', href: '/signin' },
     ],

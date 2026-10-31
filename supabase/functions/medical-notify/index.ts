@@ -19,6 +19,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
 import { fcmAccessToken, sendToToken, serviceAccountFromEnv, type ServiceAccount } from "../_shared/fcm.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 
@@ -65,7 +66,7 @@ export async function handle(req: Request, { admin, asUser, account = serviceAcc
     .eq("visit_id", visit.id).is("pushed_at", null)
     .gte("created_at", new Date(now.getTime() - FRESH_MS).toISOString())
     .select("id, profile_id, student_id, title, body");
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json(failure("medical-notify", "read the notices to send", error), 500);
   const notices = (claimed ?? []) as Notice[];
   if (!notices.length) return json({ sent: 0, failed: 0 });
 

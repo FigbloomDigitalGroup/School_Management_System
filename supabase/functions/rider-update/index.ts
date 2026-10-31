@@ -19,6 +19,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
 import { fcmAccessToken, sendToToken, serviceAccountFromEnv, type ServiceAccount } from "../_shared/fcm.ts";
 import { personalise } from "../bus-tick/plan.ts";
 
@@ -59,7 +60,7 @@ export async function handle(req: Request, deps: Deps, fetchImpl: typeof fetch =
     .eq("trip_id", trip.id).is("pushed_at", null).in("kind", RIDER_KINDS)
     .gte("created_at", new Date(now.getTime() - FRESH_MS).toISOString())
     .select("id, student_ids, kind, title, body");
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json(failure("rider-update", "read the updates to send", error), 500);
   const updates = (claimed ?? []) as Update[];
   if (!updates.length) return json({ pushed: 0 });
 

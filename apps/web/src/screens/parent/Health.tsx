@@ -18,6 +18,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { UPLOAD_LIMIT_BYTES } from "../../lib/uploadLimit";
 import { uploadPrescription } from "../../lib/uploads";
 import { ChildSwitcher } from "./ChildSwitcher";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /**
  * The selected child's sick bay visits (what the nurse saw and did, and
@@ -40,7 +41,7 @@ export function ParentHealth() {
   }, [child, unread]);
 
   async function withdraw(id: string) {
-    if (!window.confirm("Withdraw this request?")) return;
+    if (!(await confirmDialog({ title: "Withdraw this request?", confirmLabel: "Withdraw" }))) return;
     try {
       await withdrawMedicationRequest(id);
       setReloadKey((k) => k + 1);
