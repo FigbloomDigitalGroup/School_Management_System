@@ -33,6 +33,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { TripHistory } from "./TripHistory";
 import { RouteRiders } from "../../components/fleet/RouteRiders";
+import { LiveBusRiders } from "../../components/fleet/LiveBusRiders";
 
 interface FleetData {
   vehicles: Vehicle[];
@@ -155,6 +156,12 @@ export function Fleet() {
             <section>
               <h2 className="mb-3 text-[14px] font-semibold">Live map</h2>
               <FleetLiveMap tenantId={tenant.id} buses={data.buses} className="h-[560px] rounded-xl border border-line" />
+            </section>
+
+            <section>
+              <h2 className="mb-1 text-[14px] font-semibold">Children on the buses</h2>
+              <p className="mb-3 text-[12.5px] text-ink-muted">Who's on, still to be picked up, and dropped off on every bus on the road, as the drivers mark them. Updates every 15 seconds.</p>
+              <LiveBusRiders tenantId={tenant.id} vehicles={data.vehicles} routes={data.routes} drivers={data.drivers} />
             </section>
 
             {data.alerts.length > 0 && (

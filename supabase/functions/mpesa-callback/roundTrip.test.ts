@@ -50,7 +50,11 @@ function school() {
   const admin = new FakeSupabaseClient();
   const asUser = new FakeSupabaseClient();
   asUser.authUser = { id: "parent-1" };
-  asUser.seed("fee_invoices", [{ id: "invoice-1", tenant_id: "tenant-1", total_cents: 100000, paid_cents: 0 }]);
+  asUser.seed("fee_invoices", [{ id: "invoice-1", tenant_id: "tenant-1", student_id: "student-1", total_cents: 100000, paid_cents: 0 }]);
+  // since the FIG-1320 fix only the learner's guardian may raise a prompt, and an invoice may have one pending prompt (a unique index)
+  admin.seed("guardians", [{ id: "g-1", profile_id: "parent-1", student_id: "student-1" }]);
+  admin.seed("students", [{ id: "student-1", profile_id: "learner-login-1" }]);
+  admin.uniqueIndex("payments", ["invoice_id"], (r) => r.status === "pending");
   return { admin, asUser };
 }
 

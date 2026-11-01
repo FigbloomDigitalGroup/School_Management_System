@@ -117,8 +117,8 @@ describe("mpesa-stk-push as deployed (verify_jwt = true)", () => {
     expect(await countPayments()).toBe(visiblePayments);
   });
 
-  // `const { invoice_id, ... } = body` throws on a JSON null, and the runtime answers with its generic 500.
-  it.fails("KNOWN FIG-1324 (open): answers 400 to a JSON null body, not an unhandled 500", async () => {
+  // `const { invoice_id, ... } = body` used to throw on a JSON null, and the runtime answered with its generic 500.
+  it("FIG-1324 (fixed on main): answers 400 to a JSON null body, not an unhandled 500", async () => {
     const res = await call("mpesa-stk-push", { token: parentToken, body: "null" });
     expect(res.status).toBe(400);
   });

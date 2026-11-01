@@ -1,8 +1,10 @@
-import { NavigationContainer } from "@react-navigation/native";
+import { useEffect } from "react";
+import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
-import { accentFor } from "./theme";
+import { accentFor, fontSize, themes } from "./theme";
 import { useChild, useMessages } from "./data";
 import { useStudentData } from "./studentData";
 
@@ -23,9 +25,71 @@ import { StudentResults } from "./screens/student/Results";
 import { StudentNotices } from "./screens/student/Notices";
 import { StudentAccount } from "./screens/student/Account";
 import { DriverTrip } from "./screens/driver/Trip";
+import { ChatList } from "./screens/chat/ChatList";
+import { ChatThread } from "./screens/chat/ChatThread";
+import { ParentActivities } from "./screens/parent/Activities";
+import { ParentHealth } from "./screens/parent/Health";
+import { ParentItems } from "./screens/parent/Items";
+import { ParentStudyHelper } from "./screens/parent/StudyHelper";
+import { StudentActivities } from "./screens/student/Activities";
+import { StudentItems } from "./screens/student/Items";
+import { StudentFees } from "./screens/student/Fees";
+import { StudentPay } from "./screens/student/Pay";
+import { StudentExams } from "./screens/student/Exams";
+import { StudentExamPaper } from "./screens/student/ExamPaper";
+import { StudentExamSitting } from "./screens/student/ExamSitting";
+import { StudentExamReview } from "./screens/student/ExamReview";
+import { StudentStudyHelper } from "./screens/student/StudyHelper";
+import { CallProvider } from "./calls/CallProvider";
+import { listenForPushTaps } from "./pushTaps";
+import { useTheme } from "./ui/ThemeContext";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+/** Lets a tapped push, which arrives from outside the navigator, open a screen inside it. */
+const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
+
+/**
+ * React Navigation's own colours: the page behind a transition, the tab bar's card and its edge. Light is the
+ * library's default with the app's page colour; dark is the app's dark surfaces, so a screen sliding in never
+ * flashes a light page.
+ */
+const NAV_THEME = {
+  light: { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: themes.light.t.appSurface.page } },
+  dark: {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      primary: themes.dark.t.appSurface.ink,
+      background: themes.dark.t.appSurface.page,
+      card: themes.dark.t.appSurface.card,
+      text: themes.dark.t.appSurface.ink,
+      border: themes.dark.t.appSurface.line,
+    },
+  },
+};
+
+/** What to do once the navigator exists: a tap that opened the app from nothing arrives before it is ready. */
+let afterReady: (() => void) | null = null;
+const whenReady = (run: () => void) => { if (navRef.isReady()) run(); else afterReady = run; };
+
+/**
+ * Opens what a tapped push is about: a chat (a parent or a learner), or the
+ * Health screen on the child a sick bay notice names (a parent). Anything else
+ * just opens the app, as it always has.
+ */
+async function openPushTarget(target: PushTarget, isParent: boolean) {
+  if (target.kind === "chat") {
+    // The thread wants the other person's name and role, which the push doesn't carry.
+    const found = (await fetchMyConversations().catch(() => [])).find((c) => c.id === target.conversationId);
+    whenReady(() => {
+      if (found) navRef.navigate("ChatThread", { conversationId: found.id, otherId: found.otherId, name: found.otherName, role: found.otherRole, canReply: found.canReply });
+      else navRef.navigate("Chats");
+    });
+  } else if (target.kind === "health" && isParent) {
+    whenReady(() => navRef.navigate("Health", { studentId: target.studentId }));
+  }
+}
 
 const tabIcon = (Icon: LucideIcon) => ({
   tabBarIcon: ({ color, size }: { color: string; size: number }) => <Icon color={color} size={size} />,
@@ -34,12 +98,21 @@ const tabIcon = (Icon: LucideIcon) => ({
 interface NavigationProps {
   role: "parent" | "student" | "driver";
   accent: string;
+  /** Who is signed in: calls and live classes ring and join as them. */
+  profileId: string;
   /** Only present (and only needed) when role is "driver". */
   driver?: { driverId: string; tenantId: string; fullName: string };
 }
 
 /** Which app opens is decided by the signed-in role, not by a picker. */
-export function Navigation({ role, accent, driver }: NavigationProps) {
+export function Navigation({ role, accent, profileId, driver }: NavigationProps) {
+  const { scheme } = useTheme();
+  // Tapping a push opens what it is about. (Before the driver's early return below: a hook can't come after one.)
+  useEffect(() => {
+    if (role === "driver") return;
+    return listenForPushTaps((target) => { void openPushTarget(target, role === "parent"); });
+  }, [role]);
+
   if (role === "driver" && driver) {
     // A driver's screen is a single full-screen page (start/end trip), not a
     // console — no tabs, nothing else to navigate to.
@@ -47,7 +120,8 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
   }
 
   return (
-    <NavigationContainer>
+    <CallProvider profileId={profileId}>
+    <NavigationContainer theme={NAV_THEME[scheme]} ref={navRef} onReady={() => { const run = afterReady; afterReady = null; run?.(); }}>
       {role === "parent" ? (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {/* component, not an inline children render-prop: the latter is a
@@ -62,6 +136,14 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="Homework" component={ParentHomework} />
           {/* Learning materials, likewise, opens from Home. */}
           <Stack.Screen name="Materials" component={ParentMaterials} />
+          {/* Chats open from a Home card, with the thread one level down. */}
+          <Stack.Screen name="Chats" component={ParentChats} />
+          <Stack.Screen name="ChatThread" component={ParentChatThread} />
+          {/* Sports and issued items open from Home cards too. */}
+          <Stack.Screen name="Activities" component={ParentActivities} />
+          <Stack.Screen name="Items" component={ParentItems} />
+          <Stack.Screen name="Health" component={ParentHealth} />
+          <Stack.Screen name="StudyHelper" component={ParentStudyHelper} />
         </Stack.Navigator>
       ) : (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -70,13 +152,56 @@ export function Navigation({ role, accent, driver }: NavigationProps) {
           <Stack.Screen name="StudentTabs" component={StudentTabsScreen} initialParams={{ accent }} />
           {/* Opened from the Work tab, not a seventh tab. */}
           <Stack.Screen name="Materials" component={StudentMaterials} />
+          {/* Chats open from a Today card, with the thread one level down. */}
+          <Stack.Screen name="Chats" component={StudentChats} />
+          <Stack.Screen name="ChatThread" component={StudentChatThread} />
+          <Stack.Screen name="Activities" component={StudentActivities} />
+          <Stack.Screen name="Items" component={StudentItems} />
+          {/* Fees opens from the Work tab; paying is a modal for the same reason the parent's is. */}
+          <Stack.Screen name="Fees" component={StudentFees} />
+          <Stack.Screen name="Pay" component={StudentPay} options={{ presentation: "modal" }} />
+          {/* Exams opens from the Work tab: the list, one paper, sitting it, and looking back at it marked. */}
+          <Stack.Screen name="Exams" component={StudentExams} />
+          <Stack.Screen name="ExamPaper" component={StudentExamPaper} />
+          <Stack.Screen name="ExamSitting" component={StudentExamSitting} options={{ gestureEnabled: false }} />
+          <Stack.Screen name="ExamReview" component={StudentExamReview} />
+          {/* The study helper opens from a Today card. */}
+          <Stack.Screen name="StudyHelper" component={StudentStudyHelper} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
+    </CallProvider>
   );
 }
 
+function ParentChats() {
+  const { accent } = useChild();
+  return (
+    <ChatList
+      tint={accentFor(accent).deep}
+      blurb="With your child, their teachers and the school office."
+      empty="Start a chat with your child's class teacher, a subject teacher, the school office, or your child."
+    />
+  );
+}
+
+function ParentChatThread() {
+  const { accent } = useChild();
+  return <ChatThread tint={accentFor(accent).deep} />;
+}
+
+function StudentChats() {
+  const { accent } = useStudentData();
+  return <ChatList tint={accentFor(accent).deep} blurb="With your parents and guardians." empty="Start a chat with a parent or guardian." />;
+}
+
+function StudentChatThread() {
+  const { accent } = useStudentData();
+  return <ChatThread tint={accentFor(accent).deep} />;
+}
+
 function ParentTabs() {
+  const { t, accentInk } = useTheme();
   const { accent } = useChild();
   const a = accentFor(accent);
   const unread = useMessages().filter((m) => m.unread).length;
@@ -84,9 +209,13 @@ function ParentTabs() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: a.deep,
-        tabBarInactiveTintColor: "#9A908E",
-        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600" },
+        tabBarActiveTintColor: accentInk(a.deep),
+        tabBarInactiveTintColor: t.appSurface.inkFaint,
+        tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
+        // The bar is a fixed height, so its labels stay put under large system text;
+        // it also steps aside for the keyboard instead of eating a third of a form.
+        tabBarAllowFontScaling: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         tabBarBadgeStyle: { backgroundColor: a.deep },
       }}
@@ -113,14 +242,19 @@ function StudentTabsScreen({ route }: { route: { params?: { accent?: string } } 
  *  called while mounted under StudentDataProvider \u2014 Navigation itself also
  *  renders for the parent and driver roles, which don't provide it. */
 function StudentTabs({ a }: { a: ReturnType<typeof accentFor> }) {
+  const { t, accentInk } = useTheme();
   const unread = useStudentData().data.notices.filter((n) => n.unread).length;
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: a.deep,
-        tabBarInactiveTintColor: "#9A908E",
-        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600" },
+        tabBarActiveTintColor: accentInk(a.deep),
+        tabBarInactiveTintColor: t.appSurface.inkFaint,
+        tabBarLabelStyle: { fontSize: fontSize.micro, fontWeight: "600" },
+        // The bar is a fixed height, so its labels stay put under large system text;
+        // it also steps aside for the keyboard instead of eating a third of a form.
+        tabBarAllowFontScaling: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
         tabBarBadgeStyle: { backgroundColor: a.deep },
       }}

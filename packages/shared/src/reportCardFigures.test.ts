@@ -59,7 +59,7 @@ const input = (overrides: Partial<ReportCardInput> = {}): ReportCardInput => ({
     m("f", "end", "Maths", 81), m("f", "end", "English", 78),
     m("g", "end", "Maths", 75),
   ],
-  options: { showPosition: true, showAttendance: false, showFees: false, nextTermBegins: null },
+  options: { showPosition: true, showAttendance: false, showFees: false, showActivities: false, nextTermBegins: null },
   today: "2026-08-08",
   ...overrides,
 });
@@ -129,7 +129,7 @@ describe("a report card worked by hand", () => {
   });
 
   it("position can be switched off, and then there is no 'out of' either", () => {
-    const off = buildReportCards(input({ options: { showPosition: false, showAttendance: false, showFees: false, nextTermBegins: null } }));
+    const off = buildReportCards(input({ options: { showPosition: false, showAttendance: false, showFees: false, showActivities: false, nextTermBegins: null } }));
     expect(off.every((c) => c.summary.position === null && c.summary.ranked === 0)).toBe(true);
     expect(off.map((c) => c.summary.mean)).toEqual(cards.map((c) => c.summary.mean));
   });

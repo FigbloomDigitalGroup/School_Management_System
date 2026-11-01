@@ -9,8 +9,13 @@
 // creation in ./src/lib/client — runs.
 import 'react-native-url-polyfill/auto';
 
+// Calls and live classes (FIG-1291): sets up the WebRTC globals LiveKit needs.
+import {registerGlobals} from '@livekit/react-native';
+
 import {AppRegistry} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
+
+registerGlobals();
 
 AppRegistry.registerComponent(appName, () => App);

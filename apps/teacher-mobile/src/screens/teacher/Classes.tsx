@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { fetchMyClasses, type MyClassRow } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { TeacherSession } from "../../navigation";
+import { useTheme } from "../../ui/ThemeContext";
 
 /** "My classes" — every class this teacher is assigned to, whether as class
  *  teacher or a subject teacher. Browsing only; Attendance and Gradebook
  *  have their own class pickers for actually doing something with one. */
 export function TeacherClasses({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const [rows, setRows] = useState<MyClassRow[] | null>(null);
 
@@ -23,7 +25,7 @@ export function TeacherClasses({ session }: { session: TeacherSession }) {
   if (!rows) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -43,7 +45,7 @@ export function TeacherClasses({ session }: { session: TeacherSession }) {
               <View key={c.id} style={[s.card, { marginBottom: 8, padding: 14 }]}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 15, fontWeight: "600" }}>{c.name}</Text>
+                    <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>{c.name}</Text>
                     {!!c.stream && <Text style={s.faint}>{c.stream}</Text>}
                   </View>
                   <View style={[s.pill, { backgroundColor: isClassTeacher ? t.status.okBg : t.appSurface.lineSoft }]}>

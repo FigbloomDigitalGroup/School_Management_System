@@ -9,14 +9,13 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
  *
  * This runs the app's own loader, loadParentData(), signed in as the seeded parent of the first demo school. A throwaway learner
  * (admission number QA07-...) is linked to that parent and billed for this term (3,000,000 cents) and for an older term
- * (5,000,000 cents, with a late payment of 1,000,000 on it). Everything is removed in afterAll; the one audit event record_payment
- * writes stays (a school admin cannot delete audit events).
+ * (5,000,000 cents, with a late payment of 1,000,000 on it). afterAll unlinks the family and archives the learner; the invoices, the
+ * older term and the audit event record_payment writes stay (since FIG-1319 nothing with a payment on it can be deleted).
  *
- * The loader reads EVERY invoice of the parent's children (no term filter, no ordering) and keeps the last row it is handed per
- * child. The older term's invoice gets a term id that sorts after any real one, so it is last whichever way the database walks the
- * table (heap order, which a payment changes, or the (student, term) index, which sorts by term id).
- * The known defect is written as the behaviour we want and uses it.fails: it passes while the defect exists, and fails the day
- * it is fixed. Then change it.fails to it.
+ * Until FIG-1327 was fixed the loader read EVERY invoice of the parent's children (no term filter, no ordering) and kept the last row
+ * it was handed per child. The older term's invoice gets a term id that sorts after any real one, so it would have been last whichever
+ * way the database walked the table (heap order, which a payment changes, or the (student, term) index, which sorts by term id): the
+ * test is built to catch that. Main now reads the current term's invoice only, and this is a plain test.
  */
 
 const run = Date.now().toString(16).slice(-8);
@@ -28,6 +27,8 @@ let currentTermId = "";
 let currentInvoiceId = "";
 // sorts after any random uuid, and unique per run
 const OLD_TERM_ID = `ffffffff-ffff-4fff-8fff-0000${run}`;
+// a term with a paid invoice cannot be deleted any more (FIG-1319), so it stays behind: each run takes a year of its own
+const OLD_YEAR = 3000 + (parseInt(run, 16) % 6000);
 
 const childOf = async (): Promise<ChildInfo> => {
   const data = await loadParentData(parentId);
@@ -64,13 +65,19 @@ beforeAll(async () => {
   currentInvoiceId = inv.data.id as string;
 }, 60_000);
 
-/** Learners can only be deleted once nothing is on file for them: invoices first (they take their payments with them), then the learner. */
+/**
+ * Since FIG-1319 an invoice with a payment on it, its term and its learner are kept for good, so this cannot remove what it made once the
+ * older term has been paid. It does what a school can: the family is unlinked (so no other test sees an extra child of the seeded
+ * parent) and the learner archived. npm run db:fresh removes the rest.
+ */
 async function sweep() {
   await admin.client.from("terms").delete().eq("tenant_id", tenantId).like("name", "QA07 %");
   const old = await admin.client.from("students").select("id").eq("tenant_id", tenantId).like("admission_no", "QA07-%");
   for (const s of old.data ?? []) {
-    await admin.client.from("fee_invoices").delete().eq("student_id", s.id as string);
-    await admin.client.from("students").delete().eq("id", s.id as string);
+    await admin.client.from("guardians").delete().eq("student_id", s.id as string);
+    const invoices = await admin.client.from("fee_invoices").delete().eq("student_id", s.id as string);
+    const gone = !invoices.error && !(await admin.client.from("students").delete().eq("id", s.id as string)).error;
+    if (!gone) await admin.client.from("students").update({ active: false }).eq("id", s.id as string);
   }
 }
 
@@ -86,9 +93,9 @@ describe("QA 07: what the parent's Fees screen is built from", () => {
     expect(child.balance).toBe(3_000_000);
   });
 
-  it.fails("FIG-1327 (open): after an older term is billed and gets a late payment, the parent still sees THIS term's invoice, and the Pay button still targets it", async () => {
+  it("FIG-1327 (fixed on main: the loader reads the current term's invoice only): after an older term is billed and gets a late payment, the parent still sees THIS term's invoice, and the Pay button still targets it", async () => {
     const term = await admin.client.from("terms")
-      .insert({ id: OLD_TERM_ID, tenant_id: tenantId, name: `QA07 older term ${run}`, year: 2032, index: 1, starts_on: "2032-01-05", ends_on: "2032-04-02", is_current: false }).select("id").single();
+      .insert({ id: OLD_TERM_ID, tenant_id: tenantId, name: `QA07 older term ${run}`, year: OLD_YEAR, index: 1, starts_on: "2032-01-05", ends_on: "2032-04-02", is_current: false }).select("id").single();
     expect(term.error).toBeNull();
     const old = await admin.client.from("fee_invoices")
       .insert({ tenant_id: tenantId, student_id: studentId, term_id: OLD_TERM_ID, total_cents: 5_000_000, due_on: "2032-02-01" }).select("id").single();

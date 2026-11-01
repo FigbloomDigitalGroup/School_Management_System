@@ -55,10 +55,46 @@ describe("delete-account handle", () => {
     assertEquals(res.status, 401);
   });
 
-  it("rejects a caller who is none of super_admin/org_admin/school_admin", async () => {
+  it("rejects a teacher without the people area", async () => {
     const { admin, asUser } = makeClients({ role: "teacher" });
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 403);
+  });
+
+  it("rejects a parent, whatever a stray grant row says", async () => {
+    const { admin, asUser } = makeClients({ role: "parent" });
+    admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "people" }]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 403);
+  });
+
+  describe("a teacher or other staff member with the people area (20261031000000)", () => {
+    function withPeople(targetRole = "teacher") {
+      const clients = makeClients({ role: "staff", targetRole });
+      clients.admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "people" }]);
+      return clients;
+    }
+
+    it("removes a teacher", async () => {
+      const { admin, asUser } = withPeople();
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 200);
+      assertEquals(admin.deletedUserIds, [TEACHER_ID]);
+    });
+
+    it("never removes an administrator", async () => {
+      const { admin, asUser } = withPeople("school_admin");
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.deletedUserIds, []);
+    });
+
+    it("is refused with only another area", async () => {
+      const { admin, asUser } = makeClients({ role: "staff" });
+      admin.seed("staff_permissions", [{ tenant_id: TENANT_ID, profile_id: SCHOOL_ADMIN_ID, area: "fees" }]);
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+    });
   });
 
   it("rejects a body missing required fields", async () => {
@@ -111,6 +147,13 @@ describe("delete-account handle", () => {
     assertEquals(admin.deletedUserIds, [TEACHER_ID]);
   });
 
+  it("removes other staff (a librarian, a guard) the same way", async () => {
+    const { admin, asUser } = makeClients({ targetRole: "staff" });
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals(admin.deletedUserIds, [TEACHER_ID]);
+  });
+
   it("translates a foreign-key violation into a friendly, non-blocking-looking error and keeps the profile", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextWrite("profiles", "update or delete on table \"profiles\" violates foreign key constraint \"attendance_taken_by_fkey\"");
@@ -156,11 +199,31 @@ describe("delete-account handle", () => {
       ]);
       admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley", organization_id: ORG_ID }]);
       admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: ORG_ID }]);
+      admin.seed("organizations", [{ id: ORG_ID, status: "active" }]);
       const asUser = new FakeSupabaseClient();
       asUser.authUser = { id: ORG_ADMIN_ID };
 
       const res = await handle(request(validBody), { admin, asUser });
       assertEquals(res.status, 200);
+    });
+
+    it("refuses an org_admin whose organization is suspended (FIG-1312)", async () => {
+      const admin = new FakeSupabaseClient();
+      const ORG_ADMIN_ID = "org-admin-1";
+      const ORG_ID = "org-1";
+      admin.seed("profiles", [
+        { id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" },
+        { id: TEACHER_ID, role: "teacher", full_name: "Grace Achieng", tenant_id: TENANT_ID },
+      ]);
+      admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley", organization_id: ORG_ID }]);
+      admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: ORG_ID }]);
+      admin.seed("organizations", [{ id: ORG_ID, status: "suspended" }]);
+      const asUser = new FakeSupabaseClient();
+      asUser.authUser = { id: ORG_ADMIN_ID };
+
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.deletedUserIds, []);
     });
 
     it("rejects an org_admin who doesn't administer this school's organization", async () => {

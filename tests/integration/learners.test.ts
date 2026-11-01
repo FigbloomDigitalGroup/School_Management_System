@@ -167,21 +167,30 @@ describe("rows that pass the check but cannot be saved", () => {
   });
 });
 
+// FIG-1414 (fixed on main): allergies and conditions need the family's signed consent form, named in two more columns, and the
+// import records the form before it saves the health row. Without the form the row is flagged when the file is checked.
 describe("the health columns of the import", () => {
-  const FILE = (label: string) => [`${HEADER},allergies,medical_conditions`, `${num(label)},QA11 Health ${label},female,Form 1 East,no,2011-05-06,"Peanuts; Eggs",Asthma`].join("\n");
-  it.fails("QA11-HEALTH FIG-1414: a row with allergies and conditions is saved and the import does not report a failure", async () => {
+  const FILE = (label: string, consent = true) => [
+    `${HEADER},allergies,medical_conditions${consent ? ",health_consent_signed_by,health_consent_date" : ""}`,
+    `${num(label)},QA11 Health ${label},female,Form 1 East,no,2011-05-06,"Peanuts; Eggs",Asthma${consent ? ",Grace Wanjiru,2026-01-15" : ""}`,
+  ].join("\n");
+  it("QA11-HEALTH FIG-1414: a row with allergies, conditions and the consent form is saved, with its health record, and the import reports no failure", async () => {
     const rows = parseStudentCsv(FILE("H1"), await ctx());
     expect(rows[0]!.errors).toEqual([]);
     expect(await importStudents(tenantId, classIdByName, rows)).toBe(1);
+    const [saved] = await mine(num("H1"));
+    expect(saved, "the learner was saved").toBeDefined();
+    const health = await admin.client.from("student_health").select("allergies, medical_conditions").eq("student_id", saved!.id);
+    expect(health.error).toBeNull();
+    expect(health.data).toHaveLength(1);
+    expect(JSON.stringify(health.data![0])).toMatch(/Peanuts/);
   });
-  it("(what the open defect leaves behind) the learner IS saved, their allergies are not, and the import still throws: a guardian has to agree to health records first", async () => {
-    const rows = parseStudentCsv(FILE("H2"), await ctx());
-    const err = await importStudents(tenantId, classIdByName, rows).then(() => null, (e: unknown) => e);
-    expect((err as { message?: string } | null)?.message).toMatch(/The learners were imported, but their allergies and conditions didn't save: A parent or guardian needs to agree/);
-    const [saved] = await mine(num("H2"));
-    expect(saved, "the learner was saved before the health step failed").toBeDefined();
-    const health = await admin.client.from("student_health").select("allergies").eq("student_id", saved!.id);
-    expect(health.data).toEqual([]);
+  it("a row with allergies or conditions and no consent form is flagged when the file is checked, and is not saved", async () => {
+    const rows = parseStudentCsv(FILE("H2", false), await ctx());
+    expect(rows[0]!.errors.join(" ")).toMatch(/consent form/i);
+    const saved = await importStudents(tenantId, classIdByName, rows).then((n) => n, () => 0);
+    expect(saved).toBe(0);
+    expect(await mine(num("H2"))).toEqual([]);
   });
 });
 

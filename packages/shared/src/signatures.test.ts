@@ -103,7 +103,7 @@ describe("signed report card PDF", () => {
       learners: [{ id: "s0", name: "Amani Otieno", admissionNo: "1001" }],
       marks: [{ studentId: "s0", examId: "end", subjectId: "m", subjectName: "Mathematics", subjectCode: "MAT", score: 71 }],
       attendance: new Map(), fees: new Map(),
-      options: { showPosition: true, showAttendance: false, showFees: false, nextTermBegins: null },
+      options: { showPosition: true, showAttendance: false, showFees: false, showActivities: true, nextTermBegins: null },
       today: "2026-08-08",
     });
     const bytes = await renderReportCardsPdf([{

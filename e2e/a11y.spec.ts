@@ -63,6 +63,9 @@ for (const role of ROLES) {
     const log: { type: string; text: string }[] = [];
     let current = "";
     // the Vite dev server's hot-reload socket and "network suspended" (the laptop slept) are the machine's, not the app's
+    // The parent's Home and Bus screens (live bus map, added on main after QA 16) load Google Maps. Nothing here has a key or a route to it,
+    // so its requests are answered with nothing: the walk is about our own screens, not Google's tiles or its "no imagery" placeholder.
+    await page.route((url) => url.hostname === "maps.googleapis.com" || url.hostname === "maps.gstatic.com", (r) => r.fulfill({ status: 204, body: "" }));
     const machineNoise = /WebSocket connection to 'ws:\/\/localhost:5173|ERR_NETWORK_IO_SUSPENDED/;
     page.on("console", (m) => { if (m.type() === "error" && !machineNoise.test(m.text())) log.push({ type: "console error", text: `${current} ${m.text()}`.slice(0, 220) }); });
     page.on("pageerror", (e) => log.push({ type: "page error", text: `${current} ${e.message}`.slice(0, 220) }));
@@ -81,7 +84,7 @@ for (const role of ROLES) {
         await page.waitForLoadState("networkidle");
         await page.waitForTimeout(700); // the screens fetch after first paint
         visited.push({ role: role.key, route, width, landed: new URL(page.url()).pathname });
-        for (const f of layoutFindings(role.key, route, width, await measure(page))) if (!findings.some((x) => x.role === f.role && x.route === f.route && x.width === f.width && x.kind === f.kind && x.detail === f.detail)) findings.push(f); // the same cut-off button can be in a list seven times
+        for (const f of layoutFindings(role.key, route, width, await measure(page)).filter((x) => !x.detail.includes("no imagery here"))) if (!findings.some((x) => x.role === f.role && x.route === f.route && x.width === f.width && x.kind === f.kind && x.detail === f.detail)) findings.push(f); // the same cut-off button can be in a list seven times
         for (const entry of log.slice(before)) findings.push({ role: role.key, route, width, kind: entry.type, detail: entry.text });
         if (AXE_WIDTHS.includes(width)) findings.push(...await axeFindings(page, role.key, route, width));
       }
@@ -100,8 +103,10 @@ const KNOWN: Known[] = [
     match: (f) => smallScreen(f, [["school admin", `${ADMIN}/announcements`]]) },
   { tag: "QA16-FEES-PHONE", fig: "FIG-1473", what: "the three Fees screens fit a phone",
     match: (f) => smallScreen(f, [["school admin", `${ADMIN}/fees`], ["parent", `${PARENT}/fees`], ["student", `${STUDENT}/fees`]]) },
-  { tag: "QA16-SIGNUP-PHONE", fig: "FIG-1485", what: "the organization sign-up page fits a phone",
-    match: (f) => smallScreen(f, [["signed out", "/signup"]]) },
+  // The sign-in and sign-up pages share AuthLayout, whose grid has no explicit column on a phone, so its content sets the width. On the
+  // merged code the sign-in page is 392 px wide too (360 px of content plus padding): 2 px sideways at 390, 32 px at 360. Same root cause.
+  { tag: "QA16-SIGNUP-PHONE", fig: "FIG-1485", what: "the organization sign-up page, and the sign-in page that shares its layout, fit a phone",
+    match: (f) => smallScreen(f, [["signed out", "/signup"], ["signed out", "/signin"], ["signed out", "/org-picker"]]) },
   { tag: "QA16-ORGPICKER-RENDER", fig: "FIG-1486", what: "the organization picker logs no console error",
     match: (f) => f.kind === "console error" && f.role === "signed out" && f.route === "/org-picker" },
   { tag: "QA16-PHONE-OTHER", fig: "FIG-1481", what: "twelve more screens fit a phone",

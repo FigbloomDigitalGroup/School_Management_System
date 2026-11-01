@@ -1,7 +1,6 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
-import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 const SUPER_ADMIN_ID = "super-admin-1";
@@ -79,6 +78,15 @@ describe("check-services handle", () => {
     assertEquals(logged.map((r) => r.service).sort(), ["mpesa", "supabase"]);
   });
 
+  it("answers a sentence, not the database's own words, when saving the results fails (FIG-1342)", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("tenants", [{ id: "t1" }]);
+    admin.failNextWrite("service_status", 'relation "public.service_status" does not exist');
+    const res = await handle(request(), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(await res.json(), { error: "Could not save the service status. Try again." });
+  });
+
   it("reports supabase down when the query fails", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextRead("tenants", "connection refused");
@@ -92,7 +100,7 @@ describe("check-services handle", () => {
 
 // QA 08 (FIG-1241): only Figbloom staff can call this, but the database's own message still goes back in the answer.
 describe("check-services: errors", () => {
-  itFails("FIG-1342 (open): a failed log insert answers a generic message, not the database's own", async () => {
+  it("FIG-1342: a failed log insert answers a generic message, not the database's own", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextWrite("service_status", 'relation "public.service_status" does not exist');
     const res = await handle(request(), { admin, asUser });

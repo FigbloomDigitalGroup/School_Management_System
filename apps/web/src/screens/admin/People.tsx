@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, supabase } from "@figbloom/shared";
+import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, STAFF_TITLE_SUGGESTIONS, supabase } from "@figbloom/shared";
 import type { ArchivedLearner, ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Avatar, AvatarEditor } from "../../components/Avatar";
@@ -13,20 +13,24 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PasswordResetRequests, ResetPasswordSection } from "../../components/PasswordReset";
+import { handOverNote } from "../../components/TempPasswordCard";
 import { useAsync } from "../../lib/useAsync";
 import { LearnerDocumentSignatures } from "../../components/signatures/LearnerDocumentSignatures";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
 import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
 import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
-import { HealthEditor, OptionalHealthSection } from "../../components/learners/Health";
+import { HealthEditor, OptionalHealthSection, type PaperConsent } from "../../components/learners/Health";
 import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
-import { emptyHealth, isHealthEmpty, saveStudentHealth, type StudentHealthInput } from "@figbloom/shared";
+import { emptyHealth, isHealthEmpty, saveStudentHealth, setHealthConsent, type StudentHealthInput } from "@figbloom/shared";
 import { CallButton } from "../../components/calls/CallButton";
+import { AdminAccessEditor } from "../../components/AdminAccess";
+import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
-type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at"> & { avatar_url: string | null };
+type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & { avatar_url: string | null };
 
 const DOC_TYPES: { value: string; label: string }[] = [
   { value: "birth_certificate", label: "Birth certificate" },
@@ -49,17 +53,23 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
   const sb = supabase();
   const { data: term } = await sb.from("terms").select("id").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<{ id: string }>();
 
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = await Promise.all([
+  const results = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
     sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "guard", "receptionist"]).order("full_name").returns<StaffRow[]>(),
+    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at,handles_visitors").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "staff"]).order("full_name").returns<StaffRow[]>(),
     term
       ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
-      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[] }),
+      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[], error: null }),
     sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
     sb.from("teacher_subjects").select("teacher_id, subject_id").eq("tenant_id", tenantId).returns<{ teacher_id: string; subject_id: string }[]>(),
     sb.from("profiles").select("id,login_id").eq("tenant_id", tenantId).eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
   ]);
+  // A failed read must say so, not show up as an empty list: a column the
+  // database doesn't have yet (a migration not pushed) otherwise looks like
+  // "no staff".
+  const failed = results.find((r) => r.error);
+  if (failed?.error) throw new Error(failed.error.message);
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = results;
 
   const feeByStudent = new Map<string, { total: number; paid: number }>();
   for (const inv of invoicesRes.data ?? []) feeByStudent.set(inv.student_id, { total: inv.total_cents, paid: inv.paid_cents });
@@ -91,7 +101,9 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
  */
 export function People() {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
+  // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
+  const fullAdmin = adminAccessFor(profile.role, adminAreas, actingForTenant) === "all";
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
@@ -120,6 +132,13 @@ export function People() {
     () => (view === "archived" ? fetchArchivedLearners(tenant.id) : Promise.resolve([] as ArchivedLearner[])),
     [tenant.id, view, reloadKey],
   );
+  const { data: access } = useAsync(
+    () => (fullAdmin
+      ? Promise.all([fetchSchoolRoles(tenant.id), fetchSchoolAdminAreas(tenant.id)]).then(([roles, direct]) => ({ roles, direct }))
+      : Promise.resolve({ roles: [] as SchoolRole[], direct: new Map<string, AdminArea[]>() })),
+    [tenant.id, reloadKey, fullAdmin],
+  );
+  const accessOf = (id: string) => access ? effectiveAreas(access.direct.get(id) ?? [], access.roles, rolesHeldBy(access.roles, id)) : [];
   const archivedRows = useMemo<StudentRow[]>(() => (archivedData ?? []).map((a) => ({ ...a, class_id: a.class_id as string, gender: a.gender as StudentRow["gender"], login_id: null })), [archivedData]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
   // data must not show the previous one's meanwhile — skeleton for those only.
@@ -183,7 +202,7 @@ export function People() {
   }
 
   async function archiveStudents(ids: string[], who: string) {
-    if (!window.confirm(`Archive ${who}? They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".`)) return;
+    if (!(await confirmDialog({ title: `Archive ${who}?`, body: 'They leave class lists, attendance and billing. Their marks, fees and records are all kept, and you can restore them under "Archived".', confirmLabel: "Archive" }))) return;
     await changeLearners(ids, () => archiveLearners(ids), `${who} archived. Find them under "Archived".`, "Could not archive");
   }
 
@@ -192,12 +211,12 @@ export function People() {
   }
 
   async function deleteStudents(ids: string[], who: string) {
-    if (!window.confirm(`Delete ${who} for good? This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.`)) return;
+    if (!(await confirmDialog({ title: `Delete ${who} for good?`, body: "This is only possible for someone with no attendance, marks or fee records (a learner added by mistake, or a bad import). If they have any, you'll be told, and should archive them instead.", confirmLabel: "Delete", danger: true }))) return;
     await changeLearners(ids, () => deleteLearners(ids), `${who} deleted.`, "Not deleted");
   }
 
   async function deleteStaff(staff: Pick<StaffRow, "id" | "full_name">) {
-    if (!window.confirm(`Remove ${staff.full_name}? This deletes their login and cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Remove ${staff.full_name}?`, body: "This deletes their login and cannot be undone.", confirmLabel: "Remove", danger: true }))) return;
     setDeletingStaff(true);
     try {
       const r = await deleteAccount({ tenant_id: tenant.id, profile_id: staff.id });
@@ -370,7 +389,7 @@ export function People() {
               { key: "name", header: "Staff", width: "1.8fr", render: (s: StaffRow) => (
                 <div className="flex items-center gap-2.5">
                   <Avatar id={s.id} name={s.full_name} url={avatarOverrides[s.id] ?? s.avatar_url} />
-                  <Cell sub={s.staff_title ?? undefined}>{s.full_name}</Cell>
+                  <Cell sub={[s.staff_title, accessOf(s.id).length ? `Admin: ${describeAreas(accessOf(s.id))}` : null].filter(Boolean).join(" · ") || undefined}>{s.full_name}</Cell>
                   {s.photo_changed_at && (
                     <span className="shrink-0 rounded-full bg-warn-bg px-2 py-0.5 text-[11px] font-semibold text-warn-ink">New photo</span>
                   )}
@@ -428,7 +447,7 @@ export function People() {
                   )}
                 </>
               )}
-              {manage.kind === "staff" && manageRow.id !== profile.id && (
+              {manage.kind === "staff" && manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") && (
                 <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manageRow)}>
                   {deletingStaff ? "Removing…" : "Remove staff"}
                 </Button>
@@ -444,9 +463,23 @@ export function People() {
               onSaved={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
+          ) : !fullAdmin && (manageRow as StaffRow).role === "school_admin" ? (
+            <p className="mb-5 border-b border-line-soft pb-5 text-[12.5px] text-ink-muted">Only a full admin can change an administrator's record.</p>
           ) : (
             <StaffProfileEditor
               staff={manageRow as StaffRow}
+              onSaved={() => setReloadKey((k) => k + 1)}
+              toast={toast}
+            />
+          )}
+          {manage.kind === "staff" && fullAdmin && access && manageRow.id !== profile.id && mayHoldAdminAreas((manageRow as StaffRow).role) && (
+            <AdminAccessEditor
+              key={`${manageRow.id}:${(access.direct.get(manageRow.id) ?? []).join()}:${rolesHeldBy(access.roles, manageRow.id).join()}`}
+              profileId={manageRow.id}
+              name={manageRow.full_name}
+              roles={access.roles}
+              direct={access.direct.get(manageRow.id) ?? []}
+              heldRoleIds={rolesHeldBy(access.roles, manageRow.id)}
               onSaved={() => setReloadKey((k) => k + 1)}
               toast={toast}
             />
@@ -474,7 +507,7 @@ export function People() {
             <div className="mt-5">
               <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
               <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />
-              <GuardianContacts studentId={manageRow.id} />
+              <GuardianContacts studentId={manageRow.id} schoolName={tenant.name} />
               <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
             </div>
           )}
@@ -498,7 +531,8 @@ export function People() {
             />
           )}
           {/* forgotten passwords: learners with a login, and every staff member but yourself */}
-          {(manage.kind === "students" ? (manageRow as StudentRow).profile_id : manageRow.id !== profile.id ? manageRow.id : null) && (
+          {(manage.kind === "students" ? (manageRow as StudentRow).profile_id
+            : manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") ? manageRow.id : null) && (
             <ResetPasswordSection
               profileId={manage.kind === "students" ? (manageRow as StudentRow).profile_id! : manageRow.id}
               name={manageRow.full_name}
@@ -587,12 +621,17 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
   const [dob, setDob] = useState("");
   const [homeBus, setHomeBus] = useState<HomeBusValue>(EMPTY_HOME_BUS);
   const [health, setHealth] = useState<StudentHealthInput>(emptyHealth);
+  const [paperConsent, setPaperConsent] = useState<PaperConsent | null>(null);
   const { data: routes } = useSchoolRoutes(tenantId);
   const [saving, setSaving] = useState(false);
 
   async function handleAdd() {
     if (!admissionNo.trim() || !fullName.trim() || !classId || !gender) {
       toast("Admission number, name, gender and class are all required.", "error");
+      return;
+    }
+    if (paperConsent && (!paperConsent.signedBy.trim() || !paperConsent.formDate)) {
+      toast("Enter who signed the health consent form and the date on it, or untick it.", "error");
       return;
     }
     if (existingAdmissionNos.has(admissionNo.trim())) {
@@ -622,7 +661,13 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
         const plan = planBus(homeBus, routes, fullName.trim());
         if (plan) await saveBus(created.id, plan).catch(() => later.push("bus route"));
       }
-      if (!isHealthEmpty(health)) await saveStudentHealth(tenantId, created.id, health).catch(() => later.push("health details"));
+      if (!isHealthEmpty(health)) {
+        // consent first: without it the database refuses health details
+        const saved = paperConsent
+          ? setHealthConsent(created.id, true, { signedBy: paperConsent.signedBy.trim(), formDate: paperConsent.formDate }).then(() => saveStudentHealth(tenantId, created.id, health))
+          : saveStudentHealth(tenantId, created.id, health);
+        await saved.catch(() => later.push("health details"));
+      }
       if (later.length) toast(`${fullName.trim()} was added, but the ${later.join(" and ")} didn't save. Open Manage to try again.`, "error");
       onAdded(fullName.trim());
     } catch (err) {
@@ -714,7 +759,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
           <h3 className="mb-2 text-[13px] font-semibold">Home and bus</h3>
           <HomeAndBusFields value={homeBus} onChange={setHomeBus} routes={routes ?? []} boarding={boarding} childName={fullName} />
         </div>
-        <OptionalHealthSection value={health} onChange={setHealth} />
+        <OptionalHealthSection value={health} onChange={setHealth} paper={paperConsent} onPaper={setPaperConsent} />
       </div>
     </Modal>
   );
@@ -775,7 +820,7 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
       onClose={onClose}
       eyebrow="Students"
       title="Import from CSV"
-      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
+      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Allergies and conditions need the family's signed consent form: add health_consent_signed_by and health_consent_date. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -869,13 +914,22 @@ function PhotoReview({ staff, onDone, toast }: { staff: StaffRow; onDone: (remov
 const STAFF_ROLE_OPTIONS = [
   { value: "teacher", label: "Teacher" },
   { value: "driver", label: "Driver" },
-  { value: "guard", label: "Gate guard" },
-  { value: "receptionist", label: "Receptionist" },
+  { value: "staff", label: "Other staff (librarian, matron, guard, …)" },
 ];
 
-/** Adds a teacher, driver, guard or receptionist (FIG-398/400) — no email, an assigned login_id
- *  (e.g. "TC-0001") instead, shown once on success the same way every other
- *  credential-reveal modal in this app works. */
+/** The titles offered for other staff; any other can be typed. One list, shared by every title input on this page. */
+function StaffTitleSuggestions() {
+  return (
+    <datalist id="staff-title-suggestions">
+      {STAFF_TITLE_SUGGESTIONS.map((t) => <option key={t} value={t} />)}
+    </datalist>
+  );
+}
+
+/** Adds a teacher, driver or other staff member (FIG-398/400) — an assigned login_id
+ *  (e.g. "TC-0001") rather than an email login, shown once on success the same way every
+ *  other credential-reveal modal in this app works, and emailed to them too when an
+ *  address is given (invite-admin, Resend). */
 function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   tenantId: string; onClose: () => void; onAdded: () => void; toast: ToastFn;
 }) {
@@ -883,14 +937,21 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [role, setRole] = useState<InviteStaffInput["role"]>("teacher");
   const [staffTitle, setStaffTitle] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<InviteStaffResult | null>(null);
+  const other = role === "staff";
 
   async function add() {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
+    // for other staff the title is the job: it's all that says what they do
+    if (other && !staffTitle.trim()) { toast("Give them a title, e.g. Librarian.", "error"); return; }
     setSaving(true);
     try {
-      const r = await inviteStaff({ tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined });
+      const r = await inviteStaff({
+        tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
+      });
       setResult(r);
       onAdded();
     } catch (err) {
@@ -913,7 +974,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
+            {handOverNote(result.emailed)}
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -927,8 +988,21 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
         <div className="grid gap-3.5">
           <TextField id="staff-name" label="Full name" placeholder="e.g. Otieno Ouma" value={fullName} onChange={(e) => setFullName(e.target.value)} />
           <SelectField id="staff-role" label="Role" value={role} onChange={(e) => setRole(e.target.value as InviteStaffInput["role"])} options={STAFF_ROLE_OPTIONS} />
-          <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+          {other ? (
+            <>
+              <TextField id="staff-title" label="Title" placeholder="e.g. Librarian" list="staff-title-suggestions" hint="Pick one or type their own." value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+              <StaffTitleSuggestions />
+            </>
+          ) : (
+            <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
+          )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <TextField id="staff-email" type="email" label="Email (optional)" placeholder="e.g. otieno@gmail.com" hint="We'll email their sign-in details. They still sign in with their login ID." value={email} onChange={(e) => setEmail(e.target.value)} />
+          {role !== "driver" && (
+            <p className="text-[12px] leading-relaxed text-ink-faint">
+              A deputy, bursar, secretary or receptionist? Once they're added, open their card and give them admin access there.
+            </p>
+          )}
         </div>
       )}
     </Modal>
@@ -945,6 +1019,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
   const [relationship, setRelationship] = useState<"mother" | "father" | "guardian">("guardian");
   const [isPrimaryPayer, setIsPrimaryPayer] = useState(true);
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<ProvisionGuardianResult | null>(null);
 
@@ -957,6 +1032,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
         full_name: fullName.trim(),
         students: students.map((s) => ({ student_id: s.id, relationship, is_primary_payer: isPrimaryPayer })),
         phone: phone.trim() || undefined,
+        email: email.trim() || undefined,
       });
       setResult(r);
       onInvited();
@@ -981,7 +1057,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
       {result ? (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
+            {handOverNote(result.emailed)}
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Login ID", result.login_id], ["Password", result.password]].map(([k, v]) => (
@@ -1000,6 +1076,7 @@ function InviteGuardiansModal({ tenantId, students, onClose, onInvited, toast }:
             options={[{ value: "mother", label: "Mother" }, { value: "father", label: "Father" }, { value: "guardian", label: "Guardian" }]}
           />
           <TextField id="guardian-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <TextField id="guardian-email" type="email" label="Email (optional)" placeholder="e.g. rose@gmail.com" hint="We'll email their sign-in details." value={email} onChange={(e) => setEmail(e.target.value)} />
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={isPrimaryPayer} onChange={(e) => setIsPrimaryPayer(e.target.checked)} style={{ accentColor: "#17402A" }} />
             <span className="text-[13px]">Primary fee payer</span>
@@ -1168,9 +1245,11 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
   const [staffTitle, setStaffTitle] = useState(staff.staff_title ?? "");
   const [phone, setPhone] = useState(staff.phone ?? "");
   const [saving, setSaving] = useState(false);
+  const other = staff.role === "staff";
 
   async function save() {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
+    if (other && !staffTitle.trim()) { toast("Give them a title, e.g. Librarian.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("profiles").update({
@@ -1199,8 +1278,10 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
         </label>
         <label className="block">
           <span className="mb-1 block text-[11.5px] font-semibold">Title</span>
-          <input value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} placeholder="e.g. Class teacher"
+          <input value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} placeholder={other ? "e.g. Librarian" : "e.g. Class teacher"}
+            list={other ? "staff-title-suggestions" : undefined}
             className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
+          {other && <StaffTitleSuggestions />}
         </label>
         <label className="block">
           <span className="mb-1 block text-[11.5px] font-semibold">Phone</span>

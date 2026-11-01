@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Animated, type DimensionValue, type StyleProp, type ViewStyle } from "react-native";
-import { t } from "../theme";
+import { motion } from "../theme";
+import { useReducedMotion } from "../ui/useReducedMotion";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * A placeholder shaped like the content that is on its way. Shown only on
@@ -13,16 +15,20 @@ export function Skeleton({ width = "100%", height = 12, radius = 6, style }: {
   radius?: number;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { t } = useTheme();
   const pulse = useRef(new Animated.Value(0.5)).current;
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
+    // Still, at the midpoint of the pulse, rather than flashing for someone who asked for no motion.
+    if (reduceMotion) { pulse.setValue(0.75); return; }
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: motion.pulse, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0.5, duration: motion.pulse, useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
-  }, [pulse]);
+  }, [pulse, reduceMotion]);
 
   return (
     <Animated.View

@@ -11,16 +11,18 @@ import { anonClient, signInAs, type SignedIn } from "./support/signInAs";
  * demo school, against the live definitions of record_payment() and the invoice triggers (main's, with has_perm(..., 'fees')).
  *
  * Every expected amount is worked out by hand in the test, not read back from the code under test. Each test makes its own
- * invoices in a throwaway term, and afterAll deletes the terms (which cascades to their invoices, payments and fee items) and
- * the learners made for the billing run. A crashed run is swept by the next one (names start with "QA05"). The audit events that
- * record_payment writes cannot be deleted by a school admin, so a few "financial" audit rows stay in the local database.
+ * invoices in a throwaway term. afterAll tries to delete the terms and the learners made for the billing run, but since main's
+ * 20261103300000 an invoice with a payment cannot be deleted (and so neither can its term), so those terms stay behind: each run
+ * uses years of its own so it never collides with the last one, and npm run db:fresh clears them. The audit events that
+ * record_payment writes cannot be deleted by a school admin either, so a few "financial" audit rows stay too.
  *
  * The billing-run tests use the app's own planTermBilling() and fetchAllPages() with the same queries as BillTermModal in
  * apps/web/src/screens/admin/FeeCollection.tsx. They do NOT click the button: if that component's queries change (for
  * instance its `.eq("active", true)`), this file will not notice. Exporting fetchBillingInputs would close that gap.
  *
- * The "known defects" block uses it.fails: it passes while the defect exists and fails when it is fixed, so the fix gets
- * noticed. Then change it.fails to it. The same gaps are KNOWN lines in supabase/rls-checks/fees.sql.
+ * Known defects are written with it.fails (it passes while the defect exists and fails when it is fixed, so the fix gets noticed;
+ * then change it.fails to it). Everything that was one here was fixed on main and is now a plain test. The same checks are in
+ * supabase/rls-checks/fees.sql.
  */
 
 type Res = { data: unknown; error: PostgrestError | null };
@@ -87,8 +89,13 @@ async function sweepLeftovers() {
   await sb().from("students").delete().eq("tenant_id", tenantId).like("admission_no", "QA05-%");
 }
 
-/** terms.index is 1 to 3 and (school, year, index) is unique: QA 05 uses year 2033, QA 07 year 2034. */
-async function makeTerm(label: string, index: number, year = 2033): Promise<string> {
+/**
+ * terms.index is 1 to 3 and (school, year, index) is unique. Since 20261103300000 a term whose invoices have payments cannot be deleted
+ * (nor can the invoices), so these throwaway terms stay behind: each run takes years of its own (QA 05 BASE_YEAR, QA 07 BASE_YEAR + 1).
+ * npm run db:fresh clears them.
+ */
+const BASE_YEAR = 3000 + (Math.floor(Date.now() / 1000) % 6000) * 2;
+async function makeTerm(label: string, index: number, year = BASE_YEAR): Promise<string> {
   const { data, error } = await sb().from("terms")
     .insert({ tenant_id: tenantId, name: `QA05 ${label} ${run}`, year, index, starts_on: "2033-01-05", ends_on: "2033-04-02", is_current: false })
     .select("id").single();
@@ -117,7 +124,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (madeTerms.length) await sb().from("terms").delete().in("id", madeTerms);
-  if (madeStudents.length) await sb().from("students").delete().in("id", madeStudents);
+  if (madeStudents.length) {
+    // a learner whose invoice has a payment cannot be deleted any more (FIG-1319): archive them so they leave every roll and count
+    const gone = await sb().from("students").delete().in("id", madeStudents);
+    if (gone.error) await sb().from("students").update({ active: false }).in("id", madeStudents);
+  }
 }, 60_000);
 
 describe("setup", () => {
@@ -147,10 +158,18 @@ describe("record_payment: amounts, against numbers worked out by hand", () => {
     expect(await state(id)).toEqual({ total_cents: 1_000_000, paid_cents: 1_000_000, status: "paid" });
   });
 
-  it("one cent paid is a real payment", async () => {
+  // FIG-1334 (20261104340000): school money is whole shillings, so a payment of one cent is refused, unless it is exactly what is still
+  // owed (a balance left with cents must still be clearable).
+  it("one shilling (100 cents) is a real payment; one cent is not, unless it is exactly the balance", async () => {
     const id = await makeInvoice(1_000_000);
-    expect((await pay(id, 1)).error).toBeNull();
-    expect(await state(id)).toEqual({ total_cents: 1_000_000, paid_cents: 1, status: "part_paid" });
+    expect((await pay(id, 1)).error?.code).toBe("22023");
+    expect(await state(id)).toEqual({ total_cents: 1_000_000, paid_cents: 0, status: "unpaid" });
+    expect((await pay(id, 100)).error).toBeNull();
+    expect(await state(id)).toEqual({ total_cents: 1_000_000, paid_cents: 100, status: "part_paid" });
+    const odd = await makeInvoice(1_000_050);
+    expect((await pay(odd, 50)).error?.code, "50 cents is not the balance").toBe("22023");
+    expect((await pay(odd, 1_000_050)).error, "the whole balance, cents and all, is accepted").toBeNull();
+    expect(await state(odd)).toEqual({ total_cents: 1_000_050, paid_cents: 1_000_050, status: "paid" });
   });
 
   it.each([[0], [-500], [null]])("refuses %s as the amount (22023) and changes nothing", async (amount) => {
@@ -377,10 +396,12 @@ async function runBilling(termId: string, dueOn = "2033-01-05") {
     items, invoiced,
   );
   const rows = plan.invoices.map((i) => ({ ...i, tenant_id: tenantId, term_id: termId, due_on: dueOn }));
-  for (let i = 0; i < rows.length; i += 500) {
-    const { error } = await sb().from("fee_invoices").upsert(rows.slice(i, i + 500), { onConflict: "student_id,term_id", ignoreDuplicates: true });
-    if (error) throw new Error(error.message);
-  }
+  // What BillTermModal.bill() does since FIG-1331: one call, one transaction, the audit event written by the database from what it saved.
+  const { error } = await sb().rpc("bill_term", {
+    p_term_id: termId, p_due_on: dueOn,
+    p_invoices: plan.invoices.map((i) => ({ student_id: i.student_id, total_cents: i.total_cents })),
+  });
+  if (error) throw new Error(error.message);
   return { plan, rows };
 }
 
@@ -531,50 +552,53 @@ describe("billing run: two admins press 'Bill learners' at the same moment", () 
   }, 60_000);
 });
 
-// ---------------------------------------------------------------- known defects (QA 05)
-// Each of these asserts the CORRECT behaviour and currently fails, so it.fails passes. When a fix lands the test starts failing:
-// then change it.fails to it.
-describe("known defects (QA 05)", () => {
-  it.fails("FIG-1319: deleting an invoice that has payments is refused, or at least leaves an audit event", async () => {
+// ---------------------------------------------------------------- fee records are kept and audited (QA 05; FIG-1319 and FIG-1315 were
+// known defects here until main fixed them: 20261103300000, 20261103300001, 20261103500000)
+describe("fee records are kept and audited", () => {
+  it("FIG-1319: an invoice that has a payment cannot be deleted (23001); it and its payment are still there", async () => {
     const id = await makeInvoice(1_000_000);
     await pay(id, 250_000);
-    const before = await auditCount();
     const del = await sb().from("fee_invoices").delete().eq("id", id).select();
-    const after = await auditCount();
-    expect(del.error !== null || after > before).toBe(true);
+    expect(del.error?.code).toBe("23001");
+    expect(await state(id)).toEqual({ total_cents: 1_000_000, paid_cents: 250_000, status: "part_paid" });
+    expect(await ledger(id)).toHaveLength(1);
   });
 
-  it.fails("FIG-1315: after total_cents is lowered to what is paid, the status follows the balance (paid)", async () => {
+  it("FIG-1319: an invoice with nothing behind it can be deleted by the school admin, and the deletion is in the audit trail", async () => {
+    const id = await makeInvoice(1_000_000);
+    const before = await auditCount();
+    const del = await sb().from("fee_invoices").delete().eq("id", id).select();
+    expect(del.error).toBeNull();
+    expect(del.data).toHaveLength(1);
+    expect(await auditCount()).toBe(before + 1);
+  });
+
+  it("FIG-1315: a total cannot be edited by hand (42501); adjust_invoice_total() changes it with a reason, the status follows and one audit event is written", async () => {
     const id = await makeInvoice(1_000_000);
     await pay(id, 400_000);
     const edit = await sb().from("fee_invoices").update({ total_cents: 400_000 }).eq("id", id).select();
-    expect(edit.error).toBeNull();
-    expect((await state(id)).status).toBe("paid");
-  });
+    expect(edit.error?.code).toBe("42501");
+    expect((await state(id)).total_cents).toBe(1_000_000);
 
-  it.fails("FIG-1315: a hand edit of total_cents leaves an audit event", async () => {
-    const id = await makeInvoice(1_000_000);
-    await pay(id, 400_000);
+    const adjust = (cents: number, reason: string | null, as: SupabaseClient = sb()) =>
+      as.rpc("adjust_invoice_total", { p_invoice_id: id, p_total_cents: cents, p_reason: reason });
+    expect((await adjust(300_000, "QA05 below what was paid")).error?.code, "not below what has been paid").toBe("22023");
+    expect((await adjust(500_000, "  ")).error?.code, "a reason is required").toBe("22023");
+    expect((await adjust(500_000, "QA05 bursary", teacher.client)).error?.code, "a teacher cannot").toBe("42501");
+    expect((await state(id)).total_cents).toBe(1_000_000);
+
     const before = await auditCount();
-    await sb().from("fee_invoices").update({ total_cents: 400_000 }).eq("id", id).select();
-    expect(await auditCount()).toBeGreaterThan(before);
+    expect((await adjust(400_000, "QA05 bursary")).error).toBeNull();
+    expect(await state(id)).toEqual({ total_cents: 400_000, paid_cents: 400_000, status: "paid" });
+    expect(await auditCount(), "one event, naming the old and new totals and the reason").toBe(before + 1);
   });
 });
 
 // ---------------------------------------------------------------- QA 07 (FIG-1240): the audit trail must agree with the ledger
 // supabase/rls-checks/reconciliation.sql asks the same questions of the database directly.
 
-/** Everything BillTermModal.bill() does: the invoices, then the audit event the BROWSER writes, with the same payload shape. */
-async function billLikeTheApp(termId: string, termName: string) {
-  const { plan, rows } = await runBilling(termId);
-  const { error } = await sb().rpc("log_admin_event", {
-    p_tenant_id: tenantId,
-    p_event: `${termName} billed: ${rows.length} invoices, due 2033-01-05`,
-    p_category: "financial",
-    p_metadata: { term_id: termId, invoices: rows.length, total_cents: plan.totalCents, due_on: "2033-01-05" },
-  });
-  if (error) throw new Error(error.message);
-}
+/** The billing run as the dialog makes it (one bill_term call). The audit event is written by the database from what it saved (FIG-1331). */
+const billLikeTheApp = (termId: string, _termName: string) => runBilling(termId);
 
 /** What the audit trail says was billed for a term, added up. */
 async function billedAccordingToAuditTrail(termId: string) {
@@ -587,7 +611,7 @@ async function billedAccordingToAuditTrail(termId: string) {
 
 describe("QA 07: billing run, audit trail against ledger", () => {
   it("one run: one audit event, and its invoice count and total are what was saved", async () => {
-    const term = await makeTerm("audit one", 1, 2034);
+    const term = await makeTerm("audit one", 1, BASE_YEAR + 1);
     await addFeeItems(term);
     await billLikeTheApp(term, `QA05 audit one ${run}`);
     const saved = await invoicesOfTerm(term);
@@ -597,10 +621,10 @@ describe("QA 07: billing run, audit trail against ledger", () => {
     expect(audit.cents).toBe(saved.length ? await sumOfTotals(term) : 0);
   }, 60_000);
 
-  // Both runs plan every learner (neither sees the other's invoices yet), both save their rows with ignoreDuplicates, and both then
-  // log what they PLANNED. One set of invoices exists; the audit trail says two sets were billed.
-  it.fails("FIG-1331 (open): two admins billing at once: the audit trail claims no more than was saved", async () => {
-    const term = await makeTerm("audit race", 2, 2034);
+  // Both runs plan every learner (neither sees the other's invoices yet). Until FIG-1331 was fixed both logged what they PLANNED, so one
+  // set of invoices existed and the audit trail said two sets were billed. Now the database logs what each call saved: the second saves none.
+  it("FIG-1331: two admins billing at once: the audit trail claims no more than was saved", async () => {
+    const term = await makeTerm("audit race", 2, BASE_YEAR + 1);
     await addFeeItems(term);
     await Promise.all([billLikeTheApp(term, `QA05 audit race ${run}`), billLikeTheApp(term, `QA05 audit race ${run}`)]);
     const saved = await invoicesOfTerm(term);
@@ -615,7 +639,7 @@ async function sumOfTotals(termId: string): Promise<number> {
 }
 
 describe("QA 07: payment references and the audit trail of the settings money depends on", () => {
-  it.fails("FIG-1328 (open): the same bank slip number cannot be recorded twice on one invoice", async () => {
+  it("FIG-1328: the same bank slip number cannot be recorded twice on one invoice", async () => {
     const id = await makeInvoice(1_000_000);
     expect((await pay(id, 100_000, "bank", `DUP-${RUN}`)).error).toBeNull();
     const second = await pay(id, 100_000, "bank", `DUP-${RUN}`);
@@ -629,7 +653,7 @@ describe("QA 07: payment references and the audit trail of the settings money de
     expect((await pay(b, 100_000, "bank", `SIB-${RUN}`)).error).toBeNull();
   });
 
-  it.fails("FIG-1329 (open): changing a fee item (what the next billing run charges) leaves an audit event", async () => {
+  it("FIG-1329: changing a fee item (what the next billing run charges) leaves an audit event", async () => {
     const before = await auditCount();
     const ins = await sb().from("fee_items").insert({ tenant_id: tenantId, term_id: payTerm, name: `QA05 levy ${run}`, amount_cents: 50_000, applies_to: "all" }).select("id").single();
     expect(ins.error).toBeNull();
@@ -640,7 +664,7 @@ describe("QA 07: payment references and the audit trail of the settings money de
     expect(await auditCount()).toBeGreaterThan(before);
   });
 
-  it.fails("FIG-1330 (open): changing the paybill, till or bank details parents pay into leaves an audit event", async () => {
+  it("FIG-1330: changing the paybill, till or bank details parents pay into leaves an audit event", async () => {
     const was = await sb().from("tenants").select("payment_paybill, payment_till, payment_bank_details, payment_notes").eq("id", tenantId).single();
     const before = await auditCount();
     try {

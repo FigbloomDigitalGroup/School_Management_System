@@ -3,10 +3,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
+import { FingerprintLock } from "./src/components/FingerprintLock";
 import { Navigation, type TeacherSession } from "./src/navigation";
+import { registerPushToken } from "./src/pushNotifications";
 import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { SignIn } from "./src/screens/SignIn";
 import { accentFor } from "./src/theme";
+import { ThemeProvider, useTheme } from "./src/ui/ThemeContext";
 
 /**
  * Teacher-only app — no role branching like the parent/student/driver app
@@ -14,7 +17,8 @@ import { accentFor } from "./src/theme";
  * tenant_id is a data problem (every teacher belongs to exactly one
  * school), not a session this app can serve.
  */
-export default function App() {
+function AppContent() {
+  const { t, accentInk } = useTheme();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<TeacherSession | null>(null);
   // Login ID while the school-issued password still has to be replaced; null once it has.
@@ -54,13 +58,18 @@ export default function App() {
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
 
+  // Pushes (a new chat, a visitor) reach this phone once it has told the server it exists.
+  useEffect(() => {
+    if (session) void registerPushToken();
+  }, [session]);
+
   const a = accentFor(session?.accent ?? "#7A1F2B");
 
   if (loading) {
     return (
       <SafeAreaProvider>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}>
-          <ActivityIndicator size="large" color={a.deep} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.page }}>
+          <ActivityIndicator size="large" color={accentInk(a.deep)} />
         </View>
       </SafeAreaProvider>
     );
@@ -70,15 +79,26 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
       {session ? (
-        choosePassword ? (
-          <ChoosePassword
-            profileId={session.profileId}
-            fullName={session.fullName}
-            loginId={choosePassword.loginId}
-            onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
-          />
-        ) : <Navigation session={session} />
+        <FingerprintLock key={session.profileId} profileId={session.profileId} accent={session.accent}>
+          {choosePassword ? (
+            <ChoosePassword
+              profileId={session.profileId}
+              fullName={session.fullName}
+              loginId={choosePassword.loginId}
+              onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
+            />
+          ) : <Navigation session={session} />}
+        </FingerprintLock>
       ) : <SignIn />}
     </SafeAreaProvider>
+  );
+}
+
+/** The theme is chosen once, here, so everything below it -- including the loading screen and sign-in -- is in the right scheme from the first frame. */
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

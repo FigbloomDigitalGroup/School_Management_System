@@ -1,6 +1,8 @@
-import { ScrollView, Text, TouchableOpacity } from "react-native";
+import { ScrollView, Text } from "react-native";
 import type { PublishedExam } from "@figbloom/shared";
-import { HIT, t } from "../theme";
+import { HIT } from "../theme";
+import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 /**
  * Moves between the exams a learner has results for. Teachers publish a class
@@ -14,13 +16,14 @@ export function ExamSwitcher({ exams, value, onPick, tint }: {
   onPick: (examId: string) => void;
   tint: string;
 }) {
+  const { t } = useTheme();
   if (exams.length < 2) return null;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
       {exams.map((e) => {
         const on = e.id === value;
         return (
-          <TouchableOpacity
+          <Tap
             key={e.id}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
@@ -30,7 +33,7 @@ export function ExamSwitcher({ exams, value, onPick, tint }: {
             <Text style={{ fontSize: 13, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>
               {e.name} · {e.subjectCount} subject{e.subjectCount === 1 ? "" : "s"}
             </Text>
-          </TouchableOpacity>
+          </Tap>
         );
       })}
     </ScrollView>

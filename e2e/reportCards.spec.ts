@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { confirmDialog } from "./support/confirm";
 import { createClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import { KCSE, expected } from "../packages/shared/src/gradeTables.fixture";
@@ -251,8 +252,8 @@ test.describe("one card goes to a family", () => {
     await signInAdmin(page);
     await openOfficeScreen(page);
     await expect(page.getByText(`${CLASS} · 1 report card`)).toBeVisible();
-    page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "Send 1 to families" }).click();
+    await confirmDialog(page, "Send");
     await expect(page.getByText("Report cards sent to families.")).toBeVisible();
     await expect(page.getByRole("row").filter({ hasText: `ADM ${faith.adm}` }).getByText("Sent", { exact: true })).toBeVisible();
     const sent = (await db.from("report_cards").select("published_at").eq("term_id", f.termId).eq("class_id", f.classId)).data!;
@@ -288,8 +289,8 @@ test.describe("one card goes to a family", () => {
     const f = await facts();
     await signInAdmin(page);
     await openOfficeScreen(page);
-    page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "Withdraw all" }).click();
+    await confirmDialog(page, "Withdraw");
     await expect(page.getByText("Report cards withdrawn.")).toBeVisible();
     expect((await db.from("report_cards").select("published_at").eq("term_id", f.termId).eq("class_id", f.classId)).data!.map((c) => c.published_at)).toEqual([null]);
 

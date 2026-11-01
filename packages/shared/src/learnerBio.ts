@@ -191,13 +191,15 @@ export interface LearnerGuardianContact {
   full_name: string;
   phone: string | null;
   alt_phone: string | null;
+  /** Their contact email, if any: where "Send sign-in details again" goes. */
+  email: string | null;
 }
 
 /** The learner's guardians and how to reach them, for the office. */
 export async function fetchLearnerGuardians(studentId: string): Promise<LearnerGuardianContact[]> {
   const { data, error } = await supabase().from("guardians")
-    .select("profile_id, relationship, profiles(full_name, phone, alt_phone)").eq("student_id", studentId)
-    .returns<{ profile_id: string; relationship: LearnerGuardianContact["relationship"]; profiles: { full_name: string; phone: string | null; alt_phone: string | null } | null }[]>();
+    .select("profile_id, relationship, profiles(full_name, phone, alt_phone, email)").eq("student_id", studentId)
+    .returns<{ profile_id: string; relationship: LearnerGuardianContact["relationship"]; profiles: { full_name: string; phone: string | null; alt_phone: string | null; email: string | null } | null }[]>();
   if (error) throw new Error(error.message);
   return (data ?? []).map((g) => ({
     profile_id: g.profile_id,
@@ -205,5 +207,6 @@ export async function fetchLearnerGuardians(studentId: string): Promise<LearnerG
     full_name: g.profiles?.full_name ?? "Guardian",
     phone: g.profiles?.phone ?? null,
     alt_phone: g.profiles?.alt_phone ?? null,
+    email: g.profiles?.email ?? null,
   }));
 }

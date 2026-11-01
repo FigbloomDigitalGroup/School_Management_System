@@ -1,10 +1,12 @@
 /**
  * Creates a staff account for a school: the first administrator during
  * onboarding (role: "school_admin", unchanged since this function's
- * original version), OR — new as of FIG-398 — a teacher, driver, gate guard
- * or receptionist, added by
+ * original version), OR — new as of FIG-398 — a teacher, driver or other
+ * staff member (librarian, matron, guard, ...; 20261028100001), added by
  * the school's own admin as routine day-to-day staffing rather than a
- * platform/org-owner-only action.
+ * platform/org-owner-only action. Since 20261031000000 a teacher or other
+ * staff member holding the people admin area may add those too; only a full
+ * admin path (Figbloom, the organization) ever creates an administrator.
  *
  * Deploy: supabase functions deploy invite-admin
  *
@@ -19,26 +21,33 @@
  * school itself. teacher/driver instead get a school-assigned login_id
  * (FIG-396/397's "TC-0001"/"BD-0099" scheme) — no email, no SMTP dependency,
  * generated server-side from how many staff of that role this tenant
- * already has. Either way there is no real email/SMS provider wired up, so
- * the account is created outright with a random one-time password
- * (_shared/tempPassword.ts) that's returned once and handed over directly;
- * must_change_password makes the person choose their own at first sign-in.
+ * already has. Either way the account is created outright with a random
+ * one-time password (_shared/tempPassword.ts) that's returned once and shown
+ * to whoever added them; must_change_password makes the person choose their
+ * own at first sign-in. When there's a real address (the admin's login email,
+ * or a teacher/driver/staff member's contact email) and Resend is set up
+ * (_shared/email.ts), the same details are emailed to them as well, and the
+ * response says whether that worked; a failed email never undoes the account.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
-const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "guard", "receptionist"]);
+const STAFF_ROLES = new Set(["school_admin", "teacher", "driver", "staff"]);
 
-const STAFF_WORD: Record<string, string> = { teacher: "Teacher", driver: "Driver", guard: "Guard", receptionist: "Receptionist" };
+const STAFF_WORD: Record<string, string> = { teacher: "Teacher", driver: "Driver", staff: "Staff member" };
 
 interface Body {
   tenant_id: string;
   full_name: string;
-  role?: "school_admin" | "teacher" | "driver" | "guard" | "receptionist";
+  role?: "school_admin" | "teacher" | "driver" | "staff";
   staff_title?: string;
   /** Required when role is (the default) "school_admin" -- the login itself
    *  for that role. Optional contact info for teacher/driver, who sign in
@@ -48,9 +57,9 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -75,13 +84,14 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   // the first school_admin -- there isn't one yet to have made the call),
   // the school's OWN school_admin may also call this -- routine staffing is
   // the school's own day-to-day task, not something that should need an org
-  // owner or Figbloom staff every time. Every other caller role is rejected
-  // immediately, before any tenant lookup.
+  // owner or Figbloom staff every time -- and so may a teacher or other staff
+  // member holding the people area (20261031000000). Every other caller role
+  // is rejected immediately, before any tenant lookup.
   const callerCouldQualify = callerProfile?.role === "super_admin"
     || callerProfile?.role === "org_admin"
-    || (role !== "school_admin" && callerProfile?.role === "school_admin");
+    || (role !== "school_admin" && ["school_admin", "teacher", "staff"].includes(callerProfile?.role));
   if (!callerCouldQualify) {
-    return json({ error: "Only Figbloom staff, an organization's own admin, or (for staff other than the school's first administrator) the school's own admin, can add this account." }, 403);
+    return json({ error: "Only Figbloom staff, an organization's own admin, or (for staff other than the school's first administrator) the school's office, can add this account." }, 403);
   }
 
   const { tenant_id, full_name } = body;
@@ -94,18 +104,23 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (role === "school_admin" && !email) {
     return json({ error: "The administrator's email is required." }, 400);
   }
+  // the sign-in details are emailed here, so a typo matters
+  if (email && !isDeliverable(email)) {
+    return json({ error: "That email address doesn't look right." }, 400);
+  }
 
   const { data: tenant, error: tenantErr } = await admin
     .from("tenants").select("id, name, slug, organization_id, country").eq("id", tenant_id).maybeSingle();
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile!.role === "super_admin";
-  if (!authorized && callerProfile!.role === "org_admin" && tenant.organization_id) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-    authorized = !!link;
+  if (!authorized && callerProfile!.role === "org_admin") {
+    authorized = await administersOrganization(admin, user.id, tenant.organization_id);
   }
   if (!authorized && role !== "school_admin" && callerProfile!.role === "school_admin" && callerProfile!.tenant_id === tenant_id) {
+    authorized = true;
+  }
+  if (!authorized && role !== "school_admin" && await holdsArea(admin, { id: user.id, ...callerProfile }, tenant_id, "people")) {
     authorized = true;
   }
   if (!authorized) {
@@ -138,7 +153,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     // Supabase's real message is "...has already been registered" — "been" sits
     // between the two words, so a plain "already registered" substring never matches.
     const already = createErr?.message?.toLowerCase().includes("already been registered");
-    return json({ error: already ? "That email is already in use." : (createErr?.message ?? "Could not create the account.") }, already ? 409 : 500);
+    return json(already ? { error: "That email is already in use." } : failure("invite-admin", "create the account", createErr), already ? 409 : 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -156,22 +171,35 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (profileErr) {
     // Roll back the orphaned auth account rather than leaving a login with no profile.
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("invite-admin", "save the profile", profileErr), 500);
   }
 
-  const actorSuffix = callerProfile!.role === "super_admin" ? "Figbloom" : callerProfile!.role === "org_admin" ? "org admin" : "school admin";
+  const actorSuffix = callerProfile!.role === "super_admin" ? "Figbloom" : callerProfile!.role === "org_admin" ? "org admin"
+    : callerProfile!.role === "school_admin" ? "school admin" : "people";
   await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile!.full_name ? `${callerProfile!.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: role === "school_admin"
       ? `First administrator ${full_name.trim()} added for ${tenant.name}`
-      : `${STAFF_WORD[role]} ${full_name.trim()} (${loginId}) added for ${tenant.name}`,
+      : `${STAFF_WORD[role]} ${full_name.trim()} (${role === "staff" && staffTitle ? `${staffTitle}, ` : ""}${loginId}) added for ${tenant.name}`,
     category: "provisioning",
   });
 
+  // The account exists now: whatever happens to the email, the password above is the way in.
+  const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {
+    kind: "welcome",
+    fullName: full_name.trim(),
+    placeName: tenant.name,
+    login: isIdBased ? loginId! : email!,
+    loginIsId: isIdBased,
+    password,
+    signInPath: signInPath(role, tenant.slug),
+    actor: actorName(callerProfile!),
+  });
+
   return isIdBased
-    ? json({ ok: true, login_id: loginId, password })
-    : json({ ok: true, email: email!, password });
+    ? json({ ok: true, login_id: loginId, password, emailed })
+    : json({ ok: true, email: email!, password, emailed });
 }
 
 if (import.meta.main) {
@@ -184,7 +212,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 

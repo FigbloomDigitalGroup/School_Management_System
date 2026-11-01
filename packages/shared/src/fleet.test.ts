@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrangeRiders, breakdownAffected, distanceM, fmtDistance, isLive, locationPingRow, riderMarkRow, routeProgress, type TripRider } from "./fleet";
+import { arrangeRiders, breakdownAffected, distanceM, fmtDistance, fmtEta, isLive, locationPingRow, riderMarkedAt, riderMarkRow, roughEta, routeProgress, type TripRider } from "./fleet";
 
 // Three stops roughly 1.5-3km apart along a line, Nakuru-ish.
 const STOPS = [
@@ -54,6 +54,28 @@ describe("fmtDistance", () => {
     expect(fmtDistance(820)).toBe("800 m");
     expect(fmtDistance(2440)).toBe("2.4 km");
     expect(fmtDistance(143204)).toBe("143 km");
+  });
+});
+
+describe("roughEta", () => {
+  it("takes road distance as 1.3x the straight line, at 25 km/h", () => {
+    // 0.045 degrees of longitude on the equator is ~5.0 km straight, ~6.5 km by road, ~15.6 min.
+    const eta = roughEta({ lat: 0, lng: 0 }, { lat: 0, lng: 0.045 });
+    expect(eta.km).toBeCloseTo(6.5, 1);
+    expect(eta.minutes).toBe(16);
+    expect(eta.estimated).toBe(true);
+  });
+
+  it("never says zero minutes, even standing at the stop", () => {
+    expect(roughEta(STOPS[0]!, STOPS[0]!).minutes).toBe(1);
+  });
+});
+
+describe("fmtEta", () => {
+  it("marks a guess with a ~, leaves a road time bare, and shows a dash for none", () => {
+    expect(fmtEta({ minutes: 16, km: 6.5, estimated: true })).toBe("~16 min");
+    expect(fmtEta({ minutes: 9, km: 3.1, estimated: false })).toBe("9 min");
+    expect(fmtEta(null)).toBe("—");
   });
 });
 
@@ -137,5 +159,20 @@ describe("riderMarkRow", () => {
   it("sends no time for not-here or an undo back to expected", () => {
     expect(riderMarkRow({ ...base, status: "absent" })).not.toHaveProperty("boarded_at");
     expect(riderMarkRow({ ...base, status: "expected" })).not.toHaveProperty("alighted_at");
+  });
+});
+
+describe("riderMarkedAt", () => {
+  const r = { status: "expected" as const, boarded_at: null, alighted_at: null };
+  it("says when they got off, in Nairobi time", () => {
+    // 12:42 UTC is 3:42 pm in Nairobi
+    expect(riderMarkedAt({ ...r, status: "alighted", boarded_at: "2026-10-30T12:05:00Z", alighted_at: "2026-10-30T12:42:00Z" })).toMatch(/^Dropped off 3:42\s?pm$/i);
+  });
+  it("says since when they've been on", () => {
+    expect(riderMarkedAt({ ...r, status: "boarded", boarded_at: "2026-10-30T04:12:00Z" })).toMatch(/^On since 7:12\s?am$/i);
+  });
+  it("says nothing while they're still waiting, or with no time recorded", () => {
+    expect(riderMarkedAt(r)).toBeNull();
+    expect(riderMarkedAt({ ...r, status: "alighted" })).toBeNull();
   });
 });

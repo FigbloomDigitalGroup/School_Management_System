@@ -137,16 +137,18 @@ reset role;
 -- ---------------------------------------------------------------- the office still can
 select pg_temp.act_as(current_setting('t.admin'));
 set local role authenticated;
-select pg_temp.expect_rows('the school admin confirms a payment proof',
-  format($q$update payment_proofs set status = 'confirmed' where id = %L$q$, current_setting('t.proof')), 1);
+-- confirming goes through record_payment() (20261103300001); rejecting is a direct update
+select pg_temp.expect_rows('the school admin rejects a payment proof',
+  format($q$update payment_proofs set status = 'rejected', rejection_reason = 'check' where id = %L$q$, current_setting('t.proof')), 1);
 select pg_temp.expect_rows('the school admin changes a learner document record',
   format($q$update student_documents set doc_type = 'medical form' where id = %L$q$, current_setting('t.doc')), 1);
 select pg_temp.expect_rows('the school admin uploads a learner document file',
   format($q$insert into storage.objects (bucket_id, name) values ('private-documents', %L)$q$,
          current_setting('t.a') || '/students/' || current_setting('t.stu') || '/second.pdf'), 1);
-select pg_temp.expect_rows('the school admin overwrites a payment slip file',
+-- a payment slip is kept as sent (20261103300001)
+select pg_temp.expect_rows('not even the school admin overwrites a payment slip file',
   format($q$update storage.objects set name = name where bucket_id = 'private-documents' and name = %L$q$,
-         current_setting('t.a') || '/invoices/' || current_setting('t.inv') || '/check.png'), 1);
+         current_setting('t.a') || '/invoices/' || current_setting('t.inv') || '/check.png'), 0);
 reset role;
 
 rollback;

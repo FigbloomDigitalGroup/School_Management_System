@@ -41,20 +41,54 @@ export function passwordResetRequestedMessage(role: Role | null | undefined): st
   return `${office} Ask them for it, then sign in and choose your own.`;
 }
 
+/**
+ * Whether an account's sign-in details were also emailed (Resend, through
+ * supabase/functions/_shared/email.ts), next to the password shown on screen.
+ * Mirrors EmailOutcome there.
+ */
+export type EmailOutcome =
+  | { status: "sent"; to: string }
+  | { status: "not_configured" }
+  | { status: "no_address" }
+  | { status: "failed"; to: string; reason: string };
+
+/** One line for the on-screen card: "Also emailed to x@y." or "Not emailed: ...". */
+export function emailOutcomeLine(outcome: EmailOutcome | null | undefined): string {
+  switch (outcome?.status) {
+    case "sent": return `Also emailed to ${outcome.to}.`;
+    case "failed": return `Not emailed: ${outcome.reason}.`;
+    case "no_address": return "Not emailed: there's no email address for them.";
+    case "not_configured": return "Not emailed: email isn't set up yet.";
+    default: return "Not emailed.";
+  }
+}
+
 export interface PasswordResetResult {
   /** Shown once and handed over: it isn't stored anywhere it can be read back. */
   password: string;
   login_id: string | null;
   full_name: string;
+  /** Left out by a function deployed before sign-in emails. */
+  emailed?: EmailOutcome;
 }
 
 /**
  * Sets a new temporary password for someone at a school. Allowed for the
  * school's own admins, org admins of the owning organization, Figbloom
- * staff, and a parent for their own child's learner login.
+ * staff, and a parent for their own child's learner login. When the account
+ * has an email (never a learner's) it's emailed to them too.
  */
 export async function resetUserPassword(profileId: string): Promise<PasswordResetResult> {
   return invokeEdge<PasswordResetResult>("reset-user-password", { profile_id: profileId }, { timeoutMs: RESET_TIMEOUT_MS });
+}
+
+/**
+ * "Send sign-in details again": the same permission as resetUserPassword,
+ * a new one-time password, emailed to the address on their profile. Refused,
+ * with nothing changed, when there's no address or email isn't set up.
+ */
+export async function sendSignInDetailsAgain(profileId: string): Promise<PasswordResetResult> {
+  return invokeEdge<PasswordResetResult>("reset-user-password", { profile_id: profileId, resend: true }, { timeoutMs: RESET_TIMEOUT_MS });
 }
 
 export interface PasswordResetRequest {

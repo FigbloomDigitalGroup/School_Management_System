@@ -1,4 +1,4 @@
-import { supabase, type Organization, type Tenant } from "@figbloom/shared";
+import { supabase, type EmailOutcome, type Organization, type Tenant } from "@figbloom/shared";
 
 /** A super_admin may insert tenants directly — RLS allows it, no edge function needed. */
 export interface NewSchoolInput {
@@ -56,6 +56,8 @@ export interface InviteAdminResult {
   ok: true;
   email: string;
   password: string;
+  /** Whether the sign-in details were emailed to them as well. */
+  emailed?: EmailOutcome;
 }
 
 export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminResult> {
@@ -81,7 +83,7 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
 }
 
 /**
- * Adds a teacher or driver at a school (FIG-398/400) — the invite-admin
+ * Adds a teacher, driver or other staff member at a school (FIG-398/400) — the invite-admin
  * edge function's other branch: no email, an auto-assigned login_id
  * instead (e.g. "TC-0001"). Kept as its own function/types rather than
  * folded into inviteAdmin()/InviteAdminResult above, since those two stay
@@ -91,15 +93,18 @@ export async function inviteAdmin(input: InviteAdminInput): Promise<InviteAdminR
 export interface InviteStaffInput {
   tenant_id: string;
   full_name: string;
-  role: "teacher" | "driver" | "guard" | "receptionist";
+  role: "teacher" | "driver" | "staff";
   staff_title?: string;
   phone?: string;
+  /** Optional: their sign-in details are emailed here (they still sign in with the login ID). */
+  email?: string;
 }
 
 export interface InviteStaffResult {
   ok: true;
   login_id: string;
   password: string;
+  emailed?: EmailOutcome;
 }
 
 export async function inviteStaff(input: InviteStaffInput): Promise<InviteStaffResult> {
@@ -135,6 +140,7 @@ export interface ProvisionGuardianResult {
   ok: true;
   login_id: string;
   password: string;
+  emailed?: EmailOutcome;
 }
 
 export async function provisionGuardian(input: ProvisionGuardianInput): Promise<ProvisionGuardianResult> {
@@ -283,6 +289,7 @@ export interface OrgAdminInviteResult {
    *  they already have working credentials. */
   linkedExisting: boolean;
   password?: string;
+  emailed?: EmailOutcome;
 }
 
 export async function inviteOrgAdmin(input: OrgAdminInviteInput): Promise<OrgAdminInviteResult> {

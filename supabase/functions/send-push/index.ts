@@ -14,6 +14,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { fcmAccessToken, sendToToken, type ServiceAccount } from "../_shared/fcm.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 
 // deno-lint-ignore no-explicit-any
 export interface Deps { admin: any; asUser: any }
@@ -46,9 +47,11 @@ export async function handle(req: Request, { admin, asUser }: Deps, fetchImpl: t
     .eq("id", body.announcement_id).maybeSingle();
   if (!announcement) return json({ error: "That announcement could not be found." }, 404);
 
-  const { data: caller } = await admin.from("profiles").select("role, tenant_id").eq("id", user.id).maybeSingle();
+  const { data: caller } = await admin.from("profiles").select("id, role, tenant_id").eq("id", user.id).maybeSingle();
+  // other staff send notices with the communication area (20261031000000)
   const allowed = caller?.role === "super_admin"
-    || (caller?.tenant_id === announcement.tenant_id && (caller?.role === "school_admin" || caller?.role === "teacher"));
+    || (caller?.tenant_id === announcement.tenant_id && (caller?.role === "school_admin" || caller?.role === "teacher"))
+    || (!!caller && await holdsArea(admin, caller, announcement.tenant_id, "communication"));
   if (!allowed) return json({ error: "You cannot send push for this announcement." }, 403);
 
   if (!(announcement.channels ?? []).includes("push")) {

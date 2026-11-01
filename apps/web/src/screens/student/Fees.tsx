@@ -12,6 +12,8 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { listPaymentProofs, privateDocUrl, type PaymentProof } from "../../lib/uploads";
 import { PaymentProofForm, ProofLabel } from "../../components/PaymentProofForm";
+import { FeeChargeLines } from "../../components/FeeChargeLines";
+import { ReceiptSignature, useReceiptSignatures } from "../../components/signatures/ReceiptSignatures";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
 const PROOF_LABEL: Record<PaymentProof["status"], string> = { pending: "Pending review", confirmed: "Confirmed", rejected: "Rejected" };
@@ -56,6 +58,8 @@ export function StudentFees() {
   function openPay() {
     setOpen(true);
   }
+
+  const receiptSigs = useReceiptSignatures(data?.receipts.map((r) => r.id) ?? []);
 
   const feeItems = data ? itemsForStudent(data.feeItems as never, { boarding: data.boarding }, data.formLevel, data.classLevel) : [];
 
@@ -111,6 +115,7 @@ export function StudentFees() {
                       </div>
                     ))
                   )}
+                  <FeeChargeLines charges={data.charges} country={tenant.country} />
                 </div>
               </section>
 
@@ -121,10 +126,11 @@ export function StudentFees() {
                   { key: "ref", header: "Reference", render: (r: Receipt) => <Cell>{r.ref}</Cell> },
                   { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{formatMoney(r.amount, tenant.country)}</Mono> },
                   { key: "st", header: "", align: "right", width: "0.8fr", render: () => <Badge tone="ok">Received</Badge> },
+                  { key: "signed", header: "Signed for the school", align: "right", width: "1.3fr", render: (r: Receipt) => <ReceiptSignature signature={receiptSigs.get(r.id)} /> },
                 ]}
                 rows={data.receipts}
                 rowKey={(r) => r.id}
-                minWidth="480px"
+                minWidth="640px"
                 empty={{ title: "No receipts yet.", body: "Payments appear here once the school has confirmed them." }}
               />
             </div>

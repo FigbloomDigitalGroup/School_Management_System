@@ -10,9 +10,9 @@ apps/web/          React + Vite + TS + Tailwind — desktop console for every ro
                    (platform, school admin, teacher, parent, student)
 apps/mobile/       React Native (Android + iOS) — the parent, student and driver
                    mobile apps. apps/web also keeps a phone-mockup preview of the
-                   parent/student screens (ParentApp.tsx / StudentApp.tsx, wrapped
-                   in <PhoneFrame>) for design reference — it isn't routed to; the
-                   desktop screens are the real web app
+                   student screens (StudentApp.tsx, wrapped in <PhoneFrame>) for
+                   design reference — it isn't routed to; the desktop screens are
+                   the real web app
 apps/teacher-mobile/  React Native (Android only — iOS deferred, see its own
                    README) — the teacher app, a separate binary from apps/mobile
                    since a teacher's workflow doesn't fit that app's role union
@@ -98,6 +98,13 @@ log looks stuck, so check Docker before cancelling.
 Only the URL and the anon key from `.env` reach those tests, never the service-role key. A new role or login goes in
 `TEST_ROLES` in `tests/integration/support/signInAs.ts`; the smoke test picks it up.
 
+Since the fee-record guards (an invoice with a payment, its term, its learner and its proof file cannot be deleted), the tests
+that pay invoices cannot clean up after themselves: they use a term year of their own per run so they can run again, and
+`npm run db:fresh` clears what they leave. The browser specs answer the app's own confirm box with `e2e/support/confirm.ts`.
+`e2e/reports.spec.ts` seeds 1,200 learners with paid invoices to pass 1,000 rows and cannot remove them; run `npm run db:fresh` after it
+and before `e2e/reconciliation.spec.ts` (which also differs from Reports once an archived learner has an invoice: FIG-1501).
+The audit's final report and release recommendation are in `QA_REPORT.md`.
+
 Playwright clears the local login-lookup log before it starts (sign-in by login ID is limited to 30 lookups per 10
 minutes), so runs can follow each other. After a reboot or a Docker restart the edge-function container stays down,
 and sign-in then fails in Playwright:
@@ -121,7 +128,7 @@ a school's URL survives a domain change. Mobile bakes the slug into the session.
 
 ## SEO for the marketing page
 
-Only `/` (and `/privacy.html`) is meant to be found on Google; everything else is
+Only `/` (and `/privacy`, served from `public/privacy.html`, and `/delete-account.html`) is meant to be found on Google; everything else is
 the signed-in app.
 
 - **Metadata lives in `apps/web/index.html`** (title, description, canonical, Open

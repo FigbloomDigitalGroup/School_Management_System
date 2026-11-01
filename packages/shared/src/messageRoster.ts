@@ -41,8 +41,7 @@ const ROLE_WORD: Partial<Record<Role, string>> = {
   school_admin: "Admin",
   teacher: "Teacher",
   driver: "Driver",
-  guard: "Guard",
-  receptionist: "Receptionist",
+  staff: "Staff",
   parent: "Parent",
   student: "Student",
 };

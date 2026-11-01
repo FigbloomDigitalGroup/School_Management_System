@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishMarks, saveExamMarks,
-  summarise, unpublishMarks,
+  ABSENCE_LABEL, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarkAbsences, fetchMarksForExamSubject, fetchPublishedSubjects,
+  fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishMarks, saveExamMarks,
+  summarise, unpublishMarks, type MarkAbsence,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
@@ -13,6 +13,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /**
  * Bulk entry, keyboard first. A teacher entering 40 marks should never touch
@@ -92,6 +93,17 @@ export function Gradebook() {
   const marksReady = !rosterLoading && (!!marksError || (!!existingMarksData && existingMarksData.examId === examId
     && existingMarksData.subjectId === subjectId && existingMarksData.rosterData === rosterData));
   const existingMarks = useMemo(() => (marksReady && existingMarksData ? existingMarksData.marks : {}), [marksReady, existingMarksData]);
+
+  // Learners an online paper recorded as missed or excused (send_exam_scores_to_gradebook): no score, and
+  // never a 0. Their mark shows as "abs" like any other blank, labelled with why.
+  const { data: absenceData } = useAsync(
+    () => (examId && subjectId && rosterData && rosterData.length
+      ? fetchMarkAbsences(examId, subjectId, rosterData.map((s) => s.id))
+      : Promise.resolve({} as Record<string, MarkAbsence>))
+      .then((absences) => ({ examId, subjectId, absences })),
+    [examId, subjectId, rosterData, marksVersion],
+  );
+  const absences = absenceData && absenceData.examId === examId && absenceData.subjectId === subjectId ? absenceData.absences : {};
 
   // Which of this exam's subjects are already out for this class. A save or a publish refetches it.
   const { data: publishedSet } = useAsync(
@@ -193,7 +205,7 @@ export function Gradebook() {
 
   async function withdraw() {
     if (!examId || !subject || !exam || !classId) return;
-    if (!window.confirm(`Take ${subject.name} ${exam.name} for ${selectedClass?.name ?? "this class"} back to draft? Parents and learners will stop seeing it until you publish again.`)) return;
+    if (!(await confirmDialog({ title: `Take ${subject.name} ${exam.name} for ${selectedClass?.name ?? "this class"} back to draft?`, body: "Parents and learners will stop seeing it until you publish again.", confirmLabel: "Back to draft" }))) return;
     try {
       await unpublishMarks(examId, classId, subject.id);
     } catch (err) {
@@ -327,7 +339,7 @@ export function Gradebook() {
                     {err && <div className="mt-1 text-[11px] text-warn-ink">{err}</div>}
                   </div>
                   <div className="font-mono text-[14px] font-medium" style={{ color: grade ? GRADE_INK[grade] : "#9AA69E" }}>
-                    {grade ?? (raw.trim().toLowerCase().startsWith("abs") ? "abs" : "—")}
+                    {grade ?? (raw.trim().toLowerCase().startsWith("abs") ? (absences[s.id] ? ABSENCE_LABEL[absences[s.id]!] : "abs") : "—")}
                   </div>
                   <div className="text-[12.5px] text-ink-muted">
                     {score === null || mean === null ? "" : score === mean ? `Exactly the class mean of ${mean}` : `${Math.abs(score - mean)} ${score > mean ? "above" : "below"} the mean`}

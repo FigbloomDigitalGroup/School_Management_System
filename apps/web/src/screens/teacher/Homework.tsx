@@ -21,6 +21,7 @@ import { useToast } from "../../components/ui/Toast";
 import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 /** Today as YYYY-MM-DD in the teacher's own timezone (toISOString alone would be UTC and a day behind after midnight in Nairobi). */
 const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -52,7 +53,7 @@ export function Homework() {
 
   async function remove(w: HomeworkRow) {
     const extra = w.handedIn > 0 ? ` ${w.handedIn} learner${w.handedIn === 1 ? " has" : "s have"} marked it handed in; that goes with it.` : "";
-    if (!window.confirm(`Delete "${w.title}" for ${w.className}?${extra}`)) return;
+    if (!(await confirmDialog({ title: `Delete "${w.title}" for ${w.className}?`, body: extra.trim() || undefined, confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteHomework(w.id);
       toast("Homework deleted");
@@ -280,13 +281,13 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
     }
   }
 
-  function removeSaved(m: MediaItem) {
-    if (window.confirm(`Remove "${m.title}" from this homework? It goes when you save.`)) setRemoved((r) => [...r, m.id]);
+  async function removeSaved(m: MediaItem) {
+    if (await confirmDialog({ title: `Remove "${m.title}" from this homework?`, body: "It goes when you save.", confirmLabel: "Remove" })) setRemoved((r) => [...r, m.id]);
   }
 
   /** Closing mid-upload stops the upload rather than leaving it running unseen. */
-  function close() {
-    if (batch.current && !window.confirm("Files are still uploading. Stop and close?")) return;
+  async function close() {
+    if (batch.current && !(await confirmDialog({ title: "Stop uploading and close?", body: "Files are still uploading.", confirmLabel: "Stop and close" }))) return;
     batch.current?.cancel();
     onClose();
   }

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { confirmDialog } from "./support/confirm";
 import { createClient } from "@supabase/supabase-js";
 
 process.loadEnvFile?.(); // Node 20.6+ built-in
@@ -174,12 +175,10 @@ test.describe("Term dates", () => {
 // ================================================================ the Classes screen
 test.describe("Classes", () => {
   test("a class that still has learners is not deleted, and the message says how many are in it", async ({ page }) => {
-    let asked = "";
     await openClasses(page);
-    page.on("dialog", (d) => { asked = d.message(); void d.dismiss(); });
     await rowOf(page, "Form 1 East").getByRole("button", { name: "Delete" }).click();
     await expect(page.getByText(/Form 1 East has \d+ learners? on it — move them first\./)).toBeVisible({ timeout: 10000 });
-    expect(asked, "no confirmation is asked for a class that cannot be deleted").toBe("");
+    await expect(page.getByRole("alertdialog"), "no confirmation is asked for a class that cannot be deleted").toHaveCount(0);
     expect((await db.from("classes").select("id").eq("tenant_id", tenantId).eq("name", "Form 1 East")).data).toHaveLength(1);
   });
 
@@ -194,10 +193,9 @@ test.describe("Classes", () => {
     const up = (await db.from("classes").select("id").eq("tenant_id", tenantId).eq("name", "Form 3 East").single()).data!.id as string;
     await db.from("students").update({ class_id: up }).eq("id", kid.data!.id as string); // the learner was promoted; the old class is empty
 
-    let asked = "";
     await openClasses(page);
-    page.on("dialog", (d) => { asked = d.message(); void d.accept(); });
     await rowOf(page, "QA12 E2E Old").getByRole("button", { name: "Delete" }).click();
+    const asked = await confirmDialog(page, "Delete");
     await expect(page.getByText("QA12 E2E Old deleted.")).toBeVisible({ timeout: 10000 });
     const left = (await db.from("attendance").select("id", { count: "exact", head: true }).eq("student_id", kid.data!.id as string)).count ?? 0;
     table.push(["Classes", "delete an emptied class whose former learner was marked in it", "attendance kept (1 row); the confirmation says what goes", `${left} row(s) left; confirmation: "${asked}"`]);

@@ -1,7 +1,6 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
-import { itFails } from "../_shared/knownDefect.ts";
 import { SIGN_IN_STATUSES } from "../_shared/signInStatuses.ts";
 import { handle } from "./index.ts";
 
@@ -82,6 +81,16 @@ describe("request-password-reset handle", () => {
     assertEquals(admin.rowsIn("password_reset_requests").length, 0);
   });
 
+  for (const status of ["trial", "overdue"]) {
+    it(`records a request at a school on '${status}', which can sign in (FIG-1341)`, async () => {
+      const admin = makeClient();
+      admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, login_id: "ST-0001" }), deps(admin));
+      assertEquals(res.status, 200);
+      assertEquals(admin.rowsIn("password_reset_requests").length, 1);
+    });
+  }
+
   it("records nothing for a school that isn't open for sign-in", async () => {
     const admin = makeClient();
     const res = await handle(request({ tenant_id: ONBOARDING_TENANT_ID, login_id: "TC-0001" }), deps(admin));
@@ -122,7 +131,7 @@ describe("request-password-reset: every school that can sign in can ask for a re
   });
 
   for (const status of SIGN_IN_STATUSES.filter((s) => s !== "active")) {
-    itFails(`FIG-1341 (open): records a request for a school on '${status}', which can sign in`, async () => {
+    it(`FIG-1341: records a request for a school on '${status}', which can sign in`, async () => {
       const admin = withSchool(status);
       const res = await handle(request({ tenant_id: "tenant-3", login_id: "ST-0001" }), deps(admin));
       assertEquals(res.status, 200);

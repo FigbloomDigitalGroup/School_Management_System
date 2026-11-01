@@ -13,13 +13,22 @@
  * the school's own school_admin -- the same three-way check invite-admin's
  * teacher/driver path uses (mirrors guardian_write's RLS shape, which this
  * function's service-role writes bypass, so the same logic is re-checked
- * here by hand rather than relied on).
+ * here by hand rather than relied on). Since 20261031000000 a teacher or
+ * other staff member holding the people admin area passes too.
+ *
+ * When the guardian has an email and Resend is set up (_shared/email.ts),
+ * their login ID and one-time password are emailed to them as well as shown
+ * on screen; a failed email never undoes the account.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 const RELATIONSHIPS = new Set(["mother", "father", "guardian"]);
 
@@ -38,9 +47,9 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -52,8 +61,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: callerProfile } = await admin
     .from("profiles").select("role, full_name, tenant_id").eq("id", user.id).maybeSingle();
-  if (callerProfile?.role !== "super_admin" && callerProfile?.role !== "org_admin" && callerProfile?.role !== "school_admin") {
-    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's own admin, can add a guardian." }, 403);
+  if (!["super_admin", "org_admin", "school_admin", "teacher", "staff"].includes(callerProfile?.role)) {
+    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's office, can add a guardian." }, 403);
   }
 
   let body: Partial<Body>;
@@ -64,6 +73,10 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   const email = body.email?.trim() || undefined;
   if (!tenant_id || !full_name?.trim() || !students?.length) {
     return json({ error: "A tenant, the guardian's name, and at least one learner are all required." }, 400);
+  }
+  // the sign-in details are emailed here, so a typo matters
+  if (email && !isDeliverable(email)) {
+    return json({ error: "That email address doesn't look right." }, 400);
   }
   for (const s of students) {
     if (s.relationship && !RELATIONSHIPS.has(s.relationship)) {
@@ -76,12 +89,13 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
-  if (!authorized && callerProfile.role === "org_admin" && tenant.organization_id) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-    authorized = !!link;
+  if (!authorized && callerProfile.role === "org_admin") {
+    authorized = await administersOrganization(admin, user.id, tenant.organization_id);
   }
   if (!authorized && callerProfile.role === "school_admin" && callerProfile.tenant_id === tenant_id) {
+    authorized = true;
+  }
+  if (!authorized && await holdsArea(admin, { id: user.id, ...callerProfile }, tenant_id, "people")) {
     authorized = true;
   }
   if (!authorized) {
@@ -121,7 +135,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     email_confirm: true,
   });
   if (createErr || !created.user) {
-    return json({ error: createErr?.message ?? "Could not create the account." }, 500);
+    return json(failure("provision-guardian", "create the account", createErr), 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -136,7 +150,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("provision-guardian", "save the profile", profileErr), 500);
   }
 
   const { error: guardiansErr } = await admin.from("guardians").insert(
@@ -151,10 +165,11 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (guardiansErr) {
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: guardiansErr.message }, 500);
+    return json(failure("provision-guardian", "link the guardian to the learners", guardiansErr), 500);
   }
 
-  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin" : "school admin";
+  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
+    : callerProfile.role === "school_admin" ? "school admin" : "people";
   await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
@@ -162,7 +177,19 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, login_id: loginId, password });
+  // The account exists now: whatever happens to the email, the password above is the way in.
+  const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {
+    kind: "welcome",
+    fullName: full_name.trim(),
+    placeName: tenant.name,
+    login: loginId,
+    loginIsId: true,
+    password,
+    signInPath: signInPath("parent", tenant.slug),
+    actor: actorName(callerProfile),
+  });
+
+  return json({ ok: true, login_id: loginId, password, emailed });
 }
 
 if (import.meta.main) {
@@ -175,7 +202,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 

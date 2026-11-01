@@ -9,6 +9,7 @@ import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
 import { inviteOrgAdmin, type OrgAdminInviteResult } from "../../lib/platformAdmin";
+import { handOverNote } from "../../components/TempPasswordCard";
 
 /**
  * An org owner's own view of who else can sign in and administer this
@@ -101,7 +102,7 @@ function InviteAdminModal({ organizationId, onClose, onInvited, toast }: {
       ) : (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
+            {handOverNote(result.emailed)}
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Email", result.email], ["Password", result.password]].map(([k, v]) => (

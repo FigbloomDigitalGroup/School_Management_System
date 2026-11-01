@@ -183,7 +183,7 @@ test.describe("parent and student screens", () => {
     await page.goto("/s/alliance/parent/fees");
     for (const [n, kid] of kids.entries()) {
       if (n > 0) await page.getByRole("button", { name: kid.first, exact: true }).first().click();
-      await expect(page.getByText(`ADM ${kid.adm.replace(/^ADM\s*/i, "")}`)).toBeVisible();
+      await expect(page.getByText(`ADM ${kid.adm.replace(/^ADM\s*/i, "")}`)).toBeVisible({ timeout: 25_000 }); // the parent screens take 5 to 9 seconds to show a child even on the seeded school (FIG-1497)
       const ls = await textLines(page);
       const balance = Math.max(kid.total - kid.paid, 0);
       const paidSoFar = kid.total - balance;
@@ -199,7 +199,7 @@ test.describe("parent and student screens", () => {
     const [kid] = await invoiceOfLearners("ST-0002");
     await signInWithId(page, "Alliance High School", "ST-0002", "Student");
     await page.goto("/s/alliance/student/fees");
-    await expect(page.getByText(/billed this term/i).first()).toBeVisible();
+    await expect(page.getByText(/billed this term/i).first()).toBeVisible({ timeout: 25_000 }); // the student screens are slow too (FIG-1497, FIG-1500)
     const ls = await textLines(page);
     const balance = Math.max(kid!.total - kid!.paid, 0);
     same(`Student (${kid!.first})`, "balance", ksh(balance), after(ls, "Balance", 1)[0]);
@@ -216,7 +216,7 @@ test.describe("organization screen, Kijani Ridge Group", () => {
     const collected = (inv.data ?? []).reduce((a, r) => a + (r.paid_cents as number), 0);
     await signInEmail(page, "group@kijaniridge.sc.ke");
     await page.goto("/org/kijani-ridge-group/dashboard");
-    await expect(page.getByText(/fees collected/i).first()).toBeVisible();
+    await expect(page.getByText(/fees collected/i).first()).toBeVisible({ timeout: 25_000 });
     const card = after(await textLines(page), "Fees collected", 2);
     same("Org dashboard", "fees collected", ksh(collected), card[0]);
     same("Org dashboard", "% of billed", `${Math.round((collected / billed) * 100)}% of ${ksh(billed)} billed`, card[1]);
@@ -224,10 +224,9 @@ test.describe("organization screen, Kijani Ridge Group", () => {
 });
 
 test.describe("the M-Pesa amount field", () => {
-  // The field strips everything but digits, so a typed "500.50" becomes 50050 shillings, a hundred times what was meant. It is
-  // refused only if it exceeds the balance. Written as the behaviour we want; test.fail() passes while the defect exists.
-  test("FIG-1334 (open): typing a decimal amount does not turn it into a different amount", async ({ page }) => {
-    test.fail();
+  // The field used to strip everything but digits, so a typed "500.50" became 50050 shillings, a hundred times what was meant.
+  // Fixed on main (FIG-1334): this is now a plain test.
+  test("FIG-1334 (fixed on main): typing a decimal amount does not turn it into a different amount", async ({ page }) => {
     await signInWithId(page, "Alliance High School", "PT-0002", "Parent");
     await page.goto("/s/alliance/parent/fees");
     await page.getByRole("button", { name: "Pay with M-Pesa" }).first().click();

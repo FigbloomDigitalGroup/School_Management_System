@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { confirmDialog } from "./support/confirm";
 import { createClient } from "@supabase/supabase-js";
 import { loginIdEmail } from "../packages/shared/src/auth";
 
@@ -247,8 +248,8 @@ test.describe("a selection of learners", () => {
     await openPeople(page);
     await search(page, "qa11e good four");
     await page.locator('input[type="checkbox"]').nth(1).check();
-    page.once("dialog", (d) => void d.accept());
     await page.getByRole("button", { name: "Archive", exact: true }).click();
+    await confirmDialog(page, "Archive");
     await expect(page.getByText(/1 learner archived\. Find them under "Archived"\./)).toBeVisible();
     expect(await learner("QA11-E-C4")).toMatchObject({ active: false });
     expect((await learner("QA11-E-C4"))!.archived_at).not.toBeNull();
@@ -290,8 +291,8 @@ test.describe("Promote", () => {
     await page.getByLabel("Where QA11E Promo Three goes next").selectOption({ label: "Graduating — completed QA11 Promo" });
     await page.getByLabel("Where QA11E Promo Four goes next").selectOption({ label: "Leaving — withdrawn from school" });
     await expect(page.getByText(/^1\s*promoted$/)).toBeVisible();
-    page.once("dialog", (d) => void d.accept());
     await page.locator("footer").getByRole("button", { name: "Apply" }).click(); // the other Apply, in the bulk bar, sets a pass mark
+    await confirmDialog(page, "Apply");
     await expect(page.getByText("QA11 Promo: 4 learners processed and notified.")).toBeVisible();
 
     expect(await learner("QA11-E-P1")).toMatchObject({ class_id: classId["Form 2 West"], active: true });

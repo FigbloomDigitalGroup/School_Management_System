@@ -146,7 +146,8 @@ end $$;
 
 -- ---------------------------------------------------------------- 1. seed data
 insert into qa_scope select id from fee_invoices;
-select pg_temp.reconcile('seed data', '{"paid": "FIG-1332", "status": "FIG-1332", "overdue": "FIG-1333"}');
+-- "complete" and "billing": main's seeds (the load-test school, and bank payments with no recorder) do not follow the rules the product enforces; they are test data
+select pg_temp.reconcile('seed data', '{"paid": "FIG-1332", "status": "FIG-1332", "overdue": "FIG-1333", "complete": "seed data, not a product defect", "billing": "seed data, not a product defect"}');
 
 -- The numbers a screen should show for each school's current term, worked out from the rows (taken now, before part 2 changes any).
 -- Same definitions the screens use for their headline figures: billed = sum of totals, collected = sum of paid, owing = paid < total.
@@ -195,7 +196,11 @@ select v.k, s.id
   from (values ('cash+bank', 21), ('mpesa', 22), ('charge, paid', 23), ('charge, cancelled', 24),
                ('proof', 25), ('past due', 26), ('untouched', 27), ('same slip twice', 28)) v(k, rn)
   join (select id, row_number() over (order by id) rn from students where tenant_id = current_setting('t.a')::uuid and active) s on s.rn = v.rn;
+-- the delete guard (20261103300000, FIG-1319) refuses an invoice with money behind it; this setup only resets seeded invoices, in a
+-- transaction that is rolled back, so it steps aside for these deletes
+alter table fee_invoices disable trigger fee_invoices_guard_delete;
 delete from fee_invoices where term_id = current_setting('t.term')::uuid and student_id in (select student_id from qa_inv);
+alter table fee_invoices enable trigger fee_invoices_guard_delete;
 with ins as (
   insert into fee_invoices (tenant_id, student_id, term_id, total_cents, paid_cents, due_on, status)
   select current_setting('t.a')::uuid, q2.student_id, current_setting('t.term')::uuid, 1000000, 0,
@@ -263,6 +268,8 @@ select pg_temp.audit_after('void_fee_charge', 1);
 -- 5. a payment proof confirmed together with its payment
 insert into payment_proofs (tenant_id, invoice_id, uploaded_by, file_path, file_name)
   values (current_setting('t.a')::uuid, pg_temp.inv('proof'), current_setting('t.parent')::uuid, 'x', 'qa7-slip.jpg');
+-- the database now logs the upload itself ("Proof of payment sent"); it is not part of what record_payment writes
+insert into qa_audit_seen select id from audit_events on conflict do nothing;
 select pg_temp.must('proof', pg_temp.act(current_setting('t.admin')::uuid,
   format('select record_payment(%L, 300000, ''bank'', ''QA7-SLIP-2'', (select id from payment_proofs where file_name = ''qa7-slip.jpg''))', pg_temp.inv('proof'))));
 select pg_temp.audit_after('record_payment: confirming a payment proof (one event, not two)', 1);
@@ -298,8 +305,15 @@ select pg_temp.chk('scripted payments', 'a failed, a cancelled and a timed-out p
 
 -- ---- direct changes to money, the way an API client (not the app's screens) can make them
 -- (the app's own screens only write through the functions above, the billing run and the fee-items editor)
-select pg_temp.must('edit total', pg_temp.act(current_setting('t.admin')::uuid, format('update fee_invoices set total_cents = total_cents + 100000 where id = %L', pg_temp.inv('untouched'))));
-select pg_temp.audit_after('an invoice total edited by hand', 1, 'FIG-1315');
+-- FIG-1315 (fixed by 20261103500000): a total can no longer be edited with a plain update; it changes through adjust_invoice_total(),
+-- which needs a reason and writes one audit event itself
+select pg_temp.act(current_setting('t.admin')::uuid, format('update fee_invoices set total_cents = total_cents + 100000 where id = %L', pg_temp.inv('untouched'))) as direct_total_edit \gset
+insert into qa_recon (phase, name, outcome, bad, sample)
+values ('audit trail', 'an invoice total cannot be edited directly, only through adjust_invoice_total (FIG-1315, fixed)',
+        case when :'direct_total_edit' like '42501%' then 'PASS' else 'FAIL' end,
+        case when :'direct_total_edit' like '42501%' then 0 else 1 end, :'direct_total_edit');
+select pg_temp.must('adjust total', pg_temp.act(current_setting('t.admin')::uuid, format('select adjust_invoice_total(%L, 1100000, %L)', pg_temp.inv('untouched'), 'QA 7 reconciliation')));
+select pg_temp.audit_after('an invoice total adjusted through adjust_invoice_total, with a reason', 1);
 select pg_temp.must('edit fee item', pg_temp.act(current_setting('t.admin')::uuid,
   format('update fee_items set amount_cents = amount_cents + 100 where id = (select id from fee_items where tenant_id = %L order by id limit 1)', current_setting('t.a'))));
 select pg_temp.audit_after('a fee item''s amount edited (changes what the next billing run charges)', 1, 'FIG-1329');
@@ -315,15 +329,23 @@ select pg_temp.audit_after('the paybill / till / bank details parents are told t
 -- the billing run's own write: it upserts invoices as the signed-in admin, then the BROWSER asks for an audit event
 select set_config('t.billed_student', (select id::text from (select id, row_number() over (order by id) rn from students
   where tenant_id = current_setting('t.a')::uuid and active) s where rn = 29), true);
+alter table fee_invoices disable trigger fee_invoices_guard_delete;
 delete from fee_invoices where term_id = current_setting('t.term')::uuid and student_id = current_setting('t.billed_student')::uuid;
+alter table fee_invoices enable trigger fee_invoices_guard_delete;
 select pg_temp.must('billing insert', pg_temp.act(current_setting('t.admin')::uuid,
   format('insert into fee_invoices (tenant_id, student_id, term_id, total_cents, due_on) values (%L, %L, %L, 500000, current_date + 30)',
          current_setting('t.a'), current_setting('t.billed_student'), current_setting('t.term'))));
 select pg_temp.audit_after('invoices created by the billing run''s own insert (the audit event comes from the browser afterwards)', 1, 'FIG-1331');
 
--- last, because it removes an invoice that has payments: deleting it takes the payments with it
-select pg_temp.must('delete invoice', pg_temp.act(current_setting('t.admin')::uuid, format('delete from fee_invoices where id = %L', pg_temp.inv('same slip twice'))));
-select pg_temp.audit_after('an invoice that has payments deleted (and its payments with it)', 1, 'FIG-1319');
+-- FIG-1319 (fixed by 20261103300000): an invoice with money behind it can no longer be deleted, so the payments and proofs that hang
+-- off it are not erased with it. This used to be a scenario step that deleted the invoice and checked the audit trail.
+select pg_temp.act(current_setting('t.admin')::uuid, format('delete from fee_invoices where id = %L', pg_temp.inv('same slip twice'))) as inv_delete \gset
+insert into qa_recon (phase, name, outcome, bad, sample)
+values ('audit trail', 'an invoice that has payments cannot be deleted (FIG-1319, fixed)',
+        case when :'inv_delete' like '23001%'
+                  and exists (select 1 from fee_invoices where id = pg_temp.inv('same slip twice'))
+                  and exists (select 1 from payments where invoice_id = pg_temp.inv('same slip twice')) then 'PASS' else 'FAIL' end,
+        case when :'inv_delete' like '23001%' then 0 else 1 end, :'inv_delete');
 
 -- the audit trail itself: an admin can read it but not edit or remove it
 select count(*) as audit_rows_before from audit_events where tenant_id = current_setting('t.a')::uuid \gset

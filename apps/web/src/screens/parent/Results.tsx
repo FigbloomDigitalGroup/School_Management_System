@@ -12,6 +12,7 @@ import type { ChildSubject } from "@figbloom/shared";
 import { ChildSwitcher } from "./ChildSwitcher";
 import { ChildExamPapers } from "./ExamPapers";
 import { ReportCardDownloads } from "../../components/ReportCardDownloads";
+import { ExamAbsences } from "../../components/ExamAbsences";
 import { LearnerProgress } from "../../components/analytics/LearnerProgress";
 
 /**
@@ -122,6 +123,7 @@ export function ParentResults() {
                 minWidth="640px"
                 empty={{ title: "No subjects marked yet", body: "Scores will appear here once teachers submit them for this exam." }}
               />
+              <ExamAbsences studentId={child.id} examId={view.examId} />
             </div>
             </>)}
           </>

@@ -15,12 +15,18 @@
  * triggered from inside its own auth.users delete. Only once the profile
  * is actually gone does the login itself get removed -- at that point
  * nothing references it, so it's a plain, unconditional delete.
+ *
+ * Since 20261031000000 a teacher or other staff member holding the people
+ * admin area may remove teachers, drivers and other staff too; removing an
+ * administrator stays with full admins.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 
-const REMOVABLE_ROLES = new Set(["teacher", "driver", "guard", "receptionist", "school_admin"]);
+const REMOVABLE_ROLES = new Set(["teacher", "driver", "staff", "school_admin"]);
 
 interface Body {
   tenant_id: string;
@@ -42,8 +48,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: callerProfile } = await admin
     .from("profiles").select("role, tenant_id").eq("id", user.id).maybeSingle();
-  if (callerProfile?.role !== "super_admin" && callerProfile?.role !== "org_admin" && callerProfile?.role !== "school_admin") {
-    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's own admin, can remove a staff account." }, 403);
+  if (!["super_admin", "org_admin", "school_admin", "teacher", "staff"].includes(callerProfile?.role)) {
+    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's office, can remove a staff account." }, 403);
   }
 
   let body: Partial<Body>;
@@ -58,15 +64,15 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
-  if (!authorized && callerProfile.role === "org_admin" && tenant.organization_id) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-    authorized = !!link;
+  if (!authorized && callerProfile.role === "org_admin") {
+    authorized = await administersOrganization(admin, user.id, tenant.organization_id);
   }
   if (!authorized && callerProfile.role === "school_admin" && callerProfile.tenant_id === tenant_id) {
     authorized = true;
   }
-  if (!authorized) {
+  // the people area: anyone but an administrator (checked once the target is known)
+  const viaPeopleArea = !authorized && await holdsArea(admin, { id: user.id, ...callerProfile }, tenant_id, "people");
+  if (!authorized && !viaPeopleArea) {
     return json({ error: "You do not administer this school." }, 403);
   }
 
@@ -74,6 +80,9 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     .select("id, tenant_id, role, full_name").eq("id", profile_id).maybeSingle();
   if (!target || target.tenant_id !== tenant_id || !REMOVABLE_ROLES.has(target.role)) {
     return json({ error: "That staff member does not belong to this school." }, 400);
+  }
+  if (viaPeopleArea && target.role === "school_admin") {
+    return json({ error: "Only a full admin can remove an administrator." }, 403);
   }
 
   const { error: deleteProfileErr } = await admin.from("profiles").delete().eq("id", profile_id);

@@ -13,6 +13,7 @@ import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { handOverNote } from "../../components/TempPasswordCard";
 
 const KIND_LABEL: Record<Organization["kind"], string> = {
   government: "Government", county: "County", constituency: "Constituency", group_owner: "Group owner",
@@ -343,7 +344,7 @@ function InviteOrgAdminModal({ organizationId, onClose, onInvited, toast }: {
       ) : (
         <div>
           <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-            Nothing was sent — hand these to them directly. The password only works until they first sign in, when they'll choose their own, and it won't be shown again.
+            {handOverNote(result.emailed)}
           </p>
           <div className="rounded-lg border border-line bg-page p-3.5">
             {[["Email", result.email], ["Password", result.password]].map(([k, v]) => (

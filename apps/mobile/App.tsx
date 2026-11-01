@@ -3,13 +3,16 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
 import { supabase } from "@figbloom/shared";
 import "./src/lib/client";
+import { FingerprintLock } from "./src/components/FingerprintLock";
 import { ParentDataProvider } from "./src/data";
 import { Navigation } from "./src/navigation";
 import { registerPushToken } from "./src/pushNotifications";
 import { ChoosePassword } from "./src/screens/ChoosePassword";
+import { stopLocationTracking } from "./src/screens/driver/locationTask";
 import { SignIn } from "./src/screens/SignIn";
 import { StudentDataProvider } from "./src/studentData";
 import { accentFor } from "./src/theme";
+import { ThemeProvider, useTheme } from "./src/ui/ThemeContext";
 
 type Session =
   | { role: "parent"; accent: string; profileId: string; country: string; tenantId: string }
@@ -21,7 +24,8 @@ type Session =
  * mobile has no path to read a tenant slug from, so it is resolved here once
  * at sign-in (and again on every auth state change) and handed down.
  */
-export default function App() {
+function AppContent() {
+  const { t, accentInk } = useTheme();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   // Set while the school-issued password still has to be replaced; null once it has.
@@ -77,8 +81,8 @@ export default function App() {
   if (loading) {
     return (
       <SafeAreaProvider>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}>
-          <ActivityIndicator size="large" color={a.deep} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.appSurface.page }}>
+          <ActivityIndicator size="large" color={accentInk(a.deep)} />
         </View>
       </SafeAreaProvider>
     );
@@ -88,29 +92,42 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={a.deep} />
       {session ? (
-        choosePassword ? (
-          <ChoosePassword
-            profileId={session.profileId}
-            fullName={choosePassword.fullName}
-            loginId={choosePassword.loginId}
-            onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
-          />
-        ) : session.role === "parent" ? (
-          <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
-            <Navigation role="parent" accent={session.accent} />
-          </ParentDataProvider>
-        ) : session.role === "student" ? (
-          <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
-            <Navigation role="student" accent={session.accent} />
-          </StudentDataProvider>
-        ) : (
-          <Navigation
-            role="driver"
-            accent={session.accent}
-            driver={{ driverId: session.profileId, tenantId: session.tenantId, fullName: session.fullName }}
-          />
-        )
+        // The driver's GPS service has to be stopped before the lock screen can sign them out.
+        <FingerprintLock key={session.profileId} profileId={session.profileId} accent={session.accent} beforeSignOut={session.role === "driver" ? stopLocationTracking : undefined}>
+          {choosePassword ? (
+            <ChoosePassword
+              profileId={session.profileId}
+              fullName={choosePassword.fullName}
+              loginId={choosePassword.loginId}
+              onDone={() => { passwordChosen.current = true; setChoosePassword(null); }}
+            />
+          ) : session.role === "parent" ? (
+            <ParentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
+              <Navigation role="parent" accent={session.accent} profileId={session.profileId} />
+            </ParentDataProvider>
+          ) : session.role === "student" ? (
+            <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
+              <Navigation role="student" accent={session.accent} profileId={session.profileId} />
+            </StudentDataProvider>
+          ) : (
+            <Navigation
+              role="driver"
+              accent={session.accent}
+              profileId={session.profileId}
+              driver={{ driverId: session.profileId, tenantId: session.tenantId, fullName: session.fullName }}
+            />
+          )}
+        </FingerprintLock>
       ) : <SignIn />}
     </SafeAreaProvider>
+  );
+}
+
+/** The theme is chosen once, here, so everything below it -- including the loading screen and sign-in -- is in the right scheme from the first frame. */
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

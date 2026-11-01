@@ -12,6 +12,7 @@ import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable
 import { StatRow } from "../../components/ui/StatCard";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { StudentCourseResults } from "./CourseResults";
+import { ExamAbsences } from "../../components/ExamAbsences";
 import { LearnerProgress } from "../../components/analytics/LearnerProgress";
 
 /**
@@ -143,6 +144,7 @@ export function StudentResults() {
                 rowKey={(s) => s.name}
                 empty={{ title: "Not published yet", body: "Your results will appear here as soon as the school publishes them." }}
               />
+              <ExamAbsences studentId={data.studentId} examId={view.examId} />
             </div>
 
             <p className="mt-4 max-w-[620px] text-[12px] leading-relaxed text-ink-faint">

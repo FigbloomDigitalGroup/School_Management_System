@@ -28,7 +28,7 @@ export function PasswordGate({ profile, children }: { profile: Profile; children
         </p>
         <PasswordForm profileId={profile.id} submitLabel="Save and continue" onDone={() => setDone(true)} />
         <button
-          onClick={() => void supabase().auth.signOut().then(() => navigate("/signin", { replace: true }))}
+          onClick={() => void supabase().auth.signOut({ scope: "local" }).then(() => navigate("/signin", { replace: true }))}
           className="hit mt-3 text-small font-semibold text-ink-muted"
         >
           Not you? Sign out

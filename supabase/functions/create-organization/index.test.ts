@@ -1,7 +1,6 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
-import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 const ORG_ADMIN_ID = "org-admin-1";
@@ -54,6 +53,26 @@ describe("create-organization handle", () => {
     const { admin, asUser } = makeClients();
     const res = await handle(request(validBody, { auth: null }), { admin, asUser });
     assertEquals(res.status, 401);
+  });
+
+  it("refuses an org admin whose only organization is suspended (FIG-1312)", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: "org-1" }]);
+    admin.seed("organizations", [{ id: "org-1", slug: "nakuru", status: "suspended" }]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 403);
+    assertEquals(admin.rowsIn("organizations").length, 1);
+  });
+
+  it("lets an org admin with an active organization create another, even if one of theirs is suspended", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("organization_admins", [
+      { id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: "org-1" },
+      { id: "link-2", profile_id: ORG_ADMIN_ID, organization_id: "org-2" },
+    ]);
+    admin.seed("organizations", [{ id: "org-1", slug: "nakuru", status: "suspended" }, { id: "org-2", slug: "eldoret", status: "active" }]);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
   });
 
   it("rejects when the token does not resolve to a user", async () => {
@@ -146,11 +165,19 @@ describe("create-organization handle", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("organizations").length, 0);
   });
+
+  it("answers a sentence, not the database's own words, when an insert fails (FIG-1342)", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextWrite("organizations", 'duplicate key value violates unique constraint "organizations_slug_key"');
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(await res.json(), { error: "Could not create the organization. Try again." });
+  });
 });
 
 // QA 08 (FIG-1241): the database's own message names constraints and tables; it belongs in the log, not in the answer.
 describe("create-organization: errors", () => {
-  itFails("FIG-1342 (open): a failed insert answers a generic message, not the database's own", async () => {
+  it("FIG-1342: a failed insert answers a generic message, not the database's own", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextWrite("organizations", 'duplicate key value violates unique constraint "organizations_slug_key"');
     const res = await handle(request(validBody), { admin, asUser });

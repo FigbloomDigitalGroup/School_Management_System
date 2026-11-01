@@ -204,7 +204,7 @@ describe("changing a register", () => {
     expect(rows[roster[8]!.id]).toBe("absent");
   });
 
-  it.fails("QA10-TRACE FIG-1406 (open): a correction leaves a trace: the row still says who took the register, or an audit event is written", async () => {
+  it("QA10-TRACE FIG-1406 (fixed on main): a correction leaves a trace: the row still says who took the register, or an audit event is written", async () => {
     const D2 = "2037-01-13";
     await admin.client.from("attendance").upsert(toRecords(register(D2, { 9: "absent" }), tenantId, admin.userId), { onConflict: "student_id,taken_on" });
     const before = await auditCount();
@@ -317,7 +317,8 @@ describe("a register held on the phone, sent for real", () => {
     expect(await queue.pending()).toEqual([]);
     const refused = await queue.rejected();
     expect(refused).toHaveLength(1);
-    expect(refused[0]!.rejected!.message).toMatch(/row-level security/);
+    // since 20261103600000 the same-school trigger answers before row-level security does
+    expect(refused[0]!.rejected!.message).toMatch(/row-level security|belongs to another school/);
     expect(await rowsOn(D)).toHaveLength(0);
     await actAsRole("teacher");
   });

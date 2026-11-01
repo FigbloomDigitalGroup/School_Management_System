@@ -1,24 +1,28 @@
 import { describe, it, afterEach, beforeEach } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
-import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 const INVOICE_ID = "invoice-1";
 const PARENT_ID = "parent-1";
+const STUDENT_ID = "student-1";
 
 beforeEach(() => {
   Deno.env.set("DARAJA_CALLBACK_URL", "https://example.supabase.co/functions/v1/mpesa-callback");
   Deno.env.set("DARAJA_CALLBACK_SECRET", "callback-secret");
 });
 
+/** The caller is the learner's guardian, and payments has the one-pending-per-invoice index. */
 function makeClients(invoiceOverrides: Record<string, unknown> = {}) {
   const admin = new FakeSupabaseClient();
   const asUser = new FakeSupabaseClient();
   asUser.authUser = { id: PARENT_ID };
   asUser.seed("fee_invoices", [{
-    id: INVOICE_ID, tenant_id: "tenant-1", total_cents: 100000, paid_cents: 0, ...invoiceOverrides,
+    id: INVOICE_ID, tenant_id: "tenant-1", student_id: STUDENT_ID, total_cents: 100000, paid_cents: 0, ...invoiceOverrides,
   }]);
+  admin.seed("guardians", [{ id: "g-1", profile_id: PARENT_ID, student_id: STUDENT_ID }]);
+  admin.seed("students", [{ id: STUDENT_ID, profile_id: "learner-login-1" }]);
+  admin.uniqueIndex("payments", ["invoice_id"], (r) => r.status === "pending");
   return { admin, asUser };
 }
 
@@ -135,8 +139,8 @@ describe("mpesa-stk-push handle", () => {
   it("reuses an in-flight payment instead of starting a second prompt", async () => {
     const { admin, asUser } = makeClients();
     admin.seed("payments", [{
-      id: "existing-payment", invoice_id: INVOICE_ID, status: "pending",
-      created_at: new Date().toISOString(),
+      id: "existing-payment", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn,
+      amount_cents: validBody.amount_cents, created_at: new Date().toISOString(),
     }]);
     const res = await handle(request(validBody), { admin, asUser });
     const out = await res.json();
@@ -183,6 +187,169 @@ describe("mpesa-stk-push handle", () => {
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 502);
     assertEquals(admin.rowsIn("payments")[0].status, "failed");
+  });
+});
+
+const stkOk = () => new Response(JSON.stringify({ ResponseCode: "0", CheckoutRequestID: "ws_CO_new" }), { status: 200 });
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
+describe("who can be prompted (FIG-1320)", () => {
+  it("refuses staff who can see the invoice but aren't the family", async () => {
+    const { admin, asUser } = makeClients();
+    asUser.authUser = { id: "teacher-1" };
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 403);
+    assertEquals(sent.length, 0);
+    assertEquals(admin.rowsIn("payments").length, 0);
+  });
+
+  it("lets the learner pay their own invoice", async () => {
+    const { admin, asUser } = makeClients();
+    asUser.authUser = { id: "learner-login-1" };
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals(sent.length, 1);
+  });
+
+  it("limits prompts per caller and per number, noting both every time", async () => {
+    const { admin, asUser } = makeClients();
+    const sent = stubFetch(stkOk);
+    const keys: string[] = [];
+    const withinLimit = (key: string) => { keys.push(key); return Promise.resolve(keys.length !== 2); };
+    const res = await handle(request(validBody), { admin, asUser, withinLimit });
+    assertEquals(res.status, 429);
+    assertEquals(keys.length, 2);
+    assertEquals(new Set(keys).size, 2);
+    assertEquals(sent.length, 0);
+    assertEquals(admin.rowsIn("payments").length, 0);
+  });
+});
+
+describe("one prompt at a time per invoice (FIG-1321)", () => {
+  it("raises one prompt for two requests arriving together", async () => {
+    const { admin, asUser } = makeClients();
+    const sent = stubFetch(stkOk);
+    const [a, b] = await Promise.all([
+      handle(request(validBody), { admin, asUser }),
+      handle(request(validBody), { admin, asUser }),
+    ]);
+    const outs = [await a.json(), await b.json()];
+    assertEquals(sent.length, 1);
+    assertEquals(admin.rowsIn("payments").length, 1);
+    assertEquals(outs.filter((o) => o.reused).length, 1);
+    assertEquals(outs[0].payment_id, outs[1].payment_id);
+  });
+
+  it("answers an error, not a new prompt, when the in-flight check can't tell", async () => {
+    const { admin, asUser } = makeClients();
+    // two pending prompts from before the index: maybeSingle() errors, as PostgREST does
+    admin.seed("payments", [
+      { id: "p1", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000, created_at: minutesAgo(0) },
+      { id: "p2", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000, created_at: minutesAgo(0) },
+    ]);
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(sent.length, 0);
+  });
+
+  it("doesn't hand back another number's prompt, or one for another amount", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("payments", [{
+      id: "first", invoice_id: INVOICE_ID, status: "pending", msisdn: "254700000001", amount_cents: 10000, created_at: minutesAgo(0),
+    }]);
+    const sent = stubFetch(stkOk);
+    const otherPhone = await handle(request({ ...validBody, msisdn: "254733999888" }), { admin, asUser });
+    assertEquals(otherPhone.status, 409);
+    assertEquals((await otherPhone.json()).payment_id, undefined);
+    const otherAmount = await handle(request({ ...validBody, msisdn: "254700000001" }), { admin, asUser });
+    assertEquals(otherAmount.status, 409);
+    assertEquals(sent.length, 0);
+  });
+
+  it("settles a stale prompt Daraja says was cancelled, then raises a new one", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("payments", [{
+      id: "old", invoice_id: INVOICE_ID, status: "pending", msisdn: "254700000001", amount_cents: 10000,
+      checkout_request_id: "ws_CO_old", created_at: minutesAgo(5),
+    }]);
+    const sent = stubFetch(stkOk);
+    const queryStk = () => Promise.resolve({ done: true as const, resultCode: 1032 });
+    const res = await handle(request(validBody), { admin, asUser, queryStk });
+    assertEquals(res.status, 200);
+    assertEquals(sent.length, 1);
+    const old = admin.rowsIn("payments").find((p) => p.id === "old")!;
+    assertEquals(old.status, "cancelled");
+    assertEquals(old.failure_reason, "cancelled");
+  });
+
+  it("never prompts again over a stale prompt Daraja says was paid", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("payments", [{
+      id: "old", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000,
+      checkout_request_id: "ws_CO_old", created_at: minutesAgo(5),
+    }]);
+    const sent = stubFetch(stkOk);
+    const queryStk = () => Promise.resolve({ done: true as const, resultCode: 0 });
+    const res = await handle(request(validBody), { admin, asUser, queryStk });
+    assertEquals(res.status, 409);
+    assertEquals(sent.length, 0);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+  });
+
+  it("waits while Daraja is still processing a stale prompt, or can't be reached", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("payments", [{
+      id: "old", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000,
+      checkout_request_id: "ws_CO_old", created_at: minutesAgo(5),
+    }]);
+    const sent = stubFetch(stkOk);
+    const processing = await handle(request(validBody), { admin, asUser, queryStk: () => Promise.resolve({ done: false as const }) });
+    assertEquals(processing.status, 409);
+    const unreachable = await handle(request(validBody), { admin, asUser, queryStk: () => Promise.reject(new Error("down")) });
+    assertEquals(unreachable.status, 502);
+    assertEquals(sent.length, 0);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+  });
+
+  it("fails a stale prompt that never reached Safaricom, then raises a new one", async () => {
+    const { admin, asUser } = makeClients();
+    admin.seed("payments", [{
+      id: "old", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000, created_at: minutesAgo(5),
+    }]);
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser, queryStk: () => Promise.reject(new Error("not called")) });
+    assertEquals(res.status, 200);
+    assertEquals(sent.length, 1);
+    assertEquals(admin.rowsIn("payments").find((p) => p.id === "old")!.failure_reason, "unreachable");
+  });
+});
+
+describe("request bodies that are JSON but not an object (FIG-1324)", () => {
+  for (const body of ["null", "5", "[]", '"text"', "true"]) {
+    it(`answers 400 to ${body}`, async () => {
+      const { admin, asUser } = makeClients();
+      const res = await handle(
+        new Request("https://example.com/mpesa-stk-push", { method: "POST", headers: { Authorization: "Bearer token" }, body }),
+        { admin, asUser },
+      );
+      assertEquals(res.status, 400);
+      assertEquals((await res.json()).error, "Invalid request body");
+    });
+  }
+});
+
+describe("a balance left with cents (FIG-1334)", () => {
+  it("can be cleared by paying up to the next whole shilling, and no further", async () => {
+    const { admin, asUser } = makeClients({ total_cents: 12345, paid_cents: 0 });
+    stubFetch(stkOk);
+    const ok = await handle(request({ ...validBody, amount_cents: 12400 }), { admin, asUser });
+    assertEquals(ok.status, 200);
+    const { admin: admin2, asUser: asUser2 } = makeClients({ total_cents: 12345, paid_cents: 0 });
+    const tooMuch = await handle(request({ ...validBody, amount_cents: 12500 }), { admin: admin2, asUser: asUser2 });
+    assertEquals(tooMuch.status, 400);
   });
 });
 
@@ -284,7 +451,7 @@ describe("mpesa-stk-push: refused before any prompt is sent", () => {
   }
 
   // `const { invoice_id, ... } = body` throws on null, so the function answers with an unhandled error, not a 400.
-  itFails("FIG-1324 (open): a JSON body of null is answered with a 400", async () => {
+  it("FIG-1324: a JSON body of null is answered with a 400", async () => {
     const { admin, asUser } = makeClients();
     const res = await handle(rawRequest("null"), { admin, asUser });
     assertEquals(res.status, 400);
@@ -316,14 +483,6 @@ describe("mpesa-stk-push: the double-tap guard", () => {
     assertEquals(second.reused, true);
   });
 
-  it("raises a new prompt when the pending one is older than 90 seconds", async () => {
-    const { admin, asUser } = makeClients();
-    admin.seed("payments", [pendingRow({ created_at: new Date(Date.now() - 91_000).toISOString() })]);
-    const sent = stubAccepting();
-    const out = await (await handle(request(validBody), { admin, asUser })).json();
-    assertEquals(sent.length, 1);
-    assertEquals(out.reused, undefined);
-  });
 
   it("raises a new prompt when the earlier one has already settled", async () => {
     const { admin, asUser } = makeClients();
@@ -344,29 +503,18 @@ describe("mpesa-stk-push: the double-tap guard", () => {
 
   // The guard reads, then writes, with nothing between them to stop a second request reading before the first has
   // written, and the database has no unique index on (invoice_id) where status = 'pending' to catch it either.
-  itFails("FIG-1321 (open): two taps that arrive together raise one prompt", async () => {
+  it("FIG-1321: two taps that arrive together raise one prompt", async () => {
     const { admin, asUser } = makeClients();
     const sent = stubAccepting();
     await Promise.all([handle(request(validBody), { admin, asUser }), handle(request(validBody), { admin, asUser })]);
     assertEquals(sent.length, 1);
   });
 
-  // The guard uses .maybeSingle(), which answers an ERROR (not "the first row") once two rows match; the code only
-  // reads `data`, so the error looks like "nothing in flight" and a third prompt goes out. After the race above, every
-  // tap for the rest of the 90 seconds raises another prompt.
-  itFails("FIG-1321 (open): the guard still holds once two prompts are pending", async () => {
-    const { admin, asUser } = makeClients();
-    admin.seed("payments", [pendingRow(), pendingRow()]);
-    const sent = stubAccepting();
-    const out = await (await handle(request(validBody), { admin, asUser })).json();
-    assertEquals(sent.length, 0);
-    assertEquals(out.reused, true);
-  });
 
   // The guard is keyed on the invoice alone. A second request with another phone number or amount, within 90 seconds,
   // is answered with the first request's payment id and no prompt: a corrected mistyped number is never prompted, and
   // a different payer (parent, then the learner) ends up watching somebody else's payment.
-  itFails("FIG-1321 (open): a request for another number or amount is not answered with the earlier prompt", async () => {
+  it("FIG-1321: a request for another number or amount is not answered with the earlier prompt", async () => {
     const { admin, asUser } = makeClients();
     const earlier = pendingRow();
     admin.seed("payments", [earlier]);
@@ -390,18 +538,7 @@ describe("mpesa-stk-push: who can be prompted (FIG-1320)", () => {
     assertEquals(sent[0].PhoneNumber, "254733999888");
   });
 
-  it("lets one caller prompt the same stranger for every invoice they can see, with no limit", async () => {
-    const asUserInvoices = Array.from({ length: 25 }, (_, i) => ({ id: `invoice-${i}`, tenant_id: "tenant-1", total_cents: 100000, paid_cents: 0 }));
-    const admin = new FakeSupabaseClient();
-    const asUser = new FakeSupabaseClient();
-    asUser.authUser = { id: "teacher-1" }; // school staff can read every learner's invoice (RLS), see QA 04
-    asUser.seed("fee_invoices", asUserInvoices);
-    const sent = stubAccepting();
-    for (const inv of asUserInvoices) {
-      const res = await handle(request({ ...validBody, invoice_id: inv.id, msisdn: "254733999888" }), { admin, asUser });
-      assertEquals(res.status, 200);
-    }
-    assertEquals(sent.length, 25);
-    assertEquals(new Set(sent.map((s) => s.PhoneNumber)).size, 1);
-  });
+  // Removed after merging main (2026-11-01): the 90-second window, the two-pending-rows case and the unlimited-stranger case no longer
+  // exist. Main keeps a prompt for two minutes, allows one pending prompt per invoice (a unique index), prompts only the family, and limits
+  // prompts per caller and per number: its groups "one prompt at a time per invoice" and "who can be prompted" cover those rules.
 });

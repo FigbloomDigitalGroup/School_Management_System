@@ -22,7 +22,7 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
 const run = Date.now().toString(36);
 const base = () => assertLocalSupabaseUrl(process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL).origin;
 const anonKey = () => process.env.VITE_SUPABASE_ANON_KEY!;
-const caller = (label: string) => ({ "x-forwarded-for": `qa12-${run}-${label}` });
+const caller = (label: string) => ({ "cf-connecting-ip": `qa12-${run}-${label}` });
 
 async function post(name: string, body: unknown, headers: Record<string, string> = {}) {
   const res = await fetch(`${base()}/functions/v1/${name}`, {

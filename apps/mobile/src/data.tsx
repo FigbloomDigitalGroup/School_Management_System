@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
-import { accentFor, t } from "./theme";
+import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeCharge, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
+import { accentFor } from "./theme";
+import { useTheme } from "./ui/ThemeContext";
 
 /**
  * Real parent data — one Supabase query (shared with web), cached to
@@ -23,8 +24,12 @@ interface Child {
   classId: string | null;
   /** This term's invoice, which a payment is made against; null until the school has billed. */
   invoiceId: string | null;
+  /** Still owed: the invoice total, charges included, less what has been paid. */
   balance: number;
+  /** The invoice total: fees billed plus any charges. */
   billed: number;
+  /** Charges the office added to this term's invoice (a lost textbook), already inside `billed`. */
+  charges: FeeCharge[];
   dueOn: string | null;
   boarding: boolean;
   formLevel: number;
@@ -49,6 +54,7 @@ function toChild(c: ChildInfo): Child {
     classId: c.classId ?? null, // a cache written by an older build may not carry it
     invoiceId: c.invoiceId ?? null, // a cache written by an older build may not carry it
     balance: c.balance, billed: c.billed, dueOn: c.dueOn,
+    charges: c.charges ?? [], // a cache written by an older build may not carry them
     boarding: c.boarding, formLevel: c.formLevel, classLevel: c.classLevel, receipts: c.receipts,
     attendance: c.attendancePct,
     absentDates: c.absentDates ?? [], // a cache written by an older build may not carry it
@@ -80,6 +86,7 @@ interface Ctx {
 const ParentDataCtx = createContext<Ctx | null>(null);
 
 export function ParentDataProvider({ profileId, accent, country, tenantId, children }: { profileId: string; accent: string; country: string; tenantId: string; children: ReactNode }) {
+  const { t } = useTheme();
   const [data, setData] = useState<ParentData | null>(null);
   const [index, setIndex] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
@@ -135,7 +142,7 @@ export function ParentDataProvider({ profileId, accent, country, tenantId, child
   if (data.children.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: t.appSurface.page }}>
-        <Text style={{ fontSize: 15, fontWeight: "600", textAlign: "center" }}>No students linked to this account yet</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600", textAlign: "center" }}>No students linked to this account yet</Text>
         <Text style={{ fontSize: 13, color: t.appSurface.inkMuted, textAlign: "center", marginTop: 8 }}>
           Contact the school office to link your child.
         </Text>

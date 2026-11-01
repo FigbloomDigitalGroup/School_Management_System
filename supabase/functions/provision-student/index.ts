@@ -11,12 +11,16 @@
  *
  * Same login_id + synthetic-email scheme as every other non-email role
  * (FIG-396/397's "ST-0001"), same random one-time password that must be
- * changed at first sign-in, same three-way caller check as
- * invite-admin/provision-guardian.
+ * changed at first sign-in, same caller check as
+ * invite-admin/provision-guardian (a full admin, or since 20261031000000 a
+ * teacher or other staff member holding the people admin area).
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
+import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
 
@@ -40,8 +44,8 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
 
   const { data: callerProfile } = await admin
     .from("profiles").select("role, full_name, tenant_id").eq("id", user.id).maybeSingle();
-  if (callerProfile?.role !== "super_admin" && callerProfile?.role !== "org_admin" && callerProfile?.role !== "school_admin") {
-    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's own admin, can create a learner's login." }, 403);
+  if (!["super_admin", "org_admin", "school_admin", "teacher", "staff"].includes(callerProfile?.role)) {
+    return json({ error: "Only Figbloom staff, an organization's own admin, or the school's office, can create a learner's login." }, 403);
   }
 
   let body: Partial<Body>;
@@ -55,12 +59,13 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
-  if (!authorized && callerProfile.role === "org_admin" && tenant.organization_id) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", tenant.organization_id).maybeSingle();
-    authorized = !!link;
+  if (!authorized && callerProfile.role === "org_admin") {
+    authorized = await administersOrganization(admin, user.id, tenant.organization_id);
   }
   if (!authorized && callerProfile.role === "school_admin" && callerProfile.tenant_id === tenant_id) {
+    authorized = true;
+  }
+  if (!authorized && await holdsArea(admin, { id: user.id, ...callerProfile }, tenant_id, "people")) {
     authorized = true;
   }
   if (!authorized) {
@@ -92,7 +97,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     email_confirm: true,
   });
   if (createErr || !created.user) {
-    return json({ error: createErr?.message ?? "Could not create the account." }, 500);
+    return json(failure("provision-student", "create the account", createErr), 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -105,7 +110,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("provision-student", "save the profile", profileErr), 500);
   }
 
   const { error: linkErr } = await admin.from("students")
@@ -113,10 +118,11 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (linkErr) {
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: linkErr.message }, 500);
+    return json(failure("provision-student", "link the login to the learner", linkErr), 500);
   }
 
-  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin" : "school admin";
+  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
+    : callerProfile.role === "school_admin" ? "school admin" : "people";
   await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,

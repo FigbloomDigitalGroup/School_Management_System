@@ -20,15 +20,18 @@
  * the email belongs to some OTHER role (school_admin/parent/student/etc.),
  * that account can't be repurposed and the invite is rejected. Only a
  * genuinely new email creates a new account, with a random one-time
- * password that must be changed at first sign-in (no email/SMS provider
- * wired up — see invite-admin's own docstring for why) — a failed profile
- * insert rolls back the orphaned auth account rather than leaving a login
- * with no profile.
+ * password that must be changed at first sign-in, shown once on screen and,
+ * when Resend is set up (_shared/email.ts), emailed to them too — a failed
+ * profile insert rolls back the orphaned auth account rather than leaving a
+ * login with no profile. A failed email never undoes the account.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
+import { failure } from "../_shared/failure.ts";
+import { administersOrganization } from "../_shared/organizations.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 interface Body {
   organization_id: string;
@@ -37,9 +40,9 @@ interface Body {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any }
+export interface Deps extends EmailDeps { admin: any; asUser: any }
 
-export async function handle(req: Request, { admin, asUser }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -62,16 +65,15 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (!organization_id || !full_name?.trim() || !email?.trim()) {
     return json({ error: "An organization, the admin's name and their email are all required." }, 400);
   }
+  if (!isDeliverable(email)) return json({ error: "That email address doesn't look right." }, 400);
 
   const { data: organization, error: orgErr } = await admin
-    .from("organizations").select("id, name").eq("id", organization_id).maybeSingle();
+    .from("organizations").select("id, name, slug").eq("id", organization_id).maybeSingle();
   if (orgErr || !organization) return json({ error: "That organization could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
   if (!authorized) {
-    const { data: link } = await admin.from("organization_admins")
-      .select("id").eq("profile_id", user.id).eq("organization_id", organization_id).maybeSingle();
-    authorized = !!link;
+    authorized = await administersOrganization(admin, user.id, organization_id);
   }
   if (!authorized) {
     return json({ error: "You do not administer this organization." }, 403);
@@ -98,7 +100,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
       organization_id,
       added_by: user.id,
     });
-    if (linkErr) return json({ error: linkErr.message }, 500);
+    if (linkErr) return json(failure("invite-org-admin", "add them to the organization", linkErr), 500);
 
     await admin.from("audit_events").insert({
       tenant_id: null,
@@ -121,7 +123,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     // Supabase's real message is "...has already been registered" — "been" sits
     // between the two words, so a plain "already registered" substring never matches.
     const already = createErr?.message?.toLowerCase().includes("already been registered");
-    return json({ error: already ? "That email is already in use." : (createErr?.message ?? "Could not create the account.") }, already ? 409 : 500);
+    return json(already ? { error: "That email is already in use." } : failure("invite-org-admin", "create the account", createErr), already ? 409 : 500);
   }
 
   // tenant_id is null for org_admin, the same way it is for super_admin —
@@ -136,7 +138,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   });
   if (profileErr) {
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: profileErr.message }, 500);
+    return json(failure("invite-org-admin", "save the profile", profileErr), 500);
   }
 
   const { error: linkErr } = await admin.from("organization_admins").insert({
@@ -150,7 +152,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     // is just as orphaned as a profile-less auth account is in invite-admin.
     await admin.from("profiles").delete().eq("id", created.user.id);
     await admin.auth.admin.deleteUser(created.user.id);
-    return json({ error: linkErr.message }, 500);
+    return json(failure("invite-org-admin", "add them to the organization", linkErr), 500);
   }
 
   await admin.from("audit_events").insert({
@@ -160,7 +162,19 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     category: "provisioning",
   });
 
-  return json({ ok: true, linkedExisting: false, email: email.trim(), password });
+  // The account exists now: whatever happens to the email, the password above is the way in.
+  const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {
+    kind: "welcome",
+    fullName: full_name.trim(),
+    placeName: organization.name,
+    login: email.trim(),
+    loginIsId: false,
+    password,
+    signInPath: signInPath("org_admin", organization.slug),
+    actor: actorName(callerProfile),
+  });
+
+  return json({ ok: true, linkedExisting: false, email: email.trim(), password, emailed });
 }
 
 if (import.meta.main) {
@@ -173,7 +187,7 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser });
+    return handle(req, { admin, asUser, mailer: resendMailer() });
   });
 }
 

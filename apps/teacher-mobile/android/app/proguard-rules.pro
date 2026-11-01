@@ -15,3 +15,9 @@
 -keep class com.facebook.react.fabric.** { *; }
 -keepclassmembers class com.facebook.react.fabric.** { *; }
 -dontwarn com.facebook.react.fabric.**
+
+# Calls and live classes (FIG-1291): LiveKit's WebRTC library keeps its own classes
+# (see its consumer rules) but one of them, livekit.org.jni_zero.JniZero, refers to a
+# generated class the library does not ship (JniZeroJni), which R8 reports as an
+# error. This is the rule the Android Gradle Plugin itself suggests for it.
+-dontwarn livekit.org.jni_zero.JniZeroJni

@@ -31,6 +31,12 @@ const loginAs = async (page: Page, role: RoleName, width = 1280) => {
 };
 const settle = async (page: Page, ms = 700) => { await page.waitForLoadState("networkidle"); await page.waitForTimeout(ms); };
 
+// The parent's Home and Bus screens (live bus map, added on main after QA 16) load Google Maps. Nothing here has a key or a route to it and
+// its tiles retry for ever, so the page never goes idle: answer its requests with nothing.
+test.beforeEach(async ({ page }) => {
+  await page.route((url) => url.hostname === "maps.googleapis.com" || url.hostname === "maps.gstatic.com", (r) => r.fulfill({ status: 204, body: "" }));
+});
+
 test.beforeAll(() => {
   if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(process.env.SUPABASE_URL ?? "")) throw new Error("local Supabase only");
 });
@@ -180,7 +186,7 @@ test("QA16-USE 2 every dialog at 1280 and 390 px: it fits the window and passes 
 
 /** The sign-in page changes view without changing address (portal, email form, school search), so the walk in a11y.spec.ts sees only its first view. */
 test("QA16-USE 2b every view of the sign-in page fits the window and passes axe", async ({ page }) => {
-  const portals = ["Admin portal", "Teacher portal", "Student portal", "Parent portal", "Driver portal", "Gate & reception portal"];
+  const portals = ["Admin portal", "Teacher portal", "Student portal", "Parent portal", "Driver portal"]; // five since main merged the gate and reception roles into "Other staff" (acfc1e6)
   const check = async (label: string, width: number) => {
     await page.waitForTimeout(500);
     for (const f of layoutFindings("signed out", "/signin", width, await measure(page))) findings.push({ ...f, kind: `view ${f.kind}`, detail: `${label}: ${f.detail}` });
@@ -277,6 +283,7 @@ async function requestsFor(page: Page, pattern: string, method: string, stub: { 
   return n;
 }
 const throwaway: string[] = [];
+const RUN = Date.now().toString(36); // invoices with a payment keep their learner for good (FIG-1319), so each run needs numbers of its own
 test("QA16-USE 4 a double click on Pay, Submit register, Bill learners and Record payment sends one request", async ({ page }) => {
   const tenant = (await db.from("tenants").select("id").eq("slug", "alliance").single()).data!.id as string;
   const cls = (await db.from("classes").select("id").eq("tenant_id", tenant).eq("name", "Form 1 East").single()).data!.id as string;
@@ -306,7 +313,7 @@ test("QA16-USE 4 a double click on Pay, Submit register, Bill learners and Recor
 
   // Bill learners and Record payment (school admin)
   for (const n of [1, 2, 3]) {
-    const r = await db.from("students").insert({ tenant_id: tenant, admission_no: `QA16-B${n}`, full_name: `QA16 Billing ${n}`, gender: "female", class_id: cls }).select("id").single();
+    const r = await db.from("students").insert({ tenant_id: tenant, admission_no: `QA16-${RUN}-B${n}`, full_name: `QA16 Billing ${n}`, gender: "female", class_id: cls }).select("id").single();
     expect(r.error).toBeNull();
     throwaway.push(r.data!.id as string);
   }
@@ -317,9 +324,10 @@ test("QA16-USE 4 a double click on Pay, Submit register, Bill learners and Recor
   await expect(bill).toBeVisible();
   const create = bill.getByRole("button", { name: /^Create \d+ invoice/ });
   await expect(create).toBeEnabled({ timeout: 15000 });
-  const billed = await requestsFor(page, "**/rest/v1/fee_invoices**", "POST", { status: 201, body: "[]" }, () => create.dblclick());
-  notes.push(`4 Bill learners, double click: ${billed} request(s) to fee_invoices`);
-  if (billed !== 1) findings.push({ role: "school admin", route: `${S}/admin/fees`, width: 1280, kind: "double click sends more than one request", detail: `Bill learners: ${billed} requests to fee_invoices` });
+  // Since main’s FIG-1331 the dialog saves everything in one call, rpc/bill_term (it used to POST fee_invoices in batches)
+  const billed = await requestsFor(page, "**/rest/v1/rpc/bill_term**", "POST", { status: 200, body: "{\"created\":0,\"total_cents\":0,\"already_billed\":0}" }, () => create.dblclick());
+  notes.push(`4 Bill learners, double click: ${billed} request(s) to bill_term`);
+  if (billed !== 1) findings.push({ role: "school admin", route: `${S}/admin/fees`, width: 1280, kind: "double click sends more than one request", detail: `Bill learners: ${billed} requests to bill_term` });
 
   await page.goto(`${S}/admin/fees`); await settle(page);
   await page.getByRole("button", { name: "Record a payment" }).first().click();
@@ -441,8 +449,12 @@ defineKnownTests(test, "QA16-USE", KNOWN, findings, () => notes.length > 0);
 test.afterAll(async () => {
   const errors: string[] = [];
   for (const r of [...renamed].reverse()) { const x = await db.from(r.table).update({ [r.column]: r.original }).eq("id", r.id); if (x.error) errors.push(`${r.table}.${r.column}: ${x.error.message}`); }
-  if (throwaway.length) { const x = await db.from("students").delete().in("id", throwaway); if (x.error) errors.push(`throwaway learners: ${x.error.message}`); }
-  const left = (await db.from("students").select("id", { count: "exact", head: true }).like("admission_no", "QA16-%")).count;
+  if (throwaway.length) {
+    // the learner whose invoice was paid cannot be deleted any more (FIG-1319): archive them so they leave every roll and count
+    const x = await db.from("students").delete().in("id", throwaway);
+    if (x.error) { const y = await db.from("students").update({ active: false }).in("id", throwaway); if (y.error) errors.push(`throwaway learners: ${y.error.message}`); }
+  }
+  const left = (await db.from("students").select("id", { count: "exact", head: true }).like("admission_no", "QA16-%").eq("active", true)).count;
   if (left) errors.push(`${left} QA16 learners are left`);
   const out = process.env.QA16_OUT2;
   if (out) writeFileSync(out, JSON.stringify({ findings, notes }, null, 1));

@@ -16,7 +16,7 @@ const base = (over: Partial<ReportCardInput> = {}): ReportCardInput => ({
     { id: "c", name: "Chebet Rono", admissionNo: "1003" },
   ],
   marks: [],
-  options: { showPosition: true, showAttendance: true, showFees: false, nextTermBegins: null },
+  options: { showPosition: true, showAttendance: true, showFees: false, showActivities: true, nextTermBegins: null },
   today: "2026-08-08",
   ...over,
 });
@@ -68,11 +68,11 @@ describe("buildReportCards", () => {
   it("only carries attendance and fees when they're switched on", () => {
     const attendance = new Map([["a", { present: 58, days: 62 }]]);
     const fees = new Map([["a", { billedCents: 4_500_000, paidCents: 3_000_000 }]]);
-    const on = buildReportCards(base({ attendance, fees, options: { showPosition: false, showAttendance: true, showFees: true, nextTermBegins: "2026-09-01" } }));
+    const on = buildReportCards(base({ attendance, fees, options: { showPosition: false, showAttendance: true, showFees: true, showActivities: true, nextTermBegins: "2026-09-01" } }));
     expect(on[0]!.attendance).toEqual({ present: 58, days: 62 });
     expect(on[0]!.fees).toEqual({ billedCents: 4_500_000, paidCents: 3_000_000 });
     expect(on[0]!.nextTermBegins).toBe("2026-09-01");
-    const off = buildReportCards(base({ attendance, fees, options: { showPosition: false, showAttendance: false, showFees: false, nextTermBegins: null } }));
+    const off = buildReportCards(base({ attendance, fees, options: { showPosition: false, showAttendance: false, showFees: false, showActivities: true, nextTermBegins: null } }));
     expect(off[0]!.attendance).toBeNull();
     expect(off[0]!.fees).toBeNull();
   });

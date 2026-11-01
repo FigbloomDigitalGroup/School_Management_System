@@ -9,7 +9,8 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
  * odd input never brings the database's own words back. What is NOT done here: creating an organization (nothing here can clean
  * one up; signup-organization's happy path is in supabase/functions/signup-organization).
  *
- * The limits are counted per "caller", which the function reads from the request's cf-connecting-ip or x-forwarded-for header.
+ * The limits are counted per "caller", which since FIG-1336 the functions read from one header only: cf-connecting-ip (set by the platform's
+ * own edge when hosted; nothing overwrites it on this local stack, so a test can name its own caller). x-forwarded-for is ignored.
  * Every test uses its own made-up caller value, so no real caller's allowance (and no developer's sign-in) is touched. The rows
  * this leaves in login_lookups are cleared by e2e/flows.spec.ts's beforeAll.
  * The known defect uses it.fails: it passes while the defect exists and fails when it is fixed. Then change it.fails to it.
@@ -31,7 +32,7 @@ async function post(name: string, body: unknown, headers: Record<string, string>
   return { status: res.status, text, json };
 }
 
-const caller = (label: string) => ({ "x-forwarded-for": `qa8-${run}-${label}` });
+const caller = (label: string) => ({ "cf-connecting-ip": `qa8-${run}-${label}` });
 
 let school = { id: "", name: "" };
 beforeAll(async () => {
@@ -95,13 +96,15 @@ describe("resolve-login-id", () => {
     expect(refused.json.error).toBe("Too many attempts. Wait a few minutes and try again.");
   }, 60_000);
 
-  // The caller's identity is a hash of cf-connecting-ip, else the FIRST x-forwarded-for value: both are headers the caller sets.
-  // Behind Cloudflare the first is set by the platform; anywhere else (this local stack, a self-hosted or AWS deployment without a
-  // proxy that overwrites it) the caller picks their own identity, so the limit never applies to someone who changes it.
-  it.fails("FIG-1336 (open): a caller cannot get a fresh allowance by changing a header", async () => {
+  // FIG-1336 (fixed on main): the caller is the address in cf-connecting-ip and no other header counts, so a script that rotates
+  // x-forwarded-for (or any header but the one the platform's edge overwrites) shares one allowance and is refused after 30. On hosted
+  // Supabase Cloudflare overwrites cf-connecting-ip, so that header cannot be rotated either; this local stack has no such edge, which
+  // is why the check rotates the other header. A school-wide ceiling (1,500 lookups in 10 minutes) bounds even a deployment whose
+  // proxy lets callers choose: it is exercised by the function's own Deno tests, not here (1,500 calls would use up the demo school's allowance).
+  it("FIG-1336: a caller cannot get a fresh allowance by changing x-forwarded-for", async () => {
     const statuses: number[] = [];
     for (let i = 0; i < 35; i++) {
-      statuses.push((await post("resolve-login-id", { tenant_id: school.id, login_id: "TC-0002" }, { "x-forwarded-for": `qa8-${run}-rotate-${i}`, "cf-connecting-ip": `qa8-${run}-cf-${i}` })).status);
+      statuses.push((await post("resolve-login-id", { tenant_id: school.id, login_id: "TC-0002" }, { "x-forwarded-for": `qa8-${run}-rotate-${i}` })).status);
     }
     expect(statuses.filter((s) => s === 429).length, "lookups refused after 30").toBeGreaterThan(0);
   }, 60_000);

@@ -1,3 +1,4 @@
+import { writeErrorFrom } from "./queue";
 import { supabase } from "./supabase";
 import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, VehicleAssignment } from "./types";
 
@@ -261,6 +262,8 @@ export interface TripRider {
   status: RiderStatus;
   boarded_at: string | null;
   alighted_at: string | null;
+  /** The learner's photo (20261104500000); null when there isn't one, or before that migration is applied. */
+  avatar_url?: string | null;
   /** Evening trips only: marked absent or excused in class today, so not expected at the bus. */
   absent_from_class: boolean;
 }
@@ -310,6 +313,15 @@ export function arrangeRiders(riders: TripRider[], stopOrder: string[]): Arrange
     .sort((a, b) => PLACE_ORDER[a.place] - PLACE_ORDER[b.place] || at(a) - at(b) || a.full_name.localeCompare(b.full_name));
 }
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-KE", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Africa/Nairobi" });
+
+/** When the driver marked them, for the lists: "Dropped off 3:42 pm", "On since 7:12 am"; null while still waiting. */
+export function riderMarkedAt(r: Pick<TripRider, "status" | "boarded_at" | "alighted_at">): string | null {
+  if (r.status === "alighted" && r.alighted_at) return `Dropped off ${clock(r.alighted_at)}`;
+  if (r.status === "boarded" && r.boarded_at) return `On since ${clock(r.boarded_at)}`;
+  return null;
+}
+
 /** Whose families a breakdown reaches: on the bus, or still waiting for it. Mirrors report_breakdown(). */
 export function breakdownAffected(riders: TripRider[]): TripRider[] {
   return riders.filter((r) => {
@@ -339,10 +351,15 @@ export function pushRiderUpdates(tripId: string): void {
   void supabase().functions.invoke("rider-update", { body: { trip_id: tripId } }).catch(() => {});
 }
 
-/** Marks a child on, off, or not here. The family's update is written by a trigger; this pushes it. */
+/**
+ * Marks a child on, off, or not here. The family's update is written by a
+ * trigger; this pushes it. A failure is a WriteError (see queue.ts), so a
+ * screen can tell "no signal, hold it and send later" from "the server said
+ * no" (the child isn't on this route), which holding would never fix.
+ */
 export async function markRider(input: RiderMarkInput): Promise<void> {
-  const { error } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
-  if (error) throw error;
+  const { error, status } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
+  if (error) throw writeErrorFrom(error, status);
   pushRiderUpdates(input.tripId);
 }
 
@@ -396,6 +413,14 @@ export async function activeDirections(): Promise<Map<string, TripDirection>> {
   const { data } = await supabase().from("trips").select("vehicle_id, direction").eq("status", "active")
     .returns<{ vehicle_id: string; direction: TripDirection }[]>();
   return new Map((data ?? []).map((t) => [t.vehicle_id, t.direction]));
+}
+
+/** The trips on the road now, for the office's live rider lists (trips isn't in realtime, so it polls). */
+export async function listActiveTrips(tenantId: string): Promise<Trip[]> {
+  const { data, error } = await supabase().from("trips").select("*").eq("tenant_id", tenantId).eq("status", "active")
+    .order("started_at").returns<Trip[]>();
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**
@@ -478,6 +503,21 @@ export function routeProgress(
 /** "2.4 km" / "800 m" */
 export function fmtDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(m >= 10_000 ? 0 : 1)} km` : `${Math.round(m / 50) * 50} m`;
+}
+
+/** How long a bus will take to get somewhere, and how far it is. `estimated` is true for a guess, false for a road time from a maps service. */
+export type EtaResult = { minutes: number; km: number; estimated: boolean };
+
+/** A rough ETA with no maps service to ask: road distance ~1.3x straight-line, at 25 km/h in town. */
+export function roughEta(from: { lat: number; lng: number }, to: { lat: number; lng: number }): EtaResult {
+  const km = (distanceM(from, to) * 1.3) / 1000;
+  return { minutes: Math.max(1, Math.round((km / 25) * 60)), km, estimated: true };
+}
+
+/** "~12 min" for a guess, "12 min" for a road time, "—" when there is none. */
+export function fmtEta(eta: EtaResult | null): string {
+  if (!eta) return "—";
+  return `${eta.estimated ? "~" : ""}${eta.minutes} min`;
 }
 
 /** A position this recent means the bus is on the road right now. */

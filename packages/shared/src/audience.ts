@@ -24,8 +24,10 @@ export interface AudienceViewer {
   years: readonly { level: ClassLevel | null | undefined; year: number }[];
 }
 
-/** "All staff": everyone who works at the school, drivers and the front desk included. */
-export const STAFF_ROLES: Role[] = ["school_admin", "teacher", "driver", "guard", "receptionist"];
+/** "All staff": everyone who works at the school, drivers and other staff
+ *  (librarians, matrons, the gate, reception...) included. What was sent to
+ *  the front desk's old roles was re-addressed to "staff" (20261028100001). */
+export const STAFF_ROLES: Role[] = ["school_admin", "teacher", "driver", "staff"];
 /** What "All staff" was before the front desk had accounts: still labelled "All staff" on what was sent to it. */
 const EARLIER_STAFF_ROLES: Role[] = ["school_admin", "teacher", "driver"];
 const isRoleSet = (roles: Role[], set: Role[]) => roles.length === set.length && set.every((r) => roles.includes(r));
@@ -64,8 +66,7 @@ const ROLE_GROUP_LABEL: Partial<Record<Role, string>> = {
   school_admin: "admins",
   teacher: "teachers",
   driver: "drivers",
-  guard: "guards",
-  receptionist: "receptionists",
+  staff: "other staff",
   parent: "parents",
   student: "students",
 };

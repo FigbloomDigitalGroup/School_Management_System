@@ -2,6 +2,7 @@ import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
 import { itFails } from "../_shared/knownDefect.ts";
+import { countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle } from "./index.ts";
 
 const SCHOOL_ADMIN_ID = "school-admin-1";
@@ -191,12 +192,31 @@ describe("provision-guardian handle", () => {
       admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley", organization_id: ORG_ID }]);
       admin.seed("students", [{ id: STUDENT_ID, tenant_id: TENANT_ID, full_name: "Faith Achieng" }]);
       admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: ORG_ID }]);
+      admin.seed("organizations", [{ id: ORG_ID, status: "active" }]);
       admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-parent-1", email: attrs.email } }, error: null });
       const asUser = new FakeSupabaseClient();
       asUser.authUser = { id: ORG_ADMIN_ID };
 
       const res = await handle(request(validBody), { admin, asUser });
       assertEquals(res.status, 200);
+    });
+
+    it("refuses an org_admin whose organization is suspended (FIG-1312)", async () => {
+      const admin = new FakeSupabaseClient();
+      const ORG_ADMIN_ID = "org-admin-1";
+      const ORG_ID = "org-1";
+      admin.seed("profiles", [{ id: ORG_ADMIN_ID, role: "org_admin", full_name: "Grace Wambui" }]);
+      admin.seed("tenants", [{ id: TENANT_ID, name: "Green Valley School", slug: "green-valley", organization_id: ORG_ID }]);
+      admin.seed("students", [{ id: STUDENT_ID, tenant_id: TENANT_ID, full_name: "Faith Achieng" }]);
+      admin.seed("organization_admins", [{ id: "link-1", profile_id: ORG_ADMIN_ID, organization_id: ORG_ID }]);
+      admin.seed("organizations", [{ id: ORG_ID, status: "suspended" }]);
+      admin.onCreateUser = (attrs) => ({ data: { user: { id: "new-parent-1", email: attrs.email } }, error: null });
+      const asUser = new FakeSupabaseClient();
+      asUser.authUser = { id: ORG_ADMIN_ID };
+
+      const res = await handle(request(validBody), { admin, asUser });
+      assertEquals(res.status, 403);
+      assertEquals(admin.rowsIn("profiles").length, 1);
     });
   });
 });
@@ -220,5 +240,33 @@ describe("provision-guardian login_id numbering", () => {
     assertEquals(res.status, 500);
     assertEquals(admin.rowsIn("guardians").length, 0);
     assertEquals(admin.deletedUserIds, []);
+  });
+});
+
+describe("provision-guardian sign-in email", () => {
+  it("emails a guardian who has an email their login ID and one-time password", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request({ ...validBody, email: "rose@gmail.com" }), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(res.status, 200);
+    const out = await res.json();
+    assertEquals(out.emailed, { status: "sent", to: "rose@gmail.com" });
+    assertMatch(mailer.sent[0].text, /Login ID: PT-0001/);
+    assertMatch(mailer.sent[0].text, /\/s\/green-valley\/parent/);
+  });
+
+  it("sends nothing to a guardian with no email", async () => {
+    const { admin, asUser } = makeClients();
+    const mailer = new FakeMailer();
+    const res = await handle(request(validBody), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals((await res.json()).emailed, { status: "no_address" });
+    assertEquals(mailer.sent.length, 0);
+  });
+
+  it("skips cleanly when email isn't set up", async () => {
+    const { admin, asUser } = makeClients();
+    const res = await handle(request({ ...validBody, email: "rose@gmail.com" }), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).emailed, { status: "not_configured" });
   });
 });

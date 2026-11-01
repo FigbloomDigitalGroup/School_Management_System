@@ -23,11 +23,11 @@ describe("audienceIncludes", () => {
     expect(audienceIncludes({ kind: "role", role: "student" }, parent)).toBe(false);
   });
 
-  it("roles: all staff reaches admins, teachers, drivers and the front desk, never parents or students", () => {
+  it("roles: all staff reaches admins, teachers, drivers and other staff, never parents or students", () => {
     expect(audienceIncludes(allStaff, teacher)).toBe(true);
     expect(audienceIncludes(allStaff, admin)).toBe(true);
     expect(audienceIncludes(allStaff, driver)).toBe(true);
-    expect(audienceIncludes(allStaff, { profileId: "g1", role: "guard", classIds: [], years: [] })).toBe(true);
+    expect(audienceIncludes(allStaff, { profileId: "o1", role: "staff", classIds: [], years: [] })).toBe(true);
     expect(audienceIncludes(allStaff, parent)).toBe(false);
     expect(audienceIncludes(allStaff, student)).toBe(false);
   });
@@ -84,6 +84,9 @@ describe("audienceLabel", () => {
     expect(audienceLabel(allStaff)).toBe("All staff");
     // sent before the front desk had accounts
     expect(audienceLabel({ kind: "roles", roles: ["school_admin", "teacher", "driver"] })).toBe("All staff");
+    // as 20261028100001 re-addresses one sent to the old front-desk roles: de-duplicated and sorted
+    expect(audienceLabel({ kind: "roles", roles: ["driver", "school_admin", "staff", "teacher"] })).toBe("All staff");
+    expect(audienceLabel({ kind: "role", role: "staff" })).toBe("All other staff");
     expect(audienceLabel({ kind: "roles", roles: ["school_admin", "teacher"] })).toBe("All admins and teachers");
   });
 

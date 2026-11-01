@@ -57,13 +57,19 @@ export async function fcmAccessToken(account: ServiceAccount, fetchImpl: typeof 
   return out.access_token as string;
 }
 
-/** `tag` collapses updates on the phone: a newer one with the same tag replaces the old. */
+/**
+ * `tag` collapses updates on the phone: a newer one with the same tag replaces the old.
+ * `data` rides along for the app to act on when the notification is tapped, so a tap can
+ * open the right screen: FCM only takes string values, and the apps read them back with
+ * pushTargetFrom() (packages/shared/src/pushTargets.ts), which says what each `type` means.
+ */
 export async function sendToToken(
   fetchImpl: typeof fetch, projectId: string, accessToken: string, token: string, title: string, body: string,
-  opts: { tag?: string } = {},
+  opts: { tag?: string; data?: Record<string, string> } = {},
 ): Promise<{ ok: boolean; invalid: boolean }> {
   const message: Record<string, unknown> = { token, notification: { title, body } };
   if (opts.tag) message.android = { notification: { tag: opts.tag } };
+  if (opts.data) message.data = opts.data;
   const res = await fetchImpl(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },

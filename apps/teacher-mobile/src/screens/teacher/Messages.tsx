@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
   fetchSentByMe, fetchTeacherClasses, isRetryable, sendClassMessage,
   type Announcement, type ClassGroup, type ClassMessageRecipients,
 } from "@figbloom/shared";
-import { accentFor, HIT, s, t } from "../../theme";
+import { accentFor } from "../../theme";
 import { PillPicker } from "../../components/PillPicker";
 import { queue } from "../../storage";
 import type { TeacherSession } from "../../navigation";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { EmptyState } from "../../ui/StateView";
+import { useTheme } from "../../ui/ThemeContext";
 
 const RECIPIENT_OPTIONS: { id: ClassMessageRecipients; name: string }[] = [
   { id: "guardians", name: "Parents" },
@@ -24,6 +28,7 @@ function recipientsLabel(r?: ClassMessageRecipients): string {
 /** A teacher's own reach: one class at a time, always in-app — the same
  *  lighter form over `announcements` as the web console's Messages screen. */
 export function TeacherMessages({ session }: { session: TeacherSession }) {
+  const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
 
   const [classes, setClasses] = useState<ClassGroup[] | null>(null);
@@ -95,7 +100,7 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
   if (!classes) {
     return (
       <View style={[s.screen, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color={a.deep} />
+        <ActivityIndicator size="large" color={accentInk(a.deep)} />
       </View>
     );
   }
@@ -113,55 +118,37 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
         ) : (
           <View style={[s.card, { gap: 10 }]}>
             <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Class</Text>
+              <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 }]}>Class</Text>
               <PillPicker items={classes} selectedId={classId} onPick={setClassId} accent={session.accent} />
             </View>
 
             <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>To</Text>
+              <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 }]}>To</Text>
               <PillPicker items={RECIPIENT_OPTIONS} selectedId={recipients} onPick={(id) => setRecipients(id as ClassMessageRecipients)} accent={session.accent} />
             </View>
 
-            <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Subject</Text>
-              <TextInput
-                value={subject}
-                onChangeText={setSubject}
-                placeholder="e.g. CAT results out Friday"
-                style={{ ...HIT, borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 }}
-              />
-            </View>
+            <Field label="Subject" value={subject} onChangeText={setSubject} placeholder="e.g. CAT results out Friday" />
 
-            <View>
-              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Message</Text>
-              <TextInput
-                value={body}
-                onChangeText={setBody}
-                placeholder="Plain language, one instruction per paragraph."
-                multiline
-                numberOfLines={4}
-                style={{ borderWidth: 1, borderColor: t.appSurface.line, borderRadius: 12, padding: 14, fontSize: 14.5, minHeight: 96, textAlignVertical: "top" }}
-              />
-              <Text style={[s.faint, { marginTop: 6 }]}>Goes to this class's {recipientsLabel(recipients)}, in-app only.</Text>
-            </View>
+            <Field
+              label="Message"
+              value={body}
+              onChangeText={setBody}
+              placeholder="Plain language, one instruction per paragraph."
+              multiline
+              numberOfLines={4}
+              hint={`Goes to this class's ${recipientsLabel(recipients)}, in-app only.`}
+            />
 
-            <TouchableOpacity
-              accessibilityRole="button"
-              disabled={!subject.trim() || !body.trim() || sending}
-              onPress={() => void send()}
-              style={[s.primary, { ...HIT, backgroundColor: t.brand.orange, opacity: !subject.trim() || !body.trim() || sending ? 0.6 : 1 }]}
-            >
-              {sending ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryLabel}>Send</Text>}
-            </TouchableOpacity>
-            {!!status && <Text style={[s.small, { marginTop: 10 }]}>{status}</Text>}
+            <Button label="Send" loading={sending} disabled={!subject.trim() || !body.trim()} onPress={() => void send()} />
+            {!!status && <Text accessibilityLiveRegion="polite" style={[s.small, { marginTop: 10 }]}>{status}</Text>}
           </View>
         )}
 
         <Text style={[s.eyebrow, { marginTop: 20, marginBottom: 8 }]}>SENT BY YOU</Text>
         {sent === null ? (
-          <ActivityIndicator color={a.deep} />
+          <ActivityIndicator color={accentInk(a.deep)} />
         ) : sent.length === 0 ? (
-          <Text style={s.faint}>Nothing sent yet.</Text>
+          <EmptyState title="Nothing sent yet" body="Notes you send to a class show here." />
         ) : (
           sent.map((msg) => {
             const className = msg.audience.kind === "class" ? classById.get(msg.audience.class_id)?.name ?? "a class" : "—";
@@ -169,7 +156,7 @@ export function TeacherMessages({ session }: { session: TeacherSession }) {
             return (
               <View key={msg.id} style={[s.card, { marginBottom: 8, padding: 12 }]}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-                  <Text style={{ fontSize: 13.5, fontWeight: "600", flex: 1 }} numberOfLines={1}>{msg.subject}</Text>
+                  <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600", flex: 1 }} numberOfLines={1}>{msg.subject}</Text>
                   <Text style={s.faint}>
                     {msg.published_at ? new Date(msg.published_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "Draft"}
                   </Text>

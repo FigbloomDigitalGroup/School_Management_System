@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import { darajaToken, queryStk, secretsMatch, stkPassword, timestamp } from "./daraja.ts";
-import { itFails } from "./knownDefect.ts";
 
 const realFetch = globalThis.fetch;
 const realNow = Date.now;
@@ -95,13 +94,13 @@ describe("queryStk (how mpesa-callback confirms a result with Daraja)", () => {
     assertEquals(calls.length, 1);
   });
 
-  // An empty or non-numeric ResultCode is read by Number(): "" and null become 0, which mpesa-callback takes for "paid",
-  // and "abc" becomes NaN, which it takes for a permanent failure. The right answer to a result we can't read is to throw,
-  // so the callback answers 500 and Safaricom asks again.
-  for (const [label, resultCode] of [["an empty string", ""], ["null", null], ["a non-number", "abc"]] as const) {
-    itFails(`FIG-1322 (open): ResultCode ${label} is refused, not read as a result`, async () => {
+  // FIG-1322 (fixed): an empty or non-numeric ResultCode used to be read by Number(): "" and null became 0, which mpesa-callback
+  // took for "paid", and "abc" became NaN, which it took for a permanent failure. A result we cannot read now throws, so the
+  // callback answers 500 and Safaricom asks again.
+  for (const [label, resultCode] of [["an empty string", ""], ["null", null], ["a non-number", "abc"], ["a space and a zero", " 0"], ["a decimal", "1.5"], ["a boolean", true], ["an object", {}]] as const) {
+    it(`FIG-1322: ResultCode ${label} is refused, not read as a result`, async () => {
       stubDaraja(() => json({ ResponseCode: "0", ResultCode: resultCode }));
-      await assertRejects(() => queryStk("a"));
+      await assertRejects(() => queryStk("a"), Error, "unreadable result");
     });
   }
 });

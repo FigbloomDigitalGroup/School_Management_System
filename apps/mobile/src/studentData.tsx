@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { ActivityIndicator, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { fetchClassTimetable, loadStudentData, markStudentNoticeRead, subscribeAnnouncements, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
-import { accentFor, t } from "./theme";
+import { accentFor } from "./theme";
+import { useTheme } from "./ui/ThemeContext";
 
 /**
  * Real student data — the same query web's student screens use, plus the
@@ -24,6 +25,10 @@ interface Ctx {
   markNoticeRead: (id: string) => void;
   accent: string;
   country: string;
+  /** The learner's school, for the loaders that are scoped to it (their activities). */
+  tenantId: string;
+  /** The signed-in account, for what is keyed on the profile rather than the learner record (their fees). */
+  profileId: string;
 }
 
 type State =
@@ -34,6 +39,7 @@ type State =
 const StudentDataCtx = createContext<Ctx | null>(null);
 
 export function StudentDataProvider({ profileId, accent, country, tenantId, children }: { profileId: string; accent: string; country: string; tenantId: string; children: ReactNode }) {
+  const { t } = useTheme();
   const [state, setState] = useState<State>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -92,7 +98,7 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
   if (state.status === "empty") {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: t.appSurface.page }}>
-        <Text style={{ fontSize: 15, fontWeight: "600", textAlign: "center" }}>No learner record linked to this account yet</Text>
+        <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600", textAlign: "center" }}>No learner record linked to this account yet</Text>
         <Text style={{ fontSize: 13, color: t.appSurface.inkMuted, textAlign: "center", marginTop: 8 }}>
           Contact the school office.
         </Text>
@@ -101,7 +107,7 @@ export function StudentDataProvider({ profileId, accent, country, tenantId, chil
   }
 
   return (
-    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, markNoticeRead: markRead, accent, country }}>
+    <StudentDataCtx.Provider value={{ data: state.cached.data, timetable: state.cached.timetable, markNoticeRead: markRead, accent, country, tenantId, profileId }}>
       {children}
     </StudentDataCtx.Provider>
   );

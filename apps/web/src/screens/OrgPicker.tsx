@@ -25,7 +25,7 @@ export function OrgPicker() {
   }, []);
 
   async function signOut() {
-    await supabase().auth.signOut();
+    await supabase().auth.signOut({ scope: "local" });
     nav("/signin", { replace: true });
   }
 

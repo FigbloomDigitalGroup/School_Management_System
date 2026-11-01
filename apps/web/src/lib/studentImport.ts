@@ -1,4 +1,4 @@
-import { splitCsvLine, splitList, supabase } from "@figbloom/shared";
+import { localDay, setHealthConsent, splitCsvLine, splitList, supabase } from "@figbloom/shared";
 
 /**
  * Bulk/CSV student import. One admission per term intake, forty-plus rows at
@@ -8,8 +8,13 @@ import { splitCsvLine, splitList, supabase } from "@figbloom/shared";
  */
 
 export const IMPORT_COLUMNS = ["admission_no", "full_name", "gender", "class", "boarding", "date_of_birth"] as const;
-/** Optional extra columns: where the learner lives (text; a pin is placed later, or given as home_lat/home_lng) and health. */
-export const OPTIONAL_IMPORT_COLUMNS = ["home_address", "home_landmark", "home_lat", "home_lng", "allergies", "medical_conditions"] as const;
+/**
+ * Optional extra columns: where the learner lives (text; a pin is placed later, or given as home_lat/home_lng) and health.
+ * Allergies and conditions need the family's signed consent form: who signed it and the date on it.
+ */
+export const OPTIONAL_IMPORT_COLUMNS = [
+  "home_address", "home_landmark", "home_lat", "home_lng", "allergies", "medical_conditions", "health_consent_signed_by", "health_consent_date",
+] as const;
 
 export interface ImportRow {
   line: number;
@@ -26,6 +31,8 @@ export interface ImportRow {
   home_lng: number | null;
   allergies: string[];
   medical_conditions: string[];
+  /** The signed health consent form, when the row has allergies or conditions. */
+  health_consent: { signedBy: string; formDate: string } | null;
   errors: string[];
 }
 
@@ -81,6 +88,8 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
     home_lng: col("home_lng"),
     allergies: col("allergies"),
     medical_conditions: col("medical_conditions"),
+    health_consent_signed_by: col("health_consent_signed_by"),
+    health_consent_date: col("health_consent_date"),
   };
   const cell = (cells: string[], i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
 
@@ -127,6 +136,18 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
       }
     }
 
+    const allergies = splitList(cell(cells, idx.allergies));
+    const medical_conditions = splitList(cell(cells, idx.medical_conditions));
+    const signedBy = cell(cells, idx.health_consent_signed_by).slice(0, 120);
+    const consentDate = parseDate(cell(cells, idx.health_consent_date));
+    let health_consent: ImportRow["health_consent"] = null;
+    if (allergies.length || medical_conditions.length) {
+      if (!signedBy || !consentDate) errors.push("Allergies and conditions need the family's consent form: health_consent_signed_by and health_consent_date.");
+      else if (consentDate === "invalid") errors.push("health_consent_date must be YYYY-MM-DD.");
+      else if (consentDate > localDay(new Date())) errors.push("health_consent_date can't be in the future.");
+      else health_consent = { signedBy, formDate: consentDate };
+    }
+
     if (admission_no) seenInFile.add(admission_no);
 
     rows.push({
@@ -141,8 +162,9 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
       home_landmark,
       home_lat,
       home_lng,
-      allergies: splitList(cell(cells, idx.allergies)),
-      medical_conditions: splitList(cell(cells, idx.medical_conditions)),
+      allergies,
+      medical_conditions,
+      health_consent,
       errors,
     });
   }
@@ -152,9 +174,9 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
 
 export function csvTemplate(): string {
   return [
-    [...IMPORT_COLUMNS, "home_address", "home_landmark", "allergies", "medical_conditions"].join(","),
-    "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14,,,,",
-    '4502,Otieno Odhiambo,male,Form 2 East,no,,"Plot 12, Kahawa Sukari",Opposite Naivas,"Peanuts; Eggs",Asthma',
+    [...IMPORT_COLUMNS, "home_address", "home_landmark", "allergies", "medical_conditions", "health_consent_signed_by", "health_consent_date"].join(","),
+    "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14,,,,,,",
+    '4502,Otieno Odhiambo,male,Form 2 East,no,,"Plot 12, Kahawa Sukari",Opposite Naivas,"Peanuts; Eggs",Asthma,Grace Odhiambo,2026-01-06',
   ].join("\n");
 }
 
@@ -196,14 +218,25 @@ export async function importStudents(
   ).select("id, admission_no").returns<{ id: string; admission_no: string }[]>();
   if (error) throw error;
 
-  // Allergies and conditions go to student_health (one row per learner who has any).
+  // Allergies and conditions go to student_health (one row per learner who has any),
+  // after recording each family's signed consent form: without it the database refuses them.
   const idByAdmission = new Map((created ?? []).map((c) => [c.admission_no, c.id]));
   const health = valid
-    .filter((r) => r.allergies.length || r.medical_conditions.length)
-    .map((r) => ({ tenant_id: tenantId, student_id: idByAdmission.get(r.admission_no), allergies: r.allergies, medical_conditions: r.medical_conditions }))
-    .filter((h): h is typeof h & { student_id: string } => !!h.student_id);
+    .filter((r) => r.health_consent && (r.allergies.length || r.medical_conditions.length))
+    .map((r) => ({
+      consent: r.health_consent!,
+      row: { tenant_id: tenantId, student_id: idByAdmission.get(r.admission_no), allergies: r.allergies, medical_conditions: r.medical_conditions },
+    }))
+    .filter((h): h is typeof h & { row: { student_id: string } } => !!h.row.student_id);
   if (health.length) {
-    const { error: healthErr } = await supabase().from("student_health").upsert(health, { onConflict: "student_id" });
+    try {
+      for (let i = 0; i < health.length; i += 8) {
+        await Promise.all(health.slice(i, i + 8).map((h) => setHealthConsent(h.row.student_id, true, h.consent)));
+      }
+    } catch (err) {
+      throw new Error(`The learners were imported, but their health consent forms didn't save: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const { error: healthErr } = await supabase().from("student_health").upsert(health.map((h) => h.row), { onConflict: "student_id" });
     if (healthErr) throw new Error(`The learners were imported, but their allergies and conditions didn't save: ${healthErr.message}`);
   }
   return valid.length;

@@ -38,3 +38,27 @@ export function csvCell(value: string | number | null | undefined): string {
 export function toCsv(header: string[], rows: (string | number | null | undefined)[][]): string {
   return [header.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))].join("\n");
 }
+
+/** A number as written in a table, which no spreadsheet would read as a formula. */
+const PLAIN_NUMBER = /^[-−]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/;
+
+/**
+ * A cell that can't run as a spreadsheet formula: text starting with = + - @
+ * (or a tab or carriage return) gets a leading apostrophe, so Excel, Sheets
+ * and LibreOffice show it as text. A plain negative number ("-1,250") is left
+ * as it is.
+ */
+export function csvFormulaSafe(value: string): string {
+  if (!/^[=+\-@\t\r]/.test(value) || PLAIN_NUMBER.test(value)) return value;
+  return `'${value}`;
+}
+
+/**
+ * CSV for opening in a spreadsheet (RFC 4180): CRLF between rows, quoting
+ * where needed, every cell guarded by csvFormulaSafe(), and a UTF-8 byte order
+ * mark so Excel reads accented and Swahili text as UTF-8.
+ */
+export function toSpreadsheetCsv(header: string[], rows: string[][]): string {
+  const line = (r: string[]) => r.map((c) => csvCell(csvFormulaSafe(c))).join(",");
+  return `${String.fromCharCode(0xfeff)}${[line(header), ...rows.map(line)].join("\r\n")}\r\n`;
+}

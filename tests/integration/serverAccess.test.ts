@@ -206,23 +206,26 @@ describe("sessions", () => {
     await b.client.auth.signOut({ scope: "local" });
   });
 
-  // The access token is a signed JWT that PostgREST checks only for signature and expiry (an hour here). Auth knows the session is
-  // gone (the test above), the REST API does not ask it.
-  it.fails("FIG-1339 (open): after sign-out the old access token no longer reads data through the REST API", async () => {
+  // FIG-1339 (fixed on main, supabase/config.toml jwt_expiry = 900): an access token lasts 15 minutes, not an hour.
+  it("FIG-1339: an access token lasts at most 15 minutes", async () => {
+    const a = await login();
+    expect(a.session.expires_in).toBeLessThanOrEqual(900);
+    await a.client.auth.signOut({ scope: "local" });
+  });
+
+  // The access token is a signed JWT that PostgREST checks only for signature and expiry. Auth knows the session is gone (the test
+  // above), the REST API does not ask it. Main's FIG-1339 fix shortens the window (access tokens last 15 minutes, not an hour: see the
+  // next test) but cannot close it: a signed token stays good until it expires. So this stays a known gap, now of at most 15 minutes.
+  it.fails("FIG-1339 (partly fixed on main, the window is 15 minutes): after sign-out the old access token no longer reads data through the REST API", async () => {
     const a = await login();
     const token = a.session.access_token;
     await a.client.auth.signOut({ scope: "local" });
     expect((await rest("students?select=id&limit=1", token)).status).toBe(401);
   });
 
-  // supabase-js signOut() defaults to scope 'global': the web Sign out button, the "Not you? Sign out" link and the wrong-portal
-  // check all call it without a scope, so ending one session ends every session of the account, on every device.
-  it.fails("FIG-1340 (open): signing out one session (the way the apps do it) leaves the account's other session working", async () => {
-    const a = await login();
-    const b = await login();
-    await a.client.auth.signOut(); // exactly what the apps call
-    expect(await user(b.session.access_token)).toBe(200);
-  });
+  // FIG-1340 (fixed on main): supabase-js signOut() defaults to scope 'global', and the apps used to call it bare, so ending one session
+  // ended every session of the account. Every sign-out in the apps now passes { scope: "local" } (packages/shared/src/signOut.test.ts
+  // reads the source for a bare call); the control test above shows that leaves the other session working.
 });
 
 // ---------------------------------------------------------------- 3. first sign-in and password rules
@@ -255,16 +258,37 @@ describe("first sign-in: what the server enforces (the screens ask for a new pas
     expect(me.data!.must_change_password).toBe(true);
   });
 
-  // The web and phone screens show only the choose-a-password form while the flag is set. The server does not: every request works.
-  it.fails("FIG-1338 (open): while must_change_password is set the server refuses everything except choosing a password", async () => {
+  // (a decision, not a defect) The web and phone screens show only the choose-a-password form while the flag is set. The server does
+  // not refuse the other requests, and main's FIG-1338 fix deliberately leaves it so: whoever holds the temporary password can choose
+  // a new one first, so refusing would stop nobody. Recorded so a change either way is noticed.
+  it("(a decision, FIG-1338) while must_change_password is set the server still answers other requests", async () => {
     const res = await driver.client.from("vehicles").select("id").limit(1);
-    expect(res.error, "reading with a temporary password").not.toBeNull();
+    expect(res.error).toBeNull();
   });
 
-  // The form clears the flag itself, with a plain profile update after changing the password. Nothing makes the two go together.
-  it.fails("FIG-1338 (open): the flag cannot be cleared without choosing a new password", async () => {
+  // FIG-1338 (fixed on main, 20261104400000): the flag is cleared by the password changing (a trigger on auth.users), not by asking.
+  // A profile edit that tries to clear it is accepted without an error but the flag stays set.
+  it("FIG-1338: clearing the flag by hand does nothing while the temporary password is still in place", async () => {
     const res = await driver.client.from("profiles").update({ must_change_password: false }).eq("id", driverId).select("must_change_password");
-    expect(res.error, "clearing the flag by hand").not.toBeNull();
+    expect(res.error).toBeNull();
+    const me = await driver.client.from("profiles").select("must_change_password").eq("id", driverId).single();
+    expect(me.data!.must_change_password, "still set").toBe(true);
+  });
+
+  it("FIG-1338: choosing a new password clears the flag, whoever's session does it", async () => {
+    const changed = await driver.client.auth.updateUser({ password: `${SEED_PASSWORD}-next` });
+    let failure: unknown;
+    try {
+      expect(changed.error).toBeNull();
+      const me = await admin.client.from("profiles").select("must_change_password").eq("id", driverId).single();
+      expect(me.data!.must_change_password, "cleared by the change").toBe(false);
+    } catch (e) {
+      failure = e;
+    }
+    // put the seeded password back whatever happened above
+    const back = await driver.client.auth.updateUser({ password: SEED_PASSWORD });
+    if (back.error) throw new Error(`could not restore the seed password: ${back.error.message}`);
+    if (failure) throw failure;
   });
 
   it("the flag can never be re-armed by the account itself (only the office can)", async () => {
@@ -274,18 +298,12 @@ describe("first sign-in: what the server enforces (the screens ask for a new pas
     expect(res.error?.code).toBe("42501");
   });
 
-  // The form asks for 8 characters; Auth accepts 6 (its default, nothing in supabase/config.toml raises it).
-  it.fails("FIG-1338 (open): the server enforces the 8-character minimum the form asks for", async () => {
-    let failure: unknown;
-    try {
-      const weak = await driver.client.auth.updateUser({ password: "abc123" });
-      expect(weak.error, "a 6-character password").not.toBeNull();
-    } catch (e) {
-      failure = e;
-    }
-    // put the seeded password back whatever happened above (a throw inside `finally` would hide the failure)
-    const back = await driver.client.auth.updateUser({ password: SEED_PASSWORD });
-    if (back.error) throw new Error(`could not restore the seed password: ${back.error.message}`);
-    if (failure) throw failure;
+  // FIG-1338 (fixed on main): the form asks for 8 characters and Auth enforces it too (minimum_password_length = 8 in supabase/config.toml;
+  // a stack started before that setting needs a restart, and a hosted project needs the setting changed by hand).
+  it("FIG-1338: the server enforces the 8-character minimum the form asks for", async () => {
+    const weak = await driver.client.auth.updateUser({ password: "abc123" });
+    // if the server let a 6-character password through, put the seeded one back before failing
+    if (!weak.error) await driver.client.auth.updateUser({ password: SEED_PASSWORD });
+    expect(weak.error, "a 6-character password").not.toBeNull();
   });
 });

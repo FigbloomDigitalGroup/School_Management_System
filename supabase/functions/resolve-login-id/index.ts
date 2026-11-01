@@ -24,10 +24,13 @@ import { CORS_HEADERS } from "../_shared/cors.ts";
 import { loginIdEmail } from "../_shared/loginId.ts";
 import { maskName } from "../_shared/maskName.ts";
 import { canSignIn } from "../_shared/signInStatuses.ts";
+import { callerKey, dbLimiter, type Limiter, overallKey, unlimited } from "../_shared/rateLimit.ts";
 
 /** Lookups one caller may make in the window. A person fixing a typo makes a handful. */
 const LOOKUP_LIMIT = 30;
 const LOOKUP_WINDOW = "10 minutes";
+/** Lookups at one school, from everyone together: a whole school signing in at once fits, a script walking its roll is slowed (FIG-1336). */
+const SCHOOL_LOOKUP_LIMIT = 1500;
 const TOO_MANY_MESSAGE = "Too many attempts. Wait a few minutes and try again.";
 
 const NOT_FOUND_MESSAGE = "We couldn't find that ID at this school. Check with the school office.";
@@ -41,23 +44,16 @@ export interface Deps {
   // deno-lint-ignore no-explicit-any
   admin: any;
   /** Records a lookup by this caller and says whether it is still within its allowance. */
-  withinLimit: (callerKey: string) => Promise<boolean>;
+  withinLimit: Limiter;
+  /** The same for the school being looked up in, whoever asks. */
+  withinSchoolLimit?: Limiter;
 }
 
-/** Who is asking: a hash of the caller's address, so the limit works without keeping the address itself. */
-export async function callerKey(req: Request): Promise<string> {
-  const ip = req.headers.get("cf-connecting-ip")
-    ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? "unknown";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`resolve-login-id:${ip}`));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-export async function handle(req: Request, { admin, withinLimit }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, withinLimit, withinSchoolLimit = unlimited }: Deps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  if (!(await withinLimit(await callerKey(req)))) return json({ error: TOO_MANY_MESSAGE }, 429);
+  if (!(await withinLimit(await callerKey(req, "resolve-login-id")))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   let body: Partial<Body>;
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
@@ -65,6 +61,7 @@ export async function handle(req: Request, { admin, withinLimit }: Deps): Promis
   const tenantId = body.tenant_id?.trim();
   const rawLoginId = body.login_id?.trim();
   if (!tenantId || !rawLoginId) return json({ error: "A school and an ID are both required." }, 400);
+  if (!(await withinSchoolLimit(await overallKey("resolve-login-id", tenantId)))) return json({ error: TOO_MANY_MESSAGE }, 429);
 
   // login_id is always generated uppercase (formatLoginId's ROLE_ID_PREFIX
   // values are all uppercase) -- normalise what was typed the same way so
@@ -90,11 +87,8 @@ if (import.meta.main) {
     return handle(req, {
       admin,
       // If the limiter itself fails, let the lookup through: sign-in matters more than the limit.
-      withinLimit: async (key) => {
-        const { data, error } = await admin.rpc("note_login_lookup", { p_key: key, p_limit: LOOKUP_LIMIT, p_window: LOOKUP_WINDOW });
-        if (error) { console.error("resolve-login-id: rate limiter failed:", error.message); return true; }
-        return data !== false;
-      },
+      withinLimit: dbLimiter(admin, "resolve-login-id", LOOKUP_LIMIT, LOOKUP_WINDOW),
+      withinSchoolLimit: dbLimiter(admin, "resolve-login-id", SCHOOL_LOOKUP_LIMIT, LOOKUP_WINDOW),
     });
   });
 }

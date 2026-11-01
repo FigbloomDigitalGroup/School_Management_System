@@ -5,6 +5,7 @@
  */
 module.exports = {
   preset: "react-native",
+  setupFiles: ["<rootDir>/jest.setup.js"],
   testMatch: ["<rootDir>/src/**/*.test.{ts,tsx}"],
   transformIgnorePatterns: ["node_modules/(?!((jest-)?react-native|@react-native(-community)?|@figbloom)/)"],
 };

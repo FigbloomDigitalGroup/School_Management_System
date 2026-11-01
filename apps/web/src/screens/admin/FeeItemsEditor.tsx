@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { formatMoney, levelsForTenant, supabase, targetYearLabel, yearGroupKey, yearGroupsOf, yearLabel, yearsFor, type FeeItem, type YearGroup } from "@figbloom/shared";
+import { formatMoney, levelsForTenant, parseShillings, supabase, targetYearLabel, yearGroupKey, yearGroupsOf, yearLabel, yearsFor, type FeeItem, type YearGroup } from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const APPLIES_TO_OPTIONS: { value: FeeItem["applies_to"]; label: string }[] = [
   { value: "all", label: "Every learner" },
@@ -40,8 +41,10 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
   const dirty = name !== item.name || amount !== String(item.amount_cents / 100);
 
   async function save() {
-    const cents = Math.round(parseFloat(amount) * 100);
-    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) { toast("Give it a name and a positive amount.", "error"); return; }
+    const parsed = parseShillings(amount);  // whole shillings (FIG-1334)
+    if (!parsed.ok) { toast(parsed.message, "error"); return; }
+    const cents = parsed.cents;
+    if (!name.trim() || cents <= 0) { toast("Give it a name and a positive amount.", "error"); return; }
     setSaving(true);
     try {
       const { error } = await supabase().from("fee_items").update({ name: name.trim(), amount_cents: cents }).eq("id", item.id);
@@ -55,7 +58,7 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
   }
 
   async function remove() {
-    if (!window.confirm(`Remove "${item.name}" from this term's fee structure?`)) return;
+    if (!(await confirmDialog({ title: `Remove "${item.name}" from this term's fee structure?`, confirmLabel: "Remove", danger: true }))) return;
     const { error } = await supabase().from("fee_items").delete().eq("id", item.id);
     if (error) { toast(`Could not remove that item: ${error.message}`, "error"); return; }
     onDeleted();
@@ -120,8 +123,10 @@ export function FeeItemsEditor({ termId, termName, tenantId, country, onClose }:
   useEffect(() => { if (appliesTo !== "form_level") setPickedYear(null); }, [appliesTo]);
 
   async function createItem() {
-    const cents = Math.round(parseFloat(amount) * 100);
-    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) { toast("Give the item a name and a positive amount.", "error"); return; }
+    const parsed = parseShillings(amount);  // whole shillings (FIG-1334)
+    if (!parsed.ok) { toast(parsed.message, "error"); return; }
+    const cents = parsed.cents;
+    if (!name.trim() || cents <= 0) { toast("Give the item a name and a positive amount.", "error"); return; }
     if (appliesTo === "form_level" && !yearGroup) { toast("Pick which year group this item is for.", "error"); return; }
     setCreating(true);
     try {

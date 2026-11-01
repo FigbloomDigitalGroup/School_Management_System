@@ -19,7 +19,10 @@ final copy.
   teacher app. Still missing: a 7"/10" tablet set for Play, and iPhone sizes
   for App Store once FIG-463 unblocks iOS (no Mac/simulator available here).
 
-The privacy policy lives at `apps/web/public/privacy.html` (not here) so it
-ships with the web app's normal deploy and is reachable at a real URL
-without separate hosting — see the note inside it before using it for a
-real submission (no legal review yet, confirm the contact inbox is real).
+The privacy policy (`apps/web/public/privacy.html`) and the page on deleting
+an account (`apps/web/public/delete-account.html`) live there, not here, so
+they ship with the web app's normal deploy and are reachable at real URLs
+without separate hosting. `data-safety.md` has the answers for Play's Data
+safety form and permission declarations and for App Store Connect, and the
+checklist of what is still yours to confirm (legal review, the inbox, the
+domain, the target-audience answer, background location).

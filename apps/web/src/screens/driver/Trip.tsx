@@ -193,7 +193,7 @@ export function DriverTrip() {
   }
 
   async function handleSignOut() {
-    await supabase().auth.signOut();
+    await supabase().auth.signOut({ scope: "local" });
     navigate("/signin", { replace: true });
   }
 

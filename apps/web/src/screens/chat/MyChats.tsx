@@ -11,12 +11,16 @@ const COPY = {
     empty: "Start a chat with a parent or guardian.",
   },
   teacher: {
-    blurb: "One-to-one chats with the parents of learners you teach. For the whole class, use Messages.",
-    empty: "Start a chat with the parent of a learner you teach.",
+    blurb: "One-to-one chats with the parents of learners you teach and with colleagues. For the whole class, use Messages.",
+    empty: "Start a chat with the parent of a learner you teach, or a colleague.",
+  },
+  staff: {
+    blurb: "One-to-one chats with the school office, teachers and other staff.",
+    empty: "Start a chat with the school office, a teacher or a colleague.",
   },
 } as const;
 
-/** Chats for a parent, a learner or a teacher; the office's version, with oversight, is admin/Chats. */
+/** Chats for a parent, a learner, a teacher or other staff; the office's version, with oversight, is admin/Chats. */
 export function MyChats({ role }: { role: keyof typeof COPY }) {
   return (
     <div className="flex h-full flex-col">

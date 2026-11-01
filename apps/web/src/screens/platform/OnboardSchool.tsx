@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SCHOOL_LEVEL_OPTIONS, countryProfile, normalizeSlug, similarSchoolNames, slugAlternatives, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { SCHOOL_LEVEL_OPTIONS, countryProfile, emailOutcomeLine, normalizeSlug, similarSchoolNames, slugAlternatives, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { CountrySelect } from "../../components/ui/CountrySelect";
 import { SelectField, TextField } from "../../components/ui/Field";
@@ -33,11 +33,11 @@ const BLANK: Form = {
  *
  * The drop-off point is step 4: the administrator's contact details. A wrong
  * email means a school that never logs in and shows up a fortnight later as
- * "setup stalled". There is no real email/SMS provider wired up, so the
- * account is created outright with a random one-time password (see
- * supabase/functions/invite-admin) — the success screen shows those
- * credentials to hand to the school directly, rather than claiming an
- * invite was delivered when nothing was actually sent.
+ * "setup stalled". The account is created outright with a random one-time
+ * password (see supabase/functions/invite-admin), emailed to the
+ * administrator when Resend is set up — the success screen shows those
+ * credentials either way and says whether the email went, rather than
+ * claiming an invite was delivered when nothing was actually sent.
  */
 export function OnboardSchool({
   open, onClose, existingSlugs, existingNames, onCreated,
@@ -417,8 +417,10 @@ export function OnboardSchool({
           <div className="mx-auto mb-4 grid h-[52px] w-[52px] place-items-center rounded-full bg-ok-bg text-2xl text-ok-ink">✓</div>
           <h3 className="text-[19px] font-semibold">{tenant?.name ?? form.name ?? "The school"} is live</h3>
           <p className="mx-auto mt-1.5 max-w-[430px] text-body leading-relaxed text-ink-muted">
-            The school and its administrator's account both exist for real now. Nothing was emailed or texted — hand
-            these credentials to {form.adminName || "the administrator"} directly.
+            The school and its administrator's account both exist for real now.{" "}
+            {credentials?.emailed?.status === "sent"
+              ? `${emailOutcomeLine(credentials.emailed)} If it doesn't arrive, hand these credentials to ${form.adminName || "the administrator"} directly.`
+              : `${credentials?.emailed ? emailOutcomeLine(credentials.emailed) : "Nothing was emailed or texted."} Hand these credentials to ${form.adminName || "the administrator"} directly.`}
           </p>
           <div className="mx-auto mt-5 max-w-[420px] rounded-xl border border-line bg-sunken p-4 text-left">
             <div className="mb-2.5 font-mono text-micro tracking-[0.12em] text-ink-faint">FIRST LOGIN</div>

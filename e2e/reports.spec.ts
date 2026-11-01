@@ -291,7 +291,12 @@ test.describe("Dashboard: who wasn't here", () => {
 
 // ================================================================ cleanup of everything the tests below write
 const EMPTY_SLUG = "qa13-empty", EMPTY_ADMIN = "qa13e.admin@qa13empty.sc.ke";
-const SEED = { allianceStudents: 339, allianceInvoices: 339, marks: 387, publications: 9 };
+// payments: main's seed records a real payment behind every paid invoice (FIG-1332); and since FIG-1319 nothing with a payment on it can be
+// deleted, so the learners this file bills and pays (QA13-F-...) stay behind, archived, and so do the ones the integration tests bill (QA05-...).
+// The counts below leave out every learner whose admission number starts QA (the seed's are numbers), and count the seeded term's invoices and
+// payments only (the integration tests bill every active learner in terms of their own, and pay some of those invoices).
+const SEED = { allianceStudents: 339, allianceInvoices: 339, marks: 387, publications: 9, alliancePayments: 300 };
+const RUN = Date.now().toString(36);
 let faithId = "", kijaniKidId = "", west = "", mock1 = "", teacherId = "";
 
 async function removeUser(email: string) {
@@ -310,8 +315,10 @@ async function cleanupQa13(): Promise<string[]> {
   for (let i = 0; i < extra.length; i += 100) {
     const ids = extra.slice(i, i + 100).map((s) => s.id);
     await db.from("fee_invoices").delete().in("student_id", ids);
+    // their invoices were seeded with a paid amount, and an invoice that has been paid is kept for good (FIG-1319), so the learners cannot be
+    // deleted any more: archive them (npm run db:fresh removes them, and must run before the next reconciliation spec)
     const del = await db.from("students").delete().in("id", ids);
-    if (del.error) errors.push(`learners: ${del.error.message}`);
+    if (del.error) { const arch = await db.from("students").update({ active: false }).in("id", ids); if (arch.error) errors.push(`learners: ${arch.error.message}`); }
   }
   await db.from("platform_invoices").delete().eq("amount_cents", 123456);
   await db.from("platform_incidents").delete().like("title", "QA13X%");
@@ -325,14 +332,16 @@ async function cleanupQa13(): Promise<string[]> {
   await db.from("service_status").delete().or(`detail.eq.QA13X,checked_at.gte.${RUN_START}`);
   await db.from("tenants").update({ trial_ends_at: null, renews_on: null }).in("slug", ["nakuru-girls", "alliance"]);
   for (const s of (await db.from("students").select("id").eq("tenant_id", alliance).like("admission_no", "QA13-F-%")).data ?? []) {
-    await db.from("fee_invoices").delete().eq("student_id", s.id as string);
-    await db.from("students").delete().eq("id", s.id as string);
+    // an invoice with a payment on it is kept for good (FIG-1319), and so is its learner: archive them so nothing else counts them
+    const invoicesGone = !(await db.from("fee_invoices").delete().eq("student_id", s.id as string)).error;
+    const gone = invoicesGone && !(await db.from("students").delete().eq("id", s.id as string)).error;
+    if (!gone) await db.from("students").update({ active: false }).eq("id", s.id as string);
   }
   await removeUser(EMPTY_ADMIN);
   await db.from("tenants").delete().eq("slug", EMPTY_SLUG);
   const n = async (tbl: string, f: (q: ReturnType<typeof db.from>) => unknown) => ((await (f(db.from(tbl)) as PromiseLike<{ count: number | null }>)).count ?? 0);
-  const students = await n("students", (q) => q.select("id", { count: "exact", head: true }).eq("tenant_id", alliance));
-  const invoices = await n("fee_invoices", (q) => q.select("id", { count: "exact", head: true }).eq("tenant_id", alliance));
+  const students = await n("students", (q) => q.select("id", { count: "exact", head: true }).eq("tenant_id", alliance).not("admission_no", "like", "QA%"));
+  const invoices = await n("fee_invoices", (q) => q.select("id, students!inner(admission_no)", { count: "exact", head: true }).eq("tenant_id", alliance).eq("term_id", term3).not("students.admission_no", "like", "QA%"));
   const marks = await n("marks", (q) => q.select("id", { count: "exact", head: true }).eq("exam_id", mock1));
   const pubs = await n("mark_publications", (q) => q.select("exam_id", { count: "exact", head: true }).eq("exam_id", mock1));
   if (students !== SEED.allianceStudents) errors.push(`Alliance has ${students} learners, not ${SEED.allianceStudents}`);
@@ -342,7 +351,7 @@ async function cleanupQa13(): Promise<string[]> {
   if ((await db.from("tenants").select("id").eq("slug", EMPTY_SLUG)).data?.length) errors.push("the empty school is still there");
   const incidents = await n("platform_incidents", (q) => q.select("id", { count: "exact", head: true }));
   const health = await n("service_status", (q) => q.select("id", { count: "exact", head: true }));
-  const payments = await n("payments", (q) => q.select("id", { count: "exact", head: true }).eq("tenant_id", alliance));
+  const payments = await n("payments", (q) => q.select("id, fee_invoices!inner(students!inner(admission_no))", { count: "exact", head: true }).eq("tenant_id", alliance).eq("fee_invoices.term_id", term3).not("fee_invoices.students.admission_no", "like", "QA%"));
   if (incidents !== 0) errors.push(`${incidents} incidents are left`);
   const invoicesP = await n("platform_invoices", (q) => q.select("id", { count: "exact", head: true }));
   const sessions = await n("impersonation_sessions", (q) => q.select("id", { count: "exact", head: true }));
@@ -357,7 +366,7 @@ async function cleanupQa13(): Promise<string[]> {
   // The seed writes none; an earlier "Check now" may have left a few. Whatever is there before the run must be there after it.
   if (healthBaseline === null) healthBaseline = health;
   if (health !== healthBaseline) errors.push(`service_status has ${health} rows, not ${healthBaseline}`);
-  if (payments !== 0) errors.push(`Alliance has ${payments} payments, not 0`);
+  if (payments !== SEED.alliancePayments) errors.push(`Alliance has ${payments} payments, not ${SEED.alliancePayments}`);
   return errors;
 }
 test.beforeAll(async () => {
@@ -888,11 +897,11 @@ test.describe("Platform: Incidents", () => {
 // ================================================================ the billing and payment dialogs
 test.describe("Fees: the billing and payment dialogs", () => {
   const people = [
-    { no: "QA13-F-01", name: "QA13F Day Form1", cls: "Form 1 East", form: 1, boarding: false },
-    { no: "QA13-F-02", name: "QA13F Boarder Form1", cls: "Form 1 East", form: 1, boarding: true },
-    { no: "QA13-F-03", name: "QA13F Day Form4", cls: "Form 4 East", form: 4, boarding: false },
-    { no: "QA13-F-04", name: "QA13F Boarder Form4", cls: "Form 4 West", form: 4, boarding: true },
-    { no: "QA13-F-05", name: "QA13F Day Form2", cls: "Form 2 West", form: 2, boarding: false },
+    { no: `QA13-F-${RUN}-01`, name: "QA13F Day Form1", cls: "Form 1 East", form: 1, boarding: false },
+    { no: `QA13-F-${RUN}-02`, name: "QA13F Boarder Form1", cls: "Form 1 East", form: 1, boarding: true },
+    { no: `QA13-F-${RUN}-03`, name: "QA13F Day Form4", cls: "Form 4 East", form: 4, boarding: false },
+    { no: `QA13-F-${RUN}-04`, name: "QA13F Boarder Form4", cls: "Form 4 West", form: 4, boarding: true },
+    { no: `QA13-F-${RUN}-05`, name: "QA13F Day Form2", cls: "Form 2 West", form: 2, boarding: false },
   ];
   let items: { amount_cents: number; applies_to: string; form_level: number | null }[] = [];
   // The rule worked out by hand from the fee items: who each item applies to.
@@ -937,9 +946,14 @@ test.describe("Fees: the billing and payment dialogs", () => {
     const made = (await db.from("fee_invoices").select("total_cents, paid_cents, due_on, students!inner(admission_no)").eq("term_id", term3).like("students.admission_no", "QA13-F-%")).data as unknown as { total_cents: number; paid_cents: number; due_on: string; students: { admission_no: string } }[];
     expect(made).toHaveLength(people.length);
     for (const inv of made) { expect(Number(inv.total_cents), inv.students.admission_no).toBe(want.get(inv.students.admission_no)); expect(Number(inv.paid_cents)).toBe(0); expect(inv.due_on).toBe("2026-12-15"); }
-    const audit = (await db.from("audit_events").select("event").eq("tenant_id", alliance).like("event", "%billed:%").order("created_at", { ascending: false }).limit(1).single()).data!.event as string;
-    record("Fees > Bill learners", "invoices created / total / audit entry", `${made.length} / ${ksh(made.reduce((a, i) => a + Number(i.total_cents), 0))} / "Term 3, 2026 billed: ${made.length} invoices, ${ksh(total)}, due 2026-12-15"`, `${made.length} / ${ksh(total)} / "${audit}"`);
-    expect(audit).toContain(`billed: ${made.length} invoices, ${ksh(total)}, due 2026-12-15`);
+    // Since main's FIG-1331 the database writes the billing audit event itself, from what it saved: "N fee invoices created for <term>", with the count and total in its details.
+    const auditRow = (await db.from("audit_events").select("event, metadata").eq("tenant_id", alliance).like("event", "%fee invoices created for%").order("created_at", { ascending: false }).limit(1).single()).data!;
+    const audit = auditRow.event as string;
+    const details = auditRow.metadata as { invoices: number; total_cents: number };
+    record("Fees > Bill learners", "invoices created / total / audit entry", `${made.length} / ${ksh(made.reduce((a, i) => a + Number(i.total_cents), 0))} / "${made.length} fee invoices created for Term 3, 2026" with ${made.length} invoices and ${ksh(total)}`, `${made.length} / ${ksh(total)} / "${audit}" with ${details.invoices} invoices and ${ksh(Number(details.total_cents))}`);
+    expect(audit).toBe(`${made.length} fee invoices created for Term 3, 2026`);
+    expect(details.invoices).toBe(made.length);
+    expect(Number(details.total_cents)).toBe(total);
     await page.waitForTimeout(1000);
     await page.getByRole("button", { name: "Bill learners" }).click();
     await expect(page.getByRole("dialog")).toContainText("0 learners will be billed", { timeout: 30000 });
@@ -1408,7 +1422,7 @@ test.describe("More than 1,000 rows", () => {
     const c1 = (await db.from("classes").select("id").eq("tenant_id", alliance).eq("name", "Form 1 East").single()).data!.id as string;
     const ids: string[] = [];
     for (let i = 0; i < 1100; i += 200) {
-      const rows = Array.from({ length: 200 }, (_, j) => ({ tenant_id: alliance, admission_no: `QA13-E-${String(i + j + 1).padStart(4, "0")}`, full_name: `QA13E Learner ${i + j + 1}`, class_id: c1, boarding: false, active: true, gender: "female" }));
+      const rows = Array.from({ length: 200 }, (_, j) => ({ tenant_id: alliance, admission_no: `QA13-E-${RUN}-${String(i + j + 1).padStart(4, "0")}`, full_name: `QA13E Learner ${i + j + 1}`, class_id: c1, boarding: false, active: true, gender: "female" }));
       const r = await db.from("students").insert(rows).select("id");
       expect(r.error).toBeNull();
       ids.push(...r.data!.map((s) => s.id as string));

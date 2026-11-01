@@ -16,6 +16,8 @@ import { useAsync } from "../../lib/useAsync";
 import { listPaymentProofs, privateDocUrl, type PaymentProof } from "../../lib/uploads";
 import { PaymentProofForm, ProofLabel } from "../../components/PaymentProofForm";
 import { InvoiceSignature } from "../../components/signatures/InvoiceSignatures";
+import { FeeChargeLines } from "../../components/FeeChargeLines";
+import { ReceiptSignature, useReceiptSignatures } from "../../components/signatures/ReceiptSignatures";
 import { ChildSwitcher } from "./ChildSwitcher";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
@@ -89,6 +91,8 @@ export function ParentFees() {
     setOpen(true);
   }
 
+  const receiptSigs = useReceiptSignatures(child?.receipts.map((r) => r.id) ?? []);
+
   const feeItems = child && data ? itemsForStudent(data.feeItems as never, { boarding: child.boarding }, child.formLevel, child.classLevel) : [];
 
   return (
@@ -154,6 +158,7 @@ export function ParentFees() {
                       </div>
                     ))
                   )}
+                  <FeeChargeLines charges={child.charges} country={tenant.country} />
                 </div>
               </section>
 
@@ -164,10 +169,11 @@ export function ParentFees() {
                   { key: "ref", header: "Reference", render: (r: Receipt) => <Cell>{r.ref}</Cell> },
                   { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{formatMoney(r.amount, tenant.country)}</Mono> },
                   { key: "st", header: "", align: "right", width: "0.8fr", render: () => <Badge tone="ok">Received</Badge> },
+                  { key: "signed", header: "Signed for the school", align: "right", width: "1.3fr", render: (r: Receipt) => <ReceiptSignature signature={receiptSigs.get(r.id)} /> },
                 ]}
                 rows={child.receipts}
                 rowKey={(r) => r.id}
-                minWidth="480px"
+                minWidth="640px"
                 empty={{ title: "No receipts yet.", body: "Payments appear here once the school has confirmed them." }}
               />
             </div>

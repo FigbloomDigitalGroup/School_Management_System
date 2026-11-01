@@ -282,7 +282,8 @@ begin
   insert into classes (tenant_id, name, form_level) values (t, 'QA15 class', 1) returning id into c;
   insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current) values (t, 'QA15 term', 2040, 1, '2040-01-01', '2040-04-01', true) returning id into tm;
   insert into students (tenant_id, admission_no, full_name, gender, class_id) values (t, 'QA15-G1', 'QA15 gone', 'female', c) returning id into s;
-  insert into attendance (tenant_id, student_id, class_id, term_id, taken_on, taken_by, mark) values (t, s, c, tm, '2040-01-02', current_setting('t.admin')::uuid, 'present');
+  -- (no attendance row here any more: since main's same-school rule, 20261103700000-ish / FIG-1313, a mark cannot be taken by a profile of
+  -- another school, and a throwaway school has no profile of its own; the fee invoice below exercises the same delete guard)
   insert into fee_invoices (tenant_id, student_id, term_id, total_cents, due_on) values (t, s, tm, 100000, '2040-01-30');
   delete from tenants where id = t;
   perform pg_temp.check('C1 deleting a whole school removes its learners, their attendance and invoices (the guard steps aside for the cascade)',
@@ -319,7 +320,7 @@ select pg_temp.check('C3 and a health record for this school''s own learner is a
 select set_config('t.r', pg_temp.as_user(current_setting('t.admin')::uuid, format('insert into guardians (tenant_id, profile_id, student_id) values (%L, %L, %L)', current_setting('t.a'), current_setting('t.aguard'), current_setting('t.kstu'))), true);
 select pg_temp.check('C3 a guardian link to another school''s learner is refused', current_setting('t.r') = 'refused 42501');
 select set_config('t.r', pg_temp.as_user(current_setting('t.admin')::uuid, format($f$insert into visits (tenant_id, visitor_name, purpose, host_kind, student_id) values (%L, 'QA15', 'x', 'learner', %L)$f$, current_setting('t.a'), current_setting('t.kstu'))), true);
-select pg_temp.check('C3 a visit about another school''s learner is refused (visits_stamp)', current_setting('t.r') = 'refused 22023');
+select pg_temp.check('C3 a visit about another school''s learner is refused (visits_stamp, or the same-school trigger that now fires first)', current_setting('t.r') in ('refused 22023', 'refused 42501'));
 select set_config('t.r', pg_temp.as_user(current_setting('t.admin')::uuid, format('insert into assignment_submissions (assignment_id, student_id) select (select id from assignments where tenant_id = %L limit 1), %L', current_setting('t.a'), current_setting('t.kstu'))), true);
 select pg_temp.check('C3 a homework hand-in by another school''s learner is refused (policy)', current_setting('t.r') = 'refused 42501');
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { confirmDialog } from "./support/confirm";
 import { createClient } from "@supabase/supabase-js";
 
 process.loadEnvFile?.(); // Node 20.6+ built-in
@@ -179,9 +180,11 @@ test.describe("platform", () => {
     await dialog.getByRole("button", { name: "Create school and send invite" }).click();
 
     // Nothing is actually emailed/texted locally — the success screen hands over
-    // real login credentials instead of claiming an invite was delivered.
+    // real login credentials instead of claiming an invite was delivered. (Since main's sign-in emails
+    // (682143a) the card says "Not emailed: email isn't set up yet. Hand these credentials to ... directly.")
     await expect(dialog).toContainText("is live");
-    await expect(dialog).toContainText("Nothing was emailed or texted");
+    await expect(dialog).toContainText("Not emailed");
+    await expect(dialog).toContainText("Hand these credentials to Peter Mwangi directly");
   });
 
   test("a taken address is refused", async ({ page }) => {
@@ -386,14 +389,14 @@ test.describe("school admin", () => {
       const manage = page.getByRole("dialog");
 
       // Deleting is refused, in words, because they have records.
-      page.once("dialog", (d) => void d.accept());
       await manage.getByRole("button", { name: "Delete…" }).click();
+      await confirmDialog(page, "Delete");
       await expect(page.getByText(/on file, so they can't be deleted/)).toBeVisible();
       await expect(manage).toBeVisible();
 
       // Archiving takes them off the roll and keeps everything.
-      page.once("dialog", (d) => void d.accept());
       await manage.getByRole("button", { name: "Archive learner" }).click();
+      await confirmDialog(page, "Archive");
       await expect(page.getByText(/archived\. Find them under "Archived"/)).toBeVisible();
       await expect(page.getByText("No learner matches that")).toBeVisible();
       const { data: archived } = await admin.from("students").select("active, archived_at, archived_by").eq("id", kid!.id).single();
@@ -432,8 +435,8 @@ test.describe("school admin", () => {
       await page.goto("/s/alliance/admin/people");
       await page.getByPlaceholder("Name or admission number").fill(name);
       await page.getByText(name).first().click();
-      page.once("dialog", (d) => void d.accept());
       await page.getByRole("dialog").getByRole("button", { name: "Delete…" }).click();
+      await confirmDialog(page, "Delete");
       await expect(page.getByText(`${name} deleted.`)).toBeVisible();
       expect((await admin.from("students").select("id", { count: "exact", head: true }).eq("id", mistake!.id)).count).toBe(0);
     } finally {
@@ -498,11 +501,12 @@ test.describe("parent", () => {
 
     // "Form 2 West" alone also matches an unrelated seeded announcement's text —
     // the admission number makes this the one unambiguous "which child" marker.
-    await expect(page.getByText("ADM 4102")).toBeVisible();
+    // The parent screens take 5 to 9 seconds to show a child even on the seeded school (FIG-1497: the permission checks run once per row), so wait longer than the usual 5.
+    await expect(page.getByText("ADM 4102")).toBeVisible({ timeout: 25_000 });
 
     // ChildSwitcher shows first names only.
     await page.getByRole("button", { name: "Samuel" }).click();
-    await expect(page.getByText("ADM 4103")).toBeVisible();
+    await expect(page.getByText("ADM 4103")).toBeVisible({ timeout: 25_000 });
     await page.close();
   });
 });
@@ -540,7 +544,7 @@ test.describe("student", () => {
 
       await page.goto("/s/alliance/student/results");
       const switcher = page.getByRole("group", { name: "Exam" });
-      await expect(switcher).toBeVisible();
+      await expect(switcher).toBeVisible({ timeout: 25_000 }); // the student screens are slow too (FIG-1497, FIG-1500)
       // Newest first, each pill says how many subjects are out, and the new exam is showing.
       const pills = switcher.getByRole("button");
       await expect(pills.first()).toContainText(`${examName} · 1 subject`);

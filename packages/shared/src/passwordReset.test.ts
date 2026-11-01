@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.fn();
 vi.mock("./supabase", () => ({ supabase: () => ({ functions: { invoke } }) }));
 
-import { passwordResetRequestedMessage, recoveryLinkProblem, requestPasswordReset, resetUserPassword, roleFromLoginId } from "./passwordReset";
+import { emailOutcomeLine, passwordResetRequestedMessage, recoveryLinkProblem, requestPasswordReset, resetUserPassword, roleFromLoginId, sendSignInDetailsAgain } from "./passwordReset";
 
 beforeEach(() => { invoke.mockReset(); });
 
@@ -28,6 +28,23 @@ describe("resetUserPassword", () => {
     invoke.mockResolvedValue({ data: { ok: true, password: "abcDEF2345", login_id: "ST-0001", full_name: "Esther" }, error: null });
     await expect(resetUserPassword("p1")).resolves.toMatchObject({ password: "abcDEF2345", login_id: "ST-0001" });
     expect(invoke).toHaveBeenCalledWith("reset-user-password", expect.objectContaining({ body: { profile_id: "p1" } }));
+  });
+});
+
+describe("sendSignInDetailsAgain", () => {
+  it("asks reset-user-password to email the new one", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, password: "abcDEF2345", login_id: "TC-0001", full_name: "Otieno", emailed: { status: "sent", to: "o@x.com" } }, error: null });
+    await expect(sendSignInDetailsAgain("p1")).resolves.toMatchObject({ emailed: { status: "sent", to: "o@x.com" } });
+    expect(invoke).toHaveBeenCalledWith("reset-user-password", expect.objectContaining({ body: { profile_id: "p1", resend: true } }));
+  });
+});
+
+describe("emailOutcomeLine", () => {
+  it("says where it went, or why not", () => {
+    expect(emailOutcomeLine({ status: "sent", to: "o@x.com" })).toBe("Also emailed to o@x.com.");
+    expect(emailOutcomeLine({ status: "failed", to: "o@x.com", reason: "Resend answered 500" })).toBe("Not emailed: Resend answered 500.");
+    expect(emailOutcomeLine({ status: "not_configured" })).toBe("Not emailed: email isn't set up yet.");
+    expect(emailOutcomeLine(undefined)).toBe("Not emailed.");
   });
 });
 

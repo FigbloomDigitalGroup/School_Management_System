@@ -163,6 +163,18 @@ export async function uploadPaymentProof(input: {
   }
 }
 
+/**
+ * A photo of a prescription, sent with a guardian's medication request
+ * (20261101300000). Goes in the child's own medical folder, which only the
+ * child's guardians, the medical area and full admins can open
+ * (20261101300001); returns the path for the request to name.
+ */
+export async function uploadPrescription(input: { tenantId: string; studentId: string; file: File }): Promise<string> {
+  const path = `${input.tenantId}/medical/${input.studentId}/${Date.now()}-prescription.${extOf(input.file.name)}`;
+  await uploadToBucket("private-documents", path, input.file);
+  return path;
+}
+
 export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof[]> {
   const { data, error } = await supabase()
     .from("payment_proofs")

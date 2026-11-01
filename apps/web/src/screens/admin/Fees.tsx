@@ -16,6 +16,7 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
+import { TermReceipts } from "../../components/signatures/ReceiptSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
 import { BillTermModal, RecordPaymentModal, type PayableInvoice, type ProofToConfirm } from "./FeeCollection";
 
@@ -23,13 +24,27 @@ interface OutstandingRow {
   id: string;
   name: string;
   cls: string;
+  /** The invoice total, charges included. */
   billed: number;
+  /** The part of `billed` that is charges (a lost textbook). */
+  charges: number;
   paid: number;
+}
+
+/** An invoice paid above its total, in any term (the overpaid_invoices view). */
+interface OverpaidRow {
+  id: string;
+  total_cents: number;
+  paid_cents: number;
+  overpaid_cents: number;
+  students: { full_name: string; classes: { name: string } | null } | null;
+  terms: { name: string } | null;
 }
 
 interface RawInvoiceRow {
   id: string;
   total_cents: number;
+  charges_cents: number;
   paid_cents: number;
   students: { full_name: string; classes: { name: string } | null } | null;
 }
@@ -72,6 +87,7 @@ interface FeesData {
   formLevels: YearGroup[];
   invoices: { total_cents: number; paid_cents: number }[];
   outstanding: OutstandingRow[];
+  overpaid: OverpaidRow[];
   pendingProofs: PendingProofRow[];
 }
 
@@ -80,14 +96,14 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
-  const [{ data: feeItemRows }, rawInvoices, proofsRes, { data: classRows }] = await Promise.all([
+  const [{ data: feeItemRows }, rawInvoices, proofsRes, { data: classRows }, { data: overpaid }] = await Promise.all([
     termId
       ? sb.from("fee_items").select("*").eq("tenant_id", tenantId).eq("term_id", termId).returns<FeeItem[]>()
       : Promise.resolve({ data: [] as FeeItem[] }),
     // Every invoice, not the first 1000: the totals below are the school's whole term.
     termId
       ? fetchAllPages<RawInvoiceRow>((from, to) =>
-          sb.from("fee_invoices").select("id,total_cents,paid_cents,students(full_name,classes(name))")
+          sb.from("fee_invoices").select("id,total_cents,charges_cents,paid_cents,students(full_name,classes(name))")
             .eq("tenant_id", tenantId).eq("term_id", termId).order("id").range(from, to).returns<RawInvoiceRow[]>())
       : Promise.resolve([] as RawInvoiceRow[]),
     // Payment proofs are keyed by invoice, not term — reach the current term
@@ -102,6 +118,9 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
           .returns<RawProofRow[]>()
       : Promise.resolve({ data: [] as RawProofRow[] }),
     sb.from("classes").select("level, form_level").eq("tenant_id", tenantId).returns<{ level: ClassLevel; form_level: number }[]>(),
+    // Any term, not only this one: money owed back doesn't expire with the term.
+    sb.from("overpaid_invoices").select("id,total_cents,paid_cents,overpaid_cents,students(full_name,classes(name)),terms(name)")
+      .eq("tenant_id", tenantId).order("overpaid_cents", { ascending: false }).returns<OverpaidRow[]>(),
   ]);
 
   // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
@@ -116,6 +135,7 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
       name: r.students?.full_name ?? "Unknown learner",
       cls: r.students?.classes?.name ?? "—",
       billed: r.total_cents,
+      charges: r.charges_cents,
       paid: r.paid_cents,
     }))
     .sort((a, b) => (b.billed - b.paid) - (a.billed - a.paid))
@@ -135,7 +155,7 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
     };
   });
 
-  return { term: term ?? null, feeItems: feeItemRows ?? [], formLevels, invoices, outstanding, pendingProofs };
+  return { term: term ?? null, feeItems: feeItemRows ?? [], formLevels, invoices, outstanding, overpaid: overpaid ?? [], pendingProofs };
 }
 
 export function Fees() {
@@ -203,7 +223,8 @@ export function Fees() {
 
   const billed = data ? data.invoices.reduce((a, i) => a + i.total_cents, 0) : 0;
   const collected = data ? data.invoices.reduce((a, i) => a + i.paid_cents, 0) : 0;
-  const outstandingTotal = billed - collected;
+  // per invoice: one family's overpayment doesn't cancel another's debt
+  const outstandingTotal = data ? data.invoices.reduce((a, i) => a + Math.max(i.total_cents - i.paid_cents, 0), 0) : 0;
   const collectedPct = billed > 0 ? Math.round((collected / billed) * 100) : 0;
   const owingCount = data ? data.invoices.filter((i) => i.paid_cents < i.total_cents).length : 0;
   const fullyPaidCount = data ? data.invoices.filter((i) => i.paid_cents >= i.total_cents && i.total_cents > 0).length : 0;
@@ -321,7 +342,11 @@ export function Fees() {
               title="Largest outstanding balances"
               columns={[
                 { key: "name", header: "Learner", width: "1.6fr", render: (r: OutstandingRow) => <Cell sub={r.cls}>{r.name}</Cell> },
-                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.billed, tenant.country)}</Mono> },
+                { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => (
+                  <Cell sub={r.charges > 0 ? `incl. ${formatMoney(r.charges, tenant.country)} charges` : undefined}>
+                    <Mono>{formatMoney(r.billed, tenant.country)}</Mono>
+                  </Cell>
+                ) },
                 { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.paid, tenant.country)}</Mono> },
                 { key: "bal", header: "Balance", align: "right", render: (r: OutstandingRow) => (
                   <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.billed - r.paid, tenant.country)}</span>
@@ -342,6 +367,33 @@ export function Fees() {
             />
           )}
         </div>
+
+        {data && data.overpaid.length > 0 && (
+          <div className="mt-4">
+            <DataTable
+              title="Paid more than was owed"
+              columns={[
+                { key: "name", header: "Learner", width: "1.6fr", render: (r: OverpaidRow) => (
+                  <Cell sub={r.students?.classes?.name ?? "—"}>{r.students?.full_name ?? "Unknown learner"}</Cell>
+                ) },
+                { key: "term", header: "Term", render: (r: OverpaidRow) => r.terms?.name ?? "—" },
+                { key: "billed", header: "Billed", align: "right", render: (r: OverpaidRow) => <Mono>{formatMoney(r.total_cents, tenant.country)}</Mono> },
+                { key: "paid", header: "Paid", align: "right", render: (r: OverpaidRow) => <Mono>{formatMoney(r.paid_cents, tenant.country)}</Mono> },
+                { key: "over", header: "Owed back", align: "right", render: (r: OverpaidRow) => (
+                  <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.overpaid_cents, tenant.country)}</span>
+                ) },
+              ]}
+              rows={data.overpaid}
+              rowKey={(r) => r.id}
+              minWidth="720px"
+              empty={{ title: "No overpayments", body: "" }}
+            />
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
+              Two payments crossed (cash at the desk while an M-Pesa prompt was waiting), or a charge was cancelled after the
+              invoice was paid. Refund the family or agree to carry it forward; each overpayment is in the audit log.
+            </p>
+          </div>
+        )}
 
         <div className="mt-4">
           {error ? null : pending || !data ? (
@@ -402,6 +454,12 @@ export function Fees() {
             />
           )}
         </div>
+
+        {data?.term && (
+          <div className="mt-4">
+            <TermReceipts termId={data.term.id} reloadKey={reloadKey} />
+          </div>
+        )}
       </div>
 
       {editingItems && data?.term && (

@@ -9,6 +9,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 const STATUS_TONE: Record<LeaveStatus, "ok" | "warn" | "muted"> = {
   pending: "warn", approved: "ok", rejected: "muted", cancelled: "muted",
@@ -55,7 +56,7 @@ export function TeacherLeave() {
   }
 
   async function cancel(id: string) {
-    if (!window.confirm("Withdraw this leave request?")) return;
+    if (!(await confirmDialog({ title: "Withdraw this leave request?", confirmLabel: "Withdraw" }))) return;
     try {
       await cancelLeaveRequest(id);
       toast("Request withdrawn.");

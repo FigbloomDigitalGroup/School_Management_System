@@ -25,7 +25,7 @@ export function AdminChats() {
       <PageHead
         eyebrow="Chats"
         title="Chats"
-        blurb="Your chats with parents, and every chat in the school between families and staff, which you can read but not join."
+        blurb="Your chats with parents and staff, and every chat in the school, which you can read but not join."
         actions={
           <div role="tablist" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
             {(actingForTenant ? (["school"] as Tab[]) : (["mine", "school"] as Tab[])).map((t) => (
@@ -43,7 +43,7 @@ export function AdminChats() {
           </div>
         }
       />
-      {tab === "mine" ? <ChatWorkspace emptyBody="Start a chat with any parent at the school." /> : <SchoolChats />}
+      {tab === "mine" ? <ChatWorkspace emptyBody="Start a chat with any parent or member of staff at the school." /> : <SchoolChats />}
     </div>
   );
 }

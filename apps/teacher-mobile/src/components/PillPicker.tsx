@@ -1,5 +1,7 @@
-import { ScrollView, Text, TouchableOpacity } from "react-native";
-import { accentFor, HIT, t } from "../theme";
+import { ScrollView, Text } from "react-native";
+import { accentFor, HIT } from "../theme";
+import { Tap } from "../ui/Tap";
+import { useTheme } from "../ui/ThemeContext";
 
 interface PillItem {
   id: string;
@@ -14,13 +16,14 @@ export function PillPicker({ items, selectedId, onPick, accent }: {
   onPick: (id: string) => void;
   accent: string;
 }) {
+  const { t } = useTheme();
   const a = accentFor(accent);
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 8 }}>
       {items.map((item) => {
         const on = item.id === selectedId;
         return (
-          <TouchableOpacity
+          <Tap
             key={item.id}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
@@ -31,7 +34,7 @@ export function PillPicker({ items, selectedId, onPick, accent }: {
             }}
           >
             <Text style={{ fontSize: 13, fontWeight: "600", color: on ? "#fff" : t.appSurface.inkMuted }}>{item.name}</Text>
-          </TouchableOpacity>
+          </Tap>
         );
       })}
     </ScrollView>

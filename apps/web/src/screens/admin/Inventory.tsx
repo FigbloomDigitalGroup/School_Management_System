@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  chargeLearner, fetchIssueCharges, suggestedCharge, voidFeeCharge, type FeeCharge,
   closeInventoryIssue, daysOverdue, endOfSchoolYear, fetchInventory, fetchInventoryIssues, fetchInventoryPeople, formatMoney,
   formatShortDate, INVENTORY_CATEGORY_LABEL, isOverdue, ISSUE_STATUS_LABEL, issueInventoryItem, issueInventoryToClass,
   issueMatches, issuesCsv, ITEM_CONDITION_LABEL, registerCsv, saveInventoryItem, setItemRetired, sortIssues, summariseInventory,
@@ -60,6 +61,8 @@ export function AdminInventory() {
   const { data: items, loading: itemsLoading, error: itemsError } = useAsync(() => fetchInventory(tenant.id), [tenant.id, reloadKey]);
   const { data: issues, loading: issuesLoading, error: issuesError } = useAsync(() => fetchInventoryIssues(tenant.id), [tenant.id, reloadKey]);
   const { data: people } = useAsync(() => fetchInventoryPeople(tenant.id), [tenant.id]);
+  const { data: charges } = useAsync(() => fetchIssueCharges(tenant.id), [tenant.id, reloadKey]);
+  const [charging, setCharging] = useState<InventoryIssueRow | null>(null);
 
   const [tab, setTab] = useState<Tab>("register");
   const [query, setQuery] = useState("");
@@ -186,6 +189,9 @@ export function AdminInventory() {
             rows={issueRows}
             onReturn={setReturning}
             onHolder={showHolder}
+            charges={charges ?? null}
+            onCharge={setCharging}
+            country={tenant.country}
             empty={
               q ? { title: "Nothing matches", body: "Try a different item, name or admission number." }
               : tab === "overdue" ? { title: "Nothing overdue", body: "Everything that's out is still within its return date." }
@@ -218,6 +224,16 @@ export function AdminInventory() {
           onDone={(msg) => { setReturning(null); toast(msg); reload(); }}
         />
       )}
+      {charging && (
+        <ChargeModal
+          issue={charging}
+          unitCostCents={(items ?? []).find((i) => i.id === charging.item_id)?.unit_cost_cents ?? null}
+          existing={charges?.get(charging.id) ?? null}
+          country={tenant.country}
+          onClose={() => setCharging(null)}
+          onDone={(msg) => { setCharging(null); toast(msg); reload(); }}
+        />
+      )}
       {viewing && (
         <ItemHistoryModal
           item={viewing}
@@ -241,13 +257,31 @@ export function AdminInventory() {
   );
 }
 
-function IssueTable({ rows, onReturn, onHolder, empty, compact }: {
+function IssueTable({ rows, onReturn, onHolder, charges, onCharge, country, empty, compact }: {
   rows: InventoryIssueRow[];
   onReturn?: (r: InventoryIssueRow) => void;
   onHolder?: (r: InventoryIssueRow) => void;
+  /** Standing charges by issue; with onCharge, a learner's lost or damaged item offers "Charge to fees". */
+  charges?: Map<string, FeeCharge> | null;
+  onCharge?: (r: InventoryIssueRow) => void;
+  country?: string;
   empty: { title: string; body: string };
   compact?: boolean;
 }) {
+  const chargeable = (r: InventoryIssueRow) => !!onCharge && r.holderKind === "learner" && (r.status === "lost" || r.status === "damaged");
+  function action(r: InventoryIssueRow) {
+    if (r.status === "out") return onReturn ? <Button onClick={(e) => { e.stopPropagation(); onReturn(r); }}>Return</Button> : null;
+    if (!chargeable(r)) return null;
+    const charge = charges?.get(r.id);
+    return charge ? (
+      <button type="button" className="text-[12.5px] text-ink-muted underline-offset-2 hover:underline"
+        onClick={(e) => { e.stopPropagation(); onCharge!(r); }} title="See or cancel the charge">
+        Charged {formatMoney(charge.amountCents, country ?? "KE")}
+      </button>
+    ) : (
+      <Button onClick={(e) => { e.stopPropagation(); onCharge!(r); }}>Charge to fees</Button>
+    );
+  }
   return (
     <DataTable
       columns={[
@@ -285,9 +319,9 @@ function IssueTable({ rows, onReturn, onHolder, empty, compact }: {
             </Badge>
           ),
         },
-        ...(onReturn ? [{
+        ...(onReturn || onCharge ? [{
           key: "actions", header: "", align: "right" as const,
-          render: (r: InventoryIssueRow) => r.status === "out" ? <Button onClick={(e) => { e.stopPropagation(); onReturn(r); }}>Return</Button> : null,
+          render: action,
         }] : []),
       ]}
       rows={rows}
@@ -542,9 +576,11 @@ function ReturnModal({ issue, onClose, onDone }: { issue: InventoryIssueRow; onC
       // added to whatever was noted when it went out, not instead of it
       const fullNote = note.trim() && issue.note ? `${issue.note} · ${note.trim()}` : note;
       await closeInventoryIssue(issue.id, outcome, outcome === "lost" ? null : condition, fullNote);
-      onDone(outcome === "lost"
+      // Never charged automatically: the office can do it from History if the family is to pay.
+      const chargeHint = issue.holderKind === "learner" && outcome !== "returned" ? " To charge the family, use Charge to fees under History." : "";
+      onDone((outcome === "lost"
         ? `${issue.itemName} marked lost by ${issue.holderName}.`
-        : `${issue.itemName} returned by ${issue.holderName}.`);
+        : `${issue.itemName} returned by ${issue.holderName}.`) + chargeHint);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save that.");
       setSaving(false);
@@ -580,6 +616,89 @@ function ReturnModal({ issue, onClose, onDone }: { issue: InventoryIssueRow; onC
         <TextField id="return-note" label="Note (optional)" placeholder={outcome === "lost" ? "e.g. Family to replace it" : "e.g. Spine broken"} value={note} onChange={(e) => setNote(e.target.value)} />
         {error && <p role="alert" className="text-[12.5px] text-warn-ink">{error}</p>}
       </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- charge to fees
+
+/**
+ * Charges the learner's family for a lost or damaged item, on this term's
+ * invoice. Starts from the item's cost (suggestedCharge) but the office
+ * decides: change the amount, the wording, or close without charging. A
+ * standing charge can be cancelled here too, with a reason.
+ */
+function ChargeModal({ issue, unitCostCents, existing, country, onClose, onDone }: {
+  issue: InventoryIssueRow; unitCostCents: number | null; existing: FeeCharge | null; country: string;
+  onClose: () => void; onDone: (msg: string) => void;
+}) {
+  const suggested = suggestedCharge({ status: issue.status, quantity: issue.quantity, itemName: issue.itemName, unitCostCents });
+  const [amount, setAmount] = useState(suggested.amountCents == null ? "" : String(Math.round(suggested.amountCents / 100)));
+  const [reason, setReason] = useState(suggested.reason);
+  const [voidReason, setVoidReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(fn: () => Promise<string>) {
+    setSaving(true);
+    setError(null);
+    try {
+      onDone(await fn());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save that.");
+      setSaving(false);
+    }
+  }
+
+  const charge = () => run(async () => {
+    const whole = Number(amount);
+    if (!Number.isFinite(whole) || whole <= 0 || !Number.isInteger(whole)) throw new Error("Enter the amount to charge, in whole shillings.");
+    if (!reason.trim()) throw new Error("Say what the charge is for.");
+    await chargeLearner({ studentId: issue.student_id!, amountCents: whole * 100, reason, issueId: issue.id });
+    return `${formatMoney(whole * 100, country)} added to ${issue.holderName}'s fees.`;
+  });
+
+  const cancel = () => run(async () => {
+    if (!voidReason.trim()) throw new Error("Say why the charge is being cancelled.");
+    await voidFeeCharge(existing!.id, voidReason);
+    return `Charge cancelled. ${issue.holderName}'s balance is ${formatMoney(existing!.amountCents, country)} lower.`;
+  });
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow={`${issue.status === "lost" ? "Lost" : "Returned damaged"}${issue.closed_at ? ` ${issuedOn(issue.closed_at)}` : ""}`}
+      title={existing ? `Charged to ${issue.holderName}` : `Charge ${issue.holderName} for ${issue.itemName}`}
+      actions={
+        <>
+          <Button onClick={onClose}>{existing ? "Close" : "Don't charge"}</Button>
+          {existing
+            ? <Button variant="danger" onClick={() => void cancel()} disabled={saving}>{saving ? "Cancelling…" : "Cancel the charge"}</Button>
+            : <Button variant="accent" onClick={() => void charge()} disabled={saving}>{saving ? "Charging…" : "Add to fees"}</Button>}
+        </>
+      }
+    >
+      {existing ? (
+        <div className="grid gap-3.5">
+          <p className="text-[13px]">
+            <span className="font-medium">{existing.reason}</span>: {formatMoney(existing.amountCents, country)}, added {formatShortDate(existing.createdAt.slice(0, 10))}.
+            It's on this term's invoice and in the family's balance.
+          </p>
+          <TextField id="charge-void-reason" label="Reason for cancelling" placeholder="e.g. The book was found" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
+          {error && <p role="alert" className="text-[12.5px] text-warn-ink">{error}</p>}
+        </div>
+      ) : (
+        <div className="grid gap-3.5">
+          <TextField id="charge-amount" label="Amount" type="number" min={1} step={1} value={amount} onChange={(e) => setAmount(e.target.value)}
+            hint={unitCostCents == null
+              ? "The register has no cost for this item. Enter what the family should pay."
+              : `The register's cost is ${formatMoney(unitCostCents, country)}${issue.quantity > 1 ? ` a copy, ${issue.quantity} copies` : ""}. Change it if the family should pay less, for damage or wear.`} />
+          <TextField id="charge-reason" label="On the fee statement as" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <p className="text-[12px] text-ink-faint">Added to this term's invoice. The family sees it on their Fees screen and it's in the balance they pay, by M-Pesa or otherwise.</p>
+          {error && <p role="alert" className="text-[12.5px] text-warn-ink">{error}</p>}
+        </div>
+      )}
     </Modal>
   );
 }

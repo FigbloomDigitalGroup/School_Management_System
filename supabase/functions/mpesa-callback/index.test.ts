@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
-import { itFails } from "../_shared/knownDefect.ts";
 import type { StkOutcome } from "../_shared/daraja.ts";
 import { handle } from "./index.ts";
 
@@ -198,6 +197,26 @@ describe("mpesa-callback handle", () => {
   });
 });
 
+describe("two deliveries of the same callback (FIG-1323)", () => {
+  it("arriving together, credit once and log one 'Fee payment received' event", async () => {
+    const admin = makeAdmin();
+    const d = deps(admin);
+    const [a, b] = await Promise.all([handle(request(successCallback()), d), handle(request(successCallback()), d)]);
+    assertEquals([a.status, b.status], [200, 200]);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("audit_events").length, 1);
+  });
+
+  it("arriving together for a cancelled prompt, settle it once", async () => {
+    const admin = makeAdmin();
+    const d = deps(admin, { done: true, resultCode: 1032 });
+    const [a, b] = await Promise.all([handle(request(successCallback()), d), handle(request(successCallback()), d)]);
+    assertEquals([a.status, b.status], [200, 200]);
+    assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
+    assertEquals(admin.rowsIn("audit_events").length, 0);
+  });
+});
+
 // QA 06 (FIG-1239): replays, out-of-order events, payments that are already settled, and Safaricom's retries.
 // The database side (apply_payment credits only on the move into 'success', mpesa_receipt is unique) is checked in
 // supabase/rls-checks/fees.sql; this fake has no triggers, so these tests look at the payment row and the audit log.
@@ -349,12 +368,4 @@ describe("mpesa-callback: replay, order and retries", () => {
     assertEquals(admin.rowsIn("payments")[0].status, "success");
   });
 
-  // Both deliveries read the payment while it is still pending, both ask Daraja, and both write an audit event: the
-  // update is `.eq("status", "pending")`, so the second one changes no row, but the function never checks that.
-  itFails("FIG-1323 (open): two deliveries that arrive together log one 'Fee payment received' event", async () => {
-    const admin = makeAdmin();
-    const d = deps(admin);
-    await Promise.all([handle(request(successCallback()), d), handle(request(successCallback()), d)]);
-    assertEquals(admin.rowsIn("audit_events").length, 1);
-  });
 });

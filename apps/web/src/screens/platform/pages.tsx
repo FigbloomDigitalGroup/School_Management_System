@@ -793,6 +793,7 @@ async function fetchAudit(): Promise<AuditRow[]> {
 
 const CATEGORY_LABEL: Record<string, string> = {
   provisioning: "Provisioning", access: "Access", academic: "Academic", financial: "Financial",
+  health: "Health", transport: "Transport", communication: "Communication", operations: "Operations",
 };
 
 export function Audit() {
@@ -809,7 +810,7 @@ export function Audit() {
   const spec: RecordsSpec = {
     eyebrow: "Platform · all tenants",
     title: "Audit trail",
-    blurb: "Every change that alters money, marks or access. Retained for seven years and exportable per school on request.",
+    blurb: "Every change made in a school: people, marks, money, access and the rest of the school day. Retained for seven years and exportable per school on request.",
     stats: [
       { label: "Events today", value: today.length.toLocaleString(), sub: `across ${schoolCount} schools` },
       { label: "Privileged changes", value: String(privileged.length), sub: "access or academic" },

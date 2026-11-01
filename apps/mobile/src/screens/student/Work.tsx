@@ -1,16 +1,20 @@
 import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
-import { accentFor, s, t } from "../../theme";
+import { accentFor, perScheme } from "../../theme";
 import { useStudentData } from "../../studentData";
+import { LinkCard } from "../../components/LinkCard";
 import { MediaLinks, useAttachments } from "../../components/MediaLinks";
+import { Tap } from "../../ui/Tap";
+import { OpenLabel } from "../../ui/OpenLabel";
+import { useTheme } from "../../ui/ThemeContext";
 
-const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
+const TAG = perScheme((t): Record<WorkItem["state"], { bg: string; ink: string }> => ({
   late: { bg: t.status.warnBg, ink: t.status.warnInk },
-  open: { bg: "#F1EDEC", ink: "#6B605F" },
+  open: { bg: t.appSurface.lineSoft, ink: t.appSurface.inkMuted },
   done: { bg: t.status.okBg, ink: t.status.okInk },
-};
+}));
 
 /**
  * Overdue stays at the top in orange rather than hiding behind a filter.
@@ -19,6 +23,7 @@ const TAG: Record<WorkItem["state"], { bg: string; ink: string }> = {
  * fallback to fall back on here.
  */
 export function StudentWork() {
+  const { t, s, scheme } = useTheme();
   const nav = useNavigation<any>();
   const { data, accent } = useStudentData();
   const a = accentFor(accent);
@@ -53,7 +58,7 @@ export function StudentWork() {
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {/* Learning materials is a stack screen, not a seventh tab: six is already a full bar. */}
-        <TouchableOpacity
+        <Tap
           accessibilityRole="button"
           onPress={() => nav.navigate("Materials")}
           style={[s.card, { marginBottom: 12, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}
@@ -62,8 +67,15 @@ export function StudentWork() {
             <Text style={s.eyebrow}>LEARNING MATERIALS</Text>
             <Text style={[s.small, { marginTop: 4 }]}>Notes, worksheets and videos your teachers have shared</Text>
           </View>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: a.deep }}>Open ›</Text>
-        </TouchableOpacity>
+          <OpenLabel tint={a.deep} />
+        </Tap>
+
+        {/* Only for a learner in a class: that is who a school's exams are for. */}
+        {!!data.classId && <LinkCard label="Exams & tests" blurb="Papers and tests for your class: sit them online, and see your results." tint={a.deep} to="Exams" />}
+        <LinkCard label="Sports & activities" blurb="Your clubs and teams, what's coming up, and what you've won." tint={a.deep} to="Activities" />
+        <LinkCard label="My items" blurb="Books and equipment the school has lent you, and when to bring them back." tint={a.deep} to="Items" />
+        <LinkCard label="Fees" blurb="What you owe this term, what it covers, your receipts, and how to pay." tint={a.deep} to="Fees" />
+        <View style={{ height: 12 }} />
 
         {work.length === 0 ? (
           <View style={[s.card, { alignItems: "center", padding: 24 }]}>
@@ -72,12 +84,12 @@ export function StudentWork() {
         ) : (
           work.map((w) => {
             const state: WorkItem["state"] = done[w.id] ? "done" : w.state;
-            const tag = TAG[state];
+            const tag = TAG[scheme][state];
             return (
               <View key={w.id} style={[s.card, { marginBottom: 10, borderColor: state === "late" ? t.brand.orangeLine : t.appSurface.line }]}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{w.title}</Text>
+                    <Text style={{ color: t.appSurface.ink, fontSize: 14.5, fontWeight: "600", lineHeight: 20 }}>{w.title}</Text>
                     <Text style={[s.faint, { marginTop: 4 }]}>{w.subject} · {w.teacher}</Text>
                     {(!!w.needs?.length || !!minutesWords(w.minutes)) && (
                       <Text style={[s.small, { marginTop: 6 }]}>
@@ -85,7 +97,7 @@ export function StudentWork() {
                       </Text>
                     )}
                   </View>
-                  <View style={[s.pill, { backgroundColor: tag.bg }]}>
+                  <View style={[s.pill, { backgroundColor: tag.bg, alignSelf: "flex-start" }]}>
                     <Text style={[s.pillLabel, { color: tag.ink }]}>
                       {state === "done" ? "Done" : formatDueLabel(w.dueOn, state === "late")}
                     </Text>
@@ -96,15 +108,15 @@ export function StudentWork() {
 
                 {state !== "done" && (
                   <>
-                    <TouchableOpacity
+                    <Tap
                       disabled={marking[w.id]}
                       onPress={() => void handIn(w.id)}
                       style={[s.primary, { backgroundColor: a.deep, marginTop: 12, paddingVertical: 12, opacity: marking[w.id] ? 0.6 : 1 }]}
                     >
                       <Text style={s.primaryLabel}>{marking[w.id] ? "Marking…" : "Mark as handed in"}</Text>
-                    </TouchableOpacity>
+                    </Tap>
                     {failedId === w.id && (
-                      <Text style={[s.small, { color: "#B4472B", marginTop: 6 }]}>Could not save that. Try again.</Text>
+                      <Text style={[s.small, { color: t.status.badText, marginTop: 6 }]}>Could not save that. Try again.</Text>
                     )}
                   </>
                 )}

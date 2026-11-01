@@ -95,7 +95,7 @@ export function HomeAndBusFields({ value, onChange, routes, boarding, childName,
             placeholder="e.g. Opposite Naivas" className={input} />
         </label>
       </div>
-      <HomePinPicker pin={value.pin} onPin={(pin) => set({ pin })} address={[value.address, value.landmark].filter(Boolean).join(", ")} nearby={nearby} />
+      <HomePinPicker pin={value.pin} onPin={(pin) => set({ pin })} address={value.address} landmark={value.landmark} nearby={nearby} />
 
       {boarding ? (
         <p className="text-[12px] text-ink-muted">Boarders don't ride the school bus day to day, so no route is set.</p>

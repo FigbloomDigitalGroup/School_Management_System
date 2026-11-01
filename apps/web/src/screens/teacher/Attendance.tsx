@@ -3,8 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
   isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
-  supabase, fetchHealthForStudents,
-  type AttendanceMark, type ClassGroup, type Register,
+  supabase, fetchHealthForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
+  type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type Register,
 } from "@figbloom/shared";
 import { HealthChip, flagsById } from "../../components/learners/Health";
 import { Badge } from "../../components/ui/Badge";
@@ -16,6 +16,7 @@ import { queue } from "../../lib/queue";
 import { useOnline } from "../../lib/useOnline";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { Avatar } from "../../components/Avatar";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 
 interface AwayStudent { name: string; mark: AttendanceMark; note: string | null }
@@ -124,6 +125,12 @@ export function Attendance() {
   const { data: healthFlags } = useAsync(
     () => (rosterData?.length ? fetchHealthForStudents(rosterData.map((s) => s.id)).then(flagsById).catch(() => new Map()) : Promise.resolve(new Map())),
     [rosterData],
+  );
+
+  // In the sick bay or sent home today (sick_bay_class_status): a status only, never why. A failed read shows nothing.
+  const { data: sickBay } = useAsync<Map<string, ClassSickBayStatus>>(
+    () => (classId ? fetchClassSickBay(classId).catch(() => new Map()) : Promise.resolve(new Map())),
+    [classId],
   );
 
   const [reg, setReg] = useState<Register | null>(null);
@@ -373,10 +380,12 @@ export function Attendance() {
               <li key={s.id}>
                 <div className="flex items-center gap-3 border-b border-line-soft bg-white px-5" style={{ minHeight: 56 }}>
                   <span className="w-6 shrink-0 font-mono text-[11px] text-ink-faint">{i + 1}</span>
+                  <Avatar id={s.id} name={s.full_name} url={s.avatar_url} size={34} />
                   <button onClick={() => cycle(s.id)} className="min-w-0 flex-1 py-2 text-left">
                     <div className="truncate text-[14.5px] font-medium">{s.full_name}</div>
                     <div className="font-mono text-[10.5px] text-ink-faint">ADM {s.admission_no}</div>
                   </button>
+                  {sickBay?.get(s.id) && <Badge tone="warn">{CLASS_SICK_BAY_LABEL[sickBay.get(s.id)!]}</Badge>}
                   <HealthChip flags={healthFlags?.get(s.id) ?? null} name={s.full_name} />
                   <div role="group" aria-label={`Mark for ${s.full_name}`} className="flex shrink-0 gap-1.5">
                     {(["present", "absent", "late"] as AttendanceMark[]).map((k) => {

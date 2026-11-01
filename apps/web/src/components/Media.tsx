@@ -68,6 +68,10 @@ export function MediaPlayer({ item }: { item: MediaItem }) {
             allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin"
             loading="lazy"
+            // A YouTube video stays in the app: without allow-popups and
+            // allow-top-navigation, the player's logo, title, "Watch on
+            // YouTube" and end-screen videos can't open youtube.com.
+            sandbox={embed.provider === "youtube" ? "allow-scripts allow-same-origin allow-presentation" : undefined}
           />
         </div>
       ) : item.filePath && item.kind === "video" ? (
@@ -81,12 +85,14 @@ export function MediaPlayer({ item }: { item: MediaItem }) {
       ) : item.filePath && item.mimeType === "application/pdf" ? (
         <iframe src={src} title={item.title} className="h-[70vh] w-full rounded-lg border border-line-soft" />
       ) : null}
-      <div className="flex flex-wrap items-center gap-3 text-[12.5px]">
-        <a href={src} target="_blank" rel="noopener noreferrer" className="font-semibold text-forest underline">
-          {item.filePath ? "Open in a new tab" : "Open the link"}
-        </a>
-        {item.filePath && <DownloadLink path={item.filePath} name={item.fileName ?? item.title} />}
-      </div>
+      {embed?.provider !== "youtube" && (
+        <div className="flex flex-wrap items-center gap-3 text-[12.5px]">
+          <a href={src} target="_blank" rel="noopener noreferrer" className="font-semibold text-forest underline">
+            {item.filePath ? "Open in a new tab" : "Open the link"}
+          </a>
+          {item.filePath && <DownloadLink path={item.filePath} name={item.fileName ?? item.title} />}
+        </div>
+      )}
     </div>
   );
 }

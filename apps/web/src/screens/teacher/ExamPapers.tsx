@@ -22,6 +22,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl, uploadExamPaperFile } from "../../lib/uploads";
 import { useAsync } from "../../lib/useAsync";
 import { ExamScripts } from "./ExamScripts";
+import { confirmDialog } from "../../components/ui/Confirm";
 
 type Option = { id: string; name: string };
 
@@ -87,7 +88,7 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
         const hasContent = !!p.filePath || (p.mode === "read" && !!(await fetchPaperContent(p.id)).body);
         const problem = publishProblem({ mode: p.mode, hasContent, questionCount: p.questionCount });
         if (problem) { toast(problem, "error"); return; }
-      } else if (!window.confirm(`Unpublish "${p.title}"? ${p.className} won't see it any more.`)) return;
+      } else if (!(await confirmDialog({ title: `Unpublish "${p.title}"?`, body: `${p.className} won't see it any more.`, confirmLabel: "Unpublish" }))) return;
       await setPaperPublished(p.id, !p.publishedAt);
       toast(p.publishedAt ? "Paper unpublished" : `Published. ${p.className} can see it now.`);
       reload();
@@ -97,7 +98,7 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
   }
 
   async function remove(p: ExamPaperRow) {
-    if (!window.confirm(`Delete "${p.title}" for ${p.className}?`)) return;
+    if (!(await confirmDialog({ title: `Delete "${p.title}" for ${p.className}?`, confirmLabel: "Delete", danger: true }))) return;
     try {
       await deleteExamPaper(p.id);
       toast("Paper deleted");

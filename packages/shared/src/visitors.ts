@@ -4,9 +4,10 @@ import type { Role } from "./types";
 
 /**
  * Visitors, from the gate to the office (20261027010001_gate_reception.sql).
- * The guard records a visit; it reaches reception live; the receptionist
- * moves it along; the person they came to see, and the principal's office
- * when it's escalated, are told in their console and on their phone.
+ * Whoever keeps the visitor log (other staff with handles_visitors,
+ * 20261028100001) records a visit at the gate or the office, sees it live
+ * and moves it along; the person they came to see, and the principal's
+ * office when it's escalated, are told in their console and on their phone.
  */
 
 export type VisitStatus = "expected" | "at_reception" | "with_host" | "left";
@@ -95,14 +96,13 @@ export function visitHostLabel(v: Pick<Visit, "host_kind" | "host_name" | "stude
   }
 }
 
-/** The steps the front desk can take next. The guard only signs visitors out at the gate; reception moves them along. */
-export function nextVisitSteps(status: VisitStatus, role: Role): VisitStatus[] {
-  if (status === "left") return [];
-  if (role === "guard") return ["left"];
+/** The steps the desk (or the office) can take next: a visitor is moved along until they sign out. */
+export function nextVisitSteps(status: VisitStatus): VisitStatus[] {
   switch (status) {
     case "expected": return ["at_reception", "left"];
     case "at_reception": return ["with_host", "left"];
     case "with_host": return ["left"];
+    case "left": return [];
   }
 }
 

@@ -6,6 +6,8 @@ import {
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
+import { SendSignInAgainButton } from "../PasswordReset";
+import { promptDialog } from "../ui/Confirm";
 
 /**
  * Bio data (20261027040000_parent_bio_data.sql): the identity details a
@@ -104,7 +106,12 @@ function RequestLines({ request }: { request: BioRequest }) {
 function DecideButtons({ request, onDone, toast }: { request: BioRequest; onDone: () => void; toast: ToastFn }) {
   const [working, setWorking] = useState(false);
   async function decide(approve: boolean) {
-    const note = approve ? undefined : window.prompt("Why not? The family sees this. (Optional)") ?? undefined;
+    let note: string | undefined;
+    if (!approve) {
+      const why = await promptDialog({ title: "Turn down this change?", body: "The family sees your reason.", label: "Why not? (optional)", confirmLabel: "Turn down" });
+      if (why === null) return;
+      note = why || undefined;
+    }
     setWorking(true);
     try {
       await decideBioRequest(request.id, approve, note);
@@ -253,7 +260,7 @@ export function BioDataEditor({ studentId, toast, mode, title = "Bio data", onRe
 }
 
 /** The office's view of who looks after a learner and how to reach them; parents keep it current from My account. */
-export function GuardianContacts({ studentId }: { studentId: string }) {
+export function GuardianContacts({ studentId, schoolName }: { studentId: string; schoolName?: string }) {
   const [rows, setRows] = useState<LearnerGuardianContact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -281,6 +288,8 @@ export function GuardianContacts({ studentId }: { studentId: string }) {
               <span className="text-[12px] capitalize text-ink-muted">{g.relationship}</span>
               <span className="font-mono text-[12.5px]">{g.phone ?? "No phone"}</span>
               {g.alt_phone && <span className="font-mono text-[12.5px] text-ink-muted">also {g.alt_phone}</span>}
+              {g.email && <span className="text-[12.5px] text-ink-muted">{g.email}</span>}
+              {g.email && <SendSignInAgainButton profileId={g.profile_id} name={g.full_name} email={g.email} schoolName={schoolName} />}
             </li>
           ))}
         </ul>

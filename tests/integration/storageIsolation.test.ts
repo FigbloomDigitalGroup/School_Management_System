@@ -91,13 +91,18 @@ describe("control: the same requests work for the owner (so the refusals below a
       const folder = v.path.split("/").slice(0, -1).join("/");
       const listed = await owner.client.storage.from(v.bucket).list(folder);
       expect((listed.data ?? []).map((o) => o.name), `${v.what}: list`).toContain(v.path.split("/").pop()!);
+      // 20261103300001: a proof of payment (private-documents/<school>/invoices/...) is kept for good, so not even its owner can replace,
+      // move or delete the file. Listing, copying and a signed link still work.
+      const kept = v.what === "a payment proof";
       const over = await owner.client.storage.from(v.bucket).upload(v.path, new Blob([v.secret], { type: "text/plain" }), { upsert: true, contentType: "text/plain" });
-      expect(over.error, `${v.what}: overwrite`).toBeNull();
+      if (kept) expect(over.error, `${v.what}: overwrite is refused`).not.toBeNull();
+      else expect(over.error, `${v.what}: overwrite`).toBeNull();
       const copy = await owner.client.storage.from(v.bucket).copy(v.path, `${v.path}.copy`);
       expect(copy.error, `${v.what}: copy`).toBeNull();
       planted.push({ bucket: v.bucket, path: `${v.path}.copy`, what: "owner copy", secret: "" });
       const moved = await owner.client.storage.from(v.bucket).move(`${v.path}.copy`, `${v.path}.moved`);
-      expect(moved.error, `${v.what}: move`).toBeNull();
+      if (kept) expect(moved.error, `${v.what}: move is refused`).not.toBeNull();
+      else expect(moved.error, `${v.what}: move`).toBeNull();
       planted.push({ bucket: v.bucket, path: `${v.path}.moved`, what: "owner move", secret: "" });
       if (v.bucket !== "public-assets") {
         const signed = await owner.client.storage.from(v.bucket).createSignedUrl(v.path, 60);

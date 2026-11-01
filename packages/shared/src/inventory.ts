@@ -11,7 +11,7 @@ import { toCsv } from "./csv";
 
 export type InventoryCategory =
   | "textbooks" | "furniture" | "lab_equipment" | "sports" | "ict" | "uniforms"
-  | "music" | "kitchen" | "stationery" | "tools" | "other";
+  | "music" | "kitchen" | "stationery" | "tools" | "medical" | "other";
 export type InventoryTracking = "asset" | "stock";
 export type ItemCondition = "new" | "good" | "fair" | "poor" | "broken";
 export type IssueStatus = "out" | "returned" | "damaged" | "lost";
@@ -27,6 +27,8 @@ export const INVENTORY_CATEGORY_LABEL: Record<InventoryCategory, string> = {
   kitchen: "Kitchen & dining",
   stationery: "Stationery",
   tools: "Tools & workshop",
+  // the sick bay's medicines and supplies: a medicine given can come off a stock line (20261101300001)
+  medical: "Medical supplies",
   other: "Other",
 };
 
