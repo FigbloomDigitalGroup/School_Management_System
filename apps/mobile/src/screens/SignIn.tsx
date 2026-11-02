@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import {
-  passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, roleFromLoginId, searchSchools, supabase,
-  type ResolvedLogin, type SchoolSearchResult,
+  isBannedAuthError, isSchoolSuspendedError, passwordResetRequestedMessage, requestPasswordReset, resolveLoginId,
+  roleFromLoginId, searchSchools, supabase, type ResolvedLogin, type SchoolSearchResult,
 } from "@figbloom/shared";
 import { fontSize } from "../theme";
 import { Button } from "../ui/Button";
 import { Field } from "../ui/Field";
+import { SuspendedNotice } from "../ui/SuspendedNotice";
 import { Tap } from "../ui/Tap";
 import { useTheme } from "../ui/ThemeContext";
 
@@ -24,8 +25,14 @@ import { useTheme } from "../ui/ThemeContext";
  * request-password-reset, and the school office (or a learner's parent)
  * sets a new temporary password.
  */
-export function SignIn() {
+export function SignIn({ suspendedAtStart = false }: {
+  /** Set by App when an open session found its school suspended and signed this phone out. */
+  suspendedAtStart?: boolean;
+} = {}) {
   const { t, s } = useTheme();
+  // The school is suspended: said by Auth (user_banned), by resolve-login-id
+  // (school_suspended), or by App for a session that was already open.
+  const [suspended, setSuspended] = useState(suspendedAtStart);
   const [school, setSchool] = useState<SchoolSearchResult | null>(null);
   const [schoolQuery, setSchoolQuery] = useState("");
   const [schoolResults, setSchoolResults] = useState<SchoolSearchResult[]>([]);
@@ -74,6 +81,7 @@ export function SignIn() {
   }, [resolved]);
 
   function selectSchool(picked: SchoolSearchResult) {
+    setSuspended(false);
     setSchool(picked);
     setSchoolQuery("");
     setSchoolResults([]);
@@ -83,6 +91,7 @@ export function SignIn() {
   }
 
   function changeSchool() {
+    setSuspended(false);
     setSchool(null);
     setLoginId("");
     setResolved(null);
@@ -100,6 +109,7 @@ export function SignIn() {
     } catch (err) {
       wantPassword.current = false;
       setResolved(null);
+      if (isSchoolSuspendedError(err)) { setIdHint(""); setSuspended(true); return; }
       setIdHint(err instanceof Error ? err.message : "Could not find that ID.");
     } finally {
       setResolving(false);
@@ -130,10 +140,16 @@ export function SignIn() {
   async function submit() {
     if (!resolved) return;
     setError("");
+    setSuspended(false);
     setBusy(true);
     try {
       const { error: err } = await supabase().auth.signInWithPassword({ email: resolved.email, password });
-      if (err) { setError("Check your ID and password."); return; }
+      if (err) {
+        // Auth's own answer for a banned account: it already says the account exists, so this adds nothing to that
+        if (isBannedAuthError(err)) setSuspended(true);
+        else setError("Check your ID and password.");
+        return;
+      }
       // No navigation call here — App.tsx listens for the auth state change
       // and swaps in the signed-in screens itself.
     } finally {
@@ -152,6 +168,8 @@ export function SignIn() {
       <Text style={[s.small, { textAlign: "center", marginTop: 4, marginBottom: 24 }]}>
         Sign in to see fees, results and messages.
       </Text>
+
+      {suspended && <SuspendedNotice style={{ marginBottom: 16 }} />}
 
       {school ? (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: t.appSurface.line, borderRadius: t.radius.lg, backgroundColor: t.appSurface.card, paddingLeft: 14, paddingVertical: 4 }}>
@@ -204,7 +222,7 @@ export function SignIn() {
             returnKeyType={forgot ? "done" : "next"}
             submitBehavior={forgot ? "blurAndSubmit" : "submit"}
             value={loginId}
-            onChangeText={(v) => { setLoginId(v); setResolved(null); setIdHint(""); }}
+            onChangeText={(v) => { setLoginId(v); setResolved(null); setIdHint(""); setSuspended(false); }}
             onBlur={() => { if (!forgot) void resolveId(); }}
             onSubmitEditing={() => {
               if (forgot) return;
