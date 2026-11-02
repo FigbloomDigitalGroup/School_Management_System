@@ -48,6 +48,7 @@ async function seedPhone() {
     ["figbloom.parentData.v1.ann", "{\"children\":[\"Faith\",\"Samuel\"]}"],
     ["figbloom.parentData.v1.ben", "{}"],
     ["figbloom.studentData.v1.cy", "{}"],
+    ["figbloom.session.v1.ann", "{\"role\":\"parent\"}"], // who the phone last opened as (FIG-1487)
     ["figbloom.themePref.v1", "dark"],
     ["figbloom.fingerprintUnlock.v1.ann", "on"],
     ["figbloom.routeTrace.v1.route-1", "[]"],

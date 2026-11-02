@@ -1,28 +1,22 @@
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  endLoginEvenOffline, isStoredLoginKey, signOutCleanly, supabase, unsentWarning, userIdFromStoredLogin, type SignOutParts,
-} from "@figbloom/shared";
+import { endLoginEvenOffline, signOutCleanly, supabase, unsentWarning, type SignOutParts } from "@figbloom/shared";
 import { queue } from "../storage";
 import { forgetPushToken } from "../pushNotifications";
 import { CACHE_KEYS } from "./cacheKeys";
+import { storedLoginKeys, storedUserId } from "./storedLogin";
 
 /**
- * Deletes every cached copy of family and learner data on this phone, whoever it belongs to: the cache is
- * only there to show the last-known figures with no signal, and signing in again needs signal.
+ * Deletes every cached copy of family and learner data on this phone, and who it last opened as, whoever it
+ * belongs to: they are only there to show the last-known figures with no signal, and signing in again needs signal.
  */
 export async function forgetCachedData(): Promise<void> {
   const keys = await AsyncStorage.getAllKeys();
   await AsyncStorage.multiRemove(keys.filter((key) => CACHE_KEYS.some((prefix) => key.startsWith(`${prefix}.`))));
 }
 
-const storedLoginKeys = async () => (await AsyncStorage.getAllKeys()).filter(isStoredLoginKey);
-
 const parts: SignOutParts = {
-  userId: async () => {
-    const tokenKey = (await storedLoginKeys()).find((key) => key.endsWith("-auth-token"));
-    return userIdFromStoredLogin(tokenKey ? await AsyncStorage.getItem(tokenKey) : null);
-  },
+  userId: storedUserId,
   queue,
   forgetDevice: forgetPushToken,
   forgetCachedData,

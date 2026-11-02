@@ -1,18 +1,12 @@
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  endLoginEvenOffline, isStoredLoginKey, signOutCleanly, supabase, unsentWarning, userIdFromStoredLogin, type SignOutParts,
-} from "@figbloom/shared";
+import { endLoginEvenOffline, signOutCleanly, supabase, unsentWarning, type SignOutParts } from "@figbloom/shared";
 import { queue } from "../storage";
 import { forgetPushToken } from "../pushNotifications";
-
-const storedLoginKeys = async () => (await AsyncStorage.getAllKeys()).filter(isStoredLoginKey);
+import { storedLoginKeys, storedUserId } from "./storedLogin";
 
 const parts: SignOutParts = {
-  userId: async () => {
-    const tokenKey = (await storedLoginKeys()).find((key) => key.endsWith("-auth-token"));
-    return userIdFromStoredLogin(tokenKey ? await AsyncStorage.getItem(tokenKey) : null);
-  },
+  userId: storedUserId,
   queue,
   forgetDevice: forgetPushToken,
   // This app keeps no copy of school data on the phone, only the unsent writes the queue holds.
