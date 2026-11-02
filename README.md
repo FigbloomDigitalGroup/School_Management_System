@@ -75,7 +75,9 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   parents, and the latest sign-in at that school. Nothing else personal.
   `{"action": "set_status", "school_id", "status": "suspended" | "active",
   "reason", "actor_email"}` suspends (reason required) or reactivates a
-  suspended school. `"active"` means reactivate: the school gets back the
+  suspended school. Only a school that is `active`, `trial` or `overdue` can
+  be suspended from the console; `onboarding` and `setup_stalled` answer 422
+  (`20261104800000_console_suspends_working_schools.sql`). `"active"` means reactivate: the school gets back the
   status it had before it was suspended (`trial`, `overdue`, ...), or `active`
   if none was recorded, and the returned row shows it. Errors are
   `{"error": {"code", "message"}}`: 400 bad input, 404 no such school, 409

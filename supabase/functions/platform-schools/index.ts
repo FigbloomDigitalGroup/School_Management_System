@@ -22,8 +22,10 @@
  *   it was suspended (trial, overdue, ...), or active, and the row says which.
  *   The school's audit log says "Figbloom (via Figbloom console)" and the
  *   reason; actor_email is kept only where Figbloom staff alone can read it.
+ *   Only an active, trial or overdue school can be suspended.
  *   400 bad input, 404 no such school, 409 already suspended / not suspended,
- *   422 a status that can't be set from here.
+ *   422 a status that can't be set from here, or a school (onboarding,
+ *   setup_stalled) that can't be suspended from here.
  *
  * Errors are always {"error": {"code": "snake_case", "message": "Sentence."}}.
  *
@@ -146,7 +148,9 @@ async function setStatus(admin: any, body: Record<string, unknown>): Promise<Res
     case "not_found": return fail(404, "school_not_found", "There is no school with that ID.");
     case "already": return fail(409, "already_in_status", "The school is already suspended.");
     case "not_suspended": return fail(409, "not_suspended", "The school isn't suspended, so there is nothing to reactivate.");
-    case "not_settable": return fail(422, "status_not_settable", `"${status}" can't be set from the Figbloom console.`);
+    case "not_settable": return fail(422, "status_not_settable", status === "suspended"
+      ? "Only a school that is active, on trial or overdue can be suspended from the Figbloom console."
+      : `"${status}" can't be set from the Figbloom console.`);
     default: return internal("change the school's status", `unexpected answer ${JSON.stringify(data)}`);
   }
 }

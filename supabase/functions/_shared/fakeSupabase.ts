@@ -439,6 +439,8 @@ export class FakeSupabaseClient {
     if (!t) return { outcome: "not_found" };
     if (status === "suspended" && t.status === "suspended") return { outcome: "already" };
     if (status === "active" && t.status !== "suspended") return { outcome: "not_suspended" };
+    // 20261104800000: only a working school is the console's to suspend
+    if (status === "suspended" && !["active", "trial", "overdue"].includes(t.status)) return { outcome: "not_settable" };
     const from = t.status;
     // tenants_status_bookkeeping: remember the status on the way in, restore and forget it on the way out
     const to = status === "suspended" ? "suspended" : (t.status_before_suspension ?? "active");

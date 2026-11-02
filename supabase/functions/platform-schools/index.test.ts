@@ -300,11 +300,36 @@ describe("platform-schools handle", () => {
       assertEquals((await res.json()).school.status_reason, "Paid in full");
     });
 
-    it("suspends a school on trial too", async () => {
+    it("suspends a school on trial too, remembering it was on trial", async () => {
       const admin = makeAdmin();
       const res = await handle(call(suspend({ school_id: TRIAL })), deps(admin));
       assertEquals(res.status, 200);
       assertEquals((await res.json()).school.status, "suspended");
+      assertEquals(admin.rowsIn("tenants").find((t) => t.id === TRIAL)?.status_before_suspension, "trial");
+    });
+
+    it("suspends an overdue school, remembering it was overdue", async () => {
+      const admin = makeAdmin();
+      admin.rowsIn("tenants").find((t) => t.id === KILIMANI)!.status = "overdue";
+      const res = await handle(call(suspend()), deps(admin));
+      assertEquals(res.status, 200);
+      assertEquals(admin.rowsIn("tenants").find((t) => t.id === KILIMANI)?.status_before_suspension, "overdue");
+    });
+
+    it("refuses to suspend a school still onboarding or whose setup stalled (422), changing nothing", async () => {
+      for (const status of ["onboarding", "setup_stalled"]) {
+        const admin = makeAdmin();
+        admin.rowsIn("tenants").find((t) => t.id === KILIMANI)!.status = status;
+        const res = await handle(call(suspend()), deps(admin));
+        assertEquals(res.status, 422, status);
+        const err = await errorOf(res);
+        assertEquals(err.code, "status_not_settable");
+        assertEquals(err.message, "Only a school that is active, on trial or overdue can be suspended from the Figbloom console.");
+        const tenant = admin.rowsIn("tenants").find((t) => t.id === KILIMANI)!;
+        assertEquals(tenant.status, status);
+        assertEquals(tenant.status_before_suspension ?? null, null);
+        assertEquals(admin.rowsIn("audit_events").length, 0);
+      }
     });
 
     describe("400 bad input", () => {

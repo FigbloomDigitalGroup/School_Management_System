@@ -200,4 +200,31 @@ select pg_temp.check('a status change elsewhere clears the console''s reason and
 select pg_temp.check('a direct status change still gets its generic audit line (so the check above isn''t vacuous)',
   pg_temp.generic_tenant_lines(current_setting('t.a')::uuid) = current_setting('t.generic_before')::bigint + 2);
 
+-- ---------------------------------------------------------------- which schools the console may suspend (20261104800000)
+-- the school is on trial now: suspend it from the console, and reactivating brings back trial
+select pg_temp.as_service(); set local role service_role;
+select pg_temp.check('a school on trial can be suspended from the console',
+  platform_console_set_school_status(current_setting('t.a')::uuid, 'suspended', 'Trial misuse', 'ops@figbloom.org') ->> 'outcome' = 'ok');
+reset role;
+select pg_temp.check('...and it remembers it was on trial',
+  (select status = 'suspended' and status_before_suspension = 'trial' from tenants where id = current_setting('t.a')::uuid));
+select pg_temp.as_service(); set local role service_role;
+select pg_temp.check('reactivating it from the console brings back trial',
+  platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org') #>> '{school,status}' = 'trial');
+reset role;
+
+update tenants set status = 'onboarding' where id = current_setting('t.a')::uuid;
+select pg_temp.as_service(); set local role service_role;
+select pg_temp.check('a school still onboarding can''t be suspended from the console: not_settable',
+  platform_console_set_school_status(current_setting('t.a')::uuid, 'suspended', 'x', 'ops@figbloom.org') ->> 'outcome' = 'not_settable');
+reset role;
+select pg_temp.check('...and stays onboarding', (select status = 'onboarding' from tenants where id = current_setting('t.a')::uuid));
+
+update tenants set status = 'setup_stalled' where id = current_setting('t.a')::uuid;
+select pg_temp.as_service(); set local role service_role;
+select pg_temp.check('a school whose setup stalled can''t be suspended from the console: not_settable',
+  platform_console_set_school_status(current_setting('t.a')::uuid, 'suspended', 'x', 'ops@figbloom.org') ->> 'outcome' = 'not_settable');
+reset role;
+select pg_temp.check('...and stays setup_stalled', (select status = 'setup_stalled' from tenants where id = current_setting('t.a')::uuid));
+
 rollback;
