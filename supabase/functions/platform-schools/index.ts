@@ -16,11 +16,14 @@
  *   statuses and one support contact (the first school admin's email): no
  *   names of learners or staff, no records.
  * - {"action": "set_status", school_id, status: "suspended" | "active",
- *   reason, actor_email} -> {school: row}. Suspends or reactivates through
- *   Schools' own mechanism (tenants.status, see
- *   20261104600000_platform_console_schools.sql), with an audit event naming
- *   actor_email "via Figbloom console". 400 bad input, 404 no such school,
- *   409 already in that status, 422 a status that can't be set from here.
+ *   reason, actor_email} -> {school: row}. Suspends through Schools' own
+ *   mechanism (tenants.status, see 20261104600000_platform_console_schools.sql);
+ *   "active" means reactivate: the school gets back the status it had before
+ *   it was suspended (trial, overdue, ...), or active, and the row says which.
+ *   The school's audit log says "Figbloom (via Figbloom console)" and the
+ *   reason; actor_email is kept only where Figbloom staff alone can read it.
+ *   400 bad input, 404 no such school, 409 already suspended / not suspended,
+ *   422 a status that can't be set from here.
  *
  * Errors are always {"error": {"code": "snake_case", "message": "Sentence."}}.
  *
@@ -141,11 +144,9 @@ async function setStatus(admin: any, body: Record<string, unknown>): Promise<Res
   switch (data?.outcome) {
     case "ok": return json({ school: toRow(data.school) });
     case "not_found": return fail(404, "school_not_found", "There is no school with that ID.");
-    case "already": return fail(409, "already_in_status", `The school is already ${status}.`);
-    case "not_settable":
-      return fail(422, "status_not_settable", status === "active"
-        ? "Only a suspended school can be reactivated from the Figbloom console."
-        : `"${status}" can't be set from the Figbloom console.`);
+    case "already": return fail(409, "already_in_status", "The school is already suspended.");
+    case "not_suspended": return fail(409, "not_suspended", "The school isn't suspended, so there is nothing to reactivate.");
+    case "not_settable": return fail(422, "status_not_settable", `"${status}" can't be set from the Figbloom console.`);
     default: return internal("change the school's status", `unexpected answer ${JSON.stringify(data)}`);
   }
 }

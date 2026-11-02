@@ -233,16 +233,29 @@ describe("platform-schools handle", () => {
 
       const tenant = admin.rowsIn("tenants").find((t) => t.id === KILIMANI)!;
       assertEquals(tenant.status, "suspended");
+      assertEquals(tenant.status_before_suspension, "active");
 
-      const audit = admin.rowsIn("audit_events");
-      assertEquals(audit.length, 1);
-      assertEquals(audit[0].tenant_id, KILIMANI);
-      assertEquals(audit[0].actor_label, "ops@figbloom.org via Figbloom console");
-      assertEquals(audit[0].category, "access");
-      assert(audit[0].event.startsWith("School suspended via Figbloom console"));
-      assertEquals(audit[0].metadata.actor_email, "ops@figbloom.org");
-      assertEquals(audit[0].metadata.reason, "Licence unpaid since September");
-      assertEquals(audit[0].metadata.changes, { status: { from: "active", to: "suspended" } });
+      // the school's own audit log: Figbloom and the reason, never the staff member's address
+      const school = admin.rowsIn("audit_events").filter((e) => e.tenant_id === KILIMANI);
+      assertEquals(school.length, 1);
+      assertEquals(school[0].actor_label, "Figbloom (via Figbloom console)");
+      assertEquals(school[0].category, "access");
+      assertEquals(school[0].event, "School suspended by Figbloom: Licence unpaid since September");
+      assertEquals(school[0].metadata.reason, "Licence unpaid since September");
+      assertEquals(school[0].metadata.changes, { status: { from: "active", to: "suspended" } });
+      assert(!JSON.stringify(school[0]).includes("ops@figbloom.org"), "the school's audit event names the staff member");
+      assert(!JSON.stringify(tenant).includes("ops@figbloom.org"), "the school's row names the staff member");
+    });
+
+    it("keeps the staff member's address only in an event with no school (Figbloom staff only)", async () => {
+      const admin = makeAdmin();
+      await handle(call(suspend()), deps(admin));
+      const platform = admin.rowsIn("audit_events").filter((e) => e.tenant_id === null);
+      assertEquals(platform.length, 1);
+      assertEquals(platform[0].actor_label, "ops@figbloom.org via Figbloom console");
+      assertEquals(platform[0].event, 'Suspended "Kilimani Secondary" via Figbloom console');
+      assertEquals(platform[0].metadata.actor_email, "ops@figbloom.org");
+      assertEquals(platform[0].metadata.school_id, KILIMANI);
     });
 
     it("reactivates a suspended school without a reason, and clears the old one", async () => {
@@ -250,12 +263,35 @@ describe("platform-schools handle", () => {
       const res = await handle(call({ action: "set_status", school_id: ALLIANCE, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));
       assertEquals(res.status, 200);
       const { school } = await res.json();
-      assertEquals(school.status, "active");
+      assertEquals(school.status, "active");   // nothing remembered: back to active
       assertEquals(school.status_reason, null);
-      const audit = admin.rowsIn("audit_events");
+      const audit = admin.rowsIn("audit_events").filter((e) => e.tenant_id === ALLIANCE);
       assertEquals(audit.length, 1);
-      assertEquals(audit[0].event, "School reactivated via Figbloom console");
+      assertEquals(audit[0].event, "School reactivated by Figbloom");
       assertEquals(audit[0].metadata.changes, { status: { from: "suspended", to: "active" } });
+    });
+
+    it("reactivating restores the status the school had before it was suspended, and forgets it", async () => {
+      for (const before of ["trial", "overdue", "active"]) {
+        const admin = makeAdmin();
+        admin.rowsIn("tenants").find((t) => t.id === KILIMANI)!.status = before;
+        assertEquals((await handle(call(suspend()), deps(admin))).status, 200);
+        const res = await handle(call({ action: "set_status", school_id: KILIMANI, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));
+        assertEquals(res.status, 200);
+        assertEquals((await res.json()).school.status, before);
+        const tenant = admin.rowsIn("tenants").find((t) => t.id === KILIMANI)!;
+        assertEquals(tenant.status, before);
+        assertEquals(tenant.status_before_suspension, null);
+        const last = admin.rowsIn("audit_events").filter((e) => e.tenant_id === KILIMANI).at(-1)!;
+        assertEquals(last.metadata.changes, { status: { from: "suspended", to: before } });
+      }
+    });
+
+    it("restores a status remembered from a suspension made in Schools' own console", async () => {
+      const admin = makeAdmin();
+      Object.assign(admin.rowsIn("tenants").find((t) => t.id === ALLIANCE)!, { status_before_suspension: "overdue" });
+      const res = await handle(call({ action: "set_status", school_id: ALLIANCE, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));
+      assertEquals((await res.json()).school.status, "overdue");
     });
 
     it("keeps an optional reason on reactivation", async () => {
@@ -324,9 +360,14 @@ describe("platform-schools handle", () => {
       assertEquals(admin.rowsIn("audit_events").length, 0);
     });
 
-    it("answers 409 when the school is already active", async () => {
-      const res = await handle(call({ action: "set_status", school_id: KILIMANI, status: "active", actor_email: "ops@figbloom.org" }), deps(makeAdmin()));
-      assertEquals(res.status, 409);
+    it("answers 409 not_suspended when reactivating a school that isn't suspended", async () => {
+      for (const id of [KILIMANI, TRIAL]) {
+        const admin = makeAdmin();
+        const res = await handle(call({ action: "set_status", school_id: id, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));
+        assertEquals(res.status, 409);
+        assertEquals((await errorOf(res)).code, "not_suspended");
+        assertEquals(admin.rowsIn("audit_events").length, 0);
+      }
     });
 
     it("answers 422 for a status the console can't set", async () => {
@@ -337,14 +378,6 @@ describe("platform-schools handle", () => {
         assertEquals((await errorOf(res)).code, "status_not_settable");
         assertEquals(admin.rowsIn("tenants").find((t) => t.id === KILIMANI)?.status, "active");
       }
-    });
-
-    it("answers 422 for reactivating a school that isn't suspended (trial stays Schools' business)", async () => {
-      const admin = makeAdmin();
-      const res = await handle(call({ action: "set_status", school_id: TRIAL, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));
-      assertEquals(res.status, 422);
-      assertEquals((await errorOf(res)).code, "status_not_settable");
-      assertEquals(admin.rowsIn("tenants").find((t) => t.id === TRIAL)?.status, "trial");
     });
 
     it("sends the trimmed reason, null for none, and the actor to the database function", async () => {

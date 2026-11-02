@@ -437,15 +437,28 @@ export class FakeSupabaseClient {
     if (status !== "active" && status !== "suspended") return { outcome: "not_settable" };
     const t = this.rowsIn("tenants").find((r) => r.id === args.p_school_id);
     if (!t) return { outcome: "not_found" };
-    if (t.status === status) return { outcome: "already" };
-    if (status === "active" && t.status !== "suspended") return { outcome: "not_settable" };
+    if (status === "suspended" && t.status === "suspended") return { outcome: "already" };
+    if (status === "active" && t.status !== "suspended") return { outcome: "not_suspended" };
     const from = t.status;
-    this.table("tenants").update({ status, status_reason: reason }, (r) => r.id === t.id);
+    // tenants_status_bookkeeping: remember the status on the way in, restore and forget it on the way out
+    const to = status === "suspended" ? "suspended" : (t.status_before_suspension ?? "active");
+    this.table("tenants").update({
+      status: to, status_reason: reason, status_before_suspension: to === "suspended" ? from : null,
+    }, (r) => r.id === t.id);
+    const changes = { status: { from, to } };
+    // what the school reads: no staff member's address
     this.table("audit_events").insert({
-      tenant_id: t.id, actor_id: null, actor_label: `${actor} via Figbloom console`,
-      event: `${status === "suspended" ? "School suspended" : "School reactivated"} via Figbloom console${reason ? `: ${reason}` : ""}`,
+      tenant_id: t.id, actor_id: null, actor_label: "Figbloom (via Figbloom console)",
+      event: `${status === "suspended" ? "School suspended by Figbloom" : "School reactivated by Figbloom"}${reason ? `: ${reason}` : ""}`,
       category: "access",
-      metadata: { table: "tenants", op: "update", via: "Figbloom console", actor_email: actor, reason, changes: { status: { from, to: status } } },
+      metadata: { table: "tenants", op: "update", via: "Figbloom console", reason, changes },
+    });
+    // what only Figbloom staff read (no school)
+    this.table("audit_events").insert({
+      tenant_id: null, actor_id: null, actor_label: `${actor} via Figbloom console`,
+      event: `${status === "suspended" ? "Suspended" : "Reactivated"} "${t.name}" via Figbloom console`,
+      category: "access",
+      metadata: { table: "tenants", op: "update", via: "Figbloom console", school_id: t.id, actor_email: actor, reason, changes },
     });
     return { outcome: "ok", school: this.platformSchools(t.id)[0] };
   }

@@ -9,8 +9,10 @@
 -- What it shows: only the service role can run the two functions; the list's
 -- counts match the tables; and a suspension from the console goes through
 -- tenants.status, so the school's users get the no-match my_tenant() and the
--- Auth ban exactly as when suspended from Schools' own console, with one
--- worded audit event "via Figbloom console" and no generic tenants line.
+-- Auth ban exactly as when suspended from Schools' own console; reactivating
+-- restores the status the school had (here 'overdue'); the school's audit log
+-- says "Figbloom" and the reason, and the staff member's address is only in an
+-- event with no school, which the school's admin can't read.
 
 \set ON_ERROR_STOP 1
 begin;
@@ -18,7 +20,9 @@ begin;
 -- ---------------------------------------------------------------- fixtures (as postgres)
 select set_config('t.a',       (select id::text from tenants where slug = 'alliance'), true);
 select set_config('t.teacher', (select id::text from profiles where role = 'teacher' and tenant_id = current_setting('t.a')::uuid limit 1), true);
-update tenants set status = 'active', status_reason = null where id = current_setting('t.a')::uuid;
+select set_config('t.admin',   (select id::text from profiles where role = 'school_admin' and tenant_id = current_setting('t.a')::uuid limit 1), true);
+-- overdue: still signs in, and reactivation should bring it back to exactly this
+update tenants set status = 'overdue', status_reason = null where id = current_setting('t.a')::uuid;
 update auth.users set last_sign_in_at = '2026-11-01 17:22:00+00' where id = current_setting('t.teacher')::uuid;
 
 create function pg_temp.check(label text, ok boolean) returns void language plpgsql as $$
@@ -38,8 +42,8 @@ create function pg_temp.generic_tenant_lines(school uuid) returns bigint languag
 $$;
 grant execute on all functions in schema pg_temp to authenticated, service_role;
 
-select pg_temp.check('the fixture has a school with learners and a teacher',
-  current_setting('t.a', true) <> '' and current_setting('t.teacher', true) <> '');
+select pg_temp.check('the fixture has a school with learners, a teacher and a school admin',
+  current_setting('t.a', true) <> '' and current_setting('t.teacher', true) <> '' and current_setting('t.admin', true) <> '');
 
 -- ---------------------------------------------------------------- who may call them
 select pg_temp.check('anon cannot run platform_console_schools',
@@ -103,8 +107,8 @@ create temp table r1 on commit drop as select current_setting('t.r1')::jsonb as 
 
 select pg_temp.check('suspend: ok, and the school comes back suspended with its reason',
   (select r ->> 'outcome' = 'ok' and r #>> '{school,status}' = 'suspended' and r #>> '{school,status_reason}' = 'Licence unpaid' from r1));
-select pg_temp.check('suspend: tenants.status is suspended',
-  (select status = 'suspended' from tenants where id = current_setting('t.a')::uuid));
+select pg_temp.check('suspend: tenants.status is suspended, remembering it was overdue',
+  (select status = 'suspended' and status_before_suspension = 'overdue' from tenants where id = current_setting('t.a')::uuid));
 select pg_temp.check('suspend: the school''s users are banned in Auth, as by Schools'' own console',
   (select banned_until > now() + interval '50 years' and raw_app_meta_data ->> 'suspended_with_school' = 'true'
      from auth.users where id = current_setting('t.teacher')::uuid));
@@ -112,12 +116,21 @@ select pg_temp.act_as(current_setting('t.teacher')); set local role authenticate
 select pg_temp.check('suspend: a teacher there gets the no-match my_tenant() and sees no learners',
   my_tenant() = '00000000-0000-0000-0000-000000000000'::uuid and (select count(*) from students) = 0);
 reset role;
-select pg_temp.check('suspend: one audit event, naming the operator via the Figbloom console',
-  (select count(*) = 1 and bool_and(actor_label = 'ops@figbloom.org via Figbloom console'
-                                    and event = 'School suspended via Figbloom console: Licence unpaid'
-                                    and metadata ->> 'actor_email' = 'ops@figbloom.org'
+select pg_temp.check('suspend: one event on the school, by "Figbloom", with the reason',
+  (select count(*) = 1 and bool_and(actor_label = 'Figbloom (via Figbloom console)'
+                                    and event = 'School suspended by Figbloom: Licence unpaid'
+                                    and metadata ->> 'reason' = 'Licence unpaid'
                                     and metadata #>> '{changes,status,to}' = 'suspended')
-     from audit_events where tenant_id = current_setting('t.a')::uuid and actor_label like '%via Figbloom console'));
+     from audit_events where tenant_id = current_setting('t.a')::uuid and metadata ->> 'via' = 'Figbloom console'));
+select pg_temp.check('suspend: the staff member''s address is in no event on the school, nor on the school''s row',
+  not exists (select 1 from audit_events where tenant_id = current_setting('t.a')::uuid
+                 and (actor_label || event || metadata::text) like '%ops@figbloom.org%')
+  and not exists (select 1 from tenants t where t.id = current_setting('t.a')::uuid and to_jsonb(t)::text like '%ops@figbloom.org%'));
+select pg_temp.check('suspend: it is in one event with no school (Figbloom staff only)',
+  (select count(*) = 1 and bool_and(actor_label = 'ops@figbloom.org via Figbloom console'
+                                    and metadata ->> 'school_id' = current_setting('t.a')
+                                    and metadata ->> 'actor_email' = 'ops@figbloom.org')
+     from audit_events where tenant_id is null and metadata ->> 'via' = 'Figbloom console'));
 select pg_temp.check('suspend: no second, generic tenants line for the same change',
   pg_temp.generic_tenant_lines(current_setting('t.a')::uuid) = current_setting('t.generic_before')::bigint);
 
@@ -151,18 +164,26 @@ select pg_temp.as_service(); set local role service_role;
 select set_config('t.r2', platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org')::text, true);
 reset role;
 create temp table r2 on commit drop as select current_setting('t.r2')::jsonb as r;
-select pg_temp.check('reactivate: ok, active, reason cleared',
-  (select r ->> 'outcome' = 'ok' and r #>> '{school,status}' = 'active' and r #> '{school,status_reason}' = 'null'::jsonb from r2));
+select pg_temp.check('reactivate: ok, back to overdue (its status before), reason cleared',
+  (select r ->> 'outcome' = 'ok' and r #>> '{school,status}' = 'overdue' and r #> '{school,status_reason}' = 'null'::jsonb from r2));
+select pg_temp.check('reactivate: the remembered status is forgotten',
+  (select status = 'overdue' and status_before_suspension is null from tenants where id = current_setting('t.a')::uuid));
 select pg_temp.check('reactivate: the ban is lifted',
   (select banned_until is null and not (raw_app_meta_data ? 'suspended_with_school')
      from auth.users where id = current_setting('t.teacher')::uuid));
 select pg_temp.act_as(current_setting('t.teacher')); set local role authenticated;
 select pg_temp.check('reactivate: the teacher sees their learners again', (select count(*) from students) > 0);
 reset role;
+select pg_temp.act_as(current_setting('t.admin')); set local role authenticated;
+select pg_temp.check('the school admin reads the console''s events on their school',
+  (select count(*) from audit_events where metadata ->> 'via' = 'Figbloom console') = 2);
+select pg_temp.check('...and nothing they can read names the staff member',
+  not exists (select 1 from audit_events where (actor_label || event || metadata::text) like '%ops@figbloom.org%'));
+reset role;
 
 select pg_temp.as_service(); set local role service_role;
-select pg_temp.check('reactivating an active school: outcome already',
-  platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org') ->> 'outcome' = 'already');
+select pg_temp.check('reactivating a school that isn''t suspended: outcome not_suspended',
+  platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org') ->> 'outcome' = 'not_suspended');
 reset role;
 
 -- ---------------------------------------------------------------- reason never outlives its status
@@ -171,14 +192,12 @@ reset role;
 select set_config('figbloom.self_audited', '', true);
 select set_config('t.generic_before', pg_temp.generic_tenant_lines(current_setting('t.a')::uuid)::text, true);
 update tenants set status = 'suspended', status_reason = 'From the console' where id = current_setting('t.a')::uuid;
+select pg_temp.check('a suspension made directly (Schools'' own console) remembers the status too',
+  (select status_before_suspension = 'overdue' from tenants where id = current_setting('t.a')::uuid));
 update tenants set status = 'trial' where id = current_setting('t.a')::uuid;
-select pg_temp.check('a status change elsewhere clears the console''s reason',
-  (select status_reason is null from tenants where id = current_setting('t.a')::uuid));
+select pg_temp.check('a status change elsewhere clears the console''s reason and the remembered status',
+  (select status_reason is null and status_before_suspension is null from tenants where id = current_setting('t.a')::uuid));
 select pg_temp.check('a direct status change still gets its generic audit line (so the check above isn''t vacuous)',
   pg_temp.generic_tenant_lines(current_setting('t.a')::uuid) = current_setting('t.generic_before')::bigint + 2);
-select pg_temp.as_service(); set local role service_role;
-select pg_temp.check('reactivating a school that isn''t suspended: outcome not_settable',
-  platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org') ->> 'outcome' = 'not_settable');
-reset role;
 
 rollback;

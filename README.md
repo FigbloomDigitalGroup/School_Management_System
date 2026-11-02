@@ -75,15 +75,22 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   parents, and the latest sign-in at that school. Nothing else personal.
   `{"action": "set_status", "school_id", "status": "suspended" | "active",
   "reason", "actor_email"}` suspends (reason required) or reactivates a
-  suspended school. Errors are `{"error": {"code", "message"}}`: 400 bad input,
-  404 no such school, 409 already in that status, 422 a status the console
-  can't set.
+  suspended school. `"active"` means reactivate: the school gets back the
+  status it had before it was suspended (`trial`, `overdue`, ...), or `active`
+  if none was recorded, and the returned row shows it. Errors are
+  `{"error": {"code", "message"}}`: 400 bad input, 404 no such school, 409
+  already suspended / not suspended, 422 a status the console can't set.
 - **Same suspension as our own console.** It updates `tenants.status`, so the
   school's users lose access and are banned in Auth exactly as when Figbloom
-  staff suspend it here (`20261026080000_suspended_tenants_and_orgs.sql`). The
-  audit log gets one event, by `<actor_email> via Figbloom console`, with the
-  reason. The SQL is in `20261104600000_platform_console_schools.sql`; only the
-  service role can run it.
+  staff suspend it here (`20261026080000_suspended_tenants_and_orgs.sql`).
+  Every suspension, from either console, remembers the previous status in
+  `tenants.status_before_suspension`. The SQL is in
+  `20261104600000_platform_console_schools.sql`; only the service role can run it.
+- **Reasons are written for the school to read.** The reason is shown to the
+  school (`tenants.status_reason`, and its audit log, where the change is by
+  "Figbloom (via Figbloom console)"). The Figbloom staff member's email is
+  never on the school's side: it is kept only in an audit event with no
+  school, which only Figbloom staff (super admins) can read.
 - **The secret.** JWT verification is off for this function; instead the
   `x-platform-secret` header must equal the function secret
   `PLATFORM_CONSOLE_SECRET` (compared in constant time). Unset, or shorter

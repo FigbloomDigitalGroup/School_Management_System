@@ -17,41 +17,61 @@
 --     tenants_sync_suspension trigger bans them in Auth (and lifts exactly
 --     those bans on reactivation). So a school suspended from the Figbloom
 --     console is locked out exactly as one suspended from Schools' own.
---     It writes its own, worded audit event naming the console operator
---     ("x@figbloom.org via Figbloom console") and the reason, and skips the
---     generic "Tenants: ... changed" line for that update (figbloom.self_audited,
---     the FIG-1326 convention), so the change is logged once.
 --
--- Only 'active' and 'suspended' can be set from the console. Reactivating
--- means suspended -> active; any other status (trial, overdue, onboarding,
--- setup_stalled) is Schools' own business and is refused. The function
--- answers {outcome: ok | not_found | already | not_settable}; the edge
--- function turns those into 200 / 404 / 409 / 422.
+-- Suspending remembers the status the school had; reactivating restores it.
+-- tenants.status_before_suspension is set by a trigger on every move into
+-- 'suspended', from either console, and cleared on every move out of it. The
+-- Figbloom console's "active" means "reactivate": a suspended school goes back
+-- to what it was (trial, overdue, ...), or 'active' when nothing was recorded
+-- (schools suspended before this migration). A status chosen explicitly
+-- elsewhere (Schools' own console setting a status directly) is left as
+-- chosen; the trigger only clears the remembered one.
+--
+-- Who sees what in the audit log. The school's admins (and anyone given the
+-- 'audit' area) read the events on their school, so that event says only
+-- "Figbloom (via Figbloom console)" and the reason: the reason is written for
+-- the school to read. The Figbloom staff member's email goes in a second
+-- event with no school (tenant_id null), which only Figbloom staff
+-- (super admins) can read: Schools' own platform-only audit place. Both skip
+-- the generic "Tenants: ... changed" line (figbloom.self_audited, FIG-1326).
+--
+-- The function answers {outcome: ok | not_found | already | not_suspended |
+-- not_settable}; the edge function turns those into 200 / 404 / 409 / 409 / 422.
 --
 -- tenants.status_reason is new: why the school is in its current status, when
--- the console said. Any other status change (Schools' own console, an org
--- admin activating a school) clears it, so it never describes an old status.
+-- the console said, for the school to read. Any other status change clears it,
+-- so it never describes an old status.
 --
 -- supabase/rls-checks/platform_console.sql checks it.
 
--- ------------------------------------------------------------ status_reason
+-- ------------------------------------------------------------ status bookkeeping
 alter table tenants
-  add column status_reason text check (status_reason is null or char_length(status_reason) between 1 and 500);
+  add column status_reason text check (status_reason is null or char_length(status_reason) between 1 and 500),
+  add column status_before_suspension tenant_status check (status_before_suspension is distinct from 'suspended');
 comment on column tenants.status_reason is
-  'Why the school has its current status, as given in the Figbloom console; cleared by any status change that does not set it.';
+  'Why the school has its current status, written for the school to read (Figbloom console); cleared by any status change that does not set it.';
+comment on column tenants.status_before_suspension is
+  'The status a suspended school had before it was suspended, restored when the Figbloom console reactivates it; null when not suspended.';
 
-create or replace function tenants_clear_status_reason() returns trigger
+create or replace function tenants_status_bookkeeping() returns trigger
 language plpgsql set search_path = public as $$
 begin
-  if new.status is distinct from old.status and new.status_reason is not distinct from old.status_reason then
-    new.status_reason := null;
+  if new.status is distinct from old.status then
+    if new.status_reason is not distinct from old.status_reason then
+      new.status_reason := null;
+    end if;
+    if new.status = 'suspended' then
+      new.status_before_suspension := old.status;
+    else
+      new.status_before_suspension := null;
+    end if;
   end if;
   return new;
 end $$;
-revoke execute on function tenants_clear_status_reason() from public, anon, authenticated;
+revoke execute on function tenants_status_bookkeeping() from public, anon, authenticated;
 
-create trigger tenants_clear_status_reason before update of status on tenants
-  for each row execute function tenants_clear_status_reason();
+create trigger tenants_status_bookkeeping before update of status on tenants
+  for each row execute function tenants_status_bookkeeping();
 
 -- ------------------------------------------------------------ the list
 -- One jsonb array, one element per school, in the shape the console contract
@@ -120,8 +140,12 @@ declare
   v_reason text := nullif(trim(p_reason), '');
   v_actor text := nullif(trim(p_actor_email), '');
   v_old tenant_status;
+  v_before tenant_status;
+  v_new tenant_status;
+  v_name text;
+  v_changes jsonb;
 begin
-  perform set_config('figbloom.self_audited', 'true', true);  -- its own audit event (FIG-1326)
+  perform set_config('figbloom.self_audited', 'true', true);  -- its own audit events (FIG-1326)
 
   if p_status is null or p_status not in ('active', 'suspended') then
     return jsonb_build_object('outcome', 'not_settable');
@@ -136,28 +160,40 @@ begin
     raise exception 'the reason is longer than 500 characters' using errcode = '22023';
   end if;
 
-  select t.status into v_old from tenants t where t.id = p_school_id for update;
+  select t.status, t.status_before_suspension, t.name into v_old, v_before, v_name
+    from tenants t where t.id = p_school_id for update;
   if not found then
     return jsonb_build_object('outcome', 'not_found');
   end if;
-  if v_old::text = p_status then
+  if p_status = 'suspended' and v_old = 'suspended' then
     return jsonb_build_object('outcome', 'already');
   end if;
   if p_status = 'active' and v_old <> 'suspended' then
-    return jsonb_build_object('outcome', 'not_settable');
+    return jsonb_build_object('outcome', 'not_suspended');
   end if;
 
-  -- the same update Schools' own console makes; tenants_sync_suspension does the rest
-  update tenants set status = p_status::tenant_status, status_reason = v_reason where id = p_school_id;
+  -- suspend, or reactivate to the status it had; tenants_sync_suspension and
+  -- tenants_status_bookkeeping do the rest, exactly as for Schools' own console
+  v_new := case p_status when 'suspended' then 'suspended'::tenant_status else coalesce(v_before, 'active') end;
+  update tenants set status = v_new, status_reason = v_reason where id = p_school_id;
+  v_changes := jsonb_build_object('status', jsonb_build_object('from', v_old::text, 'to', v_new::text));
 
+  -- what the school reads: Figbloom did it, and why; no staff member's name or address
   insert into audit_events (tenant_id, actor_id, actor_label, event, category, metadata)
-  values (p_school_id, null, v_actor || ' via Figbloom console',
-          case p_status when 'suspended' then 'School suspended' else 'School reactivated' end
-            || ' via Figbloom console' || coalesce(': ' || v_reason, ''),
+  values (p_school_id, null, 'Figbloom (via Figbloom console)',
+          case p_status when 'suspended' then 'School suspended by Figbloom' else 'School reactivated by Figbloom' end
+            || coalesce(': ' || v_reason, ''),
           'access',
           jsonb_build_object('table', 'tenants', 'op', 'update', 'via', 'Figbloom console',
-                             'actor_email', v_actor, 'reason', v_reason,
-                             'changes', jsonb_build_object('status', jsonb_build_object('from', v_old::text, 'to', p_status))));
+                             'reason', v_reason, 'changes', v_changes));
+
+  -- what only Figbloom staff read (no school, so only super admins): who did it
+  insert into audit_events (tenant_id, actor_id, actor_label, event, category, metadata)
+  values (null, null, v_actor || ' via Figbloom console',
+          format('%s "%s" via Figbloom console', case p_status when 'suspended' then 'Suspended' else 'Reactivated' end, v_name),
+          'access',
+          jsonb_build_object('table', 'tenants', 'op', 'update', 'via', 'Figbloom console', 'school_id', p_school_id,
+                             'actor_email', v_actor, 'reason', v_reason, 'changes', v_changes));
 
   return jsonb_build_object('outcome', 'ok', 'school', platform_console_schools(p_school_id) -> 0);
 end $$;
