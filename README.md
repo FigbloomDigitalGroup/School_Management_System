@@ -123,6 +123,29 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   Checks: `deno test --allow-env --config supabase/functions/deno.json supabase/functions/platform-schools`
   and `supabase/rls-checks/platform_console.sql` against a seeded local database.
 
+## Rate limits on the public functions
+
+`search-schools`, `resolve-login-id`, `request-password-reset` and
+`signup-organization` answer anyone, so each limits calls per caller address
+(`supabase/functions/_shared/rateLimit.ts`), plus an overall or per-school
+limit no request can change. The address is read from **one** header, at a
+fixed distance from its right-hand end, because everything else in these
+headers is whatever the caller chose to send:
+
+| Where it runs | `CLIENT_IP_HEADER` | `TRUSTED_PROXY_HOPS` | Why |
+|---|---|---|---|
+| Supabase Cloud (today) | `cf-connecting-ip` (default) | `1` (default) | Cloudflare sets CF-Connecting-IP itself. X-Forwarded-For keeps what the caller sent and appends. |
+| Self-hosted on AWS (figbloom-platform: ALB, Envoy gateway, edge runtime) | `x-forwarded-for` | `2` | The ALB appends the caller, then Envoy (`use_remote_address: true`) appends the ALB: the caller is second from the right. |
+
+Set them as edge function secrets/environment (`supabase secrets set
+CLIENT_IP_HEADER=x-forwarded-for TRUSTED_PROXY_HOPS=2` on a stack that takes
+secrets that way; on the self-hosted host, the functions container's
+environment). **Never set more hops than there are proxies of ours that
+append**: one too many reads an address the caller wrote. One too few only
+makes everyone behind the load balancer share one allowance. A request with
+no usable address shares one "unknown" allowance per function; it is never
+let through unlimited.
+
 ## SEO for the marketing page
 
 Only `/` (and `/privacy`, served from `public/privacy.html`, and `/delete-account.html`) is meant to be found on Google; everything else is
