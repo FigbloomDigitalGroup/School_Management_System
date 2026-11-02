@@ -63,6 +63,56 @@ the seeded parent, a PIN for the seeded student).
 Tenants resolve by **path**, not subdomain: one deployment, no wildcard DNS, and
 a school's URL survives a domain change. Mobile bakes the slug into the session.
 
+## Figbloom console (`platform-schools`)
+
+Figbloom's own console (console.figbloom.org) lists every school and can suspend
+or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
+`platform-schools` server to server; no browser calls it.
+
+- **What it answers:** `{"action": "list"}` gives each school's id, name, slug,
+  status (as stored, e.g. `active`, `trial`, `suspended`), status reason, group,
+  created date, the first school admin's email, counts of learners, teachers and
+  parents, and the latest sign-in at that school. Nothing else personal.
+  `{"action": "set_status", "school_id", "status": "suspended" | "active",
+  "reason", "actor_email"}` suspends (reason required) or reactivates a
+  suspended school. `"active"` means reactivate: the school gets back the
+  status it had before it was suspended (`trial`, `overdue`, ...), or `active`
+  if none was recorded, and the returned row shows it. Errors are
+  `{"error": {"code", "message"}}`: 400 bad input, 404 no such school, 409
+  already suspended / not suspended, 422 a status the console can't set.
+- **Same suspension as our own console.** It updates `tenants.status`, so the
+  school's users lose access and are banned in Auth exactly as when Figbloom
+  staff suspend it here (`20261026080000_suspended_tenants_and_orgs.sql`).
+  Every suspension, from either console, remembers the previous status in
+  `tenants.status_before_suspension`. The SQL is in
+  `20261104600000_platform_console_schools.sql`; only the service role can run it.
+- **Reasons are written for the school to read.** The reason is shown to the
+  school (`tenants.status_reason`, and its audit log, where the change is by
+  "Figbloom (via Figbloom console)"). The Figbloom staff member's email is
+  never on the school's side: it is kept only in an audit event with no
+  school, which only Figbloom staff (super admins) can read.
+- **The secret.** JWT verification is off for this function; instead the
+  `x-platform-secret` header must equal the function secret
+  `PLATFORM_CONSOLE_SECRET` (compared in constant time). Unset, or shorter
+  than 32 characters, refuses everything with 401. Generate it, set it, and
+  give the same value to the console backend as `SCHOOLS_PLATFORM_SECRET`.
+  Never commit it:
+
+  ```bash
+  openssl rand -hex 32                                     # copy the output
+  supabase secrets set PLATFORM_CONSOLE_SECRET=<that value>
+  ```
+
+- **Deploy:** apply the migration, then the function.
+
+  ```bash
+  supabase db push                                         # 20261104600000_platform_console_schools
+  supabase functions deploy platform-schools --no-verify-jwt
+  ```
+
+  Checks: `deno test --allow-env --config supabase/functions/deno.json supabase/functions/platform-schools`
+  and `supabase/rls-checks/platform_console.sql` against a seeded local database.
+
 ## SEO for the marketing page
 
 Only `/` (and `/privacy`, served from `public/privacy.html`, and `/delete-account.html`) is meant to be found on Google; everything else is
