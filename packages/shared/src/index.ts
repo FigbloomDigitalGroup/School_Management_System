@@ -80,3 +80,4 @@ export * from "./adminAreas";
 export * from "./audit";
 export * from "./medical";
 export * from "./legalLinks";
+export * from "./suspended";

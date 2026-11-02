@@ -20,7 +20,7 @@ import { TeacherNoticesProvider } from "./lib/teacherNoticesContext";
 // Marketing page: lazy so its CSS and images never load for signed-in console users.
 const Landing = lazy(() => import("./screens/landing/Landing"));
 
-import { SignIn } from "./screens/SignIn";
+import { SignIn, SUSPENDED_NOTICE_KEY } from "./screens/SignIn";
 import { OrgPicker } from "./screens/OrgPicker";
 import { Signup } from "./screens/Signup";
 import { ResetPassword } from "./screens/ResetPassword";
@@ -202,6 +202,28 @@ function PlatformShell() {
   );
 }
 
+/**
+ * An open session whose school has just been suspended: sign this device out
+ * (the Auth ban will refuse the next token refresh anyway) and show the
+ * suspended message on sign-in, rather than an empty console or a bare
+ * bounce. The navigation waits for the sign-out, so sign-in doesn't see the
+ * old session and send them straight back.
+ */
+function SuspendedSignOut() {
+  const nav = useNavigate();
+  useEffect(() => {
+    let alive = true;
+    // Also kept for this tab: signing out reloads the session, and the plain
+    // "no session, go to sign-in" redirect can land after this one and drop its state.
+    try { sessionStorage.setItem(SUSPENDED_NOTICE_KEY, "1"); } catch { /* private mode: the state below still carries it */ }
+    void supabase().auth.signOut({ scope: "local" }).finally(() => {
+      if (alive) nav("/signin", { replace: true, state: { suspended: true } });
+    });
+    return () => { alive = false; };
+  }, [nav]);
+  return <FullPageSkeleton />;
+}
+
 /** Everything inside one school — gated on a real, tenant-matching session. */
 function TenantRoutes() {
   const { slug = null } = useParams();
@@ -210,6 +232,7 @@ function TenantRoutes() {
   if (session.loading) return <FullPageSkeleton />;
   if (!session.profile) return <Navigate to="/signin" replace />;
   if (session.profile.role === "super_admin") return <Navigate to="/platform/tenants" replace />;
+  if (session.schoolSuspended) return <SuspendedSignOut />;
   if (!session.tenant || session.tenant.slug !== slug) return <Navigate to="/signin" replace />;
 
   return (

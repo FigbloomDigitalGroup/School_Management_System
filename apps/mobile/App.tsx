@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
-import { supabase } from "@figbloom/shared";
+import { sessionSchoolSuspended, supabase } from "@figbloom/shared";
 import "./src/lib/client";
 import { FingerprintLock } from "./src/components/FingerprintLock";
 import { ParentDataProvider } from "./src/data";
@@ -33,6 +33,9 @@ function AppContent() {
   // Choosing a password fires USER_UPDATED, whose reload can read the profile
   // before must_change_password is cleared — don't let that bring the prompt back.
   const passwordChosen = useRef(false);
+  // An open session found its school suspended and this phone was signed out:
+  // sign-in says so (shared suspended.ts), rather than an empty home screen.
+  const [suspendedNotice, setSuspendedNotice] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -53,18 +56,27 @@ function AppContent() {
 
       let accent = "#7A1F2B";
       let country = "KE";
+      let tenant: { accent: string | null; country: string | null } | null = null;
       if (profile.tenant_id) {
-        const { data: tenant } = await supabase()
-          .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
+        ({ data: tenant } = await supabase()
+          .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle());
         if (tenant?.accent) accent = tenant.accent;
         if (tenant?.country) country = tenant.country;
+      }
+      // The school row can't be read: if that is because the school was just
+      // suspended (my_tenant() hides it until the Auth ban ends the session),
+      // sign this phone out and say so on sign-in.
+      if (await sessionSchoolSuspended(profile, !!tenant)) {
+        await supabase().auth.signOut({ scope: "local" }).catch(() => {});
+        if (alive) { setSuspendedNotice(true); setSession(null); setLoading(false); }
+        return;
       }
 
       const session: Session = profile.role === "driver"
         ? { role: "driver", accent, profileId: user.id, tenantId: profile.tenant_id!, fullName: profile.full_name }
         : { role: profile.role, accent, profileId: user.id, country, tenantId: profile.tenant_id! };
       const mustChoose = profile.must_change_password && !passwordChosen.current;
-      if (alive) { setSession(session); setChoosePassword(mustChoose ? { fullName: profile.full_name, loginId: profile.login_id } : null); setLoading(false); }
+      if (alive) { setSuspendedNotice(false); setSession(session); setChoosePassword(mustChoose ? { fullName: profile.full_name, loginId: profile.login_id } : null); setLoading(false); }
     }
 
     load().catch(() => { if (alive) { setSession(null); setLoading(false); } });
@@ -118,7 +130,7 @@ function AppContent() {
             />
           )}
         </FingerprintLock>
-      ) : <SignIn />}
+      ) : <SignIn key={suspendedNotice ? "suspended" : "sign-in"} suspendedAtStart={suspendedNotice} />}
     </SafeAreaProvider>
   );
 }

@@ -75,7 +75,9 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   parents, and the latest sign-in at that school. Nothing else personal.
   `{"action": "set_status", "school_id", "status": "suspended" | "active",
   "reason", "actor_email"}` suspends (reason required) or reactivates a
-  suspended school. `"active"` means reactivate: the school gets back the
+  suspended school. Only a school that is `active`, `trial` or `overdue` can
+  be suspended from the console; `onboarding` and `setup_stalled` answer 422
+  (`20261104800000_console_suspends_working_schools.sql`). `"active"` means reactivate: the school gets back the
   status it had before it was suspended (`trial`, `overdue`, ...), or `active`
   if none was recorded, and the returned row shows it. Errors are
   `{"error": {"code", "message"}}`: 400 bad input, 404 no such school, 409
@@ -91,6 +93,14 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   "Figbloom (via Figbloom console)"). The Figbloom staff member's email is
   never on the school's side: it is kept only in an audit event with no
   school, which only Figbloom staff (super admins) can read.
+- **What the school's people see.** Sign-in on the web and both phone apps
+  says "Your school's account is suspended. Please contact your school's
+  administrator or Figbloom support." (with `FIGBLOOM_SUPPORT_EMAIL` from
+  `packages/shared/src/legalLinks.ts`), never the reason: for a login ID at a
+  suspended school (resolve-login-id answers `school_suspended` before looking
+  at the ID), for Auth's `user_banned`, and for a session that was already
+  open (`my_school_suspended()`). The school picker lists suspended schools so
+  their people can be told.
 - **The secret.** JWT verification is off for this function; instead the
   `x-platform-secret` header must equal the function secret
   `PLATFORM_CONSOLE_SECRET` (compared in constant time). Unset, or shorter

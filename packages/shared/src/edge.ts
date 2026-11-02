@@ -2,7 +2,8 @@ import { supabase } from "./supabase";
 
 /** A failed edge-function call, carrying the HTTP status when there was one (undefined: never reached the function, or timed out). */
 export class EdgeError extends Error {
-  constructor(message: string, readonly status?: number, readonly cancelled = false) {
+  /** `code`: the function's own machine-readable reason, when it sent one (resolve-login-id's "school_suspended"). */
+  constructor(message: string, readonly status?: number, readonly cancelled = false, readonly code?: string) {
     super(message);
     this.name = "EdgeError";
   }
@@ -34,13 +35,15 @@ export async function invokeEdge<T>(fn: string, body: Record<string, unknown>, {
       if (controller.signal.aborted) throw new EdgeError("That took too long. Check your connection and try again.");
       const ctx = (error as { context?: Response }).context;
       let message = (error as { message?: string }).message ?? "The request failed.";
+      let code: string | undefined;
       if (ctx && typeof ctx.json === "function") {
         try {
-          const parsed = (await ctx.json()) as { error?: string };
+          const parsed = (await ctx.json()) as { error?: string; code?: string };
           if (parsed?.error) message = parsed.error;
+          if (typeof parsed?.code === "string") code = parsed.code;
         } catch { /* not JSON (a bare gateway error): keep supabase-js's message */ }
       }
-      throw new EdgeError(message, ctx?.status);
+      throw new EdgeError(message, ctx?.status, false, code);
     }
     if (data && typeof data === "object" && "error" in data) throw new EdgeError(String((data as { error: unknown }).error));
     return data as T;
