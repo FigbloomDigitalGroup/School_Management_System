@@ -23,6 +23,8 @@ jest.mock("@figbloom/shared", () => ({
 jest.mock("../../storage", () => ({
   queue: { setUser: jest.fn(), flush: jest.fn(() => Promise.resolve()), pendingFor: jest.fn(() => Promise.resolve([])), enqueue: jest.fn() },
 }));
+// Signing out reaches for Firebase and the phone's storage; lib/signOut.test.ts covers it.
+jest.mock("../../lib/signOut", () => ({ signOutOfThisPhone: jest.fn(() => Promise.resolve()) }));
 jest.mock("./locationTask", () => ({
   ensureLocationPermissions: jest.fn(),
   checkLocationSwitch: jest.fn(),

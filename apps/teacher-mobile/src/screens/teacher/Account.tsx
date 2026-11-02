@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, Text, View } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
-import { fetchMyProfile, supabase, updateMyAvatarUrl, updateMyProfile, type MyProfile } from "@figbloom/shared";
+import { fetchMyProfile, updateMyAvatarUrl, updateMyProfile, type MyProfile } from "@figbloom/shared";
 import { accentFor, HIT } from "../../theme";
+import { signOutOfThisPhone } from "../../lib/signOut";
 import { uploadAvatar } from "../../lib/uploads";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
@@ -34,6 +35,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   /** Until the profile lands the fields would read as blank (and anything typed would be overwritten). */
   const [loaded, setLoaded] = useState(false);
@@ -48,6 +50,11 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
     }).catch(() => {}).finally(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
   }, [session.profileId]);
+
+  async function signOut() {
+    setSigningOut(true);
+    try { await signOutOfThisPhone(); } finally { setSigningOut(false); }
+  }
 
   async function save() {
     if (!fullName.trim()) { setStatus(NAME_REQUIRED); return; }
@@ -147,7 +154,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
 
         <PrivacyLinks tint={a.deep} />
 
-        <Button variant="secondary" label="Sign out" onPress={() => void supabase().auth.signOut({ scope: "local" })} style={{ marginTop: 16 }} />
+        <Button variant="secondary" label="Sign out" loading={signingOut} onPress={() => void signOut()} style={{ marginTop: 16 }} />
       </ScrollView>
     </View>
   );

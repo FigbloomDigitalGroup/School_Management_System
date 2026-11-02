@@ -185,6 +185,48 @@ describe("WriteQueue per user", () => {
   });
 });
 
+describe("WriteQueue.unsentFor and forgetUser", () => {
+  it("counts one person's unsent writes whatever the queue is scoped to, and not what was refused", async () => {
+    const store = memoryStore();
+    const q = new WriteQueue(store, async (w: QueuedWrite) => {
+      if (w.table === "marks") throw new WriteError("not allowed", false, 403);
+      throw new Error("Failed to fetch");
+    });
+    q.setUser("ann");
+    await q.enqueue("marks", [{}]);
+    await q.enqueue("attendance", [{}]);
+    q.setUser("ben");
+    await q.enqueue("attendance", [{}]);
+    q.setUser("ann");
+    await q.flush(); // marks: refused for good, set aside; attendance: no signal, stays
+
+    const scopedToNobody = new WriteQueue(store, async () => {});
+    expect((await scopedToNobody.unsentFor("ann")).map((w) => w.table)).toEqual(["attendance"]);
+    expect((await scopedToNobody.unsentFor("ben")).map((w) => w.table)).toEqual(["attendance"]);
+    expect(await scopedToNobody.unsentFor("cy")).toEqual([]);
+  });
+
+  it("forgets everything one person queued, sent-later or refused, and keeps the rest", async () => {
+    const store = memoryStore();
+    const q = new WriteQueue(store, async () => { throw new WriteError("not allowed", false, 403); });
+    q.setUser("ann");
+    await q.enqueue("marks", [{}]);
+    await q.flush(); // refused: kept so it can be shown
+    await q.enqueue("attendance", [{}]);
+    q.setUser("ben");
+    await q.enqueue("announcements", [{}]);
+    const noOwner = new WriteQueue(store, async () => {});
+    await noOwner.enqueue("trip_riders", [{}]);
+
+    await q.forgetUser("ann");
+
+    expect(await noOwner.unsentFor("ann")).toEqual([]);
+    expect((await noOwner.pending()).map((w) => w.table).sort()).toEqual(["announcements", "trip_riders"]);
+    q.setUser("ann");
+    expect(await q.rejected()).toEqual([]);
+  });
+});
+
 describe("syncLabel", () => {
   it("is empty with nothing to say", () => {
     expect(syncLabel(0, true)).toBeNull();

@@ -153,6 +153,22 @@ export class WriteQueue {
     await this.change((all) => all.filter((w) => w.id !== id));
   }
 
+  /**
+   * What this person queued that has not been sent (not what the server refused). Looks at the stored list
+   * itself, not at setUser, so it works on a phone whose queue was never scoped to anyone.
+   */
+  async unsentFor(userId: string): Promise<QueuedWrite[]> {
+    return (await this.readAll()).filter((w) => w.userId === userId && !w.rejected);
+  }
+
+  /**
+   * Deletes everything this person queued, still waiting or refused, when they sign out of the phone. Other
+   * people's writes stay, and so does one with no owner recorded: nobody can say whose it is.
+   */
+  async forgetUser(userId: string): Promise<void> {
+    await this.change((all) => all.filter((w) => w.userId !== userId));
+  }
+
   private update(id: string, patch: (w: QueuedWrite) => QueuedWrite): Promise<void> {
     return this.change((all) => all.map((w) => (w.id === id ? patch(w) : w)));
   }

@@ -4,15 +4,16 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { fetchClassTimetable, loadStudentData, markStudentNoticeRead, subscribeAnnouncements, type StudentData, type TimetableRow, type Weekday } from "@figbloom/shared";
 import { accentFor } from "./theme";
 import { useTheme } from "./ui/ThemeContext";
+import { STUDENT_CACHE_KEY as CACHE_KEY } from "./lib/cacheKeys";
 
 /**
  * Real student data — the same query web's student screens use, plus the
  * class timetable, cached to AsyncStorage so every student screen stays
  * readable with no network.
+ *
+ * Stored under `${CACHE_KEY}.${profileId}`: a second account on this phone must never see the first one's
+ * data while its own loads. Signing out deletes it (FIG-1489, see lib/signOut.ts).
  */
-
-/** Suffixed with the profile id: a second account on this phone must never see the first one's data while its own loads. */
-const CACHE_KEY = "figbloom.studentData.v1";
 
 interface Cached {
   data: StudentData;

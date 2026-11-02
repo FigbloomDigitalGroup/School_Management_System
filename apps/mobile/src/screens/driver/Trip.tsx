@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
-  endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder, supabase,
+  endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder,
   type AssignmentRow, type RouteStop, type Trip, type TripDirection,
 } from "@figbloom/shared";
 import { accentFor } from "../../theme";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { queue } from "../../storage";
+import { signOutOfThisPhone } from "../../lib/signOut";
 import { checkLocationSwitch, ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 import { RefusedPings } from "./RefusedPings";
 import { ReportBreakdown } from "./ReportBreakdown";
@@ -68,6 +69,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [noFix, setNoFix] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const tripRef = useRef<Trip | null>(null);
 
   // A trip that is live but has had no GPS fix for a while: say what to check instead of waiting in silence.
@@ -187,8 +189,13 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   }
 
   async function handleSignOut() {
-    await stopLocationTracking();
-    await supabase().auth.signOut({ scope: "local" });
+    setSigningOut(true);
+    try {
+      await stopLocationTracking();
+      await signOutOfThisPhone();
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   if (loading) {
@@ -204,8 +211,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       <View style={[s.screen, { alignItems: "center", justifyContent: "center", padding: 24 }]}>
         <Text style={{ color: t.appSurface.ink, fontSize: 16, fontWeight: "600", textAlign: "center" }}>You are not assigned to a vehicle yet</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8 }]}>Contact the school office to be assigned to a bus and route.</Text>
-        <Tap onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line }]}>
-          <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>Sign out</Text>
+        <Tap disabled={signingOut} onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line, opacity: signingOut ? 0.6 : 1 }]}>
+          <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
         </Tap>
       </View>
     );
@@ -218,8 +225,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
           <Text style={s.headerTitle}>{fullName}</Text>
           <Text style={s.headerSub}>DRIVER</Text>
         </View>
-        <Tap onPress={() => void handleSignOut()} ripple={RIPPLE_ON_DARK} style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
-          <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "600" }}>Sign out</Text>
+        <Tap disabled={signingOut} onPress={() => void handleSignOut()} ripple={RIPPLE_ON_DARK} style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, opacity: signingOut ? 0.6 : 1 }}>
+          <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "600" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
         </Tap>
       </View>
 
