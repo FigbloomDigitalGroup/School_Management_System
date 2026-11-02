@@ -152,6 +152,13 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.limitN = n;
     return this;
   }
+  /** Rows from..to inclusive, as PostgREST pages them (insertion order stands in for .order()). */
+  range(from: number, to: number) {
+    this.rangeFrom = from;
+    this.limitN = to - from + 1;
+    return this;
+  }
+  private rangeFrom = 0;
   /** No-op, same as supabase-js .order(col) — insertion order is fine for tests. */
   order(_col: string) {
     return this;
@@ -185,7 +192,8 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
       return { rows: this.table.delete((r) => this.matches(r)), error: null };
     }
     const rows = this.table.rows.filter((r) => this.matches(r)).map((r) => ({ ...r }));
-    return { rows: this.limitN !== null ? rows.slice(0, this.limitN) : rows, error: null };
+    const from = rows.slice(this.rangeFrom);
+    return { rows: this.limitN !== null ? from.slice(0, this.limitN) : from, error: null };
   }
 
   /** Like PostgREST: more than one row is an error, not the first row. */
