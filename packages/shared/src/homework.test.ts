@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  addNeed, cleanGuide, defaultGuide, dueWords, EMPTY_GUIDE, guideToneFor, homeworkNotice, isGuideEmpty, isYoungLearner,
-  minutesWords, normaliseGuide, retoneGuide, splitHomework, validateHomework,
+  addNeed, cleanGuide, defaultGuide, dueDateToText, DUE_IN_THE_PAST, dueWords, EMPTY_GUIDE, guideToneFor, homeworkNotice, isGuideEmpty,
+  isYoungLearner, minutesWords, normaliseGuide, parseDueDate, retoneGuide, splitHomework, validateHomework,
   type HomeworkInput, type ParentGuide,
 } from "./homework";
 
@@ -174,5 +174,68 @@ describe("homeworkNotice", () => {
     expect(isGuideEmpty(guide())).toBe(true);
     expect(isGuideEmpty(null)).toBe(true);
     expect(isGuideEmpty(guide({ needs: ["Glue"] }))).toBe(false);
+  });
+});
+
+// FIG-1493: the teacher app's due date is a text box, so it has to read the date the way people write it and say what is wrong.
+describe("parseDueDate", () => {
+  const iso = (text: string) => { const r = parseDueDate(text); return r.ok ? r.iso : r.message; };
+
+  it("reads day/month/year, the usual way here, and gives the stored year-month-day", () => {
+    expect(iso("31/10/2026")).toBe("2026-10-31");
+    expect(iso("1/2/2026")).toBe("2026-02-01");
+    expect(iso("05/11/2026")).toBe("2026-11-05");
+  });
+  it("takes a dash, a dot or spaces between the parts, and spaces around the whole", () => {
+    expect(iso("31-10-2026")).toBe("2026-10-31");
+    expect(iso("31.10.2026")).toBe("2026-10-31");
+    expect(iso("31 10 2026")).toBe("2026-10-31");
+    expect(iso("  31/10/2026 ")).toBe("2026-10-31");
+  });
+  it("still takes the stored year-month-day (what the edit box and the web form hold)", () => {
+    expect(iso("2026-10-31")).toBe("2026-10-31");
+    expect(iso("2026-1-5")).toBe("2026-01-05");
+  });
+  it("knows leap years", () => {
+    expect(iso("29/02/2028")).toBe("2028-02-29");
+    expect(iso("29/02/2027")).toBe("There is no 29/2/2027: check the day and the month.");
+  });
+  it("says there is no such day, and which numbers to check", () => {
+    expect(iso("31/02/2026")).toBe("There is no 31/2/2026: check the day and the month.");
+    expect(iso("31/04/2026")).toBe("There is no 31/4/2026: check the day and the month.");
+    expect(iso("0/10/2026")).toBe("There is no 0/10/2026: check the day and the month.");
+  });
+  it("says a month goes from 1 to 12 when the numbers are the American way round", () => {
+    expect(iso("10/31/2026")).toBe("31 is not a month (1 to 12). Type the date as day/month/year, for example 31/10/2026.");
+  });
+  it("asks for the year in full", () => {
+    expect(iso("31/10/26")).toBe("Write the year in full. Type the date as day/month/year, for example 31/10/2026.");
+  });
+  it("says what it was given and how to type it when it is not a date, and when it is empty", () => {
+    expect(iso("tomorrow")).toBe('"tomorrow" is not a date. Type the date as day/month/year, for example 31/10/2026.');
+    expect(iso("31/10")).toMatch(/is not a date/);
+    expect(iso("")).toBe("Enter the due date. Type the date as day/month/year, for example 31/10/2026.");
+    expect(iso("   ").startsWith("Enter the due date. ")).toBe(true);
+  });
+  it("feeds validateHomework: a date typed the usual way is accepted, and one in the past gets the past-date message", () => {
+    const base = { classId: "c", subjectId: "s", title: "Exercise 4.2", body: "", handIn: "paper" as const };
+    const typed = parseDueDate("31/10/2026");
+    expect(typed.ok && validateHomework({ ...base, dueOn: typed.iso }, "2026-10-25").ok).toBe(true);
+    const past = parseDueDate("24/10/2026");
+    const checked = past.ok ? validateHomework({ ...base, dueOn: past.iso }, "2026-10-25") : null;
+    expect(checked && !checked.ok && checked.message).toBe(DUE_IN_THE_PAST);
+  });
+});
+
+describe("dueDateToText", () => {
+  it("writes a stored date the way the due-date box asks for it, and leaves anything else alone", () => {
+    expect(dueDateToText("2026-10-31")).toBe("31/10/2026");
+    expect(dueDateToText("2026-02-01")).toBe("01/02/2026");
+    expect(dueDateToText("")).toBe("");
+    expect(dueDateToText("soon")).toBe("soon");
+  });
+  it("round-trips through parseDueDate", () => {
+    const r = parseDueDate(dueDateToText("2027-03-09"));
+    expect(r.ok && r.iso).toBe("2027-03-09");
   });
 });
