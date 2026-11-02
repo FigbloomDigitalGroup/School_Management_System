@@ -383,6 +383,12 @@ export class FakeSupabaseClient {
         : [];
       return Promise.resolve({ data: ids, error: null });
     }
+    if (name === "platform_console_schools") {
+      return Promise.resolve({ data: this.platformSchools(args.p_school_id ?? null), error: null });
+    }
+    if (name === "platform_console_set_school_status") {
+      return Promise.resolve({ data: this.platformSetSchoolStatus(args), error: null });
+    }
     const answer = this.rpcAnswers[name];
     if (answer) return Promise.resolve({ data: answer(args), error: null });
     return Promise.resolve({ data: null, error: { message: `rpc ${name} is not configured in the fake` } });
@@ -390,6 +396,59 @@ export class FakeSupabaseClient {
 
   /** A test's own stand-in for a database function this fake doesn't model. */
   rpcAnswers: Record<string, (args: Row) => unknown> = {};
+
+  /**
+   * platform_console_schools() (20261104600000_platform_console_schools.sql):
+   * one row per school, ordered by name. Emails and last sign-ins come from
+   * authUsers (auth.users), keyed by profile id.
+   */
+  private platformSchools(schoolId: string | null): Row[] {
+    const iso = (v: unknown) => (v ? new Date(String(v)).toISOString().replace(/\.\d{3}Z$/, "Z") : null);
+    return this.rowsIn("tenants")
+      .filter((t) => schoolId === null || t.id === schoolId)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)) || String(a.id).localeCompare(String(b.id)))
+      .map((t) => {
+        const people = this.rowsIn("profiles").filter((p) => p.tenant_id === t.id);
+        const signIns = people.map((p) => this.authUsers.get(p.id)?.last_sign_in_at).filter(Boolean).map((v) => String(v)).sort();
+        const admin = people
+          .filter((p) => p.role === "school_admin")
+          .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || String(a.id).localeCompare(String(b.id)))
+          .map((p) => (String(p.email ?? "").trim() || this.authUsers.get(p.id)?.email) as string | undefined)
+          .find((e) => e && !e.endsWith(".figbloom.internal"));
+        const org = this.rowsIn("organizations").find((o) => o.id === t.organization_id);
+        return {
+          id: t.id, name: t.name, slug: t.slug, status: t.status, status_reason: t.status_reason ?? null,
+          organization: org ? { id: org.id, name: org.name } : null,
+          created_at: iso(t.created_at),
+          admin_email: admin ?? null,
+          students: this.rowsIn("students").filter((s) => s.tenant_id === t.id && s.active !== false).length,
+          teachers: people.filter((p) => p.role === "teacher").length,
+          parents: people.filter((p) => p.role === "parent").length,
+          last_activity_at: iso(signIns.at(-1)),
+        };
+      });
+  }
+
+  /** platform_console_set_school_status(), same file: the tenants update and its own audit event. */
+  private platformSetSchoolStatus(args: Row): Row {
+    const reason = String(args.p_reason ?? "").trim() || null;
+    const actor = String(args.p_actor_email ?? "").trim();
+    const status = args.p_status;
+    if (status !== "active" && status !== "suspended") return { outcome: "not_settable" };
+    const t = this.rowsIn("tenants").find((r) => r.id === args.p_school_id);
+    if (!t) return { outcome: "not_found" };
+    if (t.status === status) return { outcome: "already" };
+    if (status === "active" && t.status !== "suspended") return { outcome: "not_settable" };
+    const from = t.status;
+    this.table("tenants").update({ status, status_reason: reason }, (r) => r.id === t.id);
+    this.table("audit_events").insert({
+      tenant_id: t.id, actor_id: null, actor_label: `${actor} via Figbloom console`,
+      event: `${status === "suspended" ? "School suspended" : "School reactivated"} via Figbloom console${reason ? `: ${reason}` : ""}`,
+      category: "access",
+      metadata: { table: "tenants", op: "update", via: "Figbloom console", actor_email: actor, reason, changes: { status: { from, to: status } } },
+    });
+    return { outcome: "ok", school: this.platformSchools(t.id)[0] };
+  }
 
   /** audience_reaches() in 20261026030000_announcement_audiences.sql, for the fake. */
   private audienceReaches(a: Row, p: Row): boolean {
