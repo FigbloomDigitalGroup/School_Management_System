@@ -8,7 +8,7 @@ import { accentFor } from "../../theme";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { queue } from "../../storage";
-import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
+import { checkLocationSwitch, ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 import { RefusedPings } from "./RefusedPings";
 import { ReportBreakdown } from "./ReportBreakdown";
 import { TripMap } from "./TripMap";
@@ -19,6 +19,12 @@ import { AppearanceSetting } from "../../ui/AppearanceSetting";
 import { useTheme } from "../../ui/ThemeContext";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
+
+/** Said before a trip is created: with Location switched off the trip would go live and the bus would never move (FIG-1491). */
+export const LOCATION_OFF_MESSAGE = "Location is switched off on this phone, so the bus cannot be tracked. Swipe down from the top of the screen, tap Location to switch it on, then start the trip again.";
+/** Said when a trip has run this long with no fix at all. */
+export const NO_FIX_MESSAGE = "No location yet. Is Location switched on? Swipe down from the top of the screen and check the Location button.";
+export const NO_FIX_AFTER_MS = 20_000;
 
 function formatElapsed(startedAt: string, nowMs: number): string {
   const totalSec = Math.max(0, Math.floor((nowMs - new Date(startedAt).getTime()) / 1000));
@@ -61,7 +67,18 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [held, setHeld] = useState(0);
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  const [noFix, setNoFix] = useState(false);
   const tripRef = useRef<Trip | null>(null);
+
+  // A trip that is live but has had no GPS fix for a while: say what to check instead of waiting in silence.
+  const hasFix = selfPos !== null;
+  const tripId = trip?.id ?? null;
+  useEffect(() => {
+    setNoFix(false);
+    if (!tripId || hasFix) return;
+    const id = setTimeout(() => setNoFix(true), NO_FIX_AFTER_MS);
+    return () => clearTimeout(id);
+  }, [tripId, hasFix]);
 
   useEffect(() => {
     let alive = true;
@@ -110,6 +127,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
     try {
       const perm = await ensureLocationPermissions();
       if (!perm.ok) { setActionError(perm.message ?? "Location permission is required to start a trip."); return; }
+      if ((await checkLocationSwitch()) === "off") { setActionError(LOCATION_OFF_MESSAGE); return; }
 
       const newTrip = await startTrip({
         tenantId, vehicleId: assignment.vehicle_id, routeId: assignment.route_id, driverId, direction,
@@ -257,7 +275,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
             <Text style={[s.small, { marginTop: 12 }]}>
               {lastPing
                 ? `Last sent: ${lastPing.at.toLocaleTimeString()} · ${lastPing.lat.toFixed(4)}, ${lastPing.lng.toFixed(4)}`
-                : "Waiting for the first location fix…"}
+                : noFix && !selfPos ? NO_FIX_MESSAGE : "Waiting for the first location fix…"}
             </Text>
             {held > 0 && (
               <Text style={[s.faint, { marginTop: 4 }]}>
