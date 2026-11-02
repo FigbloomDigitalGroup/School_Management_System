@@ -29,6 +29,13 @@ $$;
 create function pg_temp.as_service() returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true)
 $$;
+-- The generic audit trigger's lines for this school's tenants row. They carry no
+-- tenant_id (a tenants row has no tenant_id column), so match the row's key.
+create function pg_temp.generic_tenant_lines(school uuid) returns bigint language sql as $$
+  select count(*) from audit_events
+   where metadata ->> 'table' = 'tenants' and metadata ->> 'op' = 'update'
+     and metadata -> 'changes' @> jsonb_build_array(jsonb_build_object('key', jsonb_build_object('id', school)))
+$$;
 grant execute on all functions in schema pg_temp to authenticated, service_role;
 
 select pg_temp.check('the fixture has a school with learners and a teacher',
@@ -51,10 +58,13 @@ select pg_temp.check('both are security definer with a fixed search_path',
      from pg_proc p where p.proname in ('platform_console_schools', 'platform_console_set_school_status')));
 
 -- ---------------------------------------------------------------- the list (as the service role)
+-- answers are kept in a setting while acting as the service role, and put in a
+-- temp table afterwards, as postgres (the service role needn't own temp tables)
 select pg_temp.as_service(); set local role service_role;
-create temp table l on commit drop as
-  select e as row from jsonb_array_elements(platform_console_schools()) e;
+select set_config('t.list', platform_console_schools()::text, true);
 reset role;
+create temp table l on commit drop as
+  select e as row from jsonb_array_elements(current_setting('t.list')::jsonb) e;
 
 select pg_temp.check('the list has every school',
   (select count(*) from l) = (select count(*) from tenants));
@@ -70,11 +80,13 @@ select pg_temp.check('teachers counts teacher accounts',
 select pg_temp.check('parents counts parent accounts',
   (select (row ->> 'parents')::int from l where row ->> 'id' = current_setting('t.a'))
   = (select count(*) from profiles where tenant_id = current_setting('t.a')::uuid and role = 'parent'));
-select pg_temp.check('admin_email is the first school admin''s',
+select pg_temp.check('admin_email is the first school admin''s real address (not a login-ID one)',
   (select row ->> 'admin_email' from l where row ->> 'id' = current_setting('t.a'))
-  is not distinct from (select coalesce(nullif(trim(p.email), ''), u.email) from profiles p left join auth.users u on u.id = p.id
-                         where p.tenant_id = current_setting('t.a')::uuid and p.role = 'school_admin'
-                         order by p.created_at, p.id limit 1));
+  is not distinct from (select a.email from (select coalesce(nullif(trim(p.email), ''), u.email) as email, p.created_at, p.id
+                                               from profiles p left join auth.users u on u.id = p.id
+                                              where p.tenant_id = current_setting('t.a')::uuid and p.role = 'school_admin') a
+                         where a.email is not null and a.email not like '%.figbloom.internal'
+                         order by a.created_at, a.id limit 1));
 select pg_temp.check('last_activity_at is the latest sign-in at the school, in UTC with a Z',
   (select row ->> 'last_activity_at' from l where row ->> 'id' = current_setting('t.a'))
   = to_char((select max(u.last_sign_in_at) from profiles p join auth.users u on u.id = p.id
@@ -83,12 +95,11 @@ select pg_temp.check('one school can be asked for by id',
   jsonb_array_length(platform_console_schools(current_setting('t.a')::uuid)) = 1);
 
 -- ---------------------------------------------------------------- suspend from the console
-select set_config('t.generic_before', (select count(*)::text from audit_events
-  where tenant_id = current_setting('t.a')::uuid and metadata ->> 'table' = 'tenants' and actor_label = 'System'), true);
+select set_config('t.generic_before', pg_temp.generic_tenant_lines(current_setting('t.a')::uuid)::text, true);
 select pg_temp.as_service(); set local role service_role;
-create temp table r1 on commit drop as
-  select platform_console_set_school_status(current_setting('t.a')::uuid, 'suspended', '  Licence unpaid  ', 'ops@figbloom.org') as r;
+select set_config('t.r1', platform_console_set_school_status(current_setting('t.a')::uuid, 'suspended', '  Licence unpaid  ', 'ops@figbloom.org')::text, true);
 reset role;
+create temp table r1 on commit drop as select current_setting('t.r1')::jsonb as r;
 
 select pg_temp.check('suspend: ok, and the school comes back suspended with its reason',
   (select r ->> 'outcome' = 'ok' and r #>> '{school,status}' = 'suspended' and r #>> '{school,status_reason}' = 'Licence unpaid' from r1));
@@ -108,8 +119,7 @@ select pg_temp.check('suspend: one audit event, naming the operator via the Figb
                                     and metadata #>> '{changes,status,to}' = 'suspended')
      from audit_events where tenant_id = current_setting('t.a')::uuid and actor_label like '%via Figbloom console'));
 select pg_temp.check('suspend: no second, generic tenants line for the same change',
-  (select count(*) from audit_events where tenant_id = current_setting('t.a')::uuid
-     and metadata ->> 'table' = 'tenants' and actor_label = 'System') = current_setting('t.generic_before')::bigint);
+  pg_temp.generic_tenant_lines(current_setting('t.a')::uuid) = current_setting('t.generic_before')::bigint);
 
 -- ---------------------------------------------------------------- 404 / 409 / 422 / bad input
 select pg_temp.as_service(); set local role service_role;
@@ -138,9 +148,9 @@ end $$;
 
 -- ---------------------------------------------------------------- reactivate from the console
 select pg_temp.as_service(); set local role service_role;
-create temp table r2 on commit drop as
-  select platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org') as r;
+select set_config('t.r2', platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org')::text, true);
 reset role;
+create temp table r2 on commit drop as select current_setting('t.r2')::jsonb as r;
 select pg_temp.check('reactivate: ok, active, reason cleared',
   (select r ->> 'outcome' = 'ok' and r #>> '{school,status}' = 'active' and r #> '{school,status_reason}' = 'null'::jsonb from r2));
 select pg_temp.check('reactivate: the ban is lifted',
@@ -156,10 +166,16 @@ select pg_temp.check('reactivating an active school: outcome already',
 reset role;
 
 -- ---------------------------------------------------------------- reason never outlives its status
+-- The console function's figbloom.self_audited lasts the rest of its transaction,
+-- which here is this whole file; an API call is its own transaction. Clear it.
+select set_config('figbloom.self_audited', '', true);
+select set_config('t.generic_before', pg_temp.generic_tenant_lines(current_setting('t.a')::uuid)::text, true);
 update tenants set status = 'suspended', status_reason = 'From the console' where id = current_setting('t.a')::uuid;
 update tenants set status = 'trial' where id = current_setting('t.a')::uuid;
 select pg_temp.check('a status change elsewhere clears the console''s reason',
   (select status_reason is null from tenants where id = current_setting('t.a')::uuid));
+select pg_temp.check('a direct status change still gets its generic audit line (so the check above isn''t vacuous)',
+  pg_temp.generic_tenant_lines(current_setting('t.a')::uuid) = current_setting('t.generic_before')::bigint + 2);
 select pg_temp.as_service(); set local role service_role;
 select pg_temp.check('reactivating a school that isn''t suspended: outcome not_settable',
   platform_console_set_school_status(current_setting('t.a')::uuid, 'active', null, 'ops@figbloom.org') ->> 'outcome' = 'not_settable');
