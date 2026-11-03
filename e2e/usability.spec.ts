@@ -335,7 +335,9 @@ test("QA16-USE 4 a double click on Pay, Submit register, Bill learners and Recor
   await expect(rec).toBeVisible();
   await rec.locator("input").first().fill("Alex");
   await page.waitForTimeout(1200);
-  await rec.locator("button", { hasText: /ADM|KSh/ }).first().click();
+  // The search has no ORDER BY, so the first "Alex" can be a learner who has paid in full, and the dialog then refuses 100 as more than is
+  // owed without sending anything (0 requests, which looked like a double-click finding). Pick one who still owes.
+  await rec.locator("button", { hasText: /ADM|KSh/ }).filter({ hasNotText: /KSh\s*0(?![\d,])/ }).first().click();
   await rec.getByPlaceholder("e.g. 15000").fill("100");
   const save = rec.getByRole("button", { name: /^Record payment$|^Confirm and record$/ });
   await expect(save).toBeEnabled();
