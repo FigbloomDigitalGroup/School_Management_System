@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
-import { supabase } from "@figbloom/shared";
+import { isNoSignalError, openSession, supabase } from "@figbloom/shared";
 import "./src/lib/client";
 import { FingerprintLock } from "./src/components/FingerprintLock";
+import { NoConnection } from "./src/components/OfflineNotice";
+import { signOutOfThisPhone } from "./src/lib/signOut";
+import { storedUserId } from "./src/lib/storedLogin";
 import { Navigation, type TeacherSession } from "./src/navigation";
 import { registerPushToken } from "./src/pushNotifications";
 import { ChoosePassword } from "./src/screens/ChoosePassword";
@@ -16,11 +19,21 @@ import { ThemeProvider, useTheme } from "./src/ui/ThemeContext";
  * has, since this binary only ever serves one role. A teacher with no
  * tenant_id is a data problem (every teacher belongs to exactly one
  * school), not a session this app can serve.
+ *
+ * "Cannot reach the server" is not "signed out" (FIG-1487): with no signal a teacher who is signed in gets a
+ * "No connection" page, not the sign-in screen. Only an answer from the server, or no login stored on the
+ * phone, shows the sign-in screen.
  */
 function AppContent() {
   const { t, accentInk } = useTheme();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<TeacherSession | null>(null);
+  // "none": signed in, but the server cannot be reached.
+  const [connection, setConnection] = useState<"ok" | "none">("ok");
+  const [retrying, setRetrying] = useState(false);
+  const retry = useRef<() => void>(() => {});
+  /** What is on screen right now, for a load that runs later than the render that started it. */
+  const shown = useRef<TeacherSession | null>(null);
   // Login ID while the school-issued password still has to be replaced; null once it has.
   const [choosePassword, setChoosePassword] = useState<{ loginId: string | null } | null>(null);
   // Choosing a password fires USER_UPDATED, whose reload can read the profile
@@ -31,29 +44,57 @@ function AppContent() {
     let alive = true;
 
     async function load() {
-      const { data: { user } } = await supabase().auth.getUser();
-      if (!user) { passwordChosen.current = false; if (alive) { setSession(null); setLoading(false); } return; }
+      const opened = await openSession<TeacherSession, { loginId: string | null; mustChoose: boolean }>({
+        whoIsSignedIn: async () => {
+          const { data: { user }, error } = await supabase().auth.getUser();
+          if (user) return { id: user.id };
+          return isNoSignalError(error) ? "no-signal" : "signed-out";
+        },
+        storedUserId,
+        readProfile: async (userId) => {
+          const { data: profile, error } = await supabase()
+            .from("profiles").select("role, tenant_id, full_name, login_id, must_change_password").eq("id", userId).maybeSingle();
+          if (error) return "no-signal";
+          if (!profile || profile.role !== "teacher" || !profile.tenant_id) return "unsupported";
 
-      const { data: profile } = await supabase()
-        .from("profiles").select("role, tenant_id, full_name, login_id, must_change_password").eq("id", user.id).maybeSingle();
-      if (!profile || profile.role !== "teacher" || !profile.tenant_id) {
-        if (alive) { setSession(null); setLoading(false); }
-        return;
+          let accent = "#7A1F2B";
+          let country = "KE";
+          const { data: tenant } = await supabase()
+            .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
+          if (tenant?.accent) accent = tenant.accent;
+          if (tenant?.country) country = tenant.country;
+
+          const next: TeacherSession = { profileId: userId, tenantId: profile.tenant_id, fullName: profile.full_name, accent, country };
+          return { session: next, extra: { loginId: profile.login_id, mustChoose: profile.must_change_password } };
+        },
+        // Every screen of this app is live data (rosters, registers, marks): nothing is saved to open with no signal.
+        readSaved: async () => null,
+        save: async () => {},
+      });
+      if (!alive) return;
+
+      if (opened.status === "signed-out") {
+        passwordChosen.current = false;
+        shown.current = null;
+        setSession(null); setConnection("ok"); setChoosePassword(null);
+      } else if (opened.status === "online") {
+        const mustChoose = opened.extra.mustChoose && !passwordChosen.current;
+        shown.current = opened.session;
+        setSession(opened.session); setConnection("ok");
+        setChoosePassword(mustChoose ? { loginId: opened.extra.loginId } : null);
+      } else if (!shown.current) {
+        // Signed in, server out of reach. (If a screen is already showing, leave it.)
+        setConnection("none");
       }
-
-      let accent = "#7A1F2B";
-      let country = "KE";
-      const { data: tenant } = await supabase()
-        .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
-      if (tenant?.accent) accent = tenant.accent;
-      if (tenant?.country) country = tenant.country;
-
-      const next: TeacherSession = { profileId: user.id, tenantId: profile.tenant_id, fullName: profile.full_name, accent, country };
-      const mustChoose = profile.must_change_password && !passwordChosen.current;
-      if (alive) { setSession(next); setChoosePassword(mustChoose ? { loginId: profile.login_id } : null); setLoading(false); }
+      setLoading(false);
     }
 
-    load().catch(() => { if (alive) { setSession(null); setLoading(false); } });
+    // Try again: the button shows it is working for as long as the server takes to answer (or not).
+    retry.current = () => {
+      setRetrying(true);
+      load().catch(() => {}).finally(() => { if (alive) setRetrying(false); });
+    };
+    load().catch(() => { if (alive) setLoading(false); });
     const { data: sub } = supabase().auth.onAuthStateChange(() => { load().catch(() => {}); });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
@@ -89,6 +130,8 @@ function AppContent() {
             />
           ) : <Navigation session={session} />}
         </FingerprintLock>
+      ) : connection === "none" ? (
+        <NoConnection onRetry={() => retry.current()} retrying={retrying} onSignOut={() => void signOutOfThisPhone()} />
       ) : <SignIn />}
     </SafeAreaProvider>
   );

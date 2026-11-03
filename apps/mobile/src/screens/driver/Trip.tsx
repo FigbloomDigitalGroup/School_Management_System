@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
-  endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder, supabase,
+  endTrip, listRouteStops, locationPingRow, myActiveTrip, myAssignment, pingLocation, startTrip, stopsInTravelOrder,
   type AssignmentRow, type RouteStop, type Trip, type TripDirection,
 } from "@figbloom/shared";
 import { accentFor } from "../../theme";
 import { FingerprintSetting } from "../../components/FingerprintSetting";
 import { PrivacyLinks } from "../../components/PrivacyLinks";
 import { queue } from "../../storage";
-import { ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
+import { signOutOfThisPhone } from "../../lib/signOut";
+import { checkLocationSwitch, ensureLocationPermissions, startLocationTracking, stopLocationTracking, type LocationTick } from "./locationTask";
 import { RefusedPings } from "./RefusedPings";
 import { ReportBreakdown } from "./ReportBreakdown";
 import { TripMap } from "./TripMap";
@@ -19,6 +20,12 @@ import { AppearanceSetting } from "../../ui/AppearanceSetting";
 import { useTheme } from "../../ui/ThemeContext";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
+
+/** Said before a trip is created: with Location switched off the trip would go live and the bus would never move (FIG-1491). */
+export const LOCATION_OFF_MESSAGE = "Location is switched off on this phone, so the bus cannot be tracked. Swipe down from the top of the screen, tap Location to switch it on, then start the trip again.";
+/** Said when a trip has run this long with no fix at all. */
+export const NO_FIX_MESSAGE = "No location yet. Is Location switched on? Swipe down from the top of the screen and check the Location button.";
+export const NO_FIX_AFTER_MS = 20_000;
 
 function formatElapsed(startedAt: string, nowMs: number): string {
   const totalSec = Math.max(0, Math.floor((nowMs - new Date(startedAt).getTime()) / 1000));
@@ -61,7 +68,19 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [held, setHeld] = useState(0);
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  const [noFix, setNoFix] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const tripRef = useRef<Trip | null>(null);
+
+  // A trip that is live but has had no GPS fix for a while: say what to check instead of waiting in silence.
+  const hasFix = selfPos !== null;
+  const tripId = trip?.id ?? null;
+  useEffect(() => {
+    setNoFix(false);
+    if (!tripId || hasFix) return;
+    const id = setTimeout(() => setNoFix(true), NO_FIX_AFTER_MS);
+    return () => clearTimeout(id);
+  }, [tripId, hasFix]);
 
   useEffect(() => {
     let alive = true;
@@ -110,6 +129,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
     try {
       const perm = await ensureLocationPermissions();
       if (!perm.ok) { setActionError(perm.message ?? "Location permission is required to start a trip."); return; }
+      if ((await checkLocationSwitch()) === "off") { setActionError(LOCATION_OFF_MESSAGE); return; }
 
       const newTrip = await startTrip({
         tenantId, vehicleId: assignment.vehicle_id, routeId: assignment.route_id, driverId, direction,
@@ -169,8 +189,13 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   }
 
   async function handleSignOut() {
-    await stopLocationTracking();
-    await supabase().auth.signOut({ scope: "local" });
+    setSigningOut(true);
+    try {
+      await stopLocationTracking();
+      await signOutOfThisPhone();
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   if (loading) {
@@ -186,8 +211,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       <View style={[s.screen, { alignItems: "center", justifyContent: "center", padding: 24 }]}>
         <Text style={{ color: t.appSurface.ink, fontSize: 16, fontWeight: "600", textAlign: "center" }}>You are not assigned to a vehicle yet</Text>
         <Text style={[s.small, { textAlign: "center", marginTop: 8 }]}>Contact the school office to be assigned to a bus and route.</Text>
-        <Tap onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line }]}>
-          <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>Sign out</Text>
+        <Tap disabled={signingOut} onPress={() => void handleSignOut()} style={[s.primary, { marginTop: 20, borderWidth: 1, borderColor: t.appSurface.line, opacity: signingOut ? 0.6 : 1 }]}>
+          <Text style={{ color: t.appSurface.ink, fontSize: 15, fontWeight: "600" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
         </Tap>
       </View>
     );
@@ -200,8 +225,8 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
           <Text style={s.headerTitle}>{fullName}</Text>
           <Text style={s.headerSub}>DRIVER</Text>
         </View>
-        <Tap onPress={() => void handleSignOut()} ripple={RIPPLE_ON_DARK} style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
-          <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "600" }}>Sign out</Text>
+        <Tap disabled={signingOut} onPress={() => void handleSignOut()} ripple={RIPPLE_ON_DARK} style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, opacity: signingOut ? 0.6 : 1 }}>
+          <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "600" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
         </Tap>
       </View>
 
@@ -257,7 +282,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
             <Text style={[s.small, { marginTop: 12 }]}>
               {lastPing
                 ? `Last sent: ${lastPing.at.toLocaleTimeString()} · ${lastPing.lat.toFixed(4)}, ${lastPing.lng.toFixed(4)}`
-                : "Waiting for the first location fix…"}
+                : noFix && !selfPos ? NO_FIX_MESSAGE : "Waiting for the first location fix…"}
             </Text>
             {held > 0 && (
               <Text style={[s.faint, { marginTop: 4 }]}>

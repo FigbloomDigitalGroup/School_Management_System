@@ -9,6 +9,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { Tap } from "../../ui/Tap";
 import { AppearanceSetting } from "../../ui/AppearanceSetting";
 import { useTheme } from "../../ui/ThemeContext";
+import { signOutOfThisPhone } from "../../lib/signOut";
 
 interface Profile {
   fullName: string;
@@ -51,7 +52,7 @@ export function StudentAccount() {
 
   async function signOut() {
     setSigningOut(true);
-    try { await supabase().auth.signOut({ scope: "local" }); } finally { setSigningOut(false); }
+    try { await signOutOfThisPhone(); } finally { setSigningOut(false); }
   }
 
   return (
