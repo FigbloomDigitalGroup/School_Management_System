@@ -178,4 +178,10 @@
     grid-template-columns: 1fr;
     gap: 32px;
   }
+
+  /* 22px wraps the name onto two lines below ~410px: size follows the viewport (viewport - 16px*2 padding - 42px mark - 10px gap) */
+  .footer-logo {
+    white-space: nowrap;
+    font-size: clamp(15px, calc((100vw - 84px) / 15.4), 22px);
+  }
 }

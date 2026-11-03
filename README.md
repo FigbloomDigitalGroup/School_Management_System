@@ -20,6 +20,9 @@ packages/shared/   Domain logic used by all three apps: types, grading scale, fe
                    maths, attendance register, M-Pesa helpers, offline write queue
 supabase/          Schema, row-level security, seed script, M-Pesa edge functions
 e2e/               Playwright tests over the five critical flows
+tests/integration/ Vitest tests against the local Supabase: sign-in per role, school isolation, who may record payments, billing
+tests/security/    Vitest static checks (no database): HTML sinks and secrets in the client code, which edge functions are public, web headers, workflow hardening, and scripts/security-scan.sh run against seeded attacks
+tests/integrity/   Vitest static checks (no database) on the migration files: naming and versions, the split organizations migration, row-level security on every table, and that schema.sql and rls.sql are stale
 ```
 
 ## Running it
@@ -30,7 +33,8 @@ The web app talks to a real local Supabase — there is no mock-data mode anymor
 npm install
 cp .env.example .env         # then fill in the values `supabase start` prints below
 npx supabase start           # Postgres, Auth, Studio etc. in Docker — first run pulls images
-npm run db:seed              # applies supabase/migrations (schema + RLS) via db reset, then seeds demo data
+npm run db:seed              # seeds the demo data (the first `supabase start` has already applied supabase/migrations)
+npm run db:seed-org          # adds the org admin login (see "Seeded logins" below)
 npm run dev                  # web on :5173 (or the next free port — Vite will say which)
 npm run dev:mobile           # Metro, then `npm run android` or `npm run ios` -w @figbloom/mobile
 ```
@@ -44,9 +48,68 @@ the browser). `supabase/config.toml` moves every service off Supabase's usual
 excludedportrange protocol=tcp`), and Docker can't bind to those from the host.
 If your machine doesn't have that reservation you can move the ports back.
 
-Development logins are listed on the sign-in screen — the password column
-tells you what to type for each (a fixed password for staff, `OTP 000000` for
-the seeded parent, a PIN for the seeded student).
+## Seeded logins
+
+`npm run db:seed` creates the demo schools and one login for each role below, and `npm run db:seed-org` adds the
+org admin (it seeds the Kijani Ridge Group). Every one of them uses the same local-only password, `figbloom-dev`.
+Against a hosted project the seed scripts refuse to run unless `ALLOW_REMOTE_SEED=1` is set, and then give every
+login a random password instead.
+
+| Role | Sign in as | School | Seeded by |
+|---|---|---|---|
+| Platform staff | `joyce@figbloom.co.ke` | none | `db:seed` |
+| Org admin | `group@kijaniridge.sc.ke` | none (the Kijani Ridge Group owns the school) | `db:seed-org` |
+| School admin | `principal@alliance.sc.ke` | Alliance High School | `db:seed` |
+| Teacher | login ID `TC-0002` | Alliance High School | `db:seed` |
+| Parent | login ID `PT-0002` | Alliance High School | `db:seed` |
+| Student | login ID `ST-0002` | Alliance High School | `db:seed` |
+| Driver | login ID `BD-0001` | Alliance High School | `db:seed` |
+
+Staff with an email sign in with it. Everyone else picks their school and types their login ID; behind the scenes
+that becomes `<id>@login.<school>.figbloom.internal` (`loginIdEmail()` in `packages/shared/src/auth.ts`). The seed
+also creates a guard (`GD-0001`) and a receptionist (`RC-0001`).
+
+## Resetting the local database
+
+These only touch the Supabase running on this machine.
+
+| To get | Run |
+|---|---|
+| Back to the full seeded state, from scratch | `npm run db:fresh` (that is `db:reset`, then `db:seed`, then `db:seed-org`) |
+| Every migration re-applied and the data emptied | `npm run db:reset` |
+| A freshly reset database seeded | `npm run db:seed`, then `npm run db:seed-org` |
+
+The seeds only add data, so reset first on a database that is already seeded. `db:reset` can take about 15 minutes
+when the Supabase CLI wants a newer Postgres image than the one on your machine: it re-pulls about 1.7 GB and the
+log looks stuck, so check Docker before cancelling.
+
+## Tests
+
+| Command | What it runs | Needs |
+|---|---|---|
+| `npm run test:unit` | Vitest on `packages/shared` (pure logic, including every mark from 0 to 100 against the KCSE, CBC and GPA grade tables typed out by hand in `gradeTables.test.ts`, and a seven-learner report card worked out on paper in `reportCardFigures.test.ts`, down to the text the PDF prints, the date a register is filed under at the Nairobi midnight boundary in `attendanceDates.test.ts`, and the CSV helpers and the learner import's every rule in `csv.test.ts` and `apps/web/src/lib/studentImport.test.ts`; also `tests/security`: what the code and configuration say about HTML sinks, secrets shipped to a browser or phone, the five public edge functions, the web host's headers and the two GitHub workflows, and `scripts/security-scan.sh` run in throwaway git repositories against every attack it promises to catch, then six it does not; needs `sh`, `git` and `node`, otherwise those tests are skipped; and `tests/integrity`: what the migration files say about themselves) | nothing |
+| `npm run test:edge` | Deno tests for `supabase/functions` (including that `provision-student`, `provision-guardian` and `invite-admin` roll back a half-made account at every step, and that they should say so when the audit entry fails) | Deno |
+| `npm test` inside `apps/mobile` or `apps/teacher-mobile` | Jest and React Native Testing Library: the child and exam switchers (parent app), and the "could not be sent" notice and the queue-sync hook (teacher app); each test asserts what the person sees, not just that it renders | Jest, nothing else running (no phone, no database) |
+| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, the fee billing run and its audit trail, what a parent's Fees screen is built from, how the M-Pesa functions answer as deployed, what the server (not the screens) enforces for sign-in, tokens and sessions, the three public endpoints, entering and publishing marks per exam, class and subject (what a parent and a learner see, class means, withdrawing), and report cards from the marks to the card a family downloads (preparing, comments, who may read or change one, sending, withdrawing, the audit entries), and attendance (one row per learner and day, corrections, a register held on a phone and sent for real, the parent's and the report card's figure), and school setup (which schools can sign in by status, what a timetable save that is refused part-way leaves, what a cover assignment tells the substitute, why a grade changes with the class's level), and uploads (a name that climbs out of a school's folder, what the public bucket serves and to whom, who may overwrite a logo or a photo); one file at a time, because they share one database | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
+| `npm test` | Playwright over `e2e/` (`flows.spec.ts`; `reconciliation.spec.ts`, which reads every money figure on the admin, parent, student and group screens and compares it with the database; `signin.spec.ts`, wrong passwords, wrong portal and the emailed reset link, which uses the local mail catcher; `gradebook.spec.ts`, the grade, the means and the Publish button on the teacher gradebook as marks are typed, saving nothing; and `reportCards.spec.ts`, which prepares Form 2 West's 43 report cards, compares every row on the screen and every page of the PDF with the marks in the database, then sends one card to the parent and removes it again, desktop only; and `attendance.spec.ts`, which reads the admin Dashboard and Reports and the parent's Home against the attendance rows, submits and corrects a register, and holds one on a phone while someone else signs in; and `learners.spec.ts`, desktop only, which adds, imports (a real file through the file chooser), archives, restores and promotes learners on the People and Classes screens and checks a school of more than 1,100 learners; and `setup.spec.ts`, desktop only, which starts a new term, deletes a class and books a teacher into two classes through the Settings and Classes screens, and compares a one-level school with a mixed one; and `reports.spec.ts`, desktop only, which re-derives every figure on Reports, Performance, the CBE report, every platform page (Tenants, Organizations, Curriculum, Usage, Subscriptions, Invoices, System health, Incidents, Impersonation log, Audit trail) and the group dashboard from the database, drives the billing and payment dialogs, then archives learners, opens an empty school, adds 1,200 learners to pass 1,000 rows and signs in as each role to see who may open each screen; and `xss.spec.ts`, desktop only, which puts a hostile string into a learner, teacher, parent, school, class, subject, fee item, announcement, homework, incident, organization and a CSV cell, opens every screen that shows it as each role and checks nothing ran and nothing was injected; and `a11y.spec.ts`, desktop only, which opens every screen of all seven roles and the public pages at 1280, 768 and 390 px wide, runs axe-core (WCAG 2.0 and 2.1, A and AA) at 1280 and 390, and records anything cut off, scrolling sideways or logging a console error; and `usability.spec.ts`, desktop only, the keyboard (sign-in, focus rings, dialogs), every dialog and sign-in view at two widths, failed and slow requests, a double click on Pay, Submit register, Bill learners and Record payment, very long names (it renames a few rows and puts them back) and the accessibility settings. Both list each known bug as a test that is expected to fail, tagged `QA16-...` and its FIG id, and fail on any finding that no known bug accounts for), desktop then phone, one worker | the local stack, seeded, and the edge functions running |
+
+`test:integration` refuses to start unless the Supabase URL is `127.0.0.1` or `localhost`
+(`tests/integration/support/localGuard.ts`), so it cannot be pointed at the demo or a production project by mistake.
+Only the URL and the anon key from `.env` reach those tests, never the service-role key. A new role or login goes in
+`TEST_ROLES` in `tests/integration/support/signInAs.ts`; the smoke test picks it up.
+
+Since the fee-record guards (an invoice with a payment, its term, its learner and its proof file cannot be deleted), the tests
+that pay invoices cannot clean up after themselves: they use a term year of their own per run so they can run again, and
+`npm run db:fresh` clears what they leave. The browser specs answer the app's own confirm box with `e2e/support/confirm.ts`.
+`e2e/reports.spec.ts` seeds 1,200 learners with paid invoices to pass 1,000 rows and cannot remove them; run `npm run db:fresh` after it
+and before `e2e/reconciliation.spec.ts` (which also differs from Reports once an archived learner has an invoice: FIG-1501).
+The audit's final report and release recommendation are in `QA_REPORT.md`.
+
+Playwright clears the local login-lookup log before it starts (sign-in by login ID is limited to 30 lookups per 10
+minutes), so runs can follow each other. After a reboot or a Docker restart the edge-function container stays down,
+and sign-in then fails in Playwright:
+`docker restart supabase_edge_runtime_figbloom`. The first Playwright run after Vite starts can time out on the first
+desktop test (a cold page load), which makes the rest of the desktop block show "did not run": run it again.
 
 ## Routes
 

@@ -127,11 +127,11 @@ export function SiteHeader() {
   return (
     <div className={`site-header-bar${isScrolled ? ' is-scrolled' : ''}`}>
       <header className="site-header">
-        <a className="brand" href="/" aria-label="BloomEd home">
+        <a className="brand" href="/" aria-label="Figbloom School Management home">
           <span className="brand-mark" aria-hidden="true">
             <GraduationCap />
           </span>
-          <span>BloomEd</span>
+          <span className="brand-name">Figbloom School Management</span>
         </a>
 
         <nav className="main-nav" aria-label="Main navigation">
@@ -167,7 +167,7 @@ function Home() {
           <div className="hero-copy">
             <h1>School management system for Kenya</h1>
             <p>
-              BloomEd brings fees, attendance, CBE and 8-4-4 results, bus tracking
+              Figbloom School Management brings fees, attendance, CBE and 8-4-4 results, bus tracking
               and parent communication into one school management system, so your
               team spends less time on admin.
             </p>
@@ -199,7 +199,7 @@ function Home() {
         <div className="screenshot-frame">
           <img
             src="/images/adminn-dashboard.webp"
-            alt="BloomEd school management system dashboard showing attendance by class, fees collected and learner numbers"
+            alt="Figbloom School Management dashboard showing attendance by class, fees collected and learner numbers"
             width={1917}
             height={946}
             decoding="async"

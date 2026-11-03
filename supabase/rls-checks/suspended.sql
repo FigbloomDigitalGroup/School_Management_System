@@ -18,6 +18,8 @@ select set_config('t.super',   (select id::text from profiles where role = 'supe
 select set_config('t.student', (select id::text from profiles where role = 'student' and tenant_id = current_setting('t.a')::uuid limit 1), true);
 update auth.users set banned_until = now() + interval '10 years' where id = current_setting('t.student')::uuid;
 select set_config('t.n_students', (select count(*)::text from students where tenant_id = current_setting('t.a')::uuid), true);
+-- every school's learners, which is what the platform super admin sees (more than Alliance's once db:seed-org has run)
+select set_config('t.n_students_all', (select count(*)::text from students), true);
 
 -- an organization with one admin, and Alliance as a member school
 insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000a1');

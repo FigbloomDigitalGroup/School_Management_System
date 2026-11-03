@@ -28,6 +28,9 @@ function ilikeToRegExp(pattern: string): RegExp {
   return new RegExp(`^${out}$`, "i");
 }
 
+/** What supabase-js answers to .single() / .maybeSingle() when the query matched more than one row. */
+const MULTIPLE_ROWS = "JSON object requested, multiple (or no) rows returned";
+
 type OpKind = "select" | "insert" | "update" | "delete";
 
 type UniqueIndex = { cols: string[]; where?: (row: Row) => boolean };
@@ -202,6 +205,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     const { rows, error } = this.run();
     if (error) return { data: null, error };
     if (!rows[0]) return { data: null, error: { message: "Row not found" } };
+    if (rows.length > 1) return { data: null, error: { message: MULTIPLE_ROWS } };
     return { data: rows[0], error: null };
   }
 

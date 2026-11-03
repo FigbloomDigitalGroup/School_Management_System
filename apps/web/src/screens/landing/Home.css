@@ -163,6 +163,10 @@ html:has(.landing-root) {
   stroke-width: 5;
 }
 
+.brand-name {
+  white-space: nowrap;
+}
+
 .main-nav {
   display: flex;
   align-items: center;
@@ -212,6 +216,30 @@ html:has(.landing-root) {
 .login-link:hover,
 .header-demo-link:hover {
   background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* The global orange focus ring (index.css) clashes with the header. Keyboard users still get a ring, in the header's own colours. */
+.site-header a:focus-visible {
+  outline-color: #fff;
+}
+
+.site-header-bar.is-scrolled .site-header a:focus-visible {
+  outline-color: #111;
+}
+
+/*
+  One border while focused: the thick ring only. The logo box and Login have their own thin border,
+  which would show as a second line inside the ring, so hide it and sit the ring on the edge.
+*/
+.site-header .brand:focus-visible,
+.site-header .login-link:focus-visible,
+.site-header .header-demo-link:focus-visible {
+  outline-offset: 0;
+}
+
+.site-header-bar .site-header .brand:focus-visible,
+.site-header-bar .site-header .login-link:focus-visible {
+  border-color: transparent;
 }
 
 .hero-content {
@@ -750,25 +778,37 @@ html:has(.landing-root) {
 
   .brand {
     min-height: 44px;
-    padding: 4px 8px;
+    padding: 4px 7px;
+    gap: 4px;
     font-size: 14px;
   }
 
   .brand-mark,
   .brand-mark svg {
-    width: 25px;
-    height: 25px;
+    width: 22px;
+    height: 22px;
+  }
+
+  /*
+    The name must stay on one line, but it is ~14.6em wide and the header only has
+    (viewport - 213px) left for it once the margins, the brand box and the Login / Get Started
+    buttons (fixed at 11px) are paid for. So the size follows the viewport: ~10px on a 360px
+    phone, ~11px on 375px, ~12px on 390px, capped at 13px. If the header buttons or their
+    labels change, re-measure the 213px (and the 189px in the 349px block at the end of the file).
+  */
+  .brand-name {
+    font-size: clamp(9px, calc((100vw - 213px) / 14.6), 13px);
   }
 
   .header-actions {
-    gap: 7px;
+    gap: 6px;
     font-size: 11px;
   }
 
   .login-link,
   .header-demo-link {
     min-height: 36px;
-    padding: 0 10px;
+    padding: 0 8px;
   }
 
   .hero-content {
@@ -821,6 +861,39 @@ html:has(.landing-root) {
 
   .orbit-card span {
     font-size: 10px;
+  }
+}
+
+/*
+  Just above the phone breakpoint (large phones in landscape, small tablets) the header uses the
+  bigger desktop-style buttons, so the one-line name needs to shrink a little here too: 16px from
+  ~560px up, ~14px at 521px. (viewport - 48px margins - 199px buttons - 62px brand box - 8px gap)
+*/
+@media (min-width: 521px) and (max-width: 600px) {
+  .brand-name {
+    font-size: clamp(14px, calc((100vw - 317px) / 14.6), 16px);
+  }
+}
+
+/*
+  Narrow desktop windows: the nav sits between the name and the buttons and takes a fixed ~312px,
+  so the name gets (viewport - 64px margins - 312px nav) / 2 minus the 62px brand box and an 8px gap.
+  16px from ~985px up, ~13px at 901px.
+*/
+@media (min-width: 901px) and (max-width: 1000px) {
+  .brand-name {
+    font-size: clamp(13px, calc((100vw - 516px) / 29.2), 16px);
+  }
+}
+
+/* Very small phones (320px class): drop the icon so the name does not have to shrink below ~9px */
+@media (max-width: 349px) {
+  .brand-mark {
+    display: none;
+  }
+
+  .brand-name {
+    font-size: clamp(9px, calc((100vw - 189px) / 14.6), 13px);
   }
 }
 

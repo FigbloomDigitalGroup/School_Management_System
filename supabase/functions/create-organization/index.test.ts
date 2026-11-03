@@ -174,3 +174,14 @@ describe("create-organization handle", () => {
     assertEquals(await res.json(), { error: "Could not create the organization. Try again." });
   });
 });
+
+// QA 08 (FIG-1241): the database's own message names constraints and tables; it belongs in the log, not in the answer.
+describe("create-organization: errors", () => {
+  it("FIG-1342: a failed insert answers a generic message, not the database's own", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextWrite("organizations", 'duplicate key value violates unique constraint "organizations_slug_key"');
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals(String((await res.json()).error).includes("constraint"), false);
+  });
+});

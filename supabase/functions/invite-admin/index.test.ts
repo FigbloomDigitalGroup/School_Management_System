@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
+import { itFails } from "../_shared/knownDefect.ts";
 import { captureLogs, countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
 import { handle, normalisePhone } from "./index.ts";
 
@@ -136,6 +137,17 @@ describe("invite-admin handle", () => {
     const res = await handle(request(validBody), { admin, asUser });
     assertEquals(res.status, 500);
     assertEquals(admin.deletedUserIds, ["new-admin-1"]);
+  });
+
+  // QA 15 (FIG-1248): the audit entry is the last step and its result is not looked at, so a login that was created with no
+  // record of who created it still gets a plain success. Wanted: an error, or a warning the screen can show (delete-account
+  // already answers { ok: true, warning } when a step half worked). Passes while the defect exists.
+  itFails("QA15-AUDIT-IGNORED FIG-1470: the reply says so when the audit entry could not be written", async () => {
+    const { admin, asUser } = makeClients();
+    admin.failNextWrite("audit_events", "audit insert failed");
+    const res = await handle(request(validBody), { admin, asUser });
+    const out = await res.json();
+    assert(res.status !== 200 || !!out.warning, "the account was created, nothing was logged, and the reply is a plain success");
   });
 
   describe("teacher/driver login_id path (FIG-398)", () => {
