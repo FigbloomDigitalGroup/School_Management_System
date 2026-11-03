@@ -258,7 +258,6 @@ declare
   v_verb text;
 begin
   perform set_config('figbloom.self_audited', 'true', true);   -- its own audit events (FIG-1326)
-  perform set_config('figbloom.platform_decision', 'true', true);  -- passes the switch-on guard below
 
   if p_delivery_id is not null then
     insert into platform_webhook_deliveries (delivery_id, organization_id, outcome)
@@ -300,8 +299,12 @@ begin
     return jsonb_build_object('outcome', 'unchanged', 'status', o.status);
   end if;
 
-  -- Schools' own mechanism: the column every check reads
+  -- Schools' own mechanism: the column every check reads. The flag lets this one
+  -- update past the switch-on guard below, and is cleared at once, so nothing
+  -- else later in the same transaction can use it.
+  perform set_config('figbloom.platform_decision', 'true', true);
   update organizations set status = p_status where id = o.id;
+  perform set_config('figbloom.platform_decision', '', true);
 
   v_changes := jsonb_build_object('status', jsonb_build_object('from', o.status, 'to', p_status));
   v_verb := case p_status when 'active' then case o.status when 'pending' then 'approved' else 'reactivated' end
