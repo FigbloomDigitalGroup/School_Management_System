@@ -298,7 +298,9 @@ describe("reconcile", () => {
     assertEquals(report.fixed, [{ organization_id: HILLSIDE, from: "active", to: "suspended" }]);
     assertEquals(db.rowsIn("organizations").find((o) => o.id === HILLSIDE)?.status, "suspended");
     const audit = db.rowsIn("audit_events").filter((e) => e.metadata?.organization_id === HILLSIDE);
-    assertEquals(audit.filter((e) => e.tenant_id).length, 2); // one per school
+    assertEquals(audit.filter((e) => e.tenant_id && e.event.startsWith("Organization")).length, 2); // one per school
+    // and since 20261104910000 its schools are suspended with it
+    assertEquals(db.rowsIn("tenants").filter((t) => t.organization_id === HILLSIDE).map((t) => t.status), ["suspended", "suspended"]);
     assertEquals(audit.find((e) => !e.tenant_id)?.metadata.decided_by, "platform:reconcile");
   });
 

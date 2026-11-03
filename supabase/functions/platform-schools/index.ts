@@ -24,8 +24,10 @@
  *   reason; actor_email is kept only where Figbloom staff alone can read it.
  *   Only an active, trial or overdue school can be suspended.
  *   400 bad input, 404 no such school, 409 already suspended / not suspended,
- *   422 a status that can't be set from here, or a school (onboarding,
- *   setup_stalled) that can't be suspended from here.
+ *   422 a status that can't be set from here, a school (onboarding,
+ *   setup_stalled) that can't be suspended from here, or a school whose
+ *   organisation is suspended (reactivate the organisation). Suspending a
+ *   school its organisation's suspension holds makes the suspension its own.
  *
  * Errors are always {"error": {"code": "snake_case", "message": "Sentence."}}.
  *
@@ -151,6 +153,9 @@ async function setStatus(admin: any, body: Record<string, unknown>): Promise<Res
     case "not_settable": return fail(422, "status_not_settable", status === "suspended"
       ? "Only a school that is active, on trial or overdue can be suspended from the Figbloom console."
       : `"${status}" can't be set from the Figbloom console.`);
+    // 20261104910000: a suspended (or rejected) organisation holds all its schools
+    case "organization_suspended":
+      return fail(422, "status_not_settable", "The school's organization is suspended. Reactivate the organization instead.");
     default: return internal("change the school's status", `unexpected answer ${JSON.stringify(data)}`);
   }
 }

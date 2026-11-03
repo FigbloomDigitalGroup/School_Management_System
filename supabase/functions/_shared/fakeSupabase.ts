@@ -428,6 +428,40 @@ export class FakeSupabaseClient {
     else links.rows.push({ kind, local_id: localId, platform_id: platformId, registered_at: this.iso() });
   }
 
+  /**
+   * organizations_status_reaches_schools() (20261104910000), for the fake: a
+   * suspended or rejected organisation suspends its schools that aren't
+   * suspended (held in organization_suspended_schools), and reactivating it
+   * restores only those, each to its previous status.
+   */
+  organizationStatusReachesSchools(o: Row, from: string, reason: string | null) {
+    const locks = (s: string) => s === "suspended" || s === "rejected";
+    if (locks(o.status) === locks(from)) return;
+    const held = this.table("organization_suspended_schools");
+    if (locks(o.status)) {
+      for (const t of this.rowsIn("tenants").filter((x) => x.organization_id === o.id && x.status !== "suspended")) {
+        held.rows.push({ tenant_id: t.id, organization_id: o.id });
+        const before = t.status;
+        Object.assign(t, { status_before_suspension: before, status: "suspended",
+          status_reason: `Organization "${o.name}" ${o.status === "rejected" ? "not approved" : "suspended"}${reason ? `: ${reason}` : ""}` });
+        this.table("audit_events").insert({ tenant_id: t.id, actor_id: null, actor_label: "Figbloom (via Figbloom platform)",
+          event: `School suspended with its organization "${o.name}"${reason ? `: ${reason}` : ""}`, category: "access",
+          metadata: { table: "tenants", op: "update", via: "Figbloom platform", organization_id: o.id, reason, changes: { status: { from: before, to: "suspended" } } } });
+      }
+    } else {
+      for (const h of held.rows.filter((x) => x.organization_id === o.id)) {
+        const t = this.rowsIn("tenants").find((x) => x.id === h.tenant_id && x.organization_id === o.id && x.status === "suspended");
+        if (!t) continue;
+        const to = t.status_before_suspension ?? "active";
+        Object.assign(t, { status: to, status_before_suspension: null, status_reason: null });
+        this.table("audit_events").insert({ tenant_id: t.id, actor_id: null, actor_label: "Figbloom (via Figbloom platform)",
+          event: "School reactivated with its organization", category: "access",
+          metadata: { table: "tenants", op: "update", via: "Figbloom platform", organization_id: o.id, changes: { status: { from: "suspended", to } } } });
+      }
+      held.rows = held.rows.filter((x) => x.organization_id !== o.id);
+    }
+  }
+
   /** The SQL functions of 20261104900000_platform_registration.sql, for the fake. */
   platformRpcs: Record<string, (args: Row) => unknown> = {
     platform_decisions_enabled: () => this.platformDecisionsEnabled,
@@ -523,6 +557,7 @@ export class FakeSupabaseClient {
       if (o.status === a.p_status) { note("unchanged"); return { outcome: "unchanged", status: o.status }; }
       const from = o.status;
       o.status = a.p_status;
+      this.organizationStatusReachesSchools(o, from, reason);
       const changes = { status: { from, to: a.p_status } };
       const verb = a.p_status === "active" ? (from === "pending" ? "approved" : "reactivated")
         : a.p_status === "suspended" ? "suspended" : a.p_status === "rejected" ? "not approved" : "set to pending";
@@ -616,10 +651,27 @@ export class FakeSupabaseClient {
     if (status !== "active" && status !== "suspended") return { outcome: "not_settable" };
     const t = this.rowsIn("tenants").find((r) => r.id === args.p_school_id);
     if (!t) return { outcome: "not_found" };
-    if (status === "suspended" && t.status === "suspended") return { outcome: "already" };
+    const held = this.table("organization_suspended_schools");
+    if (status === "suspended" && t.status === "suspended") {
+      // 20261104910000: held by its organisation's suspension: now the school's own
+      const i = held.rows.findIndex((h) => h.tenant_id === t.id);
+      if (i < 0) return { outcome: "already" };
+      held.rows.splice(i, 1);
+      t.status_reason = reason;
+      this.table("audit_events").insert({ tenant_id: t.id, actor_id: null, actor_label: "Figbloom (via Figbloom console)",
+        event: `School suspended by Figbloom${reason ? `: ${reason}` : ""}`, category: "access",
+        metadata: { table: "tenants", op: "update", via: "Figbloom console", reason, changes: { status: { from: "suspended", to: "suspended" }, held_by: { from: "organization", to: "school" } } } });
+      this.table("audit_events").insert({ tenant_id: null, actor_id: null, actor_label: `${actor} via Figbloom console`,
+        event: `Suspended "${t.name}" via Figbloom console`, category: "access",
+        metadata: { table: "tenants", op: "update", via: "Figbloom console", school_id: t.id, actor_email: actor, reason } });
+      return { outcome: "ok", school: this.platformSchools(t.id)[0] };
+    }
     if (status === "active" && t.status !== "suspended") return { outcome: "not_suspended" };
     // 20261104800000: only a working school is the console's to suspend
     if (status === "suspended" && !["active", "trial", "overdue"].includes(t.status)) return { outcome: "not_settable" };
+    // 20261104910000: not one school of a suspended organisation
+    const org = this.rowsIn("organizations").find((o) => o.id === t.organization_id);
+    if (status === "active" && org && ["suspended", "rejected"].includes(org.status)) return { outcome: "organization_suspended" };
     const from = t.status;
     // tenants_status_bookkeeping: remember the status on the way in, restore and forget it on the way out
     const to = status === "suspended" ? "suspended" : (t.status_before_suspension ?? "active");
