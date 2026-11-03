@@ -93,3 +93,15 @@ export async function fetchTenantOrgAccessLog(tenantId: string): Promise<Organiz
   if (error) throw error;
   return data ?? [];
 }
+
+/**
+ * Whether organisation status is decided on the Figbloom platform
+ * (PLATFORM_DECISIONS_ENABLED, 20261104900000). Once it is, Schools' staff
+ * console shows the status instead of changing it: the database refuses any
+ * change that isn't the platform's decision. A failed check answers false,
+ * which only means the console offers a button the database would refuse.
+ */
+export async function platformDecisionsEnabled(): Promise<boolean> {
+  const { data, error } = await supabase().rpc("platform_decisions_enabled");
+  return !error && data === true;
+}

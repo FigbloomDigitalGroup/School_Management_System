@@ -80,6 +80,12 @@ verify_jwt = false             # pre-auth login_id -> email lookup, the other ha
 [functions.platform-schools]
 verify_jwt = false             # the Figbloom console's backend, server to server; its own check is x-platform-secret against the secret PLATFORM_CONSOLE_SECRET
 
+[functions.platform-decisions]
+verify_jwt = false             # the Figbloom platform's decision webhook; its own check is x-figbloom-signature (HMAC) against PLATFORM_WEBHOOK_SECRET
+
+[functions.platform-sync]
+verify_jwt = false             # pg_cron (pg_net) and staff, server to server; its own check is the service-role key, in constant time
+
 [functions.request-password-reset]
 verify_jwt = false             # "Forgot password?" from the sign-in screen — the person can't sign in, so no JWT
 

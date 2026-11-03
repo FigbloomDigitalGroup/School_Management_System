@@ -68,7 +68,8 @@ export interface Organization {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
-  status: "pending" | "active" | "suspended";
+  /** "rejected": not approved on the Figbloom platform (20261104900000). Only "active" gives its admins access. */
+  status: "pending" | "active" | "suspended" | "rejected";
   created_at: string;
   created_by: string | null;
 }
