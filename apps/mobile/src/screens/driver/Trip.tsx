@@ -21,6 +21,17 @@ import { useTheme } from "../../ui/ThemeContext";
 
 const DIRECTION_LABEL: Record<TripDirection, string> = { to_school: "To school", from_school: "From school" };
 
+/** End trip waits this long for held location updates to go out, then ends the trip anyway: no signal must not trap a driver on a live trip. */
+export const HELD_SEND_MS = 8_000;
+
+/** Sends what is held, giving up after HELD_SEND_MS; never throws. */
+function sendHeldPings(): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, HELD_SEND_MS);
+    queue.flush().then(() => {}, () => {}).finally(() => { clearTimeout(timer); resolve(); });
+  });
+}
+
 /** Said before a trip is created: with Location switched off the trip would go live and the bus would never move (FIG-1491). */
 export const LOCATION_OFF_MESSAGE = "Location is switched off on this phone, so the bus cannot be tracked. Swipe down from the top of the screen, tap Location to switch it on, then start the trip again.";
 /** Said when a trip has run this long with no fix at all. */
@@ -176,6 +187,9 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
     setEnding(true);
     try {
       await stopLocationTracking();
+      // The server only takes a position for a trip that is still active, so what the phone is holding from a dead
+      // zone has to go out BEFORE the trip ends: sent afterwards it is refused and set aside (FIG-1490).
+      await sendHeldPings();
       await endTrip(trip.id);
       setTrip(null);
       tripRef.current = null;

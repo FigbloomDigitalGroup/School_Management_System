@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as shared from "@figbloom/shared";
-import { DriverTrip, LOCATION_OFF_MESSAGE, NO_FIX_AFTER_MS, NO_FIX_MESSAGE } from "./Trip";
+import { queue } from "../../storage";
+import { DriverTrip, HELD_SEND_MS, LOCATION_OFF_MESSAGE, NO_FIX_AFTER_MS, NO_FIX_MESSAGE } from "./Trip";
 import * as task from "./locationTask";
 
 // FIG-1491: with the phone's Location switched off a trip used to go live, say "Waiting for the first location fix…" for
@@ -46,13 +47,16 @@ const api = {
   myActiveTrip: mocked(shared.myActiveTrip),
   listRouteStops: mocked(shared.listRouteStops),
   startTrip: mocked(shared.startTrip),
+  endTrip: mocked(shared.endTrip),
   pingLocation: mocked(shared.pingLocation),
 };
 const place = {
   ensureLocationPermissions: mocked(task.ensureLocationPermissions),
   checkLocationSwitch: mocked(task.checkLocationSwitch),
   startLocationTracking: mocked(task.startLocationTracking),
+  stopLocationTracking: mocked(task.stopLocationTracking),
 };
+const flush = mocked(queue.flush);
 
 const trip = { id: "trip-1", vehicle_id: "bus-1", route_id: "route-1", direction: "to_school", started_at: "2026-11-02T06:30:00Z" };
 
@@ -66,6 +70,9 @@ beforeEach(() => {
   place.ensureLocationPermissions.mockReset().mockResolvedValue({ ok: true });
   place.checkLocationSwitch.mockReset();
   place.startLocationTracking.mockReset().mockResolvedValue(undefined);
+  place.stopLocationTracking.mockReset().mockResolvedValue(undefined);
+  api.endTrip.mockReset().mockResolvedValue(undefined);
+  flush.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => jest.useRealTimers());
 
@@ -148,5 +155,63 @@ describe("a live trip that never gets a fix", () => {
     await act(async () => { jest.advanceTimersByTime(NO_FIX_AFTER_MS + 5_000); });
     expect(screen.queryByText(NO_FIX_MESSAGE)).toBeNull();
     expect(await screen.findByText(/Last sent:/)).toBeTruthy();
+  });
+});
+
+// FIG-1490: location updates held in a dead zone were tried only AFTER the trip had ended, when the server refuses
+// them (it only takes a position for a trip that is still active), and were dropped.
+describe("ending a trip", () => {
+  /** A live trip, with the mocks that record what happens from here on cleared. */
+  async function liveTrip() {
+    place.checkLocationSwitch.mockResolvedValue("on");
+    await openScreen();
+    startTrip();
+    await screen.findByText("End trip");
+  }
+  const pressEndTrip = () => fireEvent.press(screen.getByText("End trip"));
+
+  it("sends what the phone is holding BEFORE it ends the trip", async () => {
+    await liveTrip();
+    const order: string[] = [];
+    place.stopLocationTracking.mockImplementation(async () => { order.push("tracking stopped"); });
+    flush.mockImplementation(async () => { order.push("held updates sent"); });
+    api.endTrip.mockImplementation(async () => { order.push("trip ended"); });
+
+    pressEndTrip();
+
+    await waitFor(() => expect(api.endTrip).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["tracking stopped", "held updates sent", "trip ended"]);
+    expect(api.endTrip).toHaveBeenCalledWith("trip-1");
+  });
+
+  it("goes back to Start trip once it has ended", async () => {
+    await liveTrip();
+    pressEndTrip();
+    expect(await screen.findByText("Start trip")).toBeTruthy();
+  });
+
+  it("does not wait for ever for updates that cannot be sent (no signal): it ends the trip after a few seconds", async () => {
+    await liveTrip();
+    flush.mockClear();
+    flush.mockImplementation(() => new Promise<void>(() => {}));
+
+    pressEndTrip();
+    // the 8 seconds start when the sending starts, which is after the tracker has been stopped
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
+    await act(async () => { jest.advanceTimersByTime(HELD_SEND_MS - 1_000); });
+    expect(api.endTrip).not.toHaveBeenCalled();
+
+    await act(async () => { jest.advanceTimersByTime(1_500); });
+    await waitFor(() => expect(api.endTrip).toHaveBeenCalledTimes(1));
+  });
+
+  it("still ends the trip when sending the held updates fails", async () => {
+    await liveTrip();
+    flush.mockRejectedValue(new Error("Network request failed"));
+
+    pressEndTrip();
+
+    await waitFor(() => expect(api.endTrip).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Network request failed/)).toBeNull();
   });
 });
