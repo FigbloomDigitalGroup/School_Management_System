@@ -175,32 +175,42 @@ staff approve, reject, suspend and reactivate.
 | `PLATFORM_TOKEN_URL` | the platform's `TokenEndpoint` output (`…/oauth2/token`) |
 | `PLATFORM_API_URL` | the platform's `PlatformApiUrl` output |
 | `PLATFORM_WEBHOOK_SECRET` | the 64 characters in `figbloom/platform/webhook/schools` (platform Secrets Manager) |
+| `PLATFORM_SYNC_KEY` | the key that calls `platform-sync` (pg_cron and staff): at least 32 characters, e.g. `openssl rand -hex 32`. The same value goes in the Vault secret `platform_service_key` below |
 | `PLATFORM_WEBHOOK_URL` (optional) | where the platform should send decisions, if not `<SUPABASE_URL>/functions/v1/platform-decisions` (a self-hosted stack whose `SUPABASE_URL` is internal) |
 
 And two **Vault** secrets, for pg_cron to call `platform-sync` (SQL editor, as postgres):
 
 ```sql
 select vault.create_secret('https://<ref>.supabase.co/functions/v1', 'platform_functions_url');
-select vault.create_secret('<the project''s service-role key>', 'platform_service_key');
+select vault.create_secret('<the PLATFORM_SYNC_KEY value>', 'platform_service_key');
+-- already created with the service-role key? replace it:
+-- select vault.update_secret((select id from vault.secrets where name = 'platform_service_key'), '<the PLATFORM_SYNC_KEY value>');
 ```
 
-`platform-sync` accepts only the project's service-role key (the value of
-`SUPABASE_SERVICE_ROLE_KEY` in the functions' environment).
+`platform-sync` accepts `PLATFORM_SYNC_KEY` in an `x-platform-sync-key`
+header (preferred, and what pg_cron sends) or as `Authorization: Bearer`. It
+also accepts a key the runtime injected (`SUPABASE_SERVICE_ROLE_KEY`, or an
+`sb_secret_…` key from `SUPABASE_SECRET_KEYS`). Don't rely on the dashboard's
+legacy `service_role` key: on Supabase Cloud the injected
+`SUPABASE_SERVICE_ROLE_KEY` turned out not to be that value, and it got 401.
+A refusal is logged in the function's logs with what was sent (its kind and
+length) and what is configured, never a key.
 
-**Deploy, in this order** (`$KEY` is the service-role key, `$F` is `https://<ref>.supabase.co/functions/v1`):
+**Deploy, in this order** (`$KEY` is the `PLATFORM_SYNC_KEY` value, `$F` is `https://<ref>.supabase.co/functions/v1`):
 
 1. Migrations: `supabase db push` (`20261104900000_platform_registration`,
    `20261104910000_organization_suspension_reaches_schools`,
-   `20261104920000_every_school_has_an_organization`).
+   `20261104920000_every_school_has_an_organization`, `20261104930000_platform_sync_key`).
 2. Functions: `supabase functions deploy platform-sync --no-verify-jwt` and
    `supabase functions deploy platform-decisions --no-verify-jwt`; the secrets
-   and Vault secrets above.
+   (including `supabase secrets set PLATFORM_SYNC_KEY=<value>`) and the Vault
+   secrets above, with the same value in `platform_service_key`.
 3. Register the webhook:
-   `curl -X POST "$F/platform-sync" -H "Authorization: Bearer $KEY" -d '{"action":"register_webhook"}'`
+   `curl -X POST "$F/platform-sync" -H "x-platform-sync-key: $KEY" -d '{"action":"register_webhook"}'`
 4. Dry-run the backfill and read what it would do: every organisation with
    the status it will copy, and every school (the migration has already given
    each lone school its own organisation, so none is left to create):
-   `curl -X POST "$F/platform-sync" -H "Authorization: Bearer $KEY" -d '{"action":"backfill"}'`
+   `curl -X POST "$F/platform-sync" -H "x-platform-sync-key: $KEY" -d '{"action":"backfill"}'`
 5. Run it: `… -d '{"action":"backfill","dry_run":false}'`. It registers
    every organisation with today's status (`backfill: true`), then every school. Running it again only
    re-sends names; a status Figbloom staff have decided on the platform is
