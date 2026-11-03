@@ -4,32 +4,73 @@ import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
 import { FakePlatform } from "../_shared/fakePlatform.ts";
 import { handle } from "./index.ts";
 
+/** The legacy service_role key the runtime injected (SUPABASE_SERVICE_ROLE_KEY). */
 const KEY = "service-role-key-for-tests";
+const SYNC_KEY = "s".repeat(40);
+const SECRET_KEY = "sb_secret_abcdefghijklmnopqrstuvwxyz012345";
 const ORG = "11111111-1111-4111-8111-111111111111";
 const LONE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
-function setup({ configured = true } = {}) {
+function setup({ configured = true, vars = {} as Record<string, string> } = {}) {
   const db = new FakeSupabaseClient();
   db.seed("organizations", [{ id: ORG, name: "Hillside", slug: "hillside", status: "active", created_at: "2026-09-01T00:00:00Z" }]);
   db.seed("tenants", [{ id: LONE, name: "Bungoma High", slug: "bungoma", county: "Bungoma", organization_id: null, created_at: "2026-09-02T00:00:00Z" }]);
   const platform = new FakePlatform();
-  const env = { get: (k: string) => ({ SUPABASE_URL: "https://abc.supabase.co" } as Record<string, string>)[k] };
-  const call = (body: unknown, key: string | null = KEY) => handle(
-    new Request("https://abc.supabase.co/functions/v1/platform-sync", {
-      method: "POST", body: JSON.stringify(body), headers: key === null ? {} : { authorization: `Bearer ${key}` },
-    }),
-    { admin: db, client: configured ? platform.client() : null, serviceKey: KEY, env },
+  const all: Record<string, string> = {
+    SUPABASE_URL: "https://abc.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY,
+    SUPABASE_SECRET_KEYS: JSON.stringify({ default: SECRET_KEY }), PLATFORM_SYNC_KEY: SYNC_KEY, ...vars,
+  };
+  const env = { get: (k: string) => all[k] || undefined };
+  const send = (body: unknown, headers: Record<string, string>) => handle(
+    new Request("https://abc.supabase.co/functions/v1/platform-sync", { method: "POST", body: JSON.stringify(body), headers }),
+    { admin: db, client: configured ? platform.client() : null, env },
   );
-  return { db, platform, call };
+  const call = (body: unknown, key: string | null = SYNC_KEY) => send(body, key === null ? {} : { authorization: `Bearer ${key}` });
+  return { db, platform, call, send };
 }
 
 describe("platform-sync", () => {
-  it("accepts only the service-role key", async () => {
-    const { call, platform } = setup();
-    assertEquals((await call({ action: "sync" }, null)).status, 401);
-    assertEquals((await call({ action: "sync" }, "anon-key")).status, 401);
-    assertEquals((await call({ action: "sync" }, `${KEY}x`)).status, 401);
-    assertEquals(platform.calls.length, 0);
+  describe("who may call it", () => {
+    it("accepts PLATFORM_SYNC_KEY as a bearer token or in x-platform-sync-key", async () => {
+      const { call, send } = setup();
+      assertEquals((await call({ action: "backfill" }, SYNC_KEY)).status, 200);
+      assertEquals((await send({ action: "backfill" }, { "x-platform-sync-key": SYNC_KEY })).status, 200);
+    });
+
+    it("still accepts the injected legacy service-role key, and the new sb_secret_ keys, as bearer or apikey", async () => {
+      const { call, send } = setup();
+      assertEquals((await call({ action: "backfill" }, KEY)).status, 200);
+      assertEquals((await call({ action: "backfill" }, SECRET_KEY)).status, 200);
+      assertEquals((await send({ action: "backfill" }, { apikey: SECRET_KEY })).status, 200);
+    });
+
+    it("refuses no key, a wrong one, an anon key, or one that only starts like a right one", async () => {
+      const { call, send, platform } = setup();
+      assertEquals((await call({ action: "sync" }, null)).status, 401);
+      assertEquals((await call({ action: "sync" }, "anon-key")).status, 401);
+      assertEquals((await call({ action: "sync" }, `${KEY}x`)).status, 401);
+      assertEquals((await call({ action: "sync" }, SYNC_KEY.slice(0, 39))).status, 401);
+      assertEquals((await send({ action: "sync" }, { "x-platform-sync-key": "nope" })).status, 401);
+      assertEquals(platform.calls.length, 0);
+    });
+
+    it("works with only PLATFORM_SYNC_KEY (the injected key isn't the dashboard's)", async () => {
+      const { call } = setup({ vars: { SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_SECRET_KEYS: "" } });
+      assertEquals((await call({ action: "backfill" }, SYNC_KEY)).status, 200);
+      assertEquals((await call({ action: "backfill" }, KEY)).status, 401);
+    });
+
+    it("ignores a PLATFORM_SYNC_KEY shorter than 32 characters", async () => {
+      const short = "short-key";
+      const { call } = setup({ vars: { PLATFORM_SYNC_KEY: short } });
+      assertEquals((await call({ action: "backfill" }, short)).status, 401);
+      assertEquals((await call({ action: "backfill" }, KEY)).status, 200);
+    });
+
+    it("survives a SUPABASE_SECRET_KEYS that isn't JSON", async () => {
+      const { call } = setup({ vars: { SUPABASE_SECRET_KEYS: "not json" } });
+      assertEquals((await call({ action: "backfill" }, SYNC_KEY)).status, 200);
+    });
   });
 
   it("sync sends the queue", async () => {
