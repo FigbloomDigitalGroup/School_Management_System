@@ -123,6 +123,87 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   Checks: `deno test --allow-env --config supabase/functions/deno.json supabase/functions/platform-schools`
   and `supabase/rls-checks/platform_console.sql` against a seeded local database.
 
+## Figbloom platform registration
+
+Figbloom Schools registers its organisations and schools with the Figbloom
+platform, and follows the platform's organisation decisions (design 5.8;
+the platform side is figbloomHR-platform, "Organisations and product
+registration (5.8)"). On the platform an organisation is the unit Figbloom
+staff approve, reject, suspend and reactivate. Every school belongs to one;
+a single school has its own, named after it.
+
+- **Registering** never blocks Schools. Creating an organisation or school,
+  or changing its name, slug or organisation, queues it in
+  `platform_sync_queue` (triggers, same transaction). `platform-sync` sends
+  the queue every minute (pg_cron + pg_net), organisations before their
+  schools, with retries and backoff (1, 2, 4… minutes, at most an hour).
+- **Decisions** arrive at `platform-decisions`, signed (HMAC-SHA256,
+  `PLATFORM_WEBHOOK_SECRET`, ±5 minutes). They are applied through
+  `organizations.status`, the same column Schools' own console sets and
+  every check reads. The organisation's schools see "Figbloom" and the
+  reason in their audit log; who decided is kept in an event only Figbloom
+  staff can read.
+- **Safety net:** Schools' own `organizations.status` stays the enforcement,
+  and nothing calls the platform on a request. Every hour `platform-sync`
+  asks the platform about the organisations most likely to have missed a
+  decision, and fixes any difference (logged).
+
+**Secrets** (`supabase secrets set …`; never committed):
+
+| Secret | What |
+|---|---|
+| `PLATFORM_CLIENT_ID`, `PLATFORM_CLIENT_SECRET` | the `schools-service-<env>` client (`SchoolsServiceClientId` output; its secret from Cognito) |
+| `PLATFORM_TOKEN_URL` | the platform's `TokenEndpoint` output (`…/oauth2/token`) |
+| `PLATFORM_API_URL` | the platform's `PlatformApiUrl` output |
+| `PLATFORM_WEBHOOK_SECRET` | the 64 characters in `figbloom/platform/webhook/schools` (platform Secrets Manager) |
+| `PLATFORM_WEBHOOK_URL` (optional) | where the platform should send decisions, if not `<SUPABASE_URL>/functions/v1/platform-decisions` (a self-hosted stack whose `SUPABASE_URL` is internal) |
+
+And two **Vault** secrets, for pg_cron to call `platform-sync` (SQL editor, as postgres):
+
+```sql
+select vault.create_secret('https://<ref>.supabase.co/functions/v1', 'platform_functions_url');
+select vault.create_secret('<the project''s service-role key>', 'platform_service_key');
+```
+
+`platform-sync` accepts only the project's service-role key (the value of
+`SUPABASE_SERVICE_ROLE_KEY` in the functions' environment).
+
+**Deploy, in this order** (`$KEY` is the service-role key, `$F` is `https://<ref>.supabase.co/functions/v1`):
+
+1. Migrations: `supabase db push` (`20261104900000_platform_registration`).
+2. Functions: `supabase functions deploy platform-sync --no-verify-jwt` and
+   `supabase functions deploy platform-decisions --no-verify-jwt`; the secrets
+   and Vault secrets above.
+3. Register the webhook:
+   `curl -X POST "$F/platform-sync" -H "Authorization: Bearer $KEY" -d '{"action":"register_webhook"}'`
+4. Dry-run the backfill and read what it would do: which schools get their
+   own organisation, every organisation with the status it will copy, every school:
+   `curl -X POST "$F/platform-sync" -H "Authorization: Bearer $KEY" -d '{"action":"backfill"}'`
+5. Run it: `… -d '{"action":"backfill","dry_run":false}'`. It creates each
+   lone school's organisation in Schools, registers every organisation with
+   today's status (`backfill: true`), then every school. Running it again only
+   re-sends names; a status Figbloom staff have decided on the platform is
+   kept.
+6. Switch on (below).
+
+**`PLATFORM_DECISIONS_ENABLED`** is a row in `platform_settings`, off by
+default; until then nothing changes for anyone. While it is off, decisions
+are verified and acknowledged but not applied (Schools' own staff console
+still decides), and the reconcile doesn't run. Turn it on once the
+backfill has run:
+
+```sql
+update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_DECISIONS_ENABLED';
+```
+
+From then on organisation status comes only from the platform: the database
+refuses any other change, Schools' staff console shows the status (and
+"decided on the Figbloom platform") instead of an Approve button, a new
+organisation takes the platform's decision when it is registered (pending,
+or active with the platform's auto-approve), and the hourly reconcile runs.
+Turning it off again hands organisation status back to Schools' console.
+Checks: `supabase/rls-checks/platform_registration.sql`.
+
 ## Rate limits on the public functions
 
 `search-schools`, `resolve-login-id`, `request-password-reset` and

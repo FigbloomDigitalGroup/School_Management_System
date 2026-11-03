@@ -59,8 +59,9 @@ insert into organization_admins (profile_id, organization_id)
 select pg_temp.check('a new organisation is queued',
   pg_temp.pending('organization', '00000000-0000-4000-8000-0000000000e2') = 1);
 update organizations set name = 'Check Platform Group' where id = '00000000-0000-4000-8000-0000000000e2';
-select pg_temp.check('a rename keeps one pending row (it is read when sent)',
-  pg_temp.pending('organization', '00000000-0000-4000-8000-0000000000e2') = 1);
+select pg_temp.check('a rename keeps one pending row (it is read when sent), with a new version',
+  pg_temp.pending('organization', '00000000-0000-4000-8000-0000000000e2') = 1
+  and (select version = 2 from platform_sync_queue where local_id = '00000000-0000-4000-8000-0000000000e2' and done_at is null));
 
 update tenants set organization_id = '00000000-0000-4000-8000-0000000000e2' where id = current_setting('t.a')::uuid;
 select pg_temp.check('moving a school into an organisation queues the school',
@@ -77,7 +78,7 @@ update organizations set name = 'Check Platform Group 2' where id = '00000000-00
 -- ---------------------------------------------------------------- the queue hands rows out safely
 -- answers are carried out in settings: the service role needn't be able to create temp tables
 set local role service_role;
-select set_config('t.claim', (select json_agg(json_build_object('id', c.id, 'kind', c.kind) order by c.n)::text
+select set_config('t.claim', (select json_agg(json_build_object('id', c.id, 'kind', c.kind, 'version', c.version) order by c.n)::text
                                 from (select row_number() over () as n, q.* from platform_sync_claim(10) q) c), true);
 reset role;
 select pg_temp.check('organisations come out before schools (the school was queued first)',
@@ -85,9 +86,10 @@ select pg_temp.check('organisations come out before schools (the school was queu
   = array['organization', 'tenant']);
 select set_config('t.claim_org', (select e ->> 'id' from json_array_elements(current_setting('t.claim')::json) e where e ->> 'kind' = 'organization'), true);
 select set_config('t.claim_tenant', (select e ->> 'id' from json_array_elements(current_setting('t.claim')::json) e where e ->> 'kind' = 'tenant'), true);
+select set_config('t.claim_org_version', (select e ->> 'version' from json_array_elements(current_setting('t.claim')::json) e where e ->> 'kind' = 'organization'), true);
 set local role service_role;
 select pg_temp.check('a second run while they are leased gets nothing', (select count(*) from platform_sync_claim(10)) = 0);
-select platform_sync_done(current_setting('t.claim_org')::bigint, 'platform-org-1');
+select platform_sync_done(current_setting('t.claim_org')::bigint, current_setting('t.claim_org_version')::int, 'platform-org-1');
 select platform_sync_failed(current_setting('t.claim_tenant')::bigint, 'organization_not_registered', null);
 reset role;
 select pg_temp.check('done: marked, and the platform link recorded',
@@ -96,6 +98,21 @@ select pg_temp.check('done: marked, and the platform link recorded',
 select pg_temp.check('failed: retried after a minute, the lease lifted',
   (select next_attempt_at between now() + interval '55 seconds' and now() + interval '65 seconds' and locked_until is null and last_error is not null
      from platform_sync_queue where id = current_setting('t.claim_tenant')::bigint));
+
+-- a rename while a send is on its way: completing the old version hands the row back instead
+update platform_sync_queue set done_at = now() where done_at is null;
+update organizations set name = 'Check Race 1' where id = '00000000-0000-4000-8000-0000000000e2';
+set local role service_role;
+select set_config('t.race', (select json_build_object('id', id, 'version', version)::text from platform_sync_claim(10) where kind = 'organization'), true);
+reset role;
+update organizations set name = 'Check Race 2' where id = '00000000-0000-4000-8000-0000000000e2';
+set local role service_role;
+select pg_temp.check('completing a version that has moved on answers false',
+  not platform_sync_done((current_setting('t.race')::json ->> 'id')::bigint, (current_setting('t.race')::json ->> 'version')::int, null));
+reset role;
+select pg_temp.check('...and the row is handed back, due now, so the new name is sent next',
+  (select done_at is null and locked_until is null and next_attempt_at <= now() and version = 2
+     from platform_sync_queue where id = (current_setting('t.race')::json ->> 'id')::bigint));
 
 -- ---------------------------------------------------------------- a school's own organisation
 insert into tenants (id, name, slug, county) values ('00000000-0000-4000-8000-0000000000e3', 'Check Lone School', 'check-platform-org', 'Nakuru');

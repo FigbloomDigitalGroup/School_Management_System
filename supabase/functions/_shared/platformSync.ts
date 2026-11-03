@@ -12,7 +12,7 @@ type Admin = any;
 
 const PAGE = 500;
 
-interface QueueRow { id: number; kind: "organization" | "tenant"; local_id: string; attempts: number }
+interface QueueRow { id: number; kind: "organization" | "tenant"; local_id: string; attempts: number; version: number }
 interface OrganizationRow { id: string; name: string; contact_email: string | null; created_at: string; status: string }
 interface TenantRow { id: string; name: string; slug: string; organization_id: string | null; created_at: string }
 
@@ -91,16 +91,17 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
         const { data: o, error } = await admin.from("organizations")
           .select("id, name, contact_email, created_at, status").eq("id", row.local_id).maybeSingle();
         if (error) throw new Error(`could not read the organisation: ${error.message}`);
-        if (!o) { await rpc(admin, "platform_sync_done", { p_id: row.id, p_platform_id: null }); continue; } // deleted since
+        if (!o) { await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null }); continue; } // deleted since
         const answer = await client.putOrganization(o.id, organizationBody(o));
-        await rpc(admin, "platform_sync_done", { p_id: row.id, p_platform_id: answer?.organization_id ?? null });
+        // false: it changed while on its way, and is handed back to be sent again
+        await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: answer?.organization_id ?? null });
         report.sent++;
         if (enabled && (await adoptPlatformStatus(admin, o, answer, "registration")) === "applied") report.adopted++;
       } else {
         const { data: t, error } = await admin.from("tenants")
           .select("id, name, slug, organization_id, created_at").eq("id", row.local_id).maybeSingle();
         if (error) throw new Error(`could not read the school: ${error.message}`);
-        if (!t) { await rpc(admin, "platform_sync_done", { p_id: row.id, p_platform_id: null }); continue; }
+        if (!t) { await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null }); continue; }
         if (!t.organization_id) {
           // every school belongs to an organisation on the platform; this one waits for staff (or the backfill) to give it one
           await rpc(admin, "platform_sync_failed", { p_id: row.id, p_error: "no_organization: the school has no organisation yet", p_retry_in_seconds: 3600 });
@@ -109,7 +110,7 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
         }
         try {
           const answer = await client.putTenant(t.id, tenantBody(t));
-          await rpc(admin, "platform_sync_done", { p_id: row.id, p_platform_id: answer?.tenant_id ?? answer?.id ?? null });
+          await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: answer?.tenant_id ?? answer?.id ?? null });
           report.sent++;
         } catch (err) {
           if (err instanceof PlatformError && err.code === "organization_not_registered") {
@@ -160,7 +161,6 @@ export interface BackfillReport {
  */
 export async function backfill(admin: Admin, client: PlatformClient | null, { dryRun = true } = {}): Promise<BackfillReport> {
   const report: BackfillReport = { dry_run: dryRun, organizations_to_create: [], organizations_created: [], organizations: [], schools: [], errors: [] };
-  const started = new Date().toISOString();
 
   const loneSchools = (await selectAll<TenantRow>(admin, "tenants", "id, name, slug, organization_id, created_at")).filter((t) => !t.organization_id);
   report.organizations_to_create = loneSchools.map((t) => ({ school_id: t.id, school_name: t.name, organization_name: t.name }));
@@ -174,6 +174,20 @@ export async function backfill(admin: Admin, client: PlatformClient | null, { dr
       }
     }
   }
+
+  // What is queued now, before anything is read: once a record's current state is sent, its row is
+  // done, unless the record changed meanwhile (the version moved on), when the queue sends it again.
+  const queued = new Map<string, { id: number; version: number }>();
+  if (!dryRun) {
+    const { data, error } = await admin.from("platform_sync_queue").select("id, kind, local_id, version").is("done_at", null);
+    if (error) throw new Error(`could not read platform_sync_queue: ${error.message}`);
+    for (const q of data ?? []) queued.set(`${q.kind}:${q.local_id}`, { id: q.id, version: q.version });
+  }
+  const sent = async (kind: "organization" | "tenant", localId: string, platformId: string | null) => {
+    const q = queued.get(`${kind}:${localId}`);
+    if (q) await rpc(admin, "platform_sync_done", { p_id: q.id, p_version: q.version, p_platform_id: platformId });
+    else await rpc(admin, "platform_record_link", { p_kind: kind, p_local_id: localId, p_platform_id: platformId });
+  };
 
   const organizations = await selectAll<OrganizationRow>(admin, "organizations", "id, name, contact_email, created_at, status");
   for (const o of organizations) {
@@ -191,7 +205,7 @@ export async function backfill(admin: Admin, client: PlatformClient | null, { dr
         answer = await client!.putOrganization(o.id, organizationBody(o));
         entry.result = "decided_on_platform";
       }
-      await rpc(admin, "platform_sync_mark_sent", { p_kind: "organization", p_local_id: o.id, p_since: started, p_platform_id: answer?.organization_id ?? null });
+      await sent("organization", o.id, answer?.organization_id ?? null);
     } catch (err) {
       entry.result = "error";
       report.errors.push({ kind: "organization", id: o.id, error: err instanceof Error ? err.message : String(err) });
@@ -208,7 +222,7 @@ export async function backfill(admin: Admin, client: PlatformClient | null, { dr
     if (!organization_id) { entry.result = "error"; report.errors.push({ kind: "school", id: t.id, error: "no organisation" }); continue; }
     try {
       const answer = await client!.putTenant(t.id, tenantBody({ ...t, organization_id }));
-      await rpc(admin, "platform_sync_mark_sent", { p_kind: "tenant", p_local_id: t.id, p_since: started, p_platform_id: answer?.tenant_id ?? answer?.id ?? null });
+      await sent("tenant", t.id, answer?.tenant_id ?? answer?.id ?? null);
       entry.result = "registered";
     } catch (err) {
       entry.result = "error";

@@ -434,9 +434,15 @@ export class FakeSupabaseClient {
 
     platform_sync_enqueue: ({ p_kind, p_local_id }) => {
       const q = this.table("platform_sync_queue");
-      if (q.rows.some((r) => r.kind === p_kind && r.local_id === p_local_id && !r.done_at)) return null;
+      const existing = q.rows.find((r) => r.kind === p_kind && r.local_id === p_local_id && !r.done_at);
+      if (existing) {
+        // a change while queued: a new version, due now
+        existing.version += 1;
+        if (Date.parse(existing.next_attempt_at) > this.clock()) existing.next_attempt_at = this.iso();
+        return null;
+      }
       q.rows.push({ id: ++this.queueSeq, kind: p_kind, local_id: p_local_id, enqueued_at: this.iso(), attempts: 0,
-        next_attempt_at: this.iso(), locked_until: null, last_error: null, done_at: null });
+        next_attempt_at: this.iso(), locked_until: null, last_error: null, version: 1, done_at: null });
       return null;
     },
 
@@ -450,11 +456,17 @@ export class FakeSupabaseClient {
       return due.map((r) => ({ ...r }));
     },
 
-    platform_sync_done: ({ p_id, p_platform_id }) => {
+    platform_sync_done: ({ p_id, p_version, p_platform_id }) => {
       const r = this.rowsIn("platform_sync_queue").find((x) => x.id === p_id && !x.done_at);
-      if (!r) return null;
-      Object.assign(r, { done_at: this.iso(), locked_until: null, last_error: null });
+      if (!r) return false;
       this.platformLink(r.kind, r.local_id, p_platform_id ?? null);
+      if (r.version !== p_version) { Object.assign(r, { locked_until: null, next_attempt_at: this.iso() }); return false; }
+      Object.assign(r, { done_at: this.iso(), locked_until: null, last_error: null });
+      return true;
+    },
+
+    platform_record_link: ({ p_kind, p_local_id, p_platform_id }) => {
+      this.platformLink(p_kind, p_local_id, p_platform_id ?? null);
       return null;
     },
 
@@ -463,16 +475,6 @@ export class FakeSupabaseClient {
       if (!r) return null;
       const secs = p_retry_in_seconds ?? Math.min(3600, 60 * 2 ** Math.max(r.attempts - 1, 0));
       Object.assign(r, { locked_until: null, last_error: String(p_error).slice(0, 500), next_attempt_at: this.iso(this.clock() + secs * 1000) });
-      return null;
-    },
-
-    platform_sync_mark_sent: ({ p_kind, p_local_id, p_since, p_platform_id }) => {
-      for (const r of this.rowsIn("platform_sync_queue")) {
-        if (r.kind === p_kind && r.local_id === p_local_id && !r.done_at && Date.parse(r.enqueued_at) <= Date.parse(p_since)) {
-          Object.assign(r, { done_at: this.iso(), locked_until: null, last_error: null });
-        }
-      }
-      this.platformLink(p_kind, p_local_id, p_platform_id ?? null);
       return null;
     },
 

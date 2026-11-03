@@ -62,6 +62,23 @@ describe("processQueue", () => {
     assertEquals(platform.calls.length, 1);
   });
 
+  it("a rename that lands while the old name is on its way is sent next, not lost", async () => {
+    const db = makeDb();
+    const platform = new FakePlatform();
+    enqueue(db, "organization", HILLSIDE);
+    platform.onCall = () => {
+      platform.onCall = null;
+      db.rowsIn("organizations").find((o) => o.id === HILLSIDE)!.name = "Hillside Group"; // committed mid-send
+      enqueue(db, "organization", HILLSIDE); // its trigger: bumps the pending row's version
+    };
+    await processQueue(db, platform.client());
+    assertEquals(platform.organizations.get(HILLSIDE)?.name, "Hillside Schools");
+    assertEquals(pending(db).length, 1, "handed back, not marked done");
+    await processQueue(db, platform.client());
+    assertEquals(platform.organizations.get(HILLSIDE)?.name, "Hillside Group");
+    assertEquals(pending(db).length, 0);
+  });
+
   it("is safe to run twice: a second run finds nothing to send", async () => {
     const db = makeDb();
     const platform = new FakePlatform();
@@ -227,6 +244,24 @@ describe("backfill", () => {
     assertEquals(platform.organizations.get(PENDING_ORG)?.status, "rejected");
     assertEquals(platform.organizations.get(PENDING_ORG)?.name, "New Group Ltd");
     assertEquals(report.organizations_to_create, []); // the lone schools got theirs the first time
+  });
+
+  it("clears what was queued, but a rename during the backfill is still sent afterwards", async () => {
+    const db = makeDb();
+    const platform = new FakePlatform();
+    enqueue(db, "tenant", PRIMARY);
+    enqueue(db, "organization", HILLSIDE);
+    platform.onCall = (_m, path) => {
+      if (path.endsWith(`/tenants/${PRIMARY}`)) {
+        platform.onCall = null;
+        db.rowsIn("tenants").find((t) => t.id === PRIMARY)!.name = "Hillside Junior";
+        enqueue(db, "tenant", PRIMARY);
+      }
+    };
+    await backfill(db, platform.client(), { dryRun: false });
+    assertEquals(pending(db).map((r) => [r.kind, r.local_id]), [["tenant", PRIMARY]]);
+    await processQueue(db, platform.client());
+    assertEquals(platform.tenants.get(PRIMARY)?.name, "Hillside Junior");
   });
 
   it("reports a failed record and carries on with the rest", async () => {

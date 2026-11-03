@@ -8,8 +8,10 @@
 --     in the same transaction; the platform-sync edge function (every minute,
 --     pg_cron + pg_net below) sends what is pending, organisations before
 --     their schools, with retries and backoff. A row only names the record:
---     what is sent is read when it is sent, so a rename made before the first
---     send goes in the same call, and one pending row per record is enough.
+--     what is sent is read when it is sent, so one pending row per record is
+--     enough. A change to a record already queued bumps that row's version;
+--     a send only completes the row if its version is still the one it read,
+--     so a rename that lands while the old name is on its way is sent next.
 --
 --   Decisions (platform -> Schools). The platform-decisions edge function
 --     verifies the platform's signature and calls
@@ -68,6 +70,8 @@ create table platform_sync_queue (
   next_attempt_at timestamptz not null default now(),
   locked_until    timestamptz,
   last_error      text,
+  -- bumped by every change to the record while this row is pending
+  version         int not null default 1,
   done_at         timestamptz
 );
 -- one pending row per record: it is read when sent, so a second one would send the same thing twice
@@ -115,7 +119,9 @@ create or replace function platform_sync_enqueue(p_kind text, p_local_id uuid) r
 language plpgsql security definer set search_path = public as $$
 begin
   insert into platform_sync_queue (kind, local_id) values (p_kind, p_local_id)
-  on conflict (kind, local_id) where done_at is null do nothing;
+  on conflict (kind, local_id) where done_at is null do update
+    set version = platform_sync_queue.version + 1,
+        next_attempt_at = least(platform_sync_queue.next_attempt_at, now());
 end $$;
 revoke execute on function platform_sync_enqueue(text, uuid) from public, anon, authenticated;
 grant execute on function platform_sync_enqueue(text, uuid) to service_role;
@@ -159,18 +165,32 @@ begin
   returning q.*;
 end $$;
 
-create or replace function platform_sync_done(p_id bigint, p_platform_id text default null) returns void
+-- Sent as it was at p_version. If the record changed since (the version
+-- moved on), the row is handed back to be sent again at once instead.
+create or replace function platform_sync_done(p_id bigint, p_version int, p_platform_id text default null) returns boolean
 language plpgsql security definer set search_path = public as $$
 declare
   r platform_sync_queue;
 begin
   update platform_sync_queue set done_at = now(), locked_until = null, last_error = null
-   where id = p_id and done_at is null returning * into r;
-  if found then
-    insert into platform_links (kind, local_id, platform_id) values (r.kind, r.local_id, p_platform_id)
-    on conflict (kind, local_id) do update
-      set platform_id = coalesce(excluded.platform_id, platform_links.platform_id), registered_at = now();
+   where id = p_id and version = p_version and done_at is null returning * into r;
+  if not found then
+    update platform_sync_queue set locked_until = null, next_attempt_at = now() where id = p_id and done_at is null returning * into r;
+    if r.id is not null then
+      perform platform_record_link(r.kind, r.local_id, p_platform_id);
+    end if;
+    return false;
   end if;
+  perform platform_record_link(r.kind, r.local_id, p_platform_id);
+  return true;
+end $$;
+
+create or replace function platform_record_link(p_kind text, p_local_id uuid, p_platform_id text default null) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into platform_links (kind, local_id, platform_id) values (p_kind, p_local_id, p_platform_id)
+  on conflict (kind, local_id) do update
+    set platform_id = coalesce(excluded.platform_id, platform_links.platform_id), registered_at = now();
 end $$;
 
 -- Backoff: 1, 2, 4, ... minutes, at most an hour (or the caller's delay, e.g. "after its organisation").
@@ -182,17 +202,6 @@ begin
          last_error = left(p_error, 500),
          next_attempt_at = now() + make_interval(secs => coalesce(p_retry_in_seconds, least(3600, 60 * power(2, greatest(attempts - 1, 0)))::int))
    where id = p_id and done_at is null;
-end $$;
-
--- The backfill sent this record's current state itself: anything queued before it started is done.
-create or replace function platform_sync_mark_sent(p_kind text, p_local_id uuid, p_since timestamptz, p_platform_id text default null) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  update platform_sync_queue set done_at = now(), locked_until = null, last_error = null
-   where kind = p_kind and local_id = p_local_id and done_at is null and enqueued_at <= p_since;
-  insert into platform_links (kind, local_id, platform_id) values (p_kind, p_local_id, p_platform_id)
-  on conflict (kind, local_id) do update
-    set platform_id = coalesce(excluded.platform_id, platform_links.platform_id), registered_at = now();
 end $$;
 
 -- ------------------------------------------------------------ a school's own organisation (backfill)
@@ -373,8 +382,8 @@ do $$
 declare f text;
 begin
   foreach f in array array[
-    'platform_sync_claim(int)', 'platform_sync_done(bigint, text)', 'platform_sync_failed(bigint, text, int)',
-    'platform_sync_mark_sent(text, uuid, timestamptz, text)', 'platform_create_school_organization(uuid)',
+    'platform_sync_claim(int)', 'platform_sync_done(bigint, int, text)', 'platform_sync_failed(bigint, text, int)',
+    'platform_record_link(text, uuid, text)', 'platform_create_school_organization(uuid)',
     'platform_apply_organization_decision(uuid, text, text, text, timestamptz, text, text)',
     'platform_note_unapplied_delivery(text, uuid)', 'platform_reconcile_candidates(int)', 'platform_mark_checked(uuid)'
   ] loop

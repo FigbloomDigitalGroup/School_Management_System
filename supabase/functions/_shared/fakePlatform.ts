@@ -29,6 +29,8 @@ export class FakePlatform {
   /** Answer the next API calls with 401, as if the token had been revoked. */
   revokeNext = 0;
   autoApprove = false;
+  /** Runs as each API call arrives, before it is answered: something changing in Schools meanwhile. */
+  onCall: ((method: string, path: string) => void) | null = null;
   tokenSeconds = 3600;
   private seq = 0;
 
@@ -48,6 +50,7 @@ export class FakePlatform {
     if (this.revokeNext > 0) { this.revokeNext--; return json({ error: { code: "unauthorized", message: "Revoked" } }, 401); }
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     this.calls.push({ method, path: url.pathname, body, token });
+    this.onCall?.(method, url.pathname);
 
     let m = /^\/products\/schools\/organizations\/([^/]+)$/.exec(url.pathname);
     if (m && method === "PUT") return this.putOrganization(decodeURIComponent(m[1]), body);
