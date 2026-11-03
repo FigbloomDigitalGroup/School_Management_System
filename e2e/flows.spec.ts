@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { confirmDialog } from "./support/confirm";
 import { createClient } from "@supabase/supabase-js";
+import { today as schoolToday } from "../packages/shared/src/attendance";
 
 process.loadEnvFile?.(); // Node 20.6+ built-in
 const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -229,7 +230,8 @@ test.describe("teacher", () => {
   // project) would open straight to "register is in". Reset before EACH test.
   test.describe.configure({ mode: "serial" });
 
-  const todayIso = () => new Date().toISOString().slice(0, 10);
+  // the date the app files a register under: today in the school's time zone (Africa/Nairobi), not the UTC date (FIG-1400)
+  const todayIso = () => schoolToday();
   async function attendanceRowsToday() {
     const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
     const { count } = await admin.from("attendance").select("id", { count: "exact", head: true }).eq("tenant_id", tenant!.id).eq("taken_on", todayIso());

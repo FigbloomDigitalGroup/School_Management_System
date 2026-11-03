@@ -19,11 +19,13 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
  * fetchClassRoster, fetchTodayAttendanceMarks, loadParentData, prepareClassReportCards and the offline WriteQueue with the
  * real sendQueuedWrite against the local database.
  *
- * Every row it writes goes into a throwaway term (year 2037, "QA10 reg ...") or, for the parent's number, a second one ("QA10 old
- * ..."). afterAll deletes both terms, which takes their attendance with them, then the throwaway learners, and fails loudly if a
- * delete did not work (the QA 05 file's cleanup did not check, and once left 719 invoices behind). beforeAll sweeps anything an
- * aborted run left. The seeded Alliance registers (ten days to 2026-09-01) are never touched. The screens are read in
- * e2e/attendance.spec.ts; the database rules are in supabase/rls-checks/attendance.sql.
+ * Every row it writes goes into a throwaway term ("QA10 reg ...", early 2019), or, for the parent's number, a second one ("QA10 old
+ * ...", March and April 2019), or, for a register dated today, one around today ("QA10 now ..."): the database refuses a register
+ * dated after today in the school's time zone or outside its term (FIG-1400), so the dates cannot be made up in the future. afterAll
+ * deletes the terms, which takes their attendance with them, then the throwaway learners, and fails loudly if a delete did not work
+ * (the QA 05 file's cleanup did not check, and once left 719 invoices behind). beforeAll sweeps anything an aborted run left. The
+ * seeded Alliance registers (the first ten school days of the term, to 2026-09-11) are never touched. The screens are read in e2e/attendance.spec.ts; the database
+ * rules are in supabase/rls-checks/attendance.sql.
  *
  * Known defects are written as the behaviour we want and use it.fails: they pass while the defect exists and fail the day it is
  * fixed. Then change it.fails to it.
@@ -31,7 +33,7 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
 
 const run = Date.now().toString(36);
 let admin: SignedIn, teacher: SignedIn, parent: SignedIn;
-let tenantId = "", termId = "", oldTermId = "", currentTermId = "";
+let tenantId = "", termId = "", oldTermId = "", nowTermId = "", currentTermId = "";
 let form2West = "", form1East = "", faith = "";
 let roster: { id: string; full_name: string }[] = [];
 const madeStudents: string[] = [];
@@ -77,6 +79,14 @@ async function addLearner(label: string, classId: string): Promise<string> {
   madeStudents.push(data.id as string);
   return data.id as string;
 }
+/** A date n days from an ISO date (n may be negative). */
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** The time a register was taken, as the apps stamp it (toRecords' markedAt): n minutes ago. */
+const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 const memoryStore = (): KeyValueStore => { let v: string | null = null; return { getItem: () => v, setItem: (_k, value) => { v = value; } }; };
 
 // ---------------------------------------------------------------- set up
@@ -102,10 +112,17 @@ beforeAll(async () => {
   const t = await admin.client.from("tenants").select("name, county, country, logo_url, accent").eq("id", tenantId).single();
   school = { name: t.data!.name as string, county: t.data!.county as string | null, country: t.data!.country as string, logoUrl: t.data!.logo_url as string | null, accent: t.data!.accent as string };
 
-  for (const [name, year, index] of [["reg", 2037, 1], ["old", 2037, 2]] as const) {
-    const term = await admin.client.from("terms").insert({ tenant_id: tenantId, name: `QA10 ${name} ${run}`, year, index, starts_on: `${year}-0${index * 2 - 1}-05`, ends_on: `${year}-0${index * 2}-28`, is_current: false }).select("id").single();
+  const throwaway = [
+    ["reg", 2019, 1, "2019-01-05", "2019-02-28"],
+    ["old", 2019, 2, "2019-03-05", "2019-04-28"],
+    ["now", 2019, 3, addDays(today(), -30), addDays(today(), 30)],
+  ] as const;
+  for (const [name, year, index, starts_on, ends_on] of throwaway) {
+    const term = await admin.client.from("terms").insert({ tenant_id: tenantId, name: `QA10 ${name} ${run}`, year, index, starts_on, ends_on, is_current: false }).select("id").single();
     if (term.error) throw new Error(`could not make the ${name} term: ${term.error.message}`);
-    if (name === "reg") termId = term.data.id as string; else oldTermId = term.data.id as string;
+    if (name === "reg") termId = term.data.id as string;
+    else if (name === "old") oldTermId = term.data.id as string;
+    else nowTermId = term.data.id as string;
   }
 
   await actAsRole("teacher");
@@ -118,7 +135,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const errors: string[] = [];
   if (admin) {
-    for (const id of [termId, oldTermId].filter(Boolean)) {
+    for (const id of [termId, oldTermId, nowTermId].filter(Boolean)) {
       const { error } = await admin.client.from("terms").delete().eq("id", id);
       if (error) errors.push(`term ${id}: ${error.message}`);
     }
@@ -126,7 +143,7 @@ afterAll(async () => {
       const { error } = await admin.client.from("students").delete().in("id", madeStudents);
       if (error) errors.push(`learners: ${error.message}`);
     }
-    const left = await admin.client.from("attendance").select("id", { count: "exact", head: true }).in("term_id", [termId, oldTermId].filter(Boolean));
+    const left = await admin.client.from("attendance").select("id", { count: "exact", head: true }).in("term_id", [termId, oldTermId, nowTermId].filter(Boolean));
     if (left.count) errors.push(`${left.count} attendance rows of the throwaway terms are still there`);
   }
   if (errors.length) throw new Error(`cleanup failed, run the file again to sweep: ${errors.join("; ")}`);
@@ -135,7 +152,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------- 1. one register per learner per day
 
 describe("a register is stored once, as the teacher saw it", () => {
-  const D = "2037-02-02";
+  const D = "2019-02-02";
   it("a full register becomes one row per learner, and the counts are the ones the teacher saw", async () => {
     await actAsRole("teacher");
     const reg = register(D, { 0: "absent", 1: "late", 2: "excused" });
@@ -170,7 +187,10 @@ describe("a register is stored once, as the teacher saw it", () => {
   });
 
   it("'already taken today' reads back what was stored for the class, and is empty for a class that has not taken it", async () => {
-    await writeAttendance(register(today(), { 3: "absent", 4: "late" }), tenantId, teacher.userId);
+    const todays = newRegister(form2West, nowTermId, roster.map((r) => r.id), today());
+    todays.marks[roster[3]!.id] = "absent";
+    todays.marks[roster[4]!.id] = "late";
+    await writeAttendance(todays, tenantId, teacher.userId);
     const read = await fetchTodayAttendanceMarks(form2West);
     expect(read).toHaveLength(roster.length);
     expect(read.find((r) => r.student_id === roster[3]!.id)!.mark).toBe("absent");
@@ -181,20 +201,20 @@ describe("a register is stored once, as the teacher saw it", () => {
   it("an archived learner is not on the register any more, and the rows they already have stay", async () => {
     const q = await addLearner("1", form2West);
     expect((await fetchClassRoster(form2West)).map((s) => s.id)).toContain(q);
-    await admin.client.from("attendance").insert({ tenant_id: tenantId, student_id: q, class_id: form2West, term_id: termId, taken_by: admin.userId, taken_on: "2037-02-03", mark: "present" });
+    await admin.client.from("attendance").insert({ tenant_id: tenantId, student_id: q, class_id: form2West, term_id: termId, taken_by: admin.userId, taken_on: "2019-02-03", mark: "present" });
     const archived = await admin.client.rpc("archive_learners", { p_ids: [q] });
     expect(archived.error, "archive_learners").toBeNull();
     const ids = (await fetchClassRoster(form2West)).map((s) => s.id);
     expect(ids).not.toContain(q);
     expect(ids).toHaveLength(roster.length);
-    expect((await rowsOn("2037-02-03")).filter((r) => r.student_id === q)).toHaveLength(1);
+    expect((await rowsOn("2019-02-03")).filter((r) => r.student_id === q)).toHaveLength(1);
   });
 });
 
 // ---------------------------------------------------------------- 2. changing a register
 
 describe("changing a register", () => {
-  const D = "2037-01-12"; // weeks before the other dates: an old register
+  const D = "2019-01-12"; // weeks before the other dates: an old register
   it("(a decision, not a defect) a teacher can change a register of any date through the API, though the screen only offers today", async () => {
     await admin.client.from("attendance").upsert(toRecords(register(D, { 7: "absent" }), tenantId, admin.userId), { onConflict: "student_id,taken_on" });
     await actAsRole("teacher");
@@ -205,7 +225,7 @@ describe("changing a register", () => {
   });
 
   it("QA10-TRACE FIG-1406 (fixed on main): a correction leaves a trace: the row still says who took the register, or an audit event is written", async () => {
-    const D2 = "2037-01-13";
+    const D2 = "2019-01-13";
     await admin.client.from("attendance").upsert(toRecords(register(D2, { 9: "absent" }), tenantId, admin.userId), { onConflict: "student_id,taken_on" });
     const before = await auditCount();
     await actAsRole("teacher");
@@ -224,7 +244,7 @@ describe("a learner of another class", () => {
     const y = await addLearner("2", form1East);
     await actAsRole("teacher");
     const { error } = await supabase().from("attendance")
-      .insert({ tenant_id: tenantId, student_id: y, class_id: form2West, term_id: termId, taken_by: teacher.userId, taken_on: "2037-02-04", mark: "absent" });
+      .insert({ tenant_id: tenantId, student_id: y, class_id: form2West, term_id: termId, taken_by: teacher.userId, taken_on: "2019-02-04", mark: "absent" });
     expect(error, "the database took a Form 1 East learner into the Form 2 West register").not.toBeNull();
   });
 });
@@ -241,7 +261,7 @@ describe("a child's attendance figure, for this term", () => {
     await actAsRole("parent");
     const before = (await loadParentData(parent.userId)).children.find((c) => c.id === faith)!;
     expect(before.attendancePct, "the seed gives Faith attendance rows in the current term").not.toBeNull();
-    const days = ["2037-05-03", "2037-05-04", "2037-05-05", "2037-05-06", "2037-05-07", "2037-05-10", "2037-05-11", "2037-05-12", "2037-05-13", "2037-05-14"];
+    const days = ["2019-04-08", "2019-04-09", "2019-04-10", "2019-04-11", "2019-04-12", "2019-04-15", "2019-04-16", "2019-04-17", "2019-04-18", "2019-04-19"];
     const ins = await admin.client.from("attendance").insert(days.map((taken_on) => ({ tenant_id: tenantId, student_id: faith, class_id: form2West, term_id: oldTermId, taken_by: admin.userId, taken_on, mark: "absent" })));
     expect(ins.error, "the other term's rows are saved").toBeNull();
     const after = (await loadParentData(parent.userId)).children.find((c) => c.id === faith)!;
@@ -270,7 +290,7 @@ describe("a register held on the phone, sent for real", () => {
   };
 
   it("the same held register queued twice goes out twice and leaves one row per learner", async () => {
-    const D = "2037-02-09";
+    const D = "2019-02-09";
     const queue = await phone();
     const reg = register(D, { 0: "absent", 1: "late" });
     await queue.enqueue("attendance", toRecords(reg, tenantId, teacher.userId));
@@ -282,7 +302,7 @@ describe("a register held on the phone, sent for real", () => {
   });
 
   it("a register that was already partly saved goes out whole and does not stall the queue", async () => {
-    const D = "2037-02-10";
+    const D = "2019-02-10";
     const partial = register(D, { 0: "absent" });
     await admin.client.from("attendance").upsert(toRecords(partial, tenantId, teacher.userId).slice(0, 20), { onConflict: "student_id,taken_on" });
     expect(await rowsOn(D)).toHaveLength(20);
@@ -295,19 +315,31 @@ describe("a register held on the phone, sent for real", () => {
     expect(countBy(rows)).toEqual(tally(full));
   });
 
-  it.fails("QA10-STALE FIG-1410 (open): a register held on the phone does not overwrite a newer one taken meanwhile", async () => {
-    const D = "2037-02-11";
+  it("QA10-STALE FIG-1410 (fixed): a register held on the phone does not overwrite a newer one taken meanwhile", async () => {
+    const D = "2019-02-11";
     const queue = await phone();
-    const held = register(D, { 0: "absent" }); // taken offline first
-    await queue.enqueue("attendance", toRecords(held, tenantId, teacher.userId));
-    await writeAttendance(register(D, {}), tenantId, teacher.userId); // corrected online afterwards: learner 0 is present
+    const held = register(D, { 0: "absent" }); // taken offline a minute ago
+    await queue.enqueue("attendance", toRecords(held, tenantId, teacher.userId, minutesAgo(1)));
+    await writeAttendance(register(D, {}), tenantId, teacher.userId); // corrected online afterwards (stamped now): learner 0 is present
     expect(marksOf(await rowsOn(D))[roster[0]!.id]).toBe("present");
-    await queue.flush();
+    expect(await queue.flush(), "the held register is sent and taken without an error, so the phone drops it").toEqual({ sent: 1, remaining: 0 });
     expect(marksOf(await rowsOn(D))[roster[0]!.id], "the older held register has overwritten the newer correction").toBe("present");
   });
 
+  it("a register held on the phone that is newer than the one stored does replace it, whichever way round they were taken", async () => {
+    const D = "2019-02-13";
+    // The office's register, ten minutes old, is stored. The teacher's, taken a minute ago on a phone with no signal, arrives later.
+    await admin.client.from("attendance").upsert(toRecords(register(D, { 0: "absent" }), tenantId, admin.userId, minutesAgo(10)), { onConflict: "student_id,taken_on" });
+    const queue = await phone();
+    await queue.enqueue("attendance", toRecords(register(D, { 0: "late" }), tenantId, teacher.userId, minutesAgo(1)));
+    expect(await queue.flush()).toEqual({ sent: 1, remaining: 0 });
+    const row = (await rowsOn(D)).find((r) => r.student_id === roster[0]!.id)!;
+    expect(row.mark).toBe("late");
+    expect(row.taken_by).toBe(teacher.userId);
+  });
+
   it("a register the server refuses (another school's teacher) is set aside, not retried, and nothing is written", async () => {
-    const D = "2037-02-12";
+    const D = "2019-02-12";
     await actAs(loginIdEmail("TC-0001", "kijani-ridge"), "figbloom-dev");
     const outsider = (await supabase().auth.getUser()).data.user!.id;
     const queue = new WriteQueue(memoryStore(), sendQueuedWrite);
@@ -321,5 +353,53 @@ describe("a register held on the phone, sent for real", () => {
     expect(refused[0]!.rejected!.message).toMatch(/row-level security|belongs to another school/);
     expect(await rowsOn(D)).toHaveLength(0);
     await actAsRole("teacher");
+  });
+});
+
+// ---------------------------------------------------------------- 6. which day a register belongs to (FIG-1400)
+
+describe("the date of a register", () => {
+  const ids = () => roster.map((r) => r.id);
+  const phone = async () => {
+    await actAsRole("teacher");
+    const queue = new WriteQueue(memoryStore(), sendQueuedWrite);
+    queue.setUser(teacher.userId);
+    return queue;
+  };
+
+  it("a register dated tomorrow is refused with a message that says why, and nothing is stored", async () => {
+    await actAsRole("teacher");
+    const tomorrow = addDays(today(), 1);
+    await expect(writeAttendance(newRegister(form2West, nowTermId, ids(), tomorrow), tenantId, teacher.userId)).rejects.toThrow(/dated .* but today is .*: check the date on this phone/);
+    expect(await rowsOn(tomorrow)).toHaveLength(0);
+  });
+
+  it("a register dated outside the term it names is refused, naming the term", async () => {
+    await actAsRole("teacher");
+    const afterTerm = "2019-03-01"; // the day after "QA10 reg" ends
+    await expect(writeAttendance(register(afterTerm), tenantId, teacher.userId)).rejects.toThrow(/outside the term "QA10 reg .*" \(05 Jan 2019 to 28 Feb 2019\)/);
+    expect(await rowsOn(afterTerm)).toHaveLength(0);
+  });
+
+  it("the first and the last day of a term are taken", async () => {
+    await actAsRole("teacher");
+    await writeAttendance(register("2019-01-05", { 0: "absent" }), tenantId, teacher.userId);
+    await writeAttendance(register("2019-02-28", { 0: "late" }), tenantId, teacher.userId);
+    expect(await rowsOn("2019-01-05")).toHaveLength(roster.length);
+    expect(await rowsOn("2019-02-28")).toHaveLength(roster.length);
+  });
+
+  it("a held register with a wrong date is set aside with the reason, and the register behind it still goes out", async () => {
+    const queue = await phone();
+    const tomorrow = addDays(today(), 1);
+    const good = "2019-02-14";
+    await queue.enqueue("attendance", toRecords(newRegister(form2West, nowTermId, ids(), tomorrow), tenantId, teacher.userId));
+    await queue.enqueue("attendance", toRecords(register(good, { 0: "absent" }), tenantId, teacher.userId));
+    expect(await queue.flush()).toEqual({ sent: 1, remaining: 0 });
+    const refused = await queue.rejected();
+    expect(refused, "the wrongly dated register is kept, not lost").toHaveLength(1);
+    expect(refused[0]!.rejected!.message).toMatch(/but today is/);
+    expect(await rowsOn(tomorrow)).toHaveLength(0);
+    expect(await rowsOn(good)).toHaveLength(roster.length);
   });
 });

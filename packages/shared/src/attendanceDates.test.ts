@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attendanceRate, newRegister, today } from "./attendance";
+import { attendanceRate, newRegister, today, toRecords } from "./attendance";
 import type { AttendanceMark } from "./types";
 
 /**
@@ -12,8 +12,8 @@ import type { AttendanceMark } from "./types";
  * Africa/Nairobi, not by calling today() the other way round. Every other hour of the day gives the same date either way, so
  * those cases are controls that must pass before and after a fix.
  *
- * Open defects are written as the behaviour we want and use it.fails: they pass while the defect exists and fail the day it is
- * fixed. Then change it.fails to it and remove the pin at the end.
+ * FIG-1400 is fixed: today() is the day in the school's own time zone, and the four tests that were written as open defects
+ * (it.fails) are ordinary tests now.
  */
 
 const nairobiDay = (utc: string) => new Date(utc).toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });
@@ -41,19 +41,19 @@ describe("the date of a register, against the school's own day (Nairobi)", () =>
     expect(appSays("2026-10-31T00:00:00Z")).toBe(nairobiDay("2026-10-31T00:00:00Z"));
   });
 
-  it.fails("QA10-DATE FIG-1400 (open): at midnight in Nairobi the app starts the new day", () => {
+  it("QA10-DATE FIG-1400: at midnight in Nairobi the app starts the new day", () => {
     expect(appSays("2026-10-30T21:00:00Z")).toBe(nairobiDay("2026-10-30T21:00:00Z"));
   });
 
-  it.fails("QA10-DATE FIG-1400 (open): at 01:30 in Nairobi the register is filed under that day", () => {
+  it("QA10-DATE FIG-1400: at 01:30 in Nairobi the register is filed under that day", () => {
     expect(appSays("2026-10-30T22:30:00Z")).toBe(nairobiDay("2026-10-30T22:30:00Z"));
   });
 
-  it.fails("QA10-DATE FIG-1400 (open): at 02:59 in Nairobi the register is filed under that day", () => {
+  it("QA10-DATE FIG-1400: at 02:59 in Nairobi the register is filed under that day", () => {
     expect(appSays("2026-10-30T23:59:59Z")).toBe(nairobiDay("2026-10-30T23:59:59Z"));
   });
 
-  it.fails("QA10-DATE FIG-1400 (open): a register taken at 01:30 on Saturday does not share Friday 08:00's date, so it cannot overwrite it", () => {
+  it("QA10-DATE FIG-1400: a register taken at 01:30 on Saturday does not share Friday 08:00's date, so it cannot overwrite it", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-30T05:00:00Z"));
     const friday = newRegister("c1", "t1", ["a"]).date;
@@ -62,14 +62,59 @@ describe("the date of a register, against the school's own day (Nairobi)", () =>
     expect(saturday).not.toBe(friday);
   });
 
-  it("(what the open defect leaves behind) the date is the device's UTC date, so 01:30 on Saturday in Nairobi is still Friday's", () => {
-    expect(appSays("2026-10-30T22:30:00Z")).toBe("2026-10-30");
-  });
-
   it("a new register opens on today()'s date", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-30T09:00:00Z"));
     expect(newRegister("c1", "t1", ["a"]).date).toBe("2026-10-30");
+  });
+
+  it("a time zone can be named: the same instant is a different day in Nairobi (UTC+3) and in Lagos (UTC+1)", () => {
+    const instant = new Date("2026-10-30T22:30:00Z");
+    expect(today("Africa/Nairobi", instant)).toBe("2026-10-31");
+    expect(today("Africa/Lagos", instant)).toBe("2026-10-30");
+  });
+
+  it("on a device that cannot format a date in a time zone, it falls back to Nairobi's fixed UTC+3 and still files 01:30 under Saturday", () => {
+    const real = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = (function () { throw new Error("no time-zone support"); }) as unknown as typeof Intl.DateTimeFormat;
+    try {
+      expect(today("Africa/Nairobi", new Date("2026-10-30T22:30:00Z"))).toBe("2026-10-31");
+      expect(today("Africa/Nairobi", new Date("2026-10-30T20:59:59Z"))).toBe("2026-10-30");
+    } finally { Intl.DateTimeFormat = real; }
+  });
+
+  it("on a device whose formatter ignores the requested layout, it does not return a date in the wrong shape", () => {
+    const real = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = (function () { return { format: () => "10/31/2026" }; }) as unknown as typeof Intl.DateTimeFormat;
+    try {
+      expect(today("Africa/Nairobi", new Date("2026-10-30T22:30:00Z"))).toBe("2026-10-31");
+    } finally { Intl.DateTimeFormat = real; }
+  });
+});
+
+// FIG-1410: the database keeps the NEWEST register for a learner and day by the time it was taken, so each row carries it.
+describe("toRecords stamps when the register was taken", () => {
+  const reg = () => newRegister("c1", "t1", ["a", "b"], "2026-10-30");
+
+  it("stamps every row with the moment it was built, unless told otherwise", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-30T05:00:00Z"));
+    const rows = toRecords(reg(), "school", "teacher");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.marked_at)).toEqual(["2026-10-30T05:00:00.000Z", "2026-10-30T05:00:00.000Z"]);
+  });
+
+  it("uses the time it is given", () => {
+    expect(toRecords(reg(), "school", "teacher", "2026-10-30T08:15:00.000Z").every((r) => r.marked_at === "2026-10-30T08:15:00.000Z")).toBe(true);
+  });
+
+  it("a register taken earlier is stamped earlier than a correction made later", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-30T05:00:00Z"));
+    const held = toRecords(reg(), "school", "teacher")[0]!.marked_at!;
+    vi.setSystemTime(new Date("2026-10-30T05:30:00Z"));
+    const correction = toRecords(reg(), "school", "teacher")[0]!.marked_at!;
+    expect(new Date(held).getTime()).toBeLessThan(new Date(correction).getTime());
   });
 });
 

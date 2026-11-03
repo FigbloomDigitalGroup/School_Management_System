@@ -66,6 +66,6 @@ reset role;
 select set_config('request.jwt.claims', json_build_object('sub', :'teacher', 'role', 'authenticated')::text, true);
 set local role authenticated;
 explain (analyze, costs off) insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
-  select :'t', s.id, s.class_id, :'term', :'teacher', '2026-11-05', 'present' from students s where s.class_id = :'cls'
+  select :'t', s.id, s.class_id, :'term', :'teacher', '2026-11-02', 'present' from students s where s.class_id = :'cls'
   on conflict (student_id, taken_on) do update set mark = excluded.mark;
 rollback;

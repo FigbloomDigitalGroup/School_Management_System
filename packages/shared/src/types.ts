@@ -254,6 +254,8 @@ export interface AttendanceRecord {
   taken_on: string;          // ISO date, one register per class per day
   mark: AttendanceMark;
   note: string | null;
+  /** When the register was taken. The database keeps the newest one for a learner and day (FIG-1410). Sent by the apps; the database stamps one itself if it is missing. */
+  marked_at?: string;
 }
 
 export interface Exam {

@@ -230,7 +230,7 @@ begin
   select count(*) into pre from attendance where class_id = cx;
   perform pg_temp.refuse('teacher: change attendance of a class they do NOT teach', pre, teacher, format('update attendance set mark = mark where class_id=%L', cx));
   perform pg_temp.refuse('teacher: delete attendance of a class they do NOT teach', pre, teacher, format('delete from attendance where class_id=%L', cx));
-  perform pg_temp.refuse('teacher: add attendance for a class they do NOT teach', pre, teacher, format('insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark) select tenant_id, student_id, class_id, term_id, %L, date ''2000-01-01'', mark from attendance where class_id=%L limit 1', teacher, cx));
+  perform pg_temp.refuse('teacher: add attendance for a class they do NOT teach', pre, teacher, format('insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark) select tenant_id, student_id, class_id, term_id, %L, (select t.starts_on from terms t where t.id = attendance.term_id), mark from attendance where class_id=%L limit 1', teacher, cx));
   select count(*) into pre from marks m join students s on s.id = m.student_id where s.class_id = cx and m.subject_id = good;
   perform pg_temp.refuse('teacher: change marks of the same subject in a class they do NOT teach', pre, teacher, format('update marks set score = score + 1 where subject_id=%L and student_id in (select id from students where class_id=%L)', good, cx));
   perform pg_temp.refuse('teacher: set homework for a class they do NOT teach', 1, teacher, format('insert into assignments (tenant_id, class_id, subject_id, set_by, title, body, due_on) values (%L,%L,%L,%L,''qa'',''qa'',current_date)', tid, cx, good, teacher));
