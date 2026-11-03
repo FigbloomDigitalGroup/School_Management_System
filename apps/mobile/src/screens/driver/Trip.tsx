@@ -37,6 +37,10 @@ export const LOCATION_OFF_MESSAGE = "Location is switched off on this phone, so 
 /** Said when a trip has run this long with no fix at all. */
 export const NO_FIX_MESSAGE = "No location yet. Is Location switched on? Swipe down from the top of the screen and check the Location button.";
 export const NO_FIX_AFTER_MS = 20_000;
+/** Said when a trip that is already live cannot get its tracking started again, and what to do about it (FIG-1488). */
+export const TRACKING_NOT_RUNNING = "Tracking is not running";
+export const LOCATION_OFF_RESUME_MESSAGE = "Location is switched off on this phone, so the bus cannot be tracked. Swipe down from the top of the screen, tap Location to switch it on, then tap Resume tracking.";
+export const RESUME_TRACKING = "Resume tracking";
 
 function formatElapsed(startedAt: string, nowMs: number): string {
   const totalSec = Math.max(0, Math.floor((nowMs - new Date(startedAt).getTime()) / 1000));
@@ -81,6 +85,9 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
   const [now, setNow] = useState(() => Date.now());
   const [noFix, setNoFix] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  /** Why a live trip has no tracking (permission, Location switched off, the service would not start); null when there is nothing to say. */
+  const [trackingProblem, setTrackingProblem] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
   const tripRef = useRef<Trip | null>(null);
 
   // A trip that is live but has had no GPS fix for a while: say what to check instead of waiting in silence.
@@ -102,7 +109,11 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       if (found) {
         const active = await myActiveTrip(driverId);
         if (!alive) return;
-        if (active) { setTrip(active); tripRef.current = active; setDirection(active.direction); }
+        if (active) {
+          setTrip(active); tripRef.current = active; setDirection(active.direction);
+          // Opening the app during a trip: whatever was tracking it died with the app, so start it again (FIG-1488).
+          void resume.current();
+        }
       }
       setLoading(false);
     })();
@@ -133,9 +144,59 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
     void queue.flush().then(() => queue.pendingFor("vehicle_locations")).then((p) => setHeld(p.length));
   }, []);
 
+  /** What happens with each GPS reading of the live trip: send it, or keep it on the phone if it cannot go. */
+  function onTick(tick: LocationTick) {
+    const active = tripRef.current;
+    if (!active) return;
+    setSelfPos({ lat: tick.lat, lng: tick.lng });
+    const input = {
+      tenantId, vehicleId: active.vehicle_id, tripId: active.id,
+      lat: tick.lat, lng: tick.lng, speedKmh: tick.speedKmh, heading: tick.heading, recordedAt: tick.recordedAt,
+    };
+    (async () => {
+      try {
+        await pingLocation(input);
+        setLastPing({ at: new Date(tick.recordedAt), lat: tick.lat, lng: tick.lng });
+      } catch {
+        // No signal (or a transient failure): keep the fix on disk rather than lose it,
+        // same fallback the teacher app's attendance register uses. It goes out, in order
+        // with its original time, next time this trip (or the next one) gets a signal.
+        await queue.enqueue("vehicle_locations", [locationPingRow(input)]);
+      }
+      const pending = await queue.flush().then(() => queue.pendingFor("vehicle_locations"));
+      setHeld(pending.length);
+    })().catch((err: unknown) => {
+      setActionError(err instanceof Error ? `Could not send a location update: ${err.message}` : "Could not send a location update.");
+    });
+  }
+
+  /**
+   * A trip is already live but nothing is tracking it: the app was closed or restarted during the trip, which stops the
+   * tracker, and the screen would otherwise say "Trip in progress" while the bus never moved on the map (FIG-1488).
+   * Starts the tracker again for the same trip, or says what is in the way, with a button to try again.
+   */
+  async function resumeTracking() {
+    setTrackingProblem(null);
+    setResuming(true);
+    try {
+      const perm = await ensureLocationPermissions();
+      if (!perm.ok) { setTrackingProblem(perm.message ?? "Location permission is required to track this trip."); return; }
+      if ((await checkLocationSwitch()) === "off") { setTrackingProblem(LOCATION_OFF_RESUME_MESSAGE); return; }
+      await startLocationTracking(onTick);
+    } catch (err) {
+      setTrackingProblem(err instanceof Error ? `Tracking could not be started: ${err.message}` : "Tracking could not be started.");
+    } finally {
+      setResuming(false);
+    }
+  }
+  // The effect that finds the live trip on opening is set up once; it calls whichever copy is current.
+  const resume = useRef(resumeTracking);
+  resume.current = resumeTracking;
+
   async function handleStart() {
     if (!assignment) return;
     setActionError(null);
+    setTrackingProblem(null);
     setStarting(true);
     try {
       const perm = await ensureLocationPermissions();
@@ -150,30 +211,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       setLastPing(null);
       setSelfPos(null);
 
-      await startLocationTracking((tick: LocationTick) => {
-        const active = tripRef.current;
-        if (!active) return;
-        setSelfPos({ lat: tick.lat, lng: tick.lng });
-        const input = {
-          tenantId, vehicleId: active.vehicle_id, tripId: active.id,
-          lat: tick.lat, lng: tick.lng, speedKmh: tick.speedKmh, heading: tick.heading, recordedAt: tick.recordedAt,
-        };
-        (async () => {
-          try {
-            await pingLocation(input);
-            setLastPing({ at: new Date(tick.recordedAt), lat: tick.lat, lng: tick.lng });
-          } catch {
-            // No signal (or a transient failure): keep the fix on disk rather than lose it,
-            // same fallback the teacher app's attendance register uses. It goes out, in order
-            // with its original time, next time this trip (or the next one) gets a signal.
-            await queue.enqueue("vehicle_locations", [locationPingRow(input)]);
-          }
-          const pending = await queue.flush().then(() => queue.pendingFor("vehicle_locations"));
-          setHeld(pending.length);
-        })().catch((err: unknown) => {
-          setActionError(err instanceof Error ? `Could not send a location update: ${err.message}` : "Could not send a location update.");
-        });
-      });
+      await startLocationTracking(onTick);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Could not start the trip.");
     } finally {
@@ -195,6 +233,7 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
       tripRef.current = null;
       setLastPing(null);
       setSelfPos(null);
+      setTrackingProblem(null);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Could not end the trip.");
     } finally {
@@ -292,6 +331,16 @@ export function DriverTrip({ driverId, tenantId, accent, fullName }: DriverProps
               </View>
               <Text style={[s.mono, { fontSize: 26, color: t.status.okInk, marginTop: 6 }]}>{formatElapsed(trip.started_at, now)}</Text>
             </View>
+
+            {trackingProblem && (
+              <View style={[s.card, { marginTop: 12, gap: 6, borderColor: t.status.warnInk }]} accessibilityRole="alert">
+                <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.status.warnInk }}>{TRACKING_NOT_RUNNING}</Text>
+                <Text style={s.small}>{trackingProblem}</Text>
+                <Tap accessibilityRole="button" disabled={resuming} onPress={() => void resumeTracking()} style={{ minHeight: 44, justifyContent: "center" }}>
+                  <Text style={{ fontSize: 13.5, fontWeight: "600", color: t.brand.orange }}>{resuming ? "Starting…" : RESUME_TRACKING}</Text>
+                </Tap>
+              </View>
+            )}
 
             <Text style={[s.small, { marginTop: 12 }]}>
               {lastPing

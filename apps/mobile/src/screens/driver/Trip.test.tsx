@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as shared from "@figbloom/shared";
 import { queue } from "../../storage";
-import { DriverTrip, HELD_SEND_MS, LOCATION_OFF_MESSAGE, NO_FIX_AFTER_MS, NO_FIX_MESSAGE } from "./Trip";
+import {
+  DriverTrip, HELD_SEND_MS, LOCATION_OFF_MESSAGE, LOCATION_OFF_RESUME_MESSAGE, NO_FIX_AFTER_MS, NO_FIX_MESSAGE, RESUME_TRACKING, TRACKING_NOT_RUNNING,
+} from "./Trip";
 import * as task from "./locationTask";
 
 // FIG-1491: with the phone's Location switched off a trip used to go live, say "Waiting for the first location fix…" for
@@ -213,5 +215,81 @@ describe("ending a trip", () => {
 
     await waitFor(() => expect(api.endTrip).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(/Network request failed/)).toBeNull();
+  });
+});
+
+// FIG-1488: a force-closed or restarted app reopened saying "Trip in progress" while nothing tracked the bus, so the school's
+// map and the parents' Bus tab showed a bus that had stopped, on a trip that was still "on the road".
+describe("opening the app during a live trip", () => {
+  const openOnLiveTrip = async () => {
+    api.myActiveTrip.mockResolvedValue(trip);
+    render(<DriverTrip driverId="driver-1" tenantId="school-1" accent="forest" fullName="Baraka Njoroge" />);
+    await screen.findByText(/Trip in progress/);
+  };
+
+  it("starts the tracker again for the same trip, without creating a new one", async () => {
+    place.checkLocationSwitch.mockResolvedValue("on");
+    await openOnLiveTrip();
+    await waitFor(() => expect(place.startLocationTracking).toHaveBeenCalledTimes(1));
+    expect(place.ensureLocationPermissions).toHaveBeenCalledTimes(1);
+    expect(api.startTrip).not.toHaveBeenCalled();
+    expect(screen.queryByText(TRACKING_NOT_RUNNING)).toBeNull();
+  });
+
+  it("sends what the restarted tracker reads as part of that same trip", async () => {
+    place.checkLocationSwitch.mockResolvedValue("on");
+    await openOnLiveTrip();
+    await waitFor(() => expect(place.startLocationTracking).toHaveBeenCalledTimes(1));
+    const onTick = place.startLocationTracking.mock.calls[0]![0] as (tick: { lat: number; lng: number; recordedAt: string }) => void;
+
+    await act(async () => { onTick({ lat: -1.2921, lng: 36.8219, recordedAt: "2026-11-02T06:31:00Z" }); });
+
+    await waitFor(() => expect(api.pingLocation).toHaveBeenCalledWith(expect.objectContaining({ tripId: "trip-1", vehicleId: "bus-1", tenantId: "school-1" })));
+  });
+
+  it("does not start the tracker when there is no live trip: that happens when Start trip is pressed", async () => {
+    await openScreen();
+    expect(place.startLocationTracking).not.toHaveBeenCalled();
+    expect(place.checkLocationSwitch).not.toHaveBeenCalled();
+  });
+
+  it("with Location switched off, says so and offers Resume tracking, which works once Location is on", async () => {
+    place.checkLocationSwitch.mockResolvedValueOnce("off").mockResolvedValue("on");
+    await openOnLiveTrip();
+    expect(await screen.findByText(TRACKING_NOT_RUNNING)).toBeTruthy();
+    expect(screen.getByText(LOCATION_OFF_RESUME_MESSAGE)).toBeTruthy();
+    expect(place.startLocationTracking).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByText(RESUME_TRACKING));
+
+    await waitFor(() => expect(place.startLocationTracking).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText(TRACKING_NOT_RUNNING)).toBeNull());
+  });
+
+  it("when the location permission is refused, says what to change", async () => {
+    place.ensureLocationPermissions.mockResolvedValue({ ok: false, message: "Set location access to \"Allow all the time\" in phone Settings so tracking keeps working with the screen locked." });
+    await openOnLiveTrip();
+    expect(await screen.findByText(/Allow all the time/)).toBeTruthy();
+    expect(screen.getByText(RESUME_TRACKING)).toBeTruthy();
+    expect(place.startLocationTracking).not.toHaveBeenCalled();
+  });
+
+  it("when the tracker will not start, says so instead of showing a live trip that nothing tracks", async () => {
+    place.checkLocationSwitch.mockResolvedValue("on");
+    place.startLocationTracking.mockRejectedValue(new Error("service could not start"));
+    await openOnLiveTrip();
+    expect(await screen.findByText(/Tracking could not be started: service could not start/)).toBeTruthy();
+    expect(screen.getByText(RESUME_TRACKING)).toBeTruthy();
+  });
+
+  it("clears the message once the trip is ended", async () => {
+    place.checkLocationSwitch.mockResolvedValue("off");
+    await openOnLiveTrip();
+    await screen.findByText(TRACKING_NOT_RUNNING);
+
+    fireEvent.press(screen.getByText("End trip"));
+
+    expect(await screen.findByText("Start trip")).toBeTruthy();
+    expect(screen.queryByText(TRACKING_NOT_RUNNING)).toBeNull();
   });
 });
