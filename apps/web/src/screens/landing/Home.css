@@ -102,10 +102,16 @@ html:has(.landing-root) {
 
 .site-header-bar.is-scrolled .brand {
   border-color: rgba(17, 17, 17, 0.9);
+  /* The bar is see-through glass: a solid plate keeps the dark green letters readable over dark parts of the page */
+  background-color: #fff;
 }
 
-.site-header-bar.is-scrolled .brand-mark svg {
-  color: #111;
+.site-header-bar.is-scrolled .brand-logo-light {
+  display: none;
+}
+
+.site-header-bar.is-scrolled .brand-logo-dark {
+  display: block;
 }
 
 .site-header-bar.is-scrolled .main-nav {
@@ -141,30 +147,21 @@ html:has(.landing-root) {
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: 5px;
   min-height: 50px;
   padding: 4px 12px;
   border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: 10px;
-  font-size: 16px;
-  font-weight: 500;
 }
 
-.brand-mark {
-  display: grid;
-  width: 31px;
-  height: 31px;
-  place-items: center;
+/* Two copies of the logo: white letters over the dark hero, dark green letters once the bar turns light (is-scrolled) */
+.brand-logo {
+  display: block;
+  width: auto;
+  height: 36px;
 }
 
-.brand-mark svg {
-  width: 29px;
-  height: 29px;
-  stroke-width: 5;
-}
-
-.brand-name {
-  white-space: nowrap;
+.brand-logo-dark {
+  display: none;
 }
 
 .main-nav {
@@ -779,25 +776,10 @@ html:has(.landing-root) {
   .brand {
     min-height: 44px;
     padding: 4px 7px;
-    gap: 4px;
-    font-size: 14px;
   }
 
-  .brand-mark,
-  .brand-mark svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  /*
-    The name must stay on one line, but it is ~14.6em wide and the header only has
-    (viewport - 213px) left for it once the margins, the brand box and the Login / Get Started
-    buttons (fixed at 11px) are paid for. So the size follows the viewport: ~10px on a 360px
-    phone, ~11px on 375px, ~12px on 390px, capped at 13px. If the header buttons or their
-    labels change, re-measure the 213px (and the 189px in the 349px block at the end of the file).
-  */
-  .brand-name {
-    font-size: clamp(9px, calc((100vw - 213px) / 14.6), 13px);
+  .brand-logo {
+    height: 30px;
   }
 
   .header-actions {
@@ -864,36 +846,10 @@ html:has(.landing-root) {
   }
 }
 
-/*
-  Just above the phone breakpoint (large phones in landscape, small tablets) the header uses the
-  bigger desktop-style buttons, so the one-line name needs to shrink a little here too: 16px from
-  ~560px up, ~14px at 521px. (viewport - 48px margins - 199px buttons - 62px brand box - 8px gap)
-*/
-@media (min-width: 521px) and (max-width: 600px) {
-  .brand-name {
-    font-size: clamp(14px, calc((100vw - 317px) / 14.6), 16px);
-  }
-}
-
-/*
-  Narrow desktop windows: the nav sits between the name and the buttons and takes a fixed ~312px,
-  so the name gets (viewport - 64px margins - 312px nav) / 2 minus the 62px brand box and an 8px gap.
-  16px from ~985px up, ~13px at 901px.
-*/
-@media (min-width: 901px) and (max-width: 1000px) {
-  .brand-name {
-    font-size: clamp(13px, calc((100vw - 516px) / 29.2), 16px);
-  }
-}
-
-/* Very small phones (320px class): drop the icon so the name does not have to shrink below ~9px */
+/* Very small phones (320px class): a little smaller so the logo and the two buttons still fit */
 @media (max-width: 349px) {
-  .brand-mark {
-    display: none;
-  }
-
-  .brand-name {
-    font-size: clamp(9px, calc((100vw - 189px) / 14.6), 13px);
+  .brand-logo {
+    height: 26px;
   }
 }
 

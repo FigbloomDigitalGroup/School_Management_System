@@ -69,25 +69,6 @@ function FooterIcon({ name }: { name: string }) {
   );
 }
 
-function GraduationCap() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 100 100"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m10 39 40-22 40 22-40 22L10 39Z" />
-      <path d="m25 48 1 23 24 14 25-14-1-23M78 49v20" />
-      <path d="m46 42 16-9" />
-      <path d="M24 48v15" />
-    </svg>
-  );
-}
-
 function Footer() {
   const year = new Date().getFullYear();
 
@@ -97,10 +78,7 @@ function Footer() {
         <div className="footer-top">
           <div className="footer-brand">
             <a className="footer-logo" href="/" aria-label="Figbloom School Management home">
-              <span className="footer-logo-mark">
-                <GraduationCap />
-              </span>
-              Figbloom School Management
+              <img src="/figbloom-logo-light.svg" alt="" width="218" height="64" />
             </a>
             <p>
               The school management system for Kenyan schools. Fees, attendance,
