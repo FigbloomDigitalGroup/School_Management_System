@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import {
   createOrganization, fetchOrganizations, inviteOrgAdmin, type NewOrganizationInput, type OrgAdminInviteResult,
 } from "../../lib/platformAdmin";
-import { supabase, type Organization, type Tenant } from "@figbloom/shared";
+import { platformDecisionsEnabled, supabase, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -139,6 +139,8 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
   const [approving, setApproving] = useState(false);
+  // After switch-on the Figbloom platform decides organisation status; this screen only shows it.
+  const { data: decidedOnPlatform } = useAsync(platformDecisionsEnabled, []);
   const { data: tenants, loading: tenantsFetching } = useAsync(() => fetchMemberTenants(organization.id), [organization.id, reloadKey]);
   const { data: admins, loading: adminsFetching, error: adminsError } = useAsync(() => fetchOrgAdmins(organization.id), [organization.id, reloadKey]);
   // First load only — inviting an admin bumps reloadKey and must not blank the lists.
@@ -173,12 +175,16 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
             <div className="min-w-0 flex-1">
               <div className="text-[13.5px] font-semibold text-orange-ink">Pending approval</div>
               <p className="mt-0.5 text-[12.5px] leading-relaxed text-orange-ink">
-                Self-registered — nothing is visible to its own admin until you approve it.
+                {decidedOnPlatform
+                  ? "Waiting for approval in the Figbloom console. Nothing is visible to its own admin until it is approved there."
+                  : "Self-registered — nothing is visible to its own admin until you approve it."}
               </p>
             </div>
-            <Button variant="accent" onClick={() => void approve()} disabled={approving}>
-              {approving ? "Approving…" : "Approve organization"}
-            </Button>
+            {!decidedOnPlatform && (
+              <Button variant="accent" onClick={() => void approve()} disabled={approving}>
+                {approving ? "Approving…" : "Approve organization"}
+              </Button>
+            )}
           </div>
         )}
         <div className="flex flex-wrap items-start justify-between gap-4 pb-4">
@@ -187,6 +193,9 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
               <h1 className="text-h2 font-semibold tracking-tight">{organization.name}</h1>
               <Badge tone={organization.status === "active" ? "ok" : "warn"}>{organization.status}</Badge>
             </div>
+            {decidedOnPlatform && (
+              <div className="mt-1 text-[12px] text-ink-muted">Status decided on the Figbloom platform (console.figbloom.org)</div>
+            )}
             <div className="mt-1 font-mono text-[11.5px] text-ink-muted">
               {KIND_LABEL[organization.kind]}{organization.county ? ` · ${organization.county}` : ""} · {organization.slug}
             </div>
