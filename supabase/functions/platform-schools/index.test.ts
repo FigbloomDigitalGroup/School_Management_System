@@ -258,6 +258,47 @@ describe("platform-schools handle", () => {
       assertEquals(platform[0].metadata.school_id, KILIMANI);
     });
 
+    describe("a school of a suspended organisation (20261104910000)", () => {
+      /** Kilimani's organisation suspended on the platform: the school is held by it. */
+      function suspendedOrganization() {
+        const admin = makeAdmin();
+        admin.platformRpcs.platform_apply_organization_decision({
+          p_organization_id: ORG, p_status: "suspended", p_reason: "Fees unpaid", p_decided_by: "console:ann@figbloom.org",
+          p_decided_at: "2026-11-03T09:00:00.000Z", p_delivery_id: "1", p_source: "webhook",
+        });
+        return admin;
+      }
+
+      it("can't be reactivated on its own (422): reactivate the organisation", async () => {
+        const admin = suspendedOrganization();
+        assertEquals(admin.rowsIn("tenants").find((t) => t.id === KILIMANI)?.status, "suspended");
+        const res = await handle(call({ action: "set_status", school_id: KILIMANI, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));
+        assertEquals(res.status, 422);
+        const err = await errorOf(res);
+        assertEquals(err.code, "status_not_settable");
+        assertEquals(err.message, "The school's organization is suspended. Reactivate the organization instead.");
+        assertEquals(admin.rowsIn("tenants").find((t) => t.id === KILIMANI)?.status, "suspended");
+      });
+
+      it("suspending it on its own makes the suspension its own, so it stays when the organisation comes back", async () => {
+        const admin = suspendedOrganization();
+        const res = await handle(call(suspend({ reason: "Data protection review" })), deps(admin));
+        assertEquals(res.status, 200);
+        assertEquals((await res.json()).school.status_reason, "Data protection review");
+        assertEquals(admin.rowsIn("organization_suspended_schools").length, 0);
+        admin.platformRpcs.platform_apply_organization_decision({
+          p_organization_id: ORG, p_status: "active", p_reason: null, p_decided_by: "console:ann@figbloom.org",
+          p_decided_at: "2026-11-03T10:00:00.000Z", p_delivery_id: "2", p_source: "webhook",
+        });
+        assertEquals(admin.rowsIn("tenants").find((t) => t.id === KILIMANI)?.status, "suspended");
+      });
+
+      it("suspending a school already suspended on its own is still 409", async () => {
+        const res = await handle(call(suspend({ school_id: ALLIANCE })), deps(makeAdmin()));
+        assertEquals(res.status, 409);
+      });
+    });
+
     it("reactivates a suspended school without a reason, and clears the old one", async () => {
       const admin = makeAdmin();
       const res = await handle(call({ action: "set_status", school_id: ALLIANCE, status: "active", actor_email: "ops@figbloom.org" }), deps(admin));

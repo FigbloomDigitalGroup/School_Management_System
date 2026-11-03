@@ -103,7 +103,7 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
         if (error) throw new Error(`could not read the school: ${error.message}`);
         if (!t) { await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null }); continue; }
         if (!t.organization_id) {
-          // every school belongs to an organisation on the platform; this one waits for staff (or the backfill) to give it one
+          // can't happen since 20261104920000 (organization_id is NOT NULL, and a new school gets its own); kept as a guard
           await rpc(admin, "platform_sync_failed", { p_id: row.id, p_error: "no_organization: the school has no organisation yet", p_retry_in_seconds: 3600 });
           report.failed.push({ kind: row.kind, local_id: row.local_id, error: "no_organization" });
           continue;
@@ -154,7 +154,8 @@ export interface BackfillReport {
 /**
  * Registers every organisation, with today's status (backfill: true), then
  * every school. Schools without an organisation get their own first (in a
- * dry run they are only listed). Run it once after the webhook is
+ * dry run they are only listed); since 20261104920000 the migration has
+ * given every school one, so this step finds none and stays as a safety net. Run it once after the webhook is
  * registered and before switch-on; running it again only re-sends names, and
  * the platform refuses a status staff have already decided (409
  * decided_on_platform), which is reported and leaves the platform's decision.

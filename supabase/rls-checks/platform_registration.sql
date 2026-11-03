@@ -146,9 +146,12 @@ select pg_temp.check('suspend: its admin loses its schools, as with Schools'' ow
 reset role;
 select pg_temp.check('suspend: the school''s event says Figbloom and the reason, not who',
   (select count(*) = 1 and bool_and(actor_label = 'Figbloom (via Figbloom platform)'
-                                    and event like '%suspended by Figbloom: Fees unpaid'
-                                    and (actor_label || event || metadata::text) not like '%ann@figbloom.org%')
-     from audit_events where tenant_id = current_setting('t.a')::uuid and metadata ->> 'via' = 'Figbloom platform'));
+                                    and event like '%suspended by Figbloom: Fees unpaid')
+     from audit_events where tenant_id = current_setting('t.a')::uuid and metadata ->> 'via' = 'Figbloom platform'
+      and event like 'Organization %')
+  -- (since 20261104910000 the school is suspended with it, a second "Figbloom" event: neither names who)
+  and not exists (select 1 from audit_events where tenant_id = current_setting('t.a')::uuid
+                    and (actor_label || event || metadata::text) like '%ann@figbloom.org%'));
 select pg_temp.check('suspend: the staff-only event (no school) names who decided',
   exists (select 1 from audit_events where tenant_id is null and metadata ->> 'decided_by' = 'console:ann@figbloom.org'
             and metadata ->> 'delivery_id' = 'd-1'));

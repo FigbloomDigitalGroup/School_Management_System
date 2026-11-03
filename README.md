@@ -129,8 +129,27 @@ Figbloom Schools registers its organisations and schools with the Figbloom
 platform, and follows the platform's organisation decisions (design 5.8;
 the platform side is figbloomHR-platform, "Organisations and product
 registration (5.8)"). On the platform an organisation is the unit Figbloom
-staff approve, reject, suspend and reactivate. Every school belongs to one;
-a single school has its own, named after it.
+staff approve, reject, suspend and reactivate.
+
+- **Every school belongs to an organisation** (`20261104920000`): a single
+  school has its own, named after it. A school created without one (staff
+  onboarding, a seed, a script) gets its own first, by a trigger;
+  `tenants.organization_id` is NOT NULL, and an organisation with schools
+  can't be deleted. Staff take a school out of a group with "A new
+  organization of its own" (`give_school_own_organization()`). The migration
+  gives every school that has none today its own; to see which before
+  deploying: `select name, slug from tenants where organization_id is null`.
+- **Suspending an organisation locks out all its schools**
+  (`20261104910000`). When it becomes `suspended` or `rejected`, each of its
+  schools that isn't already suspended is suspended through the school's own
+  status (Auth ban, `my_tenant()`), exactly as a single suspended school, and
+  is recorded as held by the organisation. When the organisation is
+  reactivated, only those schools come back, each to the status it had. A
+  school suspended on its own (before, or by Figbloom staff while the
+  organisation was suspended) stays suspended; a new school added to a
+  suspended organisation starts suspended; a school moved out of one into a
+  working organisation is restored. One school of a suspended organisation
+  can't be reactivated on its own (reactivate the organisation).
 
 - **Registering** never blocks Schools. Creating an organisation or school,
   or changing its name, slug or organisation, queues it in
@@ -170,18 +189,20 @@ select vault.create_secret('<the project''s service-role key>', 'platform_servic
 
 **Deploy, in this order** (`$KEY` is the service-role key, `$F` is `https://<ref>.supabase.co/functions/v1`):
 
-1. Migrations: `supabase db push` (`20261104900000_platform_registration`).
+1. Migrations: `supabase db push` (`20261104900000_platform_registration`,
+   `20261104910000_organization_suspension_reaches_schools`,
+   `20261104920000_every_school_has_an_organization`).
 2. Functions: `supabase functions deploy platform-sync --no-verify-jwt` and
    `supabase functions deploy platform-decisions --no-verify-jwt`; the secrets
    and Vault secrets above.
 3. Register the webhook:
    `curl -X POST "$F/platform-sync" -H "Authorization: Bearer $KEY" -d '{"action":"register_webhook"}'`
-4. Dry-run the backfill and read what it would do: which schools get their
-   own organisation, every organisation with the status it will copy, every school:
+4. Dry-run the backfill and read what it would do: every organisation with
+   the status it will copy, and every school (the migration has already given
+   each lone school its own organisation, so none is left to create):
    `curl -X POST "$F/platform-sync" -H "Authorization: Bearer $KEY" -d '{"action":"backfill"}'`
-5. Run it: `… -d '{"action":"backfill","dry_run":false}'`. It creates each
-   lone school's organisation in Schools, registers every organisation with
-   today's status (`backfill: true`), then every school. Running it again only
+5. Run it: `… -d '{"action":"backfill","dry_run":false}'`. It registers
+   every organisation with today's status (`backfill: true`), then every school. Running it again only
    re-sends names; a status Figbloom staff have decided on the platform is
    kept.
 6. Switch on (below).
@@ -202,7 +223,7 @@ refuses any other change, Schools' staff console shows the status (and
 organisation takes the platform's decision when it is registered (pending,
 or active with the platform's auto-approve), and the hourly reconcile runs.
 Turning it off again hands organisation status back to Schools' console.
-Checks: `supabase/rls-checks/platform_registration.sql`.
+Checks: `supabase/rls-checks/platform_registration.sql` and `supabase/rls-checks/organization_suspension.sql`.
 
 ## Rate limits on the public functions
 

@@ -8,8 +8,11 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
-import { activateTenant, assignTenantOrganization, fetchOrganizations } from "../../lib/platformAdmin";
+import { activateTenant, assignTenantOrganization, fetchOrganizations, giveSchoolOwnOrganization } from "../../lib/platformAdmin";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
+
+/** The organisation select's "a new one of its own" choice (not an organisation id). */
+const OWN_ORGANIZATION = "__own__";
 
 const TABS = ["Overview", "Usage", "Billing", "Branding", "Audit log"] as const;
 type Tab = (typeof TABS)[number];
@@ -75,7 +78,9 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
   // Not first-load-only: switching schools keeps the previous school's counts
   // in `data` until the new ones land, and those must not show under this name.
   const { data: overview, loading: overviewLoading } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
-  const { data: organizations, loading: organizationsLoading } = useAsync(() => fetchOrganizations(), []);
+  const [organizationsKey, setOrganizationsKey] = useState(0);
+  const reloadOrganizations = () => setOrganizationsKey((k) => k + 1);
+  const { data: organizations, loading: organizationsLoading } = useAsync(() => fetchOrganizations(), [organizationsKey]);
   const [orgId, setOrgId] = useState(tenant.organization_id ?? "");
   const [orgSaving, setOrgSaving] = useState(false);
 
@@ -95,9 +100,16 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
   async function setOrganization(organizationId: string) {
     setOrgSaving(true);
     try {
-      await assignTenantOrganization(tenant.id, organizationId || null);
+      if (organizationId === OWN_ORGANIZATION) {
+        // every school belongs to one: standing alone means an organisation of its own
+        setOrgId(await giveSchoolOwnOrganization(tenant.id));
+        reloadOrganizations();
+        toast("School moved to an organization of its own.");
+        return;
+      }
+      await assignTenantOrganization(tenant.id, organizationId);
       setOrgId(organizationId);
-      toast(organizationId ? "School assigned to organization." : "School removed from its organization.");
+      toast("School assigned to organization.");
     } catch (err) {
       toast(err instanceof Error ? `Could not update the organization: ${err.message}` : "Could not update the organization.", "error");
     } finally {
@@ -202,7 +214,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
             <div className="min-w-0 flex-1">
               <div className="text-body font-semibold">Organization</div>
               <p className="mt-0.5 text-[12px] text-ink-faint">
-                A county, constituency or group-owner this school reports into for cross-school visibility. Optional.
+                The group, county or constituency this school belongs to. Every school belongs to one; a single school has its own, named after it.
               </p>
             </div>
             {/* Until the list lands an assigned school's select would read "Not assigned". */}
@@ -213,8 +225,8 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
               aria-label="Organization"
               className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
             >
-              <option value="">Not assigned</option>
               {(organizations ?? []).map((o: Organization) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              <option value={OWN_ORGANIZATION}>A new organization of its own</option>
             </select>}
           </div>
 

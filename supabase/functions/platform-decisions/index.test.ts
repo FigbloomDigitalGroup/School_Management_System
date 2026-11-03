@@ -15,8 +15,8 @@ function makeDb({ enabled = true, status = "active" } = {}) {
   db.platformDecisionsEnabled = enabled;
   db.seed("organizations", [{ id: ORG, name: "Hillside Schools", slug: "hillside", status }]);
   db.seed("tenants", [
-    { id: PRIMARY, name: "Hillside Primary", organization_id: ORG },
-    { id: SECONDARY, name: "Hillside Secondary", organization_id: ORG },
+    { id: PRIMARY, name: "Hillside Primary", organization_id: ORG, status: "active" },
+    { id: SECONDARY, name: "Hillside Secondary", organization_id: ORG, status: "trial" },
   ]);
   return db;
 }
@@ -95,8 +95,9 @@ describe("platform-decisions", () => {
       assertEquals(orgStatus(db), "suspended");
 
       const audit = db.rowsIn("audit_events");
-      const schools = audit.filter((e) => e.tenant_id);
+      const schools = audit.filter((e) => e.tenant_id && e.event.startsWith("Organization"));
       assertEquals(schools.map((e) => e.tenant_id).sort(), [PRIMARY, SECONDARY]);
+      assert(audit.filter((e) => e.tenant_id).every((e) => !JSON.stringify(e).includes("ann@figbloom.org")));
       for (const e of schools) {
         assertEquals(e.actor_label, "Figbloom (via Figbloom platform)");
         assertEquals(e.event, 'Organization "Hillside Schools" suspended by Figbloom: Fees unpaid');
@@ -135,6 +136,48 @@ describe("platform-decisions", () => {
     });
   });
 
+  describe("the organisation's schools (20261104910000)", () => {
+    const school = (db: FakeSupabaseClient, id: string) => db.rowsIn("tenants").find((t) => t.id === id)!;
+    const held = (db: FakeSupabaseClient) => db.rowsIn("organization_suspended_schools").map((h) => h.tenant_id).sort();
+
+    it("suspending the organisation suspends each school, remembering what it was", async () => {
+      const db = makeDb();
+      await deliver(db, decision("suspended"));
+      assertEquals([school(db, PRIMARY).status, school(db, SECONDARY).status], ["suspended", "suspended"]);
+      assertEquals([school(db, PRIMARY).status_before_suspension, school(db, SECONDARY).status_before_suspension], ["active", "trial"]);
+      assertEquals(held(db), [PRIMARY, SECONDARY].sort());
+      const e = db.rowsIn("audit_events").find((x) => x.tenant_id === PRIMARY && x.event.startsWith("School suspended"));
+      assertEquals([e?.actor_label, e?.event], ["Figbloom (via Figbloom platform)", 'School suspended with its organization "Hillside Schools": Fees unpaid']);
+    });
+
+    it("reactivating it restores only the schools it suspended, each to what it was", async () => {
+      const db = makeDb();
+      school(db, SECONDARY).status = "suspended"; // suspended on its own before
+      await deliver(db, decision("suspended"), { delivery: "1" });
+      assertEquals(held(db), [PRIMARY]);
+      await deliver(db, decision("active", { decided_at: "2026-11-03T09:59:30.000Z" }), { delivery: "2" });
+      assertEquals([school(db, PRIMARY).status, school(db, SECONDARY).status], ["active", "suspended"]);
+      assertEquals(held(db), []);
+    });
+
+    it("rejected locks the schools the same way, and suspended <-> rejected changes nothing for them", async () => {
+      const db = makeDb({ status: "pending" });
+      await deliver(db, decision("rejected", {}, { status_reason: "Not a school" }), { delivery: "1" });
+      assertEquals(school(db, PRIMARY).status, "suspended");
+      await deliver(db, decision("suspended", { decided_at: "2026-11-03T09:59:30.000Z" }), { delivery: "2" });
+      assertEquals(held(db), [PRIMARY, SECONDARY].sort());
+      assertEquals(school(db, SECONDARY).status_before_suspension, "trial");
+    });
+
+    it("a repeated or late decision doesn't touch the schools", async () => {
+      const db = makeDb();
+      await deliver(db, decision("suspended"), { delivery: "1" });
+      await deliver(db, decision("suspended"), { delivery: "1" });
+      await deliver(db, decision("active", { decided_at: "2026-11-03T09:00:00.000Z" }), { delivery: "0" });
+      assertEquals([school(db, PRIMARY).status, held(db).length], ["suspended", 2]);
+    });
+  });
+
   describe("repeats, order and unknowns", () => {
     it("a replayed delivery id is acknowledged and not applied twice", async () => {
       const db = makeDb();
@@ -143,7 +186,7 @@ describe("platform-decisions", () => {
       const res = await deliver(db, decision("suspended"), { delivery: "42" });
       assertEquals([res.status, (await res.json()).outcome], [200, "duplicate"]);
       assertEquals(orgStatus(db), "active");
-      assertEquals(db.rowsIn("audit_events").length, 3); // from the first delivery only
+      assertEquals(db.rowsIn("audit_events").length, 5); // from the first delivery only: 2 organisation + 2 school + 1 staff
     });
 
     it("ignores a decision older than the last one applied", async () => {
