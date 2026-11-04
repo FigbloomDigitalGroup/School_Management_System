@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchSetupCounts, setupSteps, type SetupStep } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
-import { GuideChat, useGuideHost } from "../../components/GuidePanel";
+import { BACK_TO_ASSISTANT, GuideChat, useGuideHost } from "../../components/GuidePanel";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
@@ -53,7 +53,7 @@ export function AdminAssistant() {
                 key={s.key}
                 step={s}
                 number={i + 1}
-                onOpen={() => navigate(hrefFor(s.to))}
+                onOpen={() => navigate(hrefFor(s.to), { state: BACK_TO_ASSISTANT })}
                 onAsk={host && s.ask ? () => setAsk({ text: s.ask!, id: Date.now() }) : null}
               />
             ))}
@@ -62,7 +62,7 @@ export function AdminAssistant() {
 
         <section aria-label="Chat with the assistant" className="flex h-[calc(100vh-190px)] min-h-[480px] flex-col overflow-hidden rounded-xl border border-line bg-white">
           {host ? (
-            <GuideChat host={host} ask={ask} onApplied={() => setReloadKey((k) => k + 1)} />
+            <GuideChat host={host} ask={ask} linkState={BACK_TO_ASSISTANT} onApplied={() => setReloadKey((k) => k + 1)} />
           ) : (
             <p className="m-auto max-w-[360px] p-6 text-center text-[13px] text-ink-soft">
               The assistant uses AI, which is turned off for this school. Turn it on in School settings to chat with it. The checklist works either way.

@@ -77,6 +77,14 @@ export interface GuideHost {
   options: GuideOptions;
 }
 
+/**
+ * Navigation state for a page opened from the School assistant, so the page
+ * shows a way back (ConsoleShell's back bar). Carried by react-router's
+ * location state, so it lasts for that page only.
+ */
+export interface GuideBack { to: string; label: string }
+export const BACK_TO_ASSISTANT: { guideBack: GuideBack } = { guideBack: { to: "admin/assistant", label: "School assistant" } };
+
 /** Set by ConsoleShell when its console has a guide, so a page (School assistant) can host the chat itself. */
 export const GuideHostContext = createContext<GuideHost | null>(null);
 export const useGuideHost = () => useContext(GuideHostContext);
@@ -112,9 +120,11 @@ export function GuidePanel({ host, onClose }: { host: GuideHost; onClose: () => 
  * School assistant page. `ask` sends a question from outside (a checklist
  * step's "Ask the assistant"); a new `id` sends it again.
  */
-export function GuideChat({ host, onNavigate, ask, onApplied }: {
+export function GuideChat({ host, onNavigate, ask, onApplied, linkState }: {
   host: GuideHost;
   onNavigate?: () => void;
+  /** Location state for the pages its links open, e.g. BACK_TO_ASSISTANT. */
+  linkState?: unknown;
   ask?: { text: string; id: number } | null;
   /** After a setup plan has been applied, e.g. to refresh a checklist. */
   onApplied?: () => void;
@@ -175,7 +185,7 @@ export function GuideChat({ host, onNavigate, ask, onApplied }: {
   }
 
   function go(link: GuideLink) {
-    navigate(hrefFor(link.to));
+    navigate(hrefFor(link.to), linkState ? { state: linkState } : undefined);
     onNavigate?.();
   }
 
