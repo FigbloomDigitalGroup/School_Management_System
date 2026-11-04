@@ -340,16 +340,22 @@ select pg_temp.check('C4 a payment proof against another school''s invoice is re
 select pg_temp.check('C4 and one against this school''s own invoice is allowed (control)', pg_temp.proof_into(current_setting('t.ainv')::uuid) = 'allowed');
 
 -- C5 a bus trip takes riders from its own school only
-select pg_temp.info('C5 bus riders: trip_riders has no same-school trigger (trip_riders_stamp only stamps times), and the admin write policy checks the caller''s permission only');
+-- (FIG-1466: trip_riders is covered by the same-school trigger since 20261103600000; 20261105420000 adds the school to the family branch of bus_updates_read)
 create function pg_temp.rider_case() returns void language plpgsql as $$
 declare trip uuid; r text; leaked bigint; seen bigint;
 begin
   insert into trips (tenant_id, vehicle_id, driver_id) values (current_setting('t.a')::uuid, current_setting('t.veh')::uuid, current_setting('t.drv')::uuid) returning id into trip;
   r := pg_temp.as_user(current_setting('t.admin')::uuid, format('insert into trip_riders (tenant_id, trip_id, student_id, status) values (%L, %L, %L, %L)', current_setting('t.a'), trip, current_setting('t.kchild'), 'boarded'));
-  perform pg_temp.check('C5 an Alliance trip takes another school''s learner as a rider (' || r || ')', r like 'refused%', 'QA15-RIDER FIG-1466');
+  perform pg_temp.check('C5 an Alliance trip takes another school''s learner as a rider (' || r || ')', r like 'refused%');
   select count(*) into leaked from bus_updates where trip_id = trip and current_setting('t.kchild')::uuid = any (student_ids);
   seen := pg_temp.count_as(current_setting('t.kparent')::uuid, format('select count(*) from bus_updates where trip_id = %L', trip));
-  perform pg_temp.check('C5 and the bus update about that learner ("got on the bus") is not shown to the other school''s parent (' || leaked || ' written, ' || seen || ' readable by them)', seen = 0, 'QA15-RIDER FIG-1466');
+  perform pg_temp.check('C5 and the bus update about that learner ("got on the bus") is not shown to the other school''s parent (' || leaked || ' written, ' || seen || ' readable by them)', seen = 0);
+  -- the second half on its own: a bus update that DOES name the other school's learner (written here as the owner, which nothing else can do
+  -- now) must still not reach that learner's family
+  insert into bus_updates (tenant_id, trip_id, vehicle_id, student_ids, kind, title, body, dedupe_key)
+    values (current_setting('t.a')::uuid, trip, current_setting('t.veh')::uuid, array[current_setting('t.kchild')::uuid], 'boarded', 'QA15 forced', 'QA15 forced', 'qa15-forced-' || trip);
+  seen := pg_temp.count_as(current_setting('t.kparent')::uuid, format('select count(*) from bus_updates where trip_id = %L', trip));
+  perform pg_temp.check('C5 a bus update that names another school''s learner is not readable by that learner''s parent even when written (' || seen || ' readable)', seen = 0);
 end $$;
 select pg_temp.rider_case();
 
