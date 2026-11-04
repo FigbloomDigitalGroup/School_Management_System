@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 import {
-  addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchClassSizes, fetchMyHomework, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty,
-  minutesWords, NEED_CHIPS, notifyHomeworkParents, removeNeed, retoneGuide, updateHomework, validateHomework,
+  addNeed, createHomework, defaultGuide, deleteHomework, dueDateToText, DUE_IN_THE_PAST, EMPTY_GUIDE, fetchClassSizes, fetchMyHomework,
+  fetchTeacherClasses, fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS, handedInLabel,
+  isGuideEmpty, minutesWords, NEED_CHIPS, notifyHomeworkParents, parseDueDate, PICK_A_DUE_DATE, removeNeed, retoneGuide, updateHomework,
+  validateHomework,
   type ClassGroup, type HandIn, type HomeworkRow, type ParentGuide, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT } from "../../theme";
@@ -24,7 +25,8 @@ const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 
 /**
  * Homework for a class and subject the teacher teaches. Learners in the class
  * see it on their Work tab and mark it handed in; the list shows how many have.
- * Dates are plain YYYY-MM-DD text fields, like Leave: no native date picker yet.
+ * The due date is a text box, like the dates on Leave: no native date picker yet. It is typed as day/month/year
+ * (31/10/2026) and parseDueDate also takes the stored year-month-day; what is wrong is said under the box (FIG-1493).
  * "For parents" is the same guide as on web, folded away until the teacher
  * opens it; new work can be announced to the class's parents as it's set.
  */
@@ -38,6 +40,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [dueOn, setDueOn] = useState("");
+  const [dueError, setDueError] = useState<string | null>(null);
   const [handIn, setHandIn] = useState<HandIn>("paper");
   const [guide, setGuide] = useState<ParentGuide>({ ...EMPTY_GUIDE, needs: [] });
   const [guideOpen, setGuideOpen] = useState(false);
@@ -105,6 +108,7 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
     setTitle("");
     setBody("");
     setDueOn("");
+    setDueError(null);
     setHandIn("paper");
     setGuide(defaultGuide(cls?.level, cls?.form_level ?? 0));
     setGuideOpen(false);
@@ -118,7 +122,8 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
     setSubjectId(w.subjectId);
     setTitle(w.title);
     setBody(w.body);
-    setDueOn(w.dueOn);
+    setDueOn(dueDateToText(w.dueOn));
+    setDueError(null);
     setHandIn(w.handIn);
     setGuide(w.guide ? { ...w.guide, needs: [...w.guide.needs] } : { ...EMPTY_GUIDE, needs: [] });
     setGuideOpen(!isGuideEmpty(w.guide));
@@ -126,12 +131,21 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
   }
 
   async function save() {
+    // The date is read here, and what is wrong with it is said under its own box, not in the status line at the foot of the form.
+    // The other fields are still checked first, in the same order as before: a date that cannot be read reaches validateHomework as "".
+    const due = parseDueDate(dueOn);
     const checked = validateHomework(
-      { classId: classId ?? "", subjectId: subjectId ?? "", title, body, dueOn, handIn, guide },
+      { classId: classId ?? "", subjectId: subjectId ?? "", title, body, dueOn: due.ok ? due.iso : "", handIn, guide },
       localToday(),
       { allowPast: !!editingId },
     );
-    if (!checked.ok) { setStatus(checked.message); return; }
+    if (!checked.ok) {
+      if (!due.ok && checked.message === PICK_A_DUE_DATE) { setDueError(due.message); setStatus(null); }
+      else if (checked.message === DUE_IN_THE_PAST) { setDueError(`${DUE_IN_THE_PAST} Today is ${dueDateToText(localToday())}.`); setStatus(null); }
+      else { setDueError(null); setStatus(checked.message); }
+      return;
+    }
+    setDueError(null);
     setSaving(true);
     setStatus(null);
     try {
@@ -210,7 +224,15 @@ export function TeacherHomework({ session }: { session: TeacherSession }) {
               hint="To attach a worksheet, video or link, edit this homework on the web."
             />
 
-            <Field label="Due date" value={dueOn} onChangeText={setDueOn} placeholder="YYYY-MM-DD" />
+            <Field
+              label="Due date"
+              value={dueOn}
+              onChangeText={(v) => { setDueOn(v); setDueError(null); }}
+              placeholder="31/10/2026"
+              hint="Type it as day/month/year, for example 31/10/2026."
+              error={dueError ?? undefined}
+              autoCorrect={false}
+            />
 
 
             <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink }]}>How to hand in</Text>
