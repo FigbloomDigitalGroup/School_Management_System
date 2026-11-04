@@ -142,6 +142,19 @@ export async function fetchCallLog(profileId: string, limit = 30): Promise<Call[
 }
 
 /**
+ * The school's call log for the office, newest first: who called whom, when
+ * and for how long, never anything said. calls_read lets in anyone with the
+ * communication area.
+ */
+export async function fetchSchoolCallLog(tenantId: string, limit = 500): Promise<Call[]> {
+  const { data, error } = await supabase()
+    .from("calls").select("*").eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false }).limit(limit).returns<Call[]>();
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/**
  * Every new or changed call involving this person, as it happens. Realtime
  * applies calls_read, so only their own calls arrive (an admin's would also
  * see the school's, hence the filter on their id).

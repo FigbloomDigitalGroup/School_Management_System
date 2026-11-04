@@ -1,19 +1,22 @@
 import { useMemo, useState } from "react";
-import { chatRoleWord, fetchSchoolConversations, supabase, type SchoolConversation } from "@figbloom/shared";
+import { callDuration, chatRoleWord, fetchSchoolCallLog, fetchSchoolConversations, isRingExpired, supabase, type Call, type SchoolConversation } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { ChatThread } from "../../components/chat/ChatThread";
 import { ChatWorkspace } from "../../components/chat/ChatWorkspace";
-import { EmptyState } from "../../components/ui/DataTable";
+import { Badge, type Tone } from "../../components/ui/Badge";
+import { DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
-type Tab = "mine" | "school";
+type Tab = "mine" | "school" | "calls";
+
+const TAB_LABEL: Record<Tab, string> = { mine: "My chats", school: "All school chats", calls: "Calls" };
 
 /**
  * The office's chats: its own conversations with parents, and, read-only,
- * every chat in the school (school_conversations). Families and teachers
- * are told on every thread that the office can read it.
+ * every chat in the school (school_conversations) and the school's call log.
+ * Families and teachers are told on every thread that the office can read it.
  */
 export function AdminChats() {
   const { actingForTenant } = useTenantSession();
@@ -25,10 +28,10 @@ export function AdminChats() {
       <PageHead
         eyebrow="Chats"
         title="Chats"
-        blurb="Your chats with parents and staff, and every chat in the school, which you can read but not join."
+        blurb="Your chats with parents and staff, every chat in the school, which you can read but not join, and who called whom."
         actions={
           <div role="tablist" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
-            {(actingForTenant ? (["school"] as Tab[]) : (["mine", "school"] as Tab[])).map((t) => (
+            {(actingForTenant ? (["school", "calls"] as Tab[]) : (["mine", "school", "calls"] as Tab[])).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -37,13 +40,75 @@ export function AdminChats() {
                 onClick={() => setTab(t)}
                 className={`rounded px-3 py-1.5 text-[12.5px] ${tab === t ? "bg-forest font-semibold text-white" : "text-ink-muted"}`}
               >
-                {t === "mine" ? "My chats" : "All school chats"}
+                {TAB_LABEL[t]}
               </button>
             ))}
           </div>
         }
       />
-      {tab === "mine" ? <ChatWorkspace emptyBody="Start a chat with any parent or member of staff at the school." /> : <SchoolChats />}
+      {tab === "mine" ? <ChatWorkspace emptyBody="Start a chat with any parent or member of staff at the school." />
+        : tab === "school" ? <SchoolChats /> : <SchoolCalls />}
+    </div>
+  );
+}
+
+const OUTCOME: Record<Call["status"], [string, Tone]> = {
+  ended: ["Answered", "ok"],
+  accepted: ["In progress", "info"],
+  ringing: ["Ringing", "info"],
+  missed: ["Missed", "warn"],
+  declined: ["Declined", "muted"],
+};
+
+/** The school's call log: who called whom, when, and for how long. Never what was said. */
+function SchoolCalls() {
+  const { tenant } = useTenantSession();
+  const [nameFilter, setNameFilter] = useState("");
+  const { data: calls, loading, error } = useAsync(() => fetchSchoolCallLog(tenant.id), [tenant.id]);
+
+  const shown = useMemo(() => {
+    const q = nameFilter.trim().toLowerCase();
+    return (calls ?? []).filter((c) => !q || c.caller_name.toLowerCase().includes(q) || c.callee_name.toLowerCase().includes(q));
+  }, [calls, nameFilter]);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-6">
+      {error ? (
+        <p className="text-[12.5px] text-warn-ink">Could not load the school's calls: {error.message}</p>
+      ) : loading || !calls ? (
+        <TableSkeleton rows={6} />
+      ) : (
+        <DataTable
+          title={`${shown.length} ${shown.length === 1 ? "call" : "calls"}`}
+          filters={
+            <input
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              placeholder="Filter by caller or person called"
+              aria-label="Filter by name"
+              className="w-[260px] rounded-md border border-[#D3DAD5] px-3 py-1.5 text-[12.5px] outline-none focus:border-forest"
+            />
+          }
+          columns={[
+            {
+              key: "when", header: "When", width: "1fr",
+              render: (c: Call) => <Mono>{new Date(c.created_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</Mono>,
+            },
+            { key: "from", header: "Caller", width: "1.3fr", render: (c: Call) => <span className="text-[13px]">{c.caller_name}</span> },
+            { key: "to", header: "Called", width: "1.3fr", render: (c: Call) => <span className="text-[13px]">{c.callee_name}</span> },
+            { key: "kind", header: "Type", width: "0.6fr", render: (c: Call) => <span className="text-[12.5px] text-ink-muted">{c.video ? "Video" : "Voice"}</span> },
+            { key: "length", header: "Length", width: "0.6fr", render: (c: Call) => <Mono>{callDuration(c) ?? "—"}</Mono> },
+            {
+              key: "outcome", header: "", align: "right", width: "0.8fr",
+              // a call nobody closed after it stopped ringing was missed, as set_call_status() would record it
+              render: (c: Call) => { const [label, tone] = OUTCOME[isRingExpired(c) ? "missed" : c.status]; return <Badge tone={tone}>{label}</Badge>; },
+            },
+          ]}
+          rows={shown}
+          rowKey={(c) => c.id}
+          empty={{ title: "No calls.", body: nameFilter ? "No calls match this name." : "No one at the school has made a call yet." }}
+        />
+      )}
     </div>
   );
 }
