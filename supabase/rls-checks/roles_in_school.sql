@@ -266,7 +266,34 @@ begin
     format('select count(*) from marks m join students s on s.id = m.student_id where s.class_id = %L', cx));
   perform pg_temp.see0('teacher reads the health flags of a learner in a class they do not teach', 1, teacher, format('select count(*) from teacher_health_flags(array[%L]::uuid[])', stu));
 
-  -- ---------------------------------------------------------------- archived learner (known gap, seen at database level)
+  -- ---------------------------------------------------------------- archived learner: the sign-in ends (FIG-1305)
+  -- Archiving bans the learner's login the way suspending a school does; restoring lifts exactly that ban; reactivating a school does not
+  -- lift the ban of a learner archived in the meantime. The parent still sees an archived child and their invoices (fees may be owed).
+  perform set_config('request.jwt.claims', json_build_object('sub', admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform archive_learners(array[stu_row]::uuid[]);
+  reset role;
+  perform pg_temp.say(case when (select banned_until > now() + interval '50 years' and raw_app_meta_data ->> 'archived_learner' = 'true' from auth.users where id = stu_p) then 'PASS' else 'FAIL' end,
+    'archiving a learner bans their login (banned_until far ahead, flagged archived_learner)');
+  perform pg_temp.say(case when (select count(*) from auth.sessions where user_id = stu_p) = 0 then 'PASS' else 'FAIL' end, 'and ends their sessions');
+  perform pg_temp.say(case when (select banned_until is null from auth.users u join profiles p on p.id = u.id where p.tenant_id = tid and p.role = 'teacher' order by u.id limit 1) then 'PASS' else 'FAIL' end,
+    'nobody else is banned by it (a teacher of the school can still sign in)');
+  update tenants set status = 'suspended' where id = tid;
+  update tenants set status = 'active' where id = tid;
+  perform pg_temp.say(case when (select banned_until > now() + interval '50 years' from auth.users where id = stu_p) then 'PASS' else 'FAIL' end,
+    'reactivating the school does not lift the ban of a learner archived before or during the suspension');
+  perform pg_temp.say(case when (select banned_until is null from auth.users u join profiles p on p.id = u.id where p.tenant_id = tid and p.role = 'teacher' order by u.id limit 1) then 'PASS' else 'FAIL' end,
+    'but it does lift the school''s own ban on everyone else');
+  perform set_config('request.jwt.claims', json_build_object('sub', admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform restore_learners(array[stu_row]::uuid[]);
+  reset role;
+  perform pg_temp.say(case when (select banned_until is null and not (raw_app_meta_data ? 'archived_learner') from auth.users where id = stu_p) then 'PASS' else 'FAIL' end,
+    'restoring the learner lifts the ban');
+  perform pg_temp.say(case when pg_temp.cnt(teacher, format('select count(*) from (select archive_learners(array[%L]::uuid[])) x', stu_row)) = -1 then 'PASS' else 'FAIL' end,
+    'a teacher cannot archive a learner (and so cannot ban one)');
+
+  -- ---------------------------------------------------------------- archived learner: what they and their parent still read
   update students set archived_at = now(), active = false where id in (stu_row, kid);
   perform pg_temp.say('INFO', format('archived learner: still reads own record %s, own invoices %s; the parent still sees the archived child %s and their invoices %s (sign-in itself is not checked here)',
     pg_temp.cnt(stu_p, format('select count(*) from students where id=%L', stu_row)), pg_temp.cnt(stu_p, format('select count(*) from fee_invoices where student_id=%L', stu_row)),
