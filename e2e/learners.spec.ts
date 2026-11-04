@@ -354,8 +354,7 @@ test.describe("a school with more than 1,000 learners", () => {
 
 // ================================================================ deleting a learner who has a login
 test.describe("deleting a learner who was added by mistake and has a login", () => {
-  test("KNOWN QA11-LOGIN FIG-1419 (open): the login goes with the learner", async () => {
-    test.fail();
+  test("QA11-LOGIN FIG-1419 (fixed): the login goes with the learner", async () => {
     const made = await db.from("students").insert({ tenant_id: tenantId, admission_no: "QA11-E-LG1", full_name: "QA11E Login One", class_id: classId["Form 1 East"], boarding: false, active: true, gender: "female" }).select("id").single();
     expect(made.error).toBeNull();
     const url = process.env.SUPABASE_URL!;
