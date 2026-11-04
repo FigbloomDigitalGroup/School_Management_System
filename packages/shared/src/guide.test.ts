@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NAV } from "./auth";
-import { containsPhoneNumber, guidePages, PAGE_ABOUT, planSetup, type SetupExisting } from "./guide";
+import { containsPhoneNumber, guidePages, PAGE_ABOUT, planSetup, setupSteps, type SetupCounts, type SetupExisting } from "./guide";
 
 const EXISTING: SetupExisting = {
   classNames: ["Grade 4 East"],
@@ -131,5 +131,36 @@ describe("guidePages", () => {
       for (const item of NAV[role]) expect(PAGE_ABOUT[item.to], `${role} ${item.to}`).toBeTruthy();
     }
     expect(guidePages([{ to: "admin/fees", label: "Fees" }])[0]!.about).toMatch(/invoice/);
+  });
+});
+
+describe("setupSteps", () => {
+  const EMPTY: SetupCounts = {
+    hasPaymentDetails: false, hasCrest: false, currentTerm: null, classes: 0, subjects: 0, teachers: 0,
+    assignments: 0, learners: 0, guardians: 0, feeItems: 0, invoices: 0, exams: 0,
+  };
+
+  it("starts a new school at the term, with the assistant offered for what it can set up", () => {
+    const steps = setupSteps(EMPTY);
+    expect(steps[0]).toMatchObject({ key: "term", done: false, to: "admin/settings" });
+    expect(steps.every((s) => !s.done)).toBe(true);
+    // with no term there's nowhere to put exams or fee items yet
+    expect(steps.find((s) => s.key === "exams")!.ask).toBeNull();
+    expect(steps.find((s) => s.key === "classes")!.ask).toMatch(/Set up our classes/);
+  });
+
+  it("says what's already there", () => {
+    const steps = setupSteps({ ...EMPTY, currentTerm: "Term 3, 2026", classes: 12, learners: 1, guardians: 2, assignments: 1, exams: 3 });
+    const byKey = Object.fromEntries(steps.map((s) => [s.key, s]));
+    expect(byKey.term!.detail).toBe("Term 3, 2026 is the current term.");
+    expect(byKey.classes!.detail).toBe("12 classes so far.");
+    expect(byKey.learners!.detail).toBe("1 learner and 2 parents and guardians.");
+    expect(byKey.assignments!.detail).toBe("1 class subject has a teacher.");
+    expect(byKey.exams).toMatchObject({ done: true, ask: null });
+    expect(byKey.fees!.ask).toMatch(/fee items/);
+  });
+
+  it("only links pages a full admin has", () => {
+    for (const s of setupSteps(EMPTY)) expect(PAGE_ABOUT[s.to], s.to).toBeTruthy();
   });
 });

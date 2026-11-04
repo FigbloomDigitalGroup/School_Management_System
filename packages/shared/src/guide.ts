@@ -46,6 +46,7 @@ export const PAGE_ABOUT: Record<string, string> = {
   "admin/settings": "School settings: the current term (start a new one with its dates), school details, the crest, the accent colour, how parents pay (paybill, till, bank details), publishing the fee structure, and the AI and Bloom switches.",
   "admin/access": "Access & roles: make roles from admin areas (or use presets such as Bursar or Deputy) and give them to teachers or staff on their card in Students & staff.",
   "admin/audit": "The audit log: every change in the school, who made it and when. Read only.",
+  "admin/assistant": "The School assistant: a checklist of what is set up and what is left, and a chat that sets up classes, subjects, a term, exams and fee items, or explains how to do the rest.",
   "admin/account": "Your own name, phone, photo and password.",
   // teachers
   "teacher/attendance": "Take a class's register for today and correct it; registers taken offline send themselves later.",
@@ -332,4 +333,141 @@ export async function applySetupPlan(tenantId: string, items: PlanItem[], existi
     })))).error);
   }
   return results;
+}
+
+// ------------------------------------------------------------------ the setup checklist
+
+/** One step of setting up a school, as the School assistant page lists it. */
+export interface SetupStep {
+  key: string;
+  title: string;
+  /** What the step is, or what's there already. */
+  detail: string;
+  done: boolean;
+  /** The admin page where it's done (a NAV `to`). */
+  to: string;
+  /** A question for the assistant that does or explains the step; null where there's nothing to ask. */
+  ask: string | null;
+  /** Steps a school can live without. */
+  optional?: boolean;
+}
+
+export interface SetupCounts {
+  hasPaymentDetails: boolean;
+  hasCrest: boolean;
+  currentTerm: string | null;
+  classes: number;
+  subjects: number;
+  teachers: number;
+  assignments: number;
+  learners: number;
+  guardians: number;
+  feeItems: number;
+  invoices: number;
+  exams: number;
+}
+
+const count = (value: number, one: string, many = `${one}s`) => `${value.toLocaleString("en-KE")} ${value === 1 ? one : many}`;
+
+/** The checklist, in the order a school is best set up. Pure, so it can be tested. */
+export function setupSteps(c: SetupCounts): SetupStep[] {
+  const term = c.currentTerm;
+  return [
+    {
+      key: "term", title: "Start the term", to: "admin/settings", done: !!term,
+      detail: term ? `${term} is the current term.` : "Give the current term its dates. Exams, fees and registers belong to a term.",
+      ask: term ? null : "Start the current term for us. Ask me for its dates.",
+    },
+    {
+      key: "details", title: "School details and crest", to: "admin/settings", done: c.hasCrest, optional: true,
+      detail: c.hasCrest ? "The crest is up." : "Add the crest and check the school's name and details. They show on report cards and receipts.",
+      ask: null,
+    },
+    {
+      key: "classes", title: "Create classes", to: "admin/classes", done: c.classes > 0,
+      detail: c.classes ? `${count(c.classes, "class", "classes")} so far.` : "Every year and stream the school runs, such as Grade 7 East.",
+      ask: c.classes ? "Which classes might we still be missing?" : "Set up our classes. Ask me which years and streams we run.",
+    },
+    {
+      key: "subjects", title: "Add subjects", to: "admin/subjects", done: c.subjects > 0,
+      detail: c.subjects ? `${count(c.subjects, "subject")} so far.` : "The learning areas the school teaches, for the right grades.",
+      ask: c.subjects ? null : "Add the usual subjects for the grades we run.",
+    },
+    {
+      key: "teachers", title: "Add teachers and staff", to: "admin/people", done: c.teachers > 0,
+      detail: c.teachers ? `${count(c.teachers, "teacher")} so far.` : "Add each teacher and staff member in Students & staff. They get their own login.",
+      ask: "How do I add teachers and staff, and how do they sign in?",
+    },
+    {
+      key: "assignments", title: "Pick who teaches what", to: "admin/subjects", done: c.assignments > 0,
+      detail: c.assignments ? `${count(c.assignments, "class subject has a teacher", "class subjects have a teacher")}.` : "Choose the teacher for each subject in each class, so they can take registers and enter marks.",
+      ask: "How do I choose who teaches each subject?",
+    },
+    {
+      key: "learners", title: "Add learners and parents", to: "admin/people", done: c.learners > 0,
+      detail: c.learners ? `${count(c.learners, "learner")} and ${count(c.guardians, "parent or guardian", "parents and guardians")}.` : "Add learners one by one or import a CSV file, with their parents or guardians.",
+      ask: "How do I import our learners from a spreadsheet?",
+    },
+    {
+      key: "payments", title: "How parents pay", to: "admin/settings", done: c.hasPaymentDetails,
+      detail: c.hasPaymentDetails ? "Paybill, till or bank details are set." : "The paybill, till or bank details parents see when they pay fees.",
+      ask: "Where do I put our paybill and bank details?",
+    },
+    {
+      key: "fees", title: "Set this term's fees", to: "admin/fees", done: c.feeItems > 0,
+      detail: c.feeItems ? `${count(c.feeItems, "fee item")} this term.` : "Tuition, lunch, transport and the rest, for everyone or one year group.",
+      ask: term && !c.feeItems ? "Set up this term's fee items. Ask me the amounts." : null,
+    },
+    {
+      key: "billing", title: "Bill learners", to: "admin/fees", done: c.invoices > 0,
+      detail: c.invoices ? `${count(c.invoices, "invoice")} this term.` : "One invoice per learner from this term's fee items. Families then see their balance.",
+      ask: "How do I bill learners for this term?",
+    },
+    {
+      key: "exams", title: "Set this term's exams", to: "admin/exams", done: c.exams > 0,
+      detail: c.exams ? `${count(c.exams, "exam")} this term.` : "Opener, mid-term, end of term: teachers enter marks against them.",
+      ask: term && !c.exams ? "Add this term's exams: an opener, a mid-term and an end of term exam." : null,
+    },
+    {
+      key: "access", title: "Give staff admin areas", to: "admin/access", done: false, optional: true,
+      detail: "Let the bursar see Fees, the deputy see Academics, and so on, without making them full admins.",
+      ask: "How do I give the bursar access to Fees only?",
+    },
+  ];
+}
+
+/** Counts for the checklist, read as the admin (row-level security applies). */
+export async function fetchSetupCounts(tenantId: string): Promise<SetupCounts> {
+  const db = supabase();
+  const head = { count: "exact" as const, head: true };
+  const total = async (q: PromiseLike<{ count: number | null; error: { message: string } | null }>) => {
+    const { count: c, error } = await q;
+    if (error) throw new Error(error.message);
+    return c ?? 0;
+  };
+  const [tenant, term] = await Promise.all([
+    db.from("tenants").select("logo_url, payment_paybill, payment_till, payment_bank_details").eq("id", tenantId).maybeSingle(),
+    db.from("terms").select("id, name").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle(),
+  ]);
+  if (tenant.error) throw new Error(tenant.error.message);
+  if (term.error) throw new Error(term.error.message);
+  const t = tenant.data as { logo_url: string | null; payment_paybill: string | null; payment_till: string | null; payment_bank_details: string | null } | null;
+  const current = term.data as { id: string; name: string } | null;
+  const [classes, subjects, teachers, assignments, learners, guardians, feeItems, invoices, exams] = await Promise.all([
+    total(db.from("classes").select("id", head).eq("tenant_id", tenantId)),
+    total(db.from("subjects").select("id", head).eq("tenant_id", tenantId)),
+    total(db.from("profiles").select("id", head).eq("tenant_id", tenantId).eq("role", "teacher")),
+    total(db.from("teaching_assignments").select("id", head).eq("tenant_id", tenantId)),
+    total(db.from("students").select("id", head).eq("tenant_id", tenantId).eq("active", true)),
+    total(db.from("guardians").select("id", head).eq("tenant_id", tenantId)),
+    current ? total(db.from("fee_items").select("id", head).eq("term_id", current.id)) : 0,
+    current ? total(db.from("fee_invoices").select("id", head).eq("term_id", current.id)) : 0,
+    current ? total(db.from("exams").select("id", head).eq("term_id", current.id)) : 0,
+  ]);
+  return {
+    hasPaymentDetails: !!(t?.payment_paybill || t?.payment_till || t?.payment_bank_details),
+    hasCrest: !!t?.logo_url,
+    currentTerm: current?.name ?? null,
+    classes, subjects, teachers, assignments, learners, guardians, feeItems, invoices, exams,
+  };
 }
