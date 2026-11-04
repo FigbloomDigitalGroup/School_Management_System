@@ -127,7 +127,7 @@ select pg_temp.check('the impersonation log: the school''s own admin reads the e
   and pg_temp.count_as(current_setting('t.super')::uuid, 'select count(*) from impersonation_sessions') = 1);
 
 -- ---------------------------------------------------------------- the two logs that call themselves immutable
--- The audit trail has only a read policy (nobody can change a row through the API); the impersonation log has `for all using is_super()`.
+-- The audit trail has only a read policy (nobody can change a row through the API); since 20261105440000 (FIG-1453) so has the impersonation log.
 with s as (insert into impersonation_sessions (tenant_id, staff_id, reason) values (current_setting('t.a')::uuid, current_setting('t.super')::uuid, 'QA13') returning id)
   select set_config('t.isess', (select id::text from s), true);
 select set_config('t.aevent', (select id::text from audit_events order by created_at desc limit 1), true);
@@ -140,10 +140,52 @@ select pg_temp.check('a school admin cannot change or delete an impersonation se
   pg_temp.count_as(current_setting('t.admin')::uuid, format('with u as (update impersonation_sessions set reason = %L where id = %L returning 1) select count(*) from u', 'tampered', current_setting('t.isess'))) = 0
   and pg_temp.count_as(current_setting('t.admin')::uuid, format('with d as (delete from impersonation_sessions where id = %L returning 1) select count(*) from d', current_setting('t.isess'))) = 0);
 select pg_temp.check('the platform admin cannot rewrite an impersonation session either: the page calls the log an "immutable record", and the people it records are the platform admins',
-  pg_temp.count_as(current_setting('t.super')::uuid, format('with u as (update impersonation_sessions set reason = %L, ended_at = now(), writes_count = 0 where id = %L returning 1) select count(*) from u', 'tampered', current_setting('t.isess'))) = 0,
-  'QA13-IMPERSONATION-IMMUTABLE FIG-1453');
+  pg_temp.count_as(current_setting('t.super')::uuid, format('with u as (update impersonation_sessions set reason = %L, ended_at = now(), writes_count = 0 where id = %L returning 1) select count(*) from u', 'tampered', current_setting('t.isess'))) = 0);
 select pg_temp.check('nor delete one',
-  pg_temp.count_as(current_setting('t.super')::uuid, format('with d as (delete from impersonation_sessions where id = %L returning 1) select count(*) from d', current_setting('t.isess'))) = 0,
-  'QA13-IMPERSONATION-IMMUTABLE FIG-1453');
+  pg_temp.count_as(current_setting('t.super')::uuid, format('with d as (delete from impersonation_sessions where id = %L returning 1) select count(*) from d', current_setting('t.isess'))) = 0);
+
+-- FIG-1453: nobody writes the log directly; a session is started and closed by functions
+create function pg_temp.try_as(p_user uuid, p_stmt text) returns text language plpgsql as $$
+declare v text;
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', p_user, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    execute p_stmt into v;
+    reset role;
+    return coalesce(v, 'ok');
+  exception when others then
+    reset role;
+    return 'refused ' || sqlstate;
+  end;
+end $$;
+select pg_temp.check('the platform admin cannot insert an impersonation session directly: only start_impersonation writes the log',
+  pg_temp.try_as(current_setting('t.super')::uuid, format($q$with i as (insert into impersonation_sessions (tenant_id, staff_id, reason) values (%L, %L, 'direct') returning 1) select count(*)::text from i$q$, current_setting('t.a'), current_setting('t.super'))) like 'refused%');
+select pg_temp.check('a school admin and a teacher cannot start a session',
+  pg_temp.try_as(current_setting('t.admin')::uuid, format($q$select start_impersonation(%L, 'x')::text$q$, current_setting('t.a'))) = 'refused 42501'
+  and pg_temp.try_as(current_setting('t.teacher')::uuid, format($q$select start_impersonation(%L, 'x')::text$q$, current_setting('t.a'))) = 'refused 42501');
+select pg_temp.check('a session needs a reason',
+  pg_temp.try_as(current_setting('t.super')::uuid, format($q$select start_impersonation(%L, '   ')::text$q$, current_setting('t.a'))) = 'refused 22023');
+select set_config('t.isess2', pg_temp.try_as(current_setting('t.super')::uuid, format($q$select start_impersonation(%L, 'QA13 support call', 'read_only')::text$q$, current_setting('t.a'))), true);
+select pg_temp.check('Figbloom staff start a session: it records who, why, when, and that nothing has been written yet',
+  (select staff_id = current_setting('t.super')::uuid and reason = 'QA13 support call' and ended_at is null and writes_count = 0 and scope = 'read_only'
+     from impersonation_sessions where id::text = current_setting('t.isess2')));
+select pg_temp.check('the school''s own admin reads the new entry about their school',
+  pg_temp.count_as(current_setting('t.admin')::uuid, format('select count(*) from impersonation_sessions where id = %L', current_setting('t.isess2'))) = 1);
+select pg_temp.check('the writes of a session are counted by the function, one at a time, only by the person who started it',
+  pg_temp.try_as(current_setting('t.super')::uuid, format($q$select note_impersonation_write(%L)::text$q$, current_setting('t.isess2'))) = '1'
+  and pg_temp.try_as(current_setting('t.super')::uuid, format($q$select note_impersonation_write(%L)::text$q$, current_setting('t.isess2'))) = '2'
+  and pg_temp.try_as(current_setting('t.admin')::uuid, format($q$select note_impersonation_write(%L)::text$q$, current_setting('t.isess2'))) = 'refused 42501');
+select pg_temp.check('only the person who started a session closes it, and once',
+  pg_temp.try_as(current_setting('t.admin')::uuid, format($q$select end_impersonation(%L)::text$q$, current_setting('t.isess2'))) = 'refused 42501'
+  and pg_temp.try_as(current_setting('t.super')::uuid, format($q$select end_impersonation(%L)::text$q$, current_setting('t.isess2'))) in ('ok', '')
+  and pg_temp.try_as(current_setting('t.super')::uuid, format($q$select end_impersonation(%L)::text$q$, current_setting('t.isess2'))) = 'refused 42501');
+select pg_temp.check('a closed session cannot be added to, and keeps its two writes',
+  pg_temp.try_as(current_setting('t.super')::uuid, format($q$select note_impersonation_write(%L)::text$q$, current_setting('t.isess2'))) = 'refused 42501'
+  and (select writes_count = 2 and ended_at is not null from impersonation_sessions where id::text = current_setting('t.isess2')));
+select pg_temp.check('a signed-out visitor cannot call the three functions',
+  not has_function_privilege('anon', 'start_impersonation(uuid, text, text)', 'execute')
+  and not has_function_privilege('anon', 'note_impersonation_write(uuid)', 'execute')
+  and not has_function_privilege('anon', 'end_impersonation(uuid)', 'execute'));
 
 rollback;
