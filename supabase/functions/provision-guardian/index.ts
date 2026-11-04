@@ -28,6 +28,7 @@ import { administersOrganization } from "../_shared/organizations.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { accountNotMade, undoAccount } from "../_shared/undoAccount.ts";
 import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
 const RELATIONSHIPS = new Set(["mother", "father", "guardian"]);
@@ -149,8 +150,8 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     must_change_password: true,
   });
   if (profileErr) {
-    await admin.auth.admin.deleteUser(created.user.id);
-    return json(failure("provision-guardian", "save the profile", profileErr), 500);
+    const left = await undoAccount("provision-guardian", admin, created.user.id, []);
+    return json(accountNotMade("provision-guardian", "save the profile", profileErr, left, loginId), 500);
   }
 
   const { error: guardiansErr } = await admin.from("guardians").insert(
@@ -163,19 +164,25 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
     })),
   );
   if (guardiansErr) {
-    await admin.from("profiles").delete().eq("id", created.user.id);
-    await admin.auth.admin.deleteUser(created.user.id);
-    return json(failure("provision-guardian", "link the guardian to the learners", guardiansErr), 500);
+    const left = await undoAccount("provision-guardian", admin, created.user.id, []);
+    return json(accountNotMade("provision-guardian", "link the guardian to the learners", guardiansErr, left, loginId), 500);
   }
 
   const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
     : callerProfile.role === "school_admin" ? "school admin" : "people";
-  await admin.from("audit_events").insert({
+  // The audit entry is the record of who made this account: without it the account is taken back out (FIG-1470).
+  const { error: auditErr } = await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: `Guardian ${full_name.trim()} (${loginId}) added, linked to ${students.length} learner${students.length === 1 ? "" : "s"}`,
     category: "provisioning",
   });
+  if (auditErr) {
+    const left = await undoAccount("provision-guardian", admin, created.user.id, [
+      { what: "remove the learner links", run: () => admin.from("guardians").delete().eq("profile_id", created.user.id) },
+    ]);
+    return json(accountNotMade("provision-guardian", "record the new login in the audit log", auditErr, left, loginId), 500);
+  }
 
   // The account exists now: whatever happens to the email, the password above is the way in.
   const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {

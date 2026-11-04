@@ -1,7 +1,6 @@
 import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
-import { itFails } from "../_shared/knownDefect.ts";
 import { handle } from "./index.ts";
 
 const SCHOOL_ADMIN_ID = "school-admin-1";
@@ -146,15 +145,36 @@ describe("provision-student handle", () => {
     assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-student-1"), undefined);
   });
 
-  // QA 15 (FIG-1248): the audit entry is the last step and its result is not looked at, so a login that was created with no
-  // record of who created it still gets a plain success. Wanted: an error, or a warning the screen can show (delete-account
-  // already answers { ok: true, warning } when a step half worked). Passes while the defect exists.
-  itFails("QA15-AUDIT-IGNORED FIG-1470: the reply says so when the audit entry could not be written", async () => {
+  // QA 15 (FIG-1248, FIG-1470): the audit entry is the record of who made the account, so an account that cannot be recorded is taken
+  // back out and the reply says it was not made (it used to be a plain success with the password).
+  it("QA15-AUDIT-IGNORED FIG-1470 (fixed): an audit entry that cannot be written rolls the account back and says it was not made", async () => {
     const { admin, asUser } = makeClients();
     admin.failNextWrite("audit_events", "audit insert failed");
     const res = await handle(request(validBody), { admin, asUser });
     const out = await res.json();
-    assert(res.status !== 200 || !!out.warning, "the account was created, nothing was logged, and the reply is a plain success");
+    assertEquals(res.status, 500);
+    assertMatch(out.error, /audit log, so the account was not created/);
+    assert(!out.password && !out.login_id, "no password is handed out for an account that was removed");
+    assertEquals(admin.deletedUserIds, ["new-student-1"]);
+    assertEquals(admin.rowsIn("profiles").find((p) => p.id === "new-student-1"), undefined);
+    assertEquals(admin.rowsIn("students").find((s) => s.id === STUDENT_ID)?.profile_id ?? null, null, "the learner is unlinked again");
+  });
+
+  it("QA15-AUDIT-IGNORED FIG-1470: if the rollback itself fails, the reply says a half-made account may be left", async () => {
+    const { admin, asUser } = makeClients();
+    // the audit insert fails, and by then the account is made, so the profile delete of the rollback fails as well
+    const realFrom = admin.from.bind(admin);
+    admin.from = (table: string) => {
+      if (table === "audit_events") {
+        admin.failNextWrite("audit_events", "audit insert failed");
+        admin.failNextWrite("profiles", "profile delete failed");
+      }
+      return realFrom(table);
+    };
+    const res = await handle(request(validBody), { admin, asUser });
+    const out = await res.json();
+    assertEquals(res.status, 500);
+    assertMatch(out.error, /could not be fully removed/);
   });
 
   describe("super_admin / org_admin callers", () => {

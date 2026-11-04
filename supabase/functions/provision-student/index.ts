@@ -23,6 +23,7 @@ import { administersOrganization } from "../_shared/organizations.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { accountNotMade, undoAccount } from "../_shared/undoAccount.ts";
 
 interface Body {
   tenant_id: string;
@@ -109,26 +110,32 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     must_change_password: true,
   });
   if (profileErr) {
-    await admin.auth.admin.deleteUser(created.user.id);
-    return json(failure("provision-student", "save the profile", profileErr), 500);
+    const left = await undoAccount("provision-student", admin, created.user.id, []);
+    return json(accountNotMade("provision-student", "save the profile", profileErr, left, loginId), 500);
   }
 
   const { error: linkErr } = await admin.from("students")
     .update({ profile_id: created.user.id }).eq("id", student_id);
   if (linkErr) {
-    await admin.from("profiles").delete().eq("id", created.user.id);
-    await admin.auth.admin.deleteUser(created.user.id);
-    return json(failure("provision-student", "link the login to the learner", linkErr), 500);
+    const left = await undoAccount("provision-student", admin, created.user.id, []);
+    return json(accountNotMade("provision-student", "link the login to the learner", linkErr, left, loginId), 500);
   }
 
   const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
     : callerProfile.role === "school_admin" ? "school admin" : "people";
-  await admin.from("audit_events").insert({
+  // The audit entry is the record of who made this account: without it the account is taken back out (FIG-1470).
+  const { error: auditErr } = await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: `Login created for learner ${student.full_name} (${loginId})`,
     category: "provisioning",
   });
+  if (auditErr) {
+    const left = await undoAccount("provision-student", admin, created.user.id, [
+      { what: "unlink the learner", run: () => admin.from("students").update({ profile_id: null }).eq("id", student_id) },
+    ]);
+    return json(accountNotMade("provision-student", "record the new login in the audit log", auditErr, left, loginId), 500);
+  }
 
   return json({ ok: true, login_id: loginId, password });
 }
