@@ -319,7 +319,9 @@ select pg_temp.check('the status rule: paid, overdue, part paid, unpaid',
   invoice_status_for(100, 100, current_date - 30) = 'paid' and invoice_status_for(100, 40, current_date - 1) = 'overdue'
   and invoice_status_for(100, 40, current_date + 1) = 'part_paid' and invoice_status_for(100, 0, current_date + 1) = 'unpaid');
 select set_config('t.stale', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
-   and paid_cents < total_cents and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 9 limit 1), true);
+   and paid_cents < total_cents and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   and term_id <> current_setting('t.term')::uuid  -- not the Term 1, 2027 invoices this script makes up (the first learner's is deleted below)
+   order by id offset 9 limit 1), true);
 select set_config('request.jwt.claims', '', true);
 update fee_invoices set due_on = current_date - 3, status = 'unpaid' where id = current_setting('t.stale')::uuid and paid_cents = 0;
 update fee_invoices set due_on = current_date - 3, status = 'part_paid' where id = current_setting('t.stale')::uuid and paid_cents > 0;
@@ -340,6 +342,7 @@ select pg_temp.check('the refresh runs every night',
 -- ---------------------------------------------------------------- whole shillings (20261104340000, FIG-1334)
 select set_config('t.cents', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
    and paid_cents = 0 and total_cents > 100000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   and term_id <> current_setting('t.term')::uuid  -- as above: a payment on the first learner's Term 1, 2027 invoice stops the delete at the end of that section (1 run in about 340)
    order by id offset 11 limit 1), true);
 select set_config('request.jwt.claims', '', true);
 update fee_invoices set total_cents = total_cents + 50 where id = current_setting('t.cents')::uuid;  -- a balance left with cents
