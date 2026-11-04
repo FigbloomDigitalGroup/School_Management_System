@@ -5,7 +5,7 @@ import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
-import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type GuideHost, type GuideOptions } from "./GuidePanel";
+import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type GuideBack, type GuideHost, type GuideOptions } from "./GuidePanel";
 import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -110,6 +110,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const guideHost: GuideHost | null = guide ? { role, userId: user.id, items, here: herePage, hrefFor, options: guide } : null;
   // The School assistant page hosts the chat itself, so the panel stays out of its way there.
   const guideInPage = herePage === "admin/assistant";
+  // A page opened from the School assistant offers the way back to it.
+  const guideBack = (location.state as { guideBack?: GuideBack } | null)?.guideBack;
+  const backBar = guideBack && guideBack.to !== herePage ? guideBack : null;
   // Only the three roles with a real self-service "My account" screen (FIG-
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
@@ -288,6 +291,17 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           </div>
         )}
         <main className="min-w-0 flex-1 overflow-auto">
+          {backBar && (
+            <div className="sticky top-0 z-20 border-b border-line bg-white/95 px-5 py-2 backdrop-blur print:hidden">
+              <button
+                type="button"
+                onClick={() => nav(hrefFor(backBar.to))}
+                className="hit rounded-md px-1.5 py-0.5 text-[12.5px] font-semibold text-forest hover:bg-page"
+              >
+                ← Back to {backBar.label}
+              </button>
+            </div>
+          )}
           <GuideHostContext.Provider value={guideHost}>{children}</GuideHostContext.Provider>
         </main>
       </div>
