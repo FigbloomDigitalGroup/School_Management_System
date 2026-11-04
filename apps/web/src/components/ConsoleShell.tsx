@@ -5,7 +5,7 @@ import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
-import { GuidePanel, guideWasOpen, rememberGuideOpen, type GuideOptions } from "./GuidePanel";
+import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type GuideHost, type GuideOptions } from "./GuidePanel";
 import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -107,6 +107,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const prefix = tenantScoped ? `/s/${slug}/` : orgScoped ? `/org/${orgSlug}/` : "/";
   const here = location.pathname.startsWith(prefix) ? location.pathname.slice(prefix.length).replace(/\/$/, "") : "";
   const herePage = items.find((i) => i.to === here) ? here : items.filter((i) => here.startsWith(`${i.to}/`)).map((i) => i.to).sort((a, b) => b.length - a.length)[0] ?? "";
+  const guideHost: GuideHost | null = guide ? { role, userId: user.id, items, here: herePage, hrefFor, options: guide } : null;
+  // The School assistant page hosts the chat itself, so the panel stays out of its way there.
+  const guideInPage = herePage === "admin/assistant";
   // Only the three roles with a real self-service "My account" screen (FIG-
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
@@ -231,7 +234,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         </div>
 
         <div className="shrink-0 border-t border-white/10 pt-2">
-          {guide && (
+          {guide && !guideInPage && (
             <button
               type="button"
               onClick={() => setGuideOpen(!guideOpen)}
@@ -284,7 +287,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </button>
           </div>
         )}
-        <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto">
+          <GuideHostContext.Provider value={guideHost}>{children}</GuideHostContext.Provider>
+        </main>
       </div>
 
       {accountOpen && (
@@ -303,17 +308,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           onSignOut={() => void signOut()}
         />
       )}
-      {guide && guideOpen && (
-        <GuidePanel
-          role={role}
-          userId={user.id}
-          items={items}
-          here={herePage}
-          hrefFor={hrefFor}
-          options={guide}
-          onClose={() => setGuideOpen(false)}
-        />
-      )}
+      {guideHost && guideOpen && !guideInPage && <GuidePanel host={guideHost} onClose={() => setGuideOpen(false)} />}
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
       {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
     </div>

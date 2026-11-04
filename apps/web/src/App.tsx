@@ -54,6 +54,7 @@ import { AdminAccount } from "./screens/admin/Account";
 import { Activities } from "./screens/admin/Activities";
 import { AdminChats } from "./screens/admin/Chats";
 import { AreasHome } from "./screens/admin/AreasHome";
+import { AdminAssistant } from "./screens/admin/Assistant";
 import { AccessRoles } from "./screens/admin/AccessRoles";
 import { MyChats } from "./screens/chat/MyChats";
 import { useChatUnread } from "./lib/useChatUnread";
@@ -220,6 +221,7 @@ function TenantRoutes() {
       <CallHost profileId={session.profile.id}>
         <Routes>
           <Route path="admin" element={<AdminShell page="admin"><AdminHome /></AdminShell>} />
+          <Route path="admin/assistant" element={<AdminShell page="admin/assistant"><AdminAssistant /></AdminShell>} />
           <Route path="admin/people" element={<AdminShell page="admin/people"><People /></AdminShell>} />
           <Route path="admin/fees" element={<AdminShell page="admin/fees"><Fees /></AdminShell>} />
           <Route path="admin/study-helper" element={<AdminShell page="admin/study-helper"><AdminStudyHelper /></AdminShell>} />

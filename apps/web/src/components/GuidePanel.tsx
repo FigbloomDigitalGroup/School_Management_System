@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   applySetupPlan, askGuide, containsPhoneNumber, fetchSetupExisting, guidePages, planSetup,
@@ -65,12 +65,8 @@ const SUGGESTIONS: Partial<Record<Role, string[]>> = {
 const SETUP_INTRO = "Ask how to do anything in the school's console. I can also set up classes, subjects, a term, exams and fee items for you: you check the plan and confirm it before anything is created.";
 const ORG_INTRO = "Ask how to do anything in the organization console or in your schools.";
 
-/**
- * The Figbloom guide: a side panel in every console that answers "how do
- * I…" with steps and links to the person's own pages, and for a full school
- * admin can plan the school's structure (packages/shared guide.ts).
- */
-export function GuidePanel({ role, userId, items, here, hrefFor, options, onClose }: {
+/** Everything the guide needs from the console it's in. */
+export interface GuideHost {
   role: Role;
   userId: string;
   /** The sidebar as this person sees it. */
@@ -79,8 +75,51 @@ export function GuidePanel({ role, userId, items, here, hrefFor, options, onClos
   here: string;
   hrefFor: (to: string) => string;
   options: GuideOptions;
-  onClose: () => void;
+}
+
+/** Set by ConsoleShell when its console has a guide, so a page (School assistant) can host the chat itself. */
+export const GuideHostContext = createContext<GuideHost | null>(null);
+export const useGuideHost = () => useContext(GuideHostContext);
+
+/**
+ * The Figbloom guide as a side panel in every console: it answers "how do
+ * I…" with steps and links to the person's own pages, and for a full school
+ * admin can plan the school's structure (packages/shared guide.ts).
+ */
+export function GuidePanel({ host, onClose }: { host: GuideHost; onClose: () => void }) {
+  return (
+    <aside
+      aria-label="Figbloom guide"
+      className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-line bg-white shadow-[-8px_0_28px_rgba(12,26,18,0.14)] sm:w-[400px] print:hidden"
+    >
+      <header className="flex shrink-0 items-start gap-2 border-b border-line px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[9px] tracking-[0.12em] text-ink-faint">FIGBLOOM</div>
+          <h2 className="text-[15px] font-semibold tracking-tight">Guide</h2>
+        </div>
+        <button type="button" onClick={onClose} title="Close the guide" className="hit grid h-7 w-7 place-items-center rounded-md text-ink-soft hover:bg-page">
+          <span aria-hidden>✕</span><span className="sr-only">Close the guide</span>
+        </button>
+      </header>
+      {/* on a narrow screen the panel would cover the page a link opens */}
+      <GuideChat host={host} onNavigate={() => { if (window.innerWidth < 900) onClose(); }} />
+    </aside>
+  );
+}
+
+/**
+ * The guide's conversation and composer, shared by the side panel and the
+ * School assistant page. `ask` sends a question from outside (a checklist
+ * step's "Ask the assistant"); a new `id` sends it again.
+ */
+export function GuideChat({ host, onNavigate, ask, onApplied }: {
+  host: GuideHost;
+  onNavigate?: () => void;
+  ask?: { text: string; id: number } | null;
+  /** After a setup plan has been applied, e.g. to refresh a checklist. */
+  onApplied?: () => void;
 }) {
+  const { role, userId, items, here, hrefFor, options } = host;
   const [turnList, setTurnList] = useState<Turn[]>(() => loadTurns(userId));
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -137,38 +176,35 @@ export function GuidePanel({ role, userId, items, here, hrefFor, options, onClos
 
   function go(link: GuideLink) {
     navigate(hrefFor(link.to));
-    // on a narrow screen the panel would cover the page it just opened
-    if (window.innerWidth < 900) onClose();
+    onNavigate?.();
   }
+
+  // a question sent from outside the chat, once per id
+  const asked = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ask || asked.current === ask.id) return;
+    asked.current = ask.id;
+    void send(ask.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new ask should send
+  }, [ask?.id]);
 
   const lastAssistant = turnList.reduce((n, t, i) => (t.role === "assistant" ? i : n), -1);
 
   return (
-    <aside
-      aria-label="Figbloom guide"
-      className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-line bg-white shadow-[-8px_0_28px_rgba(12,26,18,0.14)] sm:w-[400px] print:hidden"
-    >
-      <header className="flex shrink-0 items-start gap-2 border-b border-line px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="font-mono text-[9px] tracking-[0.12em] text-ink-faint">FIGBLOOM</div>
-          <h2 className="text-[15px] font-semibold tracking-tight">Guide</h2>
-        </div>
-        {turnList.length > 0 && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => { setTurns(() => []); setError(null); }}
-            className="hit rounded-md px-2 py-1 text-[12px] text-ink-soft hover:bg-page disabled:opacity-50"
-          >
-            New chat
-          </button>
-        )}
-        <button type="button" onClick={onClose} title="Close the guide" className="hit grid h-7 w-7 place-items-center rounded-md text-ink-soft hover:bg-page">
-          <span aria-hidden>✕</span><span className="sr-only">Close the guide</span>
-        </button>
-      </header>
-
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {turnList.length > 0 && (
+          <div className="-mt-1 mb-2 flex justify-end">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => { setTurns(() => []); setError(null); }}
+              className="hit rounded-md px-2 py-1 text-[12px] text-ink-soft hover:bg-page disabled:opacity-50"
+            >
+              New chat
+            </button>
+          </div>
+        )}
         {turnList.length === 0 && (
           <div className="flex flex-col gap-3">
             <p className="text-[13.5px] leading-relaxed text-ink-soft">
@@ -204,7 +240,7 @@ export function GuidePanel({ role, userId, items, here, hrefFor, options, onClos
                   turn={t}
                   live={i === lastAssistant}
                   setup={options.setup}
-                  onDone={(results) => setTurns((all) => all.map((x, j) => (j === i && x.role === "assistant" ? { ...x, results } : x)))}
+                  onDone={(results) => { setTurns((all) => all.map((x, j) => (j === i && x.role === "assistant" ? { ...x, results } : x))); onApplied?.(); }}
                   onDismiss={() => setTurns((all) => all.map((x, j) => (j === i && x.role === "assistant" ? { ...x, dismissed: true } : x)))}
                 />
               )}
@@ -237,7 +273,7 @@ export function GuidePanel({ role, userId, items, here, hrefFor, options, onClos
           The guide is an AI and can be wrong. It never sees or adds people, so leave names and phone numbers out.
         </p>
       </form>
-    </aside>
+    </div>
   );
 }
 

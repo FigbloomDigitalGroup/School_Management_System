@@ -183,6 +183,8 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/settings": "full",
   "admin/access": "full",
   "admin/bloom": "full",
+  // setting the school up is for full admins; everyone else has the Guide panel
+  "admin/assistant": "full",
   "admin/account": null,
 };
 
