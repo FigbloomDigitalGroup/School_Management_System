@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 import { CalendarOff, Users } from "lucide-react-native";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
-  fetchHealthForStudents, healthFlags, type HealthFlags,
+  fetchHealthFlagsForStudents, healthFlags, type HealthFlags,
   MARK_LABEL, MARK_SHORT, newRegister, nextMark, submitWarning, tally, toRecords,
   type AttendanceMark, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
@@ -55,7 +55,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   useEffect(() => {
     if (!roster?.length) { setHealth(new Map()); return; }
     let alive = true;
-    fetchHealthForStudents(roster.map((r) => r.id))
+    fetchHealthFlagsForStudents(roster.map((r) => r.id))
       .then((records) => {
         if (!alive) return;
         const m = new Map<string, HealthFlags>();

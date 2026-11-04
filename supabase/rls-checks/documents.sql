@@ -81,10 +81,11 @@ select pg_temp.check('the fixture has a teacher with a class, and a second class
 select pg_temp.act_as(current_setting('t.teacher'));
 set local role authenticated;
 
-select pg_temp.expect_rows('a teacher can still read the payment proofs',
-  format($q$select 1 from payment_proofs where id = %L$q$, current_setting('t.proof')), 1);
-select pg_temp.expect_rows('a teacher can still read learner documents',
-  format($q$select 1 from student_documents where id = %L$q$, current_setting('t.doc')), 1);
+-- (FIG-1303: a teacher no longer reads fee data or private documents, only what their own class and subject need)
+select pg_temp.expect_rows('a teacher can no longer read the payment proofs',
+  format($q$select 1 from payment_proofs where id = %L$q$, current_setting('t.proof')), 0);
+select pg_temp.expect_rows('a teacher can no longer read learner documents',
+  format($q$select 1 from student_documents where id = %L$q$, current_setting('t.doc')), 0);
 select pg_temp.expect_rows('a teacher can upload the file of a paper in a class and subject they teach',
   format($q$insert into storage.objects (bucket_id, name) values ('private-documents', %L)$q$,
          current_setting('t.a') || '/exam-papers/' || current_setting('t.paper1') || '/paper.pdf'), 1);
