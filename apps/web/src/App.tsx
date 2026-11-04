@@ -6,7 +6,7 @@ import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
 import { ConsoleShell } from "./components/ConsoleShell";
 import { QueueNotice } from "./components/QueueNotice";
-import { useQueueSync } from "./lib/queue";
+import { useQueueSync, useQueueUser } from "./lib/queue";
 import { Skeleton } from "./components/ui/Skeleton";
 import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
@@ -123,6 +123,7 @@ import { BloomChat } from "./screens/bloom/BloomChat";
  * stable and one deployment serves all of them.
  */
 export function App() {
+  useQueueUser();
   return (
     <ToastHost>
       <ConfirmHost />

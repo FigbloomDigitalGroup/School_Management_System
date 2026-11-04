@@ -409,10 +409,9 @@ test.describe("teacher register", () => {
     expect((await todayRows()).filter((r) => r.mark === "absent")).toHaveLength(1);
   });
 
-  // useQueueSync (which tells the queue who is signed in) is only called by TeacherShell, so for every other kind of user the
-  // queue is not scoped to anyone and the browser's 'online' event sends whatever is held, with that user's login.
-  test("KNOWN QA10-SHARED FIG-1403 (open): the school admin signing in on the same phone does not send the teacher's held register", async ({ page }) => {
-    test.fail();
+  // FIG-1403: the queue used to be told who is signed in only by TeacherShell, so for every other kind of user it was not scoped
+  // to anyone and the browser's 'online' event sent whatever was held, with that user's login. App() now does it for every role.
+  test("QA10-SHARED FIG-1403: the school admin signing in on the same phone does not send the teacher's held register", async ({ page }) => {
     await holdRegister(page);
     const sent = watchWrites(page);
     await endSession(page);
@@ -425,13 +424,13 @@ test.describe("teacher register", () => {
     expect(sent, "the admin's session sent the teacher's register").toEqual([]);
   });
 
-  test("KNOWN QA10-SHARED FIG-1403 (open): a parent signing in on the same phone does not get the teacher's held register refused and set aside for good", async ({ page }) => {
-    test.fail();
+  test("QA10-SHARED FIG-1403: a parent signing in on the same phone does not get the teacher's held register refused and set aside for good", async ({ page }) => {
     const held = await holdRegister(page);
     await endSession(page);
     await signInWithId(page, SCHOOLS[0].name, "PT-0002", "Parent");
     await page.goto("/s/alliance/parent");
-    await expect(page.getByText("Faith").first()).toBeVisible();
+    // A parent's Home can take several seconds to load (FIG-1500); what is checked here is the queue, after it has.
+    await expect(page.getByText("Faith").first()).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await page.waitForTimeout(3000);
     const now = await queueOf(page);
