@@ -8,10 +8,10 @@
  * a draft and edit it; nothing a task returns is saved or sent by itself.
  */
 
-export type Task = "report_comment" | "questions" | "homework" | "message" | "translate" | "tutor" | "chat" | "paper_import";
-export type Role = "school_admin" | "teacher" | "student";
+export type Task = "report_comment" | "questions" | "homework" | "message" | "translate" | "tutor" | "chat" | "paper_import" | "guide";
+export type Role = "school_admin" | "teacher" | "student" | "staff" | "org_admin";
 
-export const TASKS: Task[] = ["report_comment", "questions", "homework", "message", "translate", "tutor", "chat", "paper_import"];
+export const TASKS: Task[] = ["report_comment", "questions", "homework", "message", "translate", "tutor", "chat", "paper_import", "guide"];
 
 /** Who may run each task. Org admins and Figbloom staff work through a school's own accounts. */
 export const ALLOWED: Record<Task, Role[]> = {
@@ -23,6 +23,8 @@ export const ALLOWED: Record<Task, Role[]> = {
   tutor: ["student"],
   chat: ["school_admin", "teacher"],
   paper_import: ["school_admin", "teacher"],
+  // every console; only a full school admin is offered setup actions (index.ts)
+  guide: ["school_admin", "teacher", "staff", "org_admin"],
 };
 
 /** How hard the model thinks: drafting short text doesn't need much; a question paper with a marking key does. */
@@ -36,6 +38,8 @@ export const EFFORT: Record<Task, "low" | "medium"> = {
   // an open-ended assistant gets maths, planning and code too
   chat: "medium",
   paper_import: "medium",
+  // finding the way round the app is quick; planning a school's structure takes some thought
+  guide: "medium",
 };
 
 export class BadInput extends Error {}
@@ -477,7 +481,176 @@ export function chatAttachments(p: Json): ChatAttachmentInput[] {
   });
 }
 
-export function prepare(task: Exclude<Task, "tutor" | "chat" | "paper_import">, payload: Json): PreparedTask {
+// ------------------------------------------------------------------ the guide
+
+/**
+ * The Figbloom guide, in every console: how to do things in the app, with
+ * links to the pages the person can open, and for a full school admin a plan
+ * for setting up the school's structure. It never sees or changes a person:
+ * no names, no phone numbers. The app applies a plan only after the admin
+ * confirms it (packages/shared guide.ts), under their own row-level security.
+ */
+
+/** The pages the console sends: its own sidebar, each with what the page is for. */
+export const GUIDE_MAX_PAGES = 60;
+const GUIDE_PAGE_ABOUT_MAX = 400;
+/** At most this many setup steps in one plan: a whole school's classes fit, a runaway list doesn't. */
+export const GUIDE_MAX_ACTIONS = 80;
+
+export interface GuidePage { to: string; label: string; about: string }
+
+export function guidePages(p: Json): GuidePage[] {
+  return list(p?.pages ?? [], "pages", GUIDE_MAX_PAGES).map((page: Json, i) => {
+    const to = str(page?.to, `pages[${i}].to`, 80);
+    if (!/^[a-z0-9/-]+$/.test(to)) throw new BadInput(`pages[${i}].to isn't a page.`);
+    return { to, label: str(page?.label, `pages[${i}].label`, 60), about: str(page?.about, `pages[${i}].about`, GUIDE_PAGE_ABOUT_MAX, { optional: true }) };
+  });
+}
+
+/**
+ * A Kenyan mobile number (07…, 01…, 254…, +254…, spaced or not) or any
+ * international number. Mirrors containsPhoneNumber in packages/shared guide.ts.
+ */
+const PHONE = /(?:\+?254|\b0)[\s-]?[17](?:[\s-]?\d){8}\b|\+\d(?:[\s-]?\d){7,13}\b/;
+export const containsPhoneNumber = (text: string): boolean => PHONE.test(text);
+
+export const GUIDE_PHONE_REFUSAL = "Leave phone numbers out. The guide can't see or add people, so it never needs them.";
+
+/** The conversation, as Bloom chat checks it, refusing any message of the person's with a phone number in it. */
+export function guideMessages(p: Json): { role: "user" | "assistant"; content: string }[] {
+  const msgs = chatMessages(p);
+  if (msgs.some((m) => m.role === "user" && containsPhoneNumber(m.content))) throw new BadInput(GUIDE_PHONE_REFUSAL);
+  return msgs;
+}
+
+/** The school's structure as the guide is told it: no person anywhere in it. */
+export interface SetupSnapshot {
+  schoolLevel: string;
+  classes: { name: string; level: string; year: number; stream: string | null }[];
+  subjects: { name: string; code: string; level: string | null; fromYear: number | null; toYear: number | null }[];
+  terms: { name: string; year: number; index: number; startsOn: string; endsOn: string; current: boolean }[];
+  currentTermExams: string[];
+  currentTermFeeItems: { name: string; shillings: number; appliesTo: string; level: string | null; year: number | null }[];
+}
+
+export const SETUP_ACTION_KINDS = ["create_class", "create_subject", "start_term", "create_exam", "create_fee_item"] as const;
+const CLASS_LEVELS = ["pre_primary", "primary", "junior_secondary", "senior_school", "secondary"] as const;
+const FEE_SCOPES = ["all", "boarders", "day", "form_level"] as const;
+
+const nullable = (type: string) => ({ type: [type, "null"] });
+const nullableEnum = (values: readonly string[]) => ({ type: ["string", "null"], enum: [...values, null] });
+
+const GUIDE_LINKS = {
+  type: "array",
+  items: obj({ to: { type: "string" }, label: { type: "string" } }),
+};
+
+export const GUIDE_SCHEMA = obj({ reply: { type: "string" }, links: GUIDE_LINKS });
+
+/** Every field is always present (strict structured outputs); those a kind doesn't use are null. */
+export const GUIDE_SETUP_SCHEMA = obj({
+  reply: { type: "string" },
+  links: GUIDE_LINKS,
+  actions: {
+    type: "array",
+    items: obj({
+      kind: { type: "string", enum: [...SETUP_ACTION_KINDS] },
+      name: nullable("string"),
+      level: nullableEnum(CLASS_LEVELS),
+      year: nullable("integer"),
+      stream: nullable("string"),
+      code: nullable("string"),
+      from_year: nullable("integer"),
+      to_year: nullable("integer"),
+      term_year: nullable("integer"),
+      term_index: nullable("integer"),
+      starts_on: nullable("string"),
+      ends_on: nullable("string"),
+      amount_shillings: nullable("integer"),
+      applies_to: nullableEnum(FEE_SCOPES),
+    }),
+  },
+});
+
+export interface GuideContext {
+  /** "school_admin" for a full admin (or an org admin acting for the school); "teacher", "staff" or "org_admin" otherwise. */
+  role: Role;
+  /** Set when a teacher or other staff member is in the admin console with some admin areas. */
+  adminAreas: boolean;
+  schoolName: string;
+  organizationName: string;
+  today: string;
+  pages: GuidePage[];
+  /** The page they have open, as a `to` from pages (or empty). */
+  here: string;
+  /** Only for a full school admin: the structure, and with it the setup rules. */
+  setup: SetupSnapshot | null;
+}
+
+const WHO: Record<string, string> = {
+  school_admin: "a full admin of the school (the principal or the school office)",
+  teacher: "a teacher",
+  staff: "a member of the school's other staff (for example a librarian, nurse, bursar or secretary)",
+  org_admin: "an organization admin, who runs one or more schools from the organization console",
+  student: "a learner",
+};
+
+const PLATFORM = `How Figbloom fits together:
+- An organization (a school group or owner) has one or more schools. Organization admins work in the organization console: they add schools, add other organization admins, read the organization's audit log, and can open any of their schools' consoles to work as that school's office (a banner shows they are acting for the school).
+- Each school has full admins (the principal and the school office), who see the whole admin console, including School settings, Access & roles and Reports.
+- Teachers have their own console: attendance registers, the gradebook, homework, learning materials, exams and tests, report cards, their timetable and classes, messages to classes, chats, notices, leave and their account.
+- Other staff (librarian, nurse, matron, guard, receptionist, bursar, secretary and so on) have a small console of their own: notices, chats, loans, issued items and their account. A full admin can give a teacher or other staff member admin areas in Access & roles (People, Fees, Academics, Attendance, Transport, Communication, Inventory, Activities, Visitors, Medical, Leave, Audit log). They then get a "Teacher | Admin" or "Staff | Admin" switch and see only the admin pages of their areas.
+- Parents and learners sign in on the phone apps or the web, with the login ID the school gives them. Everyone signs in by picking their school, then their login ID and password.
+- Bloom is the AI writing and chat assistant for staff; the Bloom study helper is for learners, when the school turns it on.`;
+
+const SETUP_RULES = (s: SetupSnapshot) => `
+
+You can also set up the school's structure for this admin. When they ask you to create or set up classes, subjects, a term, exams or fee items, put each thing to create in "actions" and describe the plan in "reply". Nothing is created until they press Confirm in the app, so say so, and never claim something is already done.
+- Only create. You can't rename, change or delete anything; for that, link the page where they can.
+- You can't add learners, parents, staff or teachers, assign class teachers or who teaches what, or record anything about a person. Send them to Students & staff (admin/people) or Subjects (admin/subjects) for that, and don't ask for names.
+- Never repeat something that already exists (listed below). If what they ask is already there, say so.
+- Ask one short question instead of guessing when something important is missing (which years, which streams, a term's dates, an amount). Use sensible defaults for the rest and say what you assumed.
+- create_class: level, year, name, and stream (or null). Name it the way the school already does; otherwise "Grade 7 East", "Form 2 North", "PP1 Blue", or "Grade 4" with no stream. Levels and years: pre_primary PP1-PP2 (years 1-2), primary Grade 1-6, junior_secondary Grade 7-9, senior_school Grade 10-12, secondary (8-4-4) Form 1-4. This school can use: ${levelsFor(s.schoolLevel)}.
+- create_subject: name, a short unique uppercase code (e.g. MATH, ENG, KISW, SCI), and optionally level with from_year and to_year (the years that take it; null for every year of that level, or level null for the whole school).
+- start_term: term_year, term_index (1, 2 or 3), starts_on and ends_on (YYYY-MM-DD). It becomes the current term and ends the current one; at most one in a plan. The term's name is "Term <index>, <year>".
+- create_exam: name (e.g. "Opener", "Mid-term", "End of Term 2"). Exams are out of 100 and go into the current term, or the term the same plan starts.
+- create_fee_item: name, amount_shillings (a whole number of shillings), applies_to: "all", "boarders", "day", or "form_level" with level and year for one year group. Fee items go into the current term, or the term the same plan starts. Changing fees after invoices go out is for the Fees page.
+- At most ${GUIDE_MAX_ACTIONS} actions in one plan. Leave actions empty when they are only asking a question.
+
+The school's structure now (classes, subjects, terms, the current term's exams and fee items; no people):
+${JSON.stringify(s)}`;
+
+function levelsFor(schoolLevel: string): string {
+  if (schoolLevel === "primary") return "pre_primary, primary, junior_secondary";
+  if (schoolLevel === "secondary") return "junior_secondary, senior_school, secondary";
+  return CLASS_LEVELS.join(", ");
+}
+
+export function guideSystem(c: GuideContext): string {
+  const where = c.role === "org_admin" && !c.schoolName
+    ? `in the organization console${c.organizationName ? ` of ${c.organizationName}` : ""}`
+    : `at ${c.schoolName || "their school"}`;
+  const pages = c.pages.map((p) => `- ${p.to}: ${p.label}${p.about ? `. ${p.about}` : ""}`).join("\n");
+  return `You are the Figbloom guide, the in-app helper of Figbloom, a school management app used in Kenya. You help people find their way round the app and get things done in it, so they need no demo or walkthrough. You are talking with ${WHO[c.role] ?? "a member of staff"} ${where}${c.adminAreas ? ", who also holds some admin areas" : ""}. Today is ${c.today}.
+
+${PLATFORM}
+
+The pages this person can open (their sidebar), as "to: label. what it's for":
+${pages || "(none sent)"}
+${c.here ? `They are on: ${c.here}\n` : ""}
+How to answer:
+- Lead with the answer, then short numbered steps that name the page and the buttons as the person will see them. Keep it short. Markdown is fine; no tables unless asked.
+- In "links", give the pages the steps use (at most 4), each with a "to" copied exactly from the list above and a short label such as "Open Fees". Never link a page that isn't listed.
+- If what they want is on a page they can't open, say who can do it (usually a full admin of the school, or the organization admin), and don't link it.
+- Only describe what the pages above and the outline above say exists. If you aren't sure the app does something, say so plainly and point to the closest page instead of inventing a button or a feature.
+- For general school questions outside the app, answer briefly and suggest Bloom for longer writing.
+- Never ask for, repeat or store a person's name, phone number, email, admission number or anything else about a person. You can't see or change anyone's records. If they paste personal details, don't repeat them and tell them they aren't needed.
+- Use British spelling. You are an AI and can be wrong; when a step matters (money, results, deleting), suggest they check the page.${c.setup ? SETUP_RULES(c.setup) : `
+
+You can't create or change anything yourself; you show the way. Leave out anything about setting things up for them.`}`;
+}
+
+export function prepare(task: Exclude<Task, "tutor" | "chat" | "paper_import" | "guide">, payload: Json): PreparedTask {
   if (!payload || typeof payload !== "object") throw new BadInput("Missing request details.");
   switch (task) {
     case "report_comment": return reportComment(payload);
