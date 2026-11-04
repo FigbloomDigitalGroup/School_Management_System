@@ -36,7 +36,11 @@ async function removeProbes() {
   for (let i = 0; i < 40; i++) {
     const { data } = await db.from("students").select("id").eq("tenant_id", tenantId).like("admission_no", "QA11-E-%").limit(100); // 100 ids: a longer list makes the request URL too long
     if (!data?.length) return null;
-    const { error } = await db.from("students").delete().in("id", data.map((s) => s.id as string));
+    const ids = data.map((s) => s.id as string);
+    // a learner with a health record cannot be deleted (FIG-1467): clear the records first
+    const health = await db.from("student_health").delete().in("student_id", ids);
+    if (health.error) return health.error.message;
+    const { error } = await db.from("students").delete().in("id", ids);
     if (error) return error.message;
   }
   return "more than 4,000 left";
