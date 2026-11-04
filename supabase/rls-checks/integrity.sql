@@ -92,11 +92,11 @@ select pg_temp.check('A5 every uuid *_id column has a foreign key, except the tw
   = 'signature_requests.doc_id,signatures.doc_id');
 
 -- A6 every school-owned row has a school
-select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand)',
+select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand, an org admin''s guide question in their organization console, which names the organization instead: 20261105200000)',
   (select coalesce(string_agg(table_name, ',' order by table_name), '') from information_schema.columns
     where table_schema = 'public' and column_name = 'tenant_id' and is_nullable = 'YES'
       and table_name in (select tablename from pg_tables where schemaname = 'public'))
-  = 'audit_events,organization_access_log,profiles,strands');
+  = 'ai_usage,audit_events,organization_access_log,profiles,strands');
 
 -- A7 uniqueness per school
 create function pg_temp.has_unique(p_tbl text, p_cols text[]) returns boolean language sql as $$
