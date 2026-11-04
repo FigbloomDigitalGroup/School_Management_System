@@ -52,7 +52,13 @@ const SCHOOL = process.env.SCHOOL ?? "alliance";
 const PLATE = process.env.PLATE ?? "KDA 214B";
 
 const TICK_MS = 4_000;
-const STEPS_PER_LEG = 30; // ~2 minutes per leg — finer steps too, so each move is smaller and smoother
+/**
+ * How far the bus moves per tick, along the road. Short enough that the
+ * map's straight slide between two positions stays on the road through a
+ * bend (a fixed number of steps per leg made long legs jump 100m+ and cut
+ * corners); 50m every 4s is about 45 km/h.
+ */
+const STEP_M = 50;
 
 type LatLng = { lat: number; lng: number };
 
@@ -103,12 +109,17 @@ async function fetchRoutePolyline(origin: LatLng, destination: LatLng): Promise<
       mode: "driving", key: mapsKey,
     });
     const res = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params}`);
-    const json = await res.json() as { status: string; error_message?: string; routes: { overview_polyline: { points: string } }[] };
+    const json = await res.json() as {
+      status: string; error_message?: string;
+      routes: { overview_polyline: { points: string }; legs: { steps: { polyline: { points: string } }[] }[] }[];
+    };
     if (json.status !== "OK" || !json.routes.length) {
       console.warn(`  ! Directions API: ${json.status}${json.error_message ? ` — ${json.error_message}` : ""}. Falling back to a straight line.`);
       return null;
     }
-    return decodePolyline(json.routes[0]!.overview_polyline.points);
+    // Every turn of every step: the overview polyline is simplified and cuts across bends.
+    const detailed = json.routes[0]!.legs.flatMap((leg) => leg.steps.flatMap((step) => decodePolyline(step.polyline.points)));
+    return detailed.length >= 2 ? detailed : decodePolyline(json.routes[0]!.overview_polyline.points);
   } catch (err) {
     console.warn(`  ! Directions API request failed: ${err instanceof Error ? err.message : err}. Falling back to a straight line.`);
     return null;
@@ -223,7 +234,10 @@ async function main() {
       const to = stops[leg + 1]!;
 
       const realPath = await fetchRoutePolyline(from, to);
-      const waypoints = resamplePath(realPath && realPath.length >= 2 ? realPath : [from, to], STEPS_PER_LEG);
+      const path = realPath && realPath.length >= 2 ? realPath : [from, to];
+      let pathKm = 0;
+      for (let i = 1; i < path.length; i++) pathKm += haversineKm(path[i - 1]!, path[i]!);
+      const waypoints = resamplePath(path, Math.max(2, Math.ceil((pathKm * 1000) / STEP_M)));
       console.log(`  ${from.name} -> ${to.name}${realPath ? " (real road route)" : " (straight line)"}`);
 
       for (let step = 0; step < waypoints.length && !stopRequested; step++) {
