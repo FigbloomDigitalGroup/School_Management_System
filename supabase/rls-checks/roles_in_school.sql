@@ -277,6 +277,7 @@ end $$;
 do $$
 declare
   tid uuid; teacher uuid; parent uuid; stu_p uuid; admin uuid; drv uuid; myveh uuid; othveh uuid; othdrv uuid; trp uuid; pend uuid; lv uuid; kid uuid;
+  famveh uuid; rt uuid;
 begin
   select id into tid from tenants where slug = 'kijani-ridge';
   if tid is null then perform pg_temp.say('SKIPPED', 'Kijani Ridge is not seeded (run npm run db:seed-org): driver, trip, leave and bus checks did not run'); return; end if;
@@ -305,11 +306,29 @@ begin
   perform pg_temp.see0('driver reads learners'' marks', (select count(*) from marks where tenant_id = tid), drv, 'select count(*) from marks');
   perform pg_temp.see0('driver reads learners'' attendance', (select count(*) from attendance where tenant_id = tid), drv, 'select count(*) from attendance');
 
-  -- ---------------------------------------------------------------- who can see which bus (the issue: "driver: only their own vehicle")
+  -- ---------------------------------------------------------------- who can see which bus (FIG-1304)
+  -- A driver reads only their own bus; a parent (or a learner) only the bus on the route their child (they) ride, that is a vehicle that
+  -- runs a trip on it; teachers, the school admin and the transport area every bus.
   update vehicles set last_lat = -1.3, last_lng = 36.8, last_ping_at = now() where tenant_id = tid;
-  perform pg_temp.say('INFO', format('vehicles table (plate, last position) is readable school-wide: the driver sees %s of %s buses, a parent sees %s, a student sees %s, a teacher sees %s (the issue says a driver sees only their own vehicle and pings)',
-    pg_temp.cnt(drv, 'select count(last_lat) from vehicles'), (select count(*) from vehicles where tenant_id = tid),
-    pg_temp.cnt(parent, 'select count(last_lat) from vehicles'), pg_temp.cnt(stu_p, 'select count(last_lat) from vehicles'), pg_temp.cnt(teacher, 'select count(last_lat) from vehicles')));
+  select id into famveh from vehicles where tenant_id = tid and id <> myveh and id <> othveh order by id limit 1;
+  insert into routes (tenant_id, name) values (tid, 'QA family route') returning id into rt;
+  insert into trips (tenant_id, vehicle_id, route_id, driver_id) values (tid, famveh, rt, othdrv);
+  -- the parent's child rides that route (a row per learner, so it replaces any seeded one); the learner who signs in does not ride yet
+  insert into student_transport (tenant_id, student_id, route_id) values (tid, kid, rt)
+    on conflict (student_id) do update set route_id = excluded.route_id;
+  delete from student_transport where student_id = (select id from students where profile_id = stu_p);
+  perform pg_temp.say(case when pg_temp.cnt(drv, 'select count(*) from vehicles') = 1 and pg_temp.cnt(drv, format('select count(*) from vehicles where id=%L', myveh)) = 1 then 'PASS' else 'FAIL' end,
+    'a driver reads only their own bus (' || pg_temp.cnt(drv, 'select count(*) from vehicles') || ' of ' || (select count(*) from vehicles where tenant_id = tid) || ')');
+  perform pg_temp.say(case when pg_temp.cnt(parent, 'select count(*) from vehicles') = 1 and pg_temp.cnt(parent, format('select count(*) from vehicles where id=%L', famveh)) = 1 then 'PASS' else 'FAIL' end,
+    'a parent reads only the bus their child rides (' || pg_temp.cnt(parent, 'select count(*) from vehicles') || ' of ' || (select count(*) from vehicles where tenant_id = tid) || ')');
+  perform pg_temp.say(case when pg_temp.cnt(stu_p, 'select count(*) from vehicles') = 0 then 'PASS' else 'FAIL' end, 'a learner who rides no bus reads no bus');
+  insert into student_transport (tenant_id, student_id, route_id) select tid, id, rt from students where profile_id = stu_p;
+  perform pg_temp.say(case when pg_temp.cnt(stu_p, 'select count(*) from vehicles') = 1 and pg_temp.cnt(stu_p, format('select count(*) from vehicles where id=%L', famveh)) = 1 then 'PASS' else 'FAIL' end,
+    'a learner who rides reads only their own bus');
+  perform pg_temp.say(case when pg_temp.cnt(teacher, 'select count(*) from vehicles') = (select count(*) from vehicles where tenant_id = tid) and (select count(*) from vehicles where tenant_id = tid) > 1 then 'CONTROL' else 'FAIL' end,
+    'a teacher reads every bus of the school');
+  perform pg_temp.say(case when pg_temp.cnt(admin, 'select count(*) from vehicles') = (select count(*) from vehicles where tenant_id = tid) then 'CONTROL' else 'FAIL' end, 'the school admin reads every bus');
+  perform pg_temp.say(case when pg_temp.cnt(parent, 'select count(last_lat) from vehicles') = 1 then 'PASS' else 'FAIL' end, 'so a parent sees the position of one bus only');
 
   -- ---------------------------------------------------------------- teacher leave (known gap)
   select id into pend from leave_requests where teacher_id = teacher and status = 'pending' limit 1;
