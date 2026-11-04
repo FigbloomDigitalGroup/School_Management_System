@@ -226,10 +226,12 @@ async function main() {
     tenant_id: alliance.id, exam_id: mock1.id, class_id: form2west.id, subject_id: sub.id,
   })));
 
-  // ---------------------------------------------------------------- attendance, last 10 school days
+  // ---------------------------------------------------------------- attendance, the first 10 school days of the term
+  // A register must lie inside its term and may not be dated after today (FIG-1400), so these are the first ten school days of
+  // Term 3 (31 August to 11 September), not the ten before an invented "today" (seven of those fell before the term began).
   const days: string[] = [];
-  for (let d = 1; days.length < 10; d++) {
-    const date = new Date(Date.UTC(2026, 8, 2) - d * 86400000);
+  for (let d = 0; days.length < 10; d++) {
+    const date = new Date(Date.UTC(2026, 7, 31) + d * 86400000);
     if (date.getUTCDay() !== 0 && date.getUTCDay() !== 6) days.push(date.toISOString().slice(0, 10));
   }
   const attendance = days.flatMap((day) =>

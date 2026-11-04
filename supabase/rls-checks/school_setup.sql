@@ -115,9 +115,12 @@ select pg_temp.info('two terms may carry the same name (the screen writes "Term 
   || pg_temp.term_as(current_setting('t.admin')::uuid, 2041, 2, '2041-05-01', '2041-08-01', false, 'QA12 same name'));
 select pg_temp.check('a teacher cannot create a term (42501)',
   pg_temp.term_as(current_setting('t.teacher')::uuid, 2044, 1, '2044-01-05', '2044-04-01') = 'refused 42501');
+select set_config('t.term_start', (select starts_on::text from terms where id = current_setting('t.term')::uuid), true);
 select pg_temp.info('the dates of the current term can be moved after attendance and invoices exist (nothing looks at them): '
   || pg_temp.as_user(current_setting('t.admin')::uuid, format('update terms set starts_on = %L where id = %L', '2026-11-26', current_setting('t.term')))
   || '. Rows keep their term_id, so the figures do not move.');
+-- Put back: the checks below file registers in this term, and a register must lie inside its term (FIG-1400).
+update terms set starts_on = current_setting('t.term_start')::date where id = current_setting('t.term')::uuid;
 
 -- ---------------------------------------------------------------- classes
 select pg_temp.check('the same class name twice in one school is refused (unique tenant_id, name)',
@@ -253,10 +256,10 @@ select pg_temp.check('deleting a subject that has marks keeps the marks (1 mark 
 
 -- A term is deleted: its attendance, exams, invoices and report cards go with it.
 with tm as (insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
-              values (current_setting('t.a')::uuid, 'QA12 gone term', 2043, 1, '2043-01-05', '2043-04-01', false) returning id)
+              values (current_setting('t.a')::uuid, 'QA12 gone term', 2019, 1, '2019-01-05', '2019-04-01', false) returning id)
   select set_config('t.goneterm', (select id::text from tm), true);
 insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
-  values (current_setting('t.a')::uuid, current_setting('t.faith')::uuid, current_setting('t.west')::uuid, current_setting('t.goneterm')::uuid, current_setting('t.teacher')::uuid, '2043-01-06', 'present');
+  values (current_setting('t.a')::uuid, current_setting('t.faith')::uuid, current_setting('t.west')::uuid, current_setting('t.goneterm')::uuid, current_setting('t.teacher')::uuid, '2019-01-06', 'present');
 select set_config('t.r', pg_temp.as_user(current_setting('t.admin')::uuid, format('delete from terms where id = %L', current_setting('t.goneterm'))), true);
 select pg_temp.info('the admin deletes a term that has attendance (no screen deletes a term; this is a direct write): ' || current_setting('t.r'));
 select pg_temp.check('deleting a term that has attendance keeps the attendance (1 row before)',

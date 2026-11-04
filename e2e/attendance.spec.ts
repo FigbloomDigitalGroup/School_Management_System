@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+import { today as schoolToday } from "../packages/shared/src/attendance";
 
 process.loadEnvFile?.(); // Node 20.6+ built-in
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -10,7 +11,7 @@ const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_
  *
  * The expected numbers are worked out here from the attendance rows (read with the service role, counted with plain loops), not by
  * calling any of the app's own code. Each screen is then read as a person sees it. Seed data only (npm run db:seed and db:seed-org):
- * Alliance has ten days of registers for Form 2 West (to 2026-09-01), Kijani Ridge has registers for five classes from the start of
+ * Alliance has ten days of registers for Form 2 West (the first ten school days of the term, to 2026-09-11), Kijani Ridge has registers for five classes from the start of
  * the term to 2026-10-27, and neither school has taken a register today. The tests that write (the teacher's register, the queue)
  * clear today's Alliance rows before and after, as flows.spec.ts does; the one that archives a learner puts them back.
  * supabase/rls-checks/attendance.sql and tests/integration/attendance.test.ts ask the same questions without a browser.
@@ -36,7 +37,8 @@ test.afterAll(() => {
 // ---------------------------------------------------------------- the database side
 interface Att { class_id: string; student_id: string; mark: string; taken_on: string }
 const isHere = (mark: string) => mark === "present" || mark === "late";
-const todayUtc = () => new Date().toISOString().slice(0, 10);
+/** Today in the school's time zone (Africa/Nairobi), which is the date the app files a register under (FIG-1400): not the UTC date. */
+const todayInSchool = () => schoolToday();
 
 async function pages<T>(make: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
@@ -194,7 +196,7 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
   test("KNOWN QA10-TODAY FIG-1401 (open): with no register taken yet today, 'Attendance today' does not show an earlier day", async ({ page }) => {
     test.fail();
     const d = await school("alliance");
-    expect(d.rows.some((r) => r.taken_on === todayUtc()), "nothing has been taken in Alliance today").toBe(false);
+    expect(d.rows.some((r) => r.taken_on === todayInSchool()), "nothing has been taken in Alliance today").toBe(false);
     await signInEmail(page, SCHOOLS[0].admin);
     await page.goto("/s/alliance/admin");
     await expect(page.getByText(/classes submitted/).first()).toBeVisible();
@@ -287,12 +289,12 @@ test.describe("teacher register", () => {
   const todayRows = async () => {
     const t = await db.from("tenants").select("id").eq("slug", "alliance").single();
     return pages<{ id: string; mark: string; students: { full_name: string } | null; class_id: string }>((a, b) =>
-      db.from("attendance").select("id, mark, class_id, students(full_name)").eq("tenant_id", t.data!.id as string).eq("taken_on", todayUtc()).order("id").range(a, b)
+      db.from("attendance").select("id, mark, class_id, students(full_name)").eq("tenant_id", t.data!.id as string).eq("taken_on", todayInSchool()).order("id").range(a, b)
         .returns<{ id: string; mark: string; students: { full_name: string } | null; class_id: string }[]>());
   };
   const clearToday = async () => {
     const t = await db.from("tenants").select("id").eq("slug", "alliance").single();
-    await db.from("attendance").delete().eq("tenant_id", t.data!.id as string).eq("taken_on", todayUtc());
+    await db.from("attendance").delete().eq("tenant_id", t.data!.id as string).eq("taken_on", todayInSchool());
   };
   const openRegister = async (page: Page) => {
     await signInWithId(page, SCHOOLS[0].name, "TC-0002", "Teacher");
