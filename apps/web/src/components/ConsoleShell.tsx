@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { NAV, normalizeSlug, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
+import { GuidePanel, guideWasOpen, rememberGuideOpen, type GuideOptions } from "./GuidePanel";
 import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -42,6 +43,8 @@ interface Props {
   /** A teacher or other staff member who also holds admin areas (20261031000000):
    *  a "Teacher | Admin" switch between their own console and the admin one. */
   consoleSwitch?: { current: "own" | "admin"; ownLabel: string; ownTo: string; adminTo: string };
+  /** The Figbloom guide (GuidePanel): a "Guide" button in the sidebar. Absent: no guide here. */
+  guide?: GuideOptions;
 }
 
 /**
@@ -49,13 +52,16 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch, guide }: Props) {
   // Start collapsed when the labelled sidebar would eat too much of a narrow
   // (or heavily zoomed) window; the person can still expand it.
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
   const [changingPw, setChangingPw] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [guideOpen, setGuideOpenState] = useState(() => !!guide && guideWasOpen(user.id));
+  const setGuideOpen = (v: boolean) => { setGuideOpenState(v); rememberGuideOpen(user.id, v); };
+  const location = useLocation();
   const accountBtn = useRef<HTMLButtonElement>(null);
   const { slug, orgSlug } = useParams();
   const tenant = useTenant();
@@ -92,6 +98,15 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // since useParams() on an /org/* route has no `slug` — nav was completely broken.
   const tenantScoped = role !== "super_admin" && role !== "org_admin";
   const orgScoped = role === "org_admin";
+  const hrefFor = (to: string) => tenantScoped
+    ? `/s/${slug}/${to.replace(/^\//, "")}`
+    : orgScoped
+      ? `/org/${orgSlug}/${to.replace(/^\//, "")}`
+      : to;
+  // The page they're on, as a sidebar `to`, for the guide.
+  const prefix = tenantScoped ? `/s/${slug}/` : orgScoped ? `/org/${orgSlug}/` : "/";
+  const here = location.pathname.startsWith(prefix) ? location.pathname.slice(prefix.length).replace(/\/$/, "") : "";
+  const herePage = items.find((i) => i.to === here) ? here : items.filter((i) => here.startsWith(`${i.to}/`)).map((i) => i.to).sort((a, b) => b.length - a.length)[0] ?? "";
   // Only the three roles with a real self-service "My account" screen (FIG-
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
@@ -189,11 +204,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
         {items.map((it) => {
-          const to = tenantScoped
-            ? `/s/${slug}/${it.to.replace(/^\//, "")}`
-            : orgScoped
-              ? `/org/${orgSlug}/${it.to.replace(/^\//, "")}`
-              : it.to;
+          const to = hrefFor(it.to);
           return (
             <NavLink
               key={it.to}
@@ -220,6 +231,19 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         </div>
 
         <div className="shrink-0 border-t border-white/10 pt-2">
+          {guide && (
+            <button
+              type="button"
+              onClick={() => setGuideOpen(!guideOpen)}
+              aria-expanded={guideOpen}
+              title="Ask the guide how to do something"
+              className={`hit mb-1 flex w-full items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 hover:bg-white/10 ${guideOpen ? "bg-white/10 text-white" : "text-white/75"} ${open ? "" : "justify-center"}`}
+              style={{ height: 38 }}
+            >
+              <Icon name="help" />
+              {open && <span className="flex-1 truncate text-left text-body">Guide</span>}
+            </button>
+          )}
           <button
             ref={accountBtn}
             type="button"
@@ -277,6 +301,17 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           onAccessibility={() => setA11yOpen(true)}
           onChangePassword={() => setChangingPw(true)}
           onSignOut={() => void signOut()}
+        />
+      )}
+      {guide && guideOpen && (
+        <GuidePanel
+          role={role}
+          userId={user.id}
+          items={items}
+          here={herePage}
+          hrefFor={hrefFor}
+          options={guide}
+          onClose={() => setGuideOpen(false)}
         />
       )}
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}

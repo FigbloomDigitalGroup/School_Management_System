@@ -18,6 +18,14 @@
  *  - what is kept: one ai_usage row per request (who, task, tokens, searches), never
  *    the prompt or the reply. A paper sent for importing is deleted from
  *    storage as soon as it has been read (documents.ts).
+ *  - the guide: every console (organization admins, school admins, teachers,
+ *    other staff). It is sent the person's own sidebar and answers with steps
+ *    and links to those pages only. A full school admin also gets the school's
+ *    structure (classes, subjects, terms, exams, fee items; never a person)
+ *    and may get a setup plan back, which the app applies only once they
+ *    confirm it. A message with a phone number in it is refused. An org admin
+ *    in their organization console (no school) names the organization, is
+ *    checked against it, and counts against their daily cap only.
  *  - files: Bloom chat only. A question may carry up to CHAT_MAX_ATTACHMENTS
  *    files in the request (text, or a PDF or Word file), read like a paper
  *    import (documents.ts chatAttachmentParts) and never stored; metered and
@@ -40,12 +48,13 @@ import { administersOrganization } from "../_shared/organizations.ts";
 import { chatAttachmentParts, paperImportContent, readStaged } from "./documents.ts";
 import { aiFromEnv, type AiCall, type AiReply, type AiRequest, type WebSearch } from "./providers.ts";
 import {
-  ALLOWED, BadInput, CHAT_MAX_SEARCHES, chatAttachments, chatMessages, chatSystem, EFFORT, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
-  type Role, type Task,
+  ALLOWED, BadInput, CHAT_MAX_SEARCHES, chatAttachments, chatMessages, chatSystem, EFFORT, GUIDE_MAX_ACTIONS, GUIDE_SCHEMA, GUIDE_SETUP_SCHEMA, guideMessages, guidePages,
+  guideSystem, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
+  type GuidePage, type Role, type SetupSnapshot, type Task,
 } from "./tasks.ts";
 
 /** Requests per person per day: staff draft in batches at the end of term; a learner chats. */
-export const DAILY_LIMIT: Record<Role, number> = { school_admin: 400, teacher: 400, student: 80 };
+export const DAILY_LIMIT: Record<Role, number> = { school_admin: 400, teacher: 400, student: 80, staff: 200, org_admin: 200 };
 
 /** The configured model, or why there isn't one (a missing key): checked before anything else is spent. */
 export type AiSetup = { call: AiCall; model: string } | { error: string };
@@ -68,7 +77,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   const { data: caller } = await admin.from("profiles").select("id, role, tenant_id").eq("id", user.id).maybeSingle();
   if (!caller) return json({ error: "Bloom is for school accounts." }, 403);
 
-  let body: { task?: string; payload?: unknown; tenantId?: unknown };
+  let body: { task?: string; payload?: unknown; tenantId?: unknown; organizationId?: unknown };
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
 
   // An org admin has no school of their own; inside a member school's
@@ -79,16 +88,29 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
     const { data: school } = await admin.from("tenants").select("id, organization_id").eq("id", body.tenantId).maybeSingle();
     if (school && await administersOrganization(admin, caller.id, school.organization_id)) { tenantId = school.id; effectiveRole = "school_admin"; }
   }
-  if (!tenantId) return json({ error: "Bloom is for school accounts." }, 403);
-
   const task = body.task as Task;
+  // Only the guide works in an organization console, outside any school.
+  let organization: { id: string; name: string } | null = null;
+  if (!tenantId && task === "guide" && caller.role === "org_admin" && typeof body.organizationId === "string"
+    && await administersOrganization(admin, caller.id, body.organizationId)) {
+    const { data: org } = await admin.from("organizations").select("id, name").eq("id", body.organizationId).maybeSingle();
+    organization = org ?? null;
+  }
+  if (!tenantId && !organization) return json({ error: "Bloom is for school accounts." }, 403);
+
   if (!TASKS.includes(task)) return json({ error: "Unknown task." }, 400);
   if (!(ALLOWED[task] as string[]).includes(effectiveRole)) return json({ error: "Your account can't use this." }, 403);
   const role = effectiveRole as Role;
 
-  const { data: tenant } = await admin.from("tenants")
-    .select("id, name, country, ai_enabled, ai_tutor_enabled, ai_web_search_enabled, ai_monthly_tokens").eq("id", tenantId).maybeSingle();
-  if (!tenant?.ai_enabled) return json({ error: "Bloom is turned off for this school. The school office can turn it on in School settings." }, 403);
+  const { data: tenant } = tenantId
+    ? await admin.from("tenants")
+      .select("id, name, country, level, ai_enabled, ai_tutor_enabled, ai_web_search_enabled, ai_monthly_tokens").eq("id", tenantId).maybeSingle()
+    : { data: null };
+  if (tenantId && !tenant?.ai_enabled) {
+    return json({ error: task === "guide"
+      ? "The guide uses AI, which is turned off for this school. The school office can turn it on in School settings."
+      : "Bloom is turned off for this school. The school office can turn it on in School settings." }, 403);
+  }
   if ("error" in ai) {
     console.error("ai-assist:", ai.error);
     return json({ error: "Bloom isn't set up yet. Please tell the school office." }, 503);
@@ -100,8 +122,25 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   let schema: Record<string, unknown> | null = null;
   // Only the chat branch below ever sets this.
   let webSearch: WebSearch | null = null;
+  // The guide's pages, so its links can be held to them; and whether it may answer with a setup plan.
+  let guide: { pages: GuidePage[]; setup: boolean } | null = null;
   try {
-    if (task === "tutor") {
+    if (task === "guide") {
+      const p = (body.payload ?? {}) as { here?: unknown; adminAreas?: unknown };
+      const pages = guidePages(body.payload);
+      messages = guideMessages(body.payload ?? {});
+      const setup = role === "school_admin" && tenant ? await setupSnapshot(admin, tenant.id, tenant.level ?? "combined") : null;
+      const here = typeof p.here === "string" && pages.some((pg) => pg.to === p.here) ? p.here : "";
+      system = guideSystem({
+        role, adminAreas: p.adminAreas === true, schoolName: tenant?.name ?? "", organizationName: organization?.name ?? "",
+        today: new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Nairobi" }),
+        pages, here, setup,
+      });
+      schema = setup ? GUIDE_SETUP_SCHEMA : GUIDE_SCHEMA;
+      guide = { pages, setup: setup !== null };
+    } else if (!tenant) {
+      return json({ error: "Bloom is for school accounts." }, 403);
+    } else if (task === "tutor") {
       // files are for staff chat only; the study helper never reads one
       if ((body.payload as { attachments?: unknown } | null)?.attachments != null) throw new BadInput("The study helper can't read files.");
       if (!tenant.ai_tutor_enabled) return json({ error: "Bloom isn't turned on for learners at your school." }, 403);
@@ -150,9 +189,11 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   }
 
   // Allowance: the school's month, and this person's day.
-  const { data: used } = await admin.rpc("ai_month_tokens", { p_tenant_id: tenant.id });
-  if (Number(used ?? 0) >= Number(tenant.ai_monthly_tokens ?? 0)) {
-    return json({ error: "Your school has used this month's Bloom allowance. It resets on the 1st." }, 429);
+  if (tenant) {
+    const { data: used } = await admin.rpc("ai_month_tokens", { p_tenant_id: tenant.id });
+    if (Number(used ?? 0) >= Number(tenant.ai_monthly_tokens ?? 0)) {
+      return json({ error: "Your school has used this month's Bloom allowance. It resets on the 1st." }, 429);
+    }
   }
   const dayStart = new Date();
   dayStart.setUTCHours(0, 0, 0, 0);
@@ -162,7 +203,8 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
 
   const log = (reply: AiReply | null, outcome: "ok" | "refused" | "error") =>
     admin.from("ai_usage").insert({
-      tenant_id: tenant.id, profile_id: caller.id, task, model: reply?.model ?? ai.model, outcome,
+      tenant_id: tenant?.id ?? null, ...(organization ? { organization_id: organization.id } : {}),
+      profile_id: caller.id, task, model: reply?.model ?? ai.model, outcome,
       input_tokens: reply?.inputTokens ?? 0, output_tokens: reply?.outputTokens ?? 0,
       // left null when the tool wasn't offered; searches are billed even when the answer is refused or cut off
       ...(webSearch ? { searches: reply?.searches ?? 0 } : {}),
@@ -183,6 +225,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
       error: task === "tutor" ? "I can't help with that one. Try asking about your schoolwork."
         : task === "chat" ? "Bloom can't help with that one. Try asking another way."
         : task === "paper_import" ? "Bloom couldn't read this paper. Check it's the right file."
+        : task === "guide" ? "The guide can't help with that one. Try asking another way."
         : "Bloom couldn't draft this. Try rewording it.",
     }, 422);
   }
@@ -191,6 +234,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
     return json({
       error: task === "chat" ? "That answer ran too long. Try asking for less at once, or start a new chat."
         : task === "paper_import" ? "That paper is too long to import in one go. Import it a section at a time."
+        : task === "guide" ? "That was too much to plan at once. Try asking for one part of it, such as one level's classes."
         : "That was too much to draft at once. Try asking for less.",
     }, 422);
   }
@@ -199,6 +243,7 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
   if (task === "chat") return json({ result: { text: reply.text, sources: reply.sources } });
   if (!schema) return json({ result: { text: reply.text } });
   try {
+    if (guide) return json({ result: guideResult(JSON.parse(reply.text), guide) });
     return json({ result: JSON.parse(reply.text) });
   } catch {
     return json({ error: "The draft came back in an unexpected form. Please try again." }, 502);
@@ -215,6 +260,53 @@ export function chatWebSearch(payload: unknown, tenant: { country?: string | nul
   if ((payload as { webSearch?: unknown } | null)?.webSearch === false) return null;
   const country = typeof tenant.country === "string" && /^[A-Z]{2}$/.test(tenant.country) ? tenant.country : "KE";
   return { maxUses: CHAT_MAX_SEARCHES, country, ...(country === "KE" ? { timezone: "Africa/Nairobi" } : {}) };
+}
+
+/**
+ * The school's structure for the guide's setup plans: names, levels, years,
+ * codes, dates and amounts. No person: not a class teacher, not a learner.
+ */
+// deno-lint-ignore no-explicit-any
+export async function setupSnapshot(admin: any, tenantId: string, schoolLevel: string): Promise<SetupSnapshot> {
+  const [classes, subjects, terms] = await Promise.all([
+    admin.from("classes").select("name, level, form_level, stream").eq("tenant_id", tenantId).order("name"),
+    admin.from("subjects").select("name, code, level, min_form_level, max_form_level").eq("tenant_id", tenantId).order("name"),
+    admin.from("terms").select("id, name, year, index, starts_on, ends_on, is_current").eq("tenant_id", tenantId).order("starts_on"),
+  ]);
+  // deno-lint-ignore no-explicit-any
+  type Row = any;
+  const current = (terms.data ?? []).find((t: Row) => t.is_current);
+  const [exams, fees] = current
+    ? await Promise.all([
+      admin.from("exams").select("name").eq("term_id", current.id).order("name"),
+      admin.from("fee_items").select("name, amount_cents, applies_to, level, form_level").eq("term_id", current.id).order("name"),
+    ])
+    : [{ data: [] }, { data: [] }];
+  // Field by field, so nothing else a row holds (a class teacher) is ever sent.
+  return {
+    schoolLevel,
+    classes: (classes.data ?? []).map((c: Row) => ({ name: c.name, level: c.level, year: c.form_level, stream: c.stream ?? null })),
+    subjects: (subjects.data ?? []).map((s: Row) => ({ name: s.name, code: s.code, level: s.level ?? null, fromYear: s.min_form_level ?? null, toYear: s.max_form_level ?? null })),
+    terms: (terms.data ?? []).map((t: Row) => ({ name: t.name, year: t.year, index: t.index, startsOn: t.starts_on, endsOn: t.ends_on, current: !!t.is_current })),
+    currentTermExams: (exams.data ?? []).map((e: Row) => e.name),
+    currentTermFeeItems: (fees.data ?? []).map((f: Row) => ({
+      name: f.name, shillings: Math.round(Number(f.amount_cents) / 100), appliesTo: f.applies_to, level: f.level ?? null, year: f.form_level ?? null,
+    })),
+  };
+}
+
+/** The guide's answer as the app gets it: links only to the person's own pages, and a plan only for a full admin. */
+// deno-lint-ignore no-explicit-any
+export function guideResult(raw: any, guide: { pages: GuidePage[]; setup: boolean }) {
+  const known = new Set(guide.pages.map((p) => p.to));
+  const links = (Array.isArray(raw?.links) ? raw.links : [])
+    // deno-lint-ignore no-explicit-any
+    .filter((l: any) => typeof l?.to === "string" && known.has(l.to) && typeof l?.label === "string")
+    // deno-lint-ignore no-explicit-any
+    .map((l: any) => ({ to: l.to as string, label: (l.label as string).slice(0, 60) }))
+    .slice(0, 4);
+  const actions = guide.setup && Array.isArray(raw?.actions) ? raw.actions.slice(0, GUIDE_MAX_ACTIONS) : [];
+  return { reply: typeof raw?.reply === "string" ? raw.reply : "", links, actions };
 }
 
 function json(body: unknown, status = 200): Response {

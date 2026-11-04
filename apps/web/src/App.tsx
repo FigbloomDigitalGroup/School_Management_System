@@ -367,6 +367,7 @@ const OrgShell = ({ children }: { children: ReactNode }) => {
       user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: "Org admin" }}
       workspaceName={session.organization.name}
       workspaceOptions={myOrgs?.map((o) => ({ slug: o.slug, name: o.name }))}
+      guide={{ organizationId: session.organization.id }}
     >
       {children}
     </ConsoleShell>
@@ -463,6 +464,11 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
           onExit: () => void exitToOrganization(),
         } : undefined}
         badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
+        guide={session.tenant.ai_enabled ? {
+          tenantId: session.actingForTenant ? session.tenant.id : undefined,
+          adminAreas: !full,
+          setup: full ? { tenantId: session.tenant.id, schoolLevel: session.tenant.level } : undefined,
+        } : undefined}
       >
         {children}
         {full && <BloomFab console="admin" />}
@@ -483,6 +489,7 @@ const StaffShell = ({ children }: { children: ReactNode }) => {
         hiddenNav={session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]}
         consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
         badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
+        guide={session.tenant.ai_enabled ? {} : undefined}
       >
         {children}
       </ConsoleShell>
@@ -528,6 +535,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
             ...(unread ? { "teacher/notices": String(unread) } : {}),
             ...(chatUnread ? { "teacher/chats": String(chatUnread) } : {}),
           }}
+          guide={session.tenant.ai_enabled ? {} : undefined}
         >
           <QueueNotice />
           {children}
