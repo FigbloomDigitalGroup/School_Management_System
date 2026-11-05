@@ -2,7 +2,7 @@ import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
 import { captureLogs, countingLimiter, FakeMailer } from "../_shared/fakeMailer.ts";
-import { handle, normalisePhone } from "./index.ts";
+import { accountClash, handle, normalisePhone } from "./index.ts";
 
 describe("normalisePhone", () => {
   it("converts a local 07xx number to +254", () => {
@@ -504,5 +504,120 @@ describe("invite-admin sign-in email", () => {
     const res = await handle(request({ ...teacher, email: "otieno at gmail" }), { admin, asUser, mailer: new FakeMailer() });
     assertEquals(res.status, 400);
     assertEquals(admin.rowsIn("profiles").length, 1);
+  });
+});
+
+describe("invite-admin shared contact details (one person, an account at each school)", () => {
+  const OTHER_TENANT = "tenant-2";
+  const contact = { full_name: "Otieno Ouma", role: "teacher", phone: "0712 345 678", email: "otieno@gmail.com" };
+
+  /** A fake whose createUser behaves like Supabase Auth: auth email and auth phone are each unique. */
+  function realisticAuth() {
+    const { admin, asUser } = makeClients();
+    admin.seed("tenants", [
+      { id: TENANT_ID, name: "Green Valley School", slug: "green-valley" },
+      { id: OTHER_TENANT, name: "Hill Top Academy", slug: "hill-top" },
+    ]);
+    const users: { email: string; phone?: string }[] = [];
+    const calls: Record<string, unknown>[] = [];
+    admin.onCreateUser = (attrs) => {
+      calls.push(attrs);
+      if (users.some((u) => u.email === attrs.email)) {
+        return { data: { user: null }, error: { message: "A user with this email address has already been registered" } };
+      }
+      if (attrs.phone && users.some((u) => u.phone === attrs.phone)) {
+        return { data: { user: null }, error: { message: "Phone number already registered by another user" } };
+      }
+      users.push({ email: attrs.email as string, phone: attrs.phone as string | undefined });
+      return { data: { user: { id: `user-${users.length}`, email: attrs.email } }, error: null };
+    };
+    return { admin, asUser, calls };
+  }
+
+  it("adds the same teacher at two schools with the same phone and email", async () => {
+    const { admin, asUser, calls } = realisticAuth();
+    const mailer = new FakeMailer();
+    const first = await handle(request({ ...contact, tenant_id: TENANT_ID }), { admin, asUser, mailer, limiter: countingLimiter() });
+    const second = await handle(request({ ...contact, tenant_id: OTHER_TENANT }), { admin, asUser, mailer, limiter: countingLimiter() });
+    assertEquals(first.status, 200);
+    assertEquals(second.status, 200);
+    assertEquals((await first.json()).login_id, "TC-0001");
+    assertEquals((await second.json()).login_id, "TC-0001");
+
+    // The auth users carry only their own synthetic login address: no phone, no real email.
+    assertEquals(calls.length, 2);
+    for (const attrs of calls) {
+      assertEquals("phone" in attrs, false);
+      assertEquals("phone_confirm" in attrs, false);
+      assertMatch(attrs.email as string, /@login\./);
+    }
+    assert(calls[0].email !== calls[1].email);
+
+    // Both profiles keep the real contact details.
+    const made = admin.rowsIn("profiles").filter((p) => p.role === "teacher");
+    assertEquals(made.map((p) => p.tenant_id), [TENANT_ID, OTHER_TENANT]);
+    for (const p of made) {
+      assertEquals(p.phone, "+254712345678");
+      assertEquals(p.email, "otieno@gmail.com");
+    }
+
+    // And each school's sign-in details go to the real email.
+    assertEquals(mailer.sent.map((m) => m.to), ["otieno@gmail.com", "otieno@gmail.com"]);
+    assertMatch(mailer.sent[0].text, /Green Valley School/);
+    assertMatch(mailer.sent[1].text, /Hill Top Academy/);
+  });
+
+  it("adds a school administrator whose phone another account already has", async () => {
+    const { admin, asUser, calls } = realisticAuth();
+    await handle(request({ ...contact, tenant_id: TENANT_ID }), { admin, asUser });
+    const res = await handle(request({ ...validBody, tenant_id: OTHER_TENANT, phone: contact.phone }), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals("phone" in calls[1], false);
+    assertEquals(admin.rowsIn("profiles").find((p) => p.role === "school_admin")?.phone, "+254712345678");
+  });
+
+  it("answers 409 with a clear message when an administrator's login email is already an account", async () => {
+    const { admin, asUser } = realisticAuth();
+    await handle(request({ ...validBody, tenant_id: TENANT_ID }), { admin, asUser });
+    const res = await handle(request({ ...validBody, tenant_id: OTHER_TENANT }), { admin, asUser });
+    assertEquals(res.status, 409);
+    assertEquals((await res.json()).error, "That email is already in use by another account.");
+  });
+
+  it("answers 409 for a phone clash, should Auth ever report one", async () => {
+    const { admin, asUser } = makeClients();
+    admin.onCreateUser = () => ({ data: { user: null }, error: { message: "Phone number already registered by another user" } });
+    const res = await handle(request({ ...contact, tenant_id: TENANT_ID }), { admin, asUser });
+    assertEquals(res.status, 409);
+    assertEquals((await res.json()).error, "This phone number is already used by another account.");
+    assertEquals(admin.rowsIn("profiles").length, 1);
+  });
+
+  it("answers 409 naming the login ID when that ID's account appeared a moment ago", async () => {
+    const { admin, asUser } = makeClients();
+    admin.onCreateUser = () => ({ data: { user: null }, error: { code: "email_exists", message: "A user with this email address has already been registered" } });
+    const res = await handle(request({ ...contact, tenant_id: TENANT_ID }), { admin, asUser });
+    assertEquals(res.status, 409);
+    assertMatch((await res.json()).error, /Login ID TC-0001 was taken/);
+  });
+
+  it("keeps the generic 500 for anything that isn't a clash", async () => {
+    const { admin, asUser } = makeClients();
+    admin.onCreateUser = () => ({ data: { user: null }, error: { message: "Database error creating new user" } });
+    const res = await handle(request({ ...contact, tenant_id: TENANT_ID }), { admin, asUser });
+    assertEquals(res.status, 500);
+    assertEquals((await res.json()).error, "Could not create the account. Try again.");
+  });
+});
+
+describe("accountClash", () => {
+  it("recognises Auth's error codes as well as its messages", () => {
+    assertEquals(accountClash({ code: "phone_exists", message: "x" })?.error, "This phone number is already used by another account.");
+    assertEquals(accountClash({ code: "email_exists", message: "x" })?.error, "That email is already in use by another account.");
+    assertEquals(accountClash({ message: "Phone number already registered by another user" })?.error, "This phone number is already used by another account.");
+  });
+  it("is null for other errors and for nothing", () => {
+    assertEquals(accountClash({ message: "Database error creating new user" }), null);
+    assertEquals(accountClash(null), null);
   });
 });
