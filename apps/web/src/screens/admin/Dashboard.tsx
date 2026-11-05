@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchAllPages, formatMoney, supabase } from "@figbloom/shared";
+import { fetchAllPages, fetchAllRows, formatMoney, supabase } from "@figbloom/shared";
 import type { ClassGroup, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -47,7 +47,10 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
 
   const [{ data: classRows }, { data: studentRows }, { data: staffRows }, feesRes] = await Promise.all([
     sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
-    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
+    // Read a page at a time: the API stops at 1,000 rows without saying so, which made the Learners card read 1,000 (FIG-1416).
+    fetchAllRows<{ id: string; class_id: string }>((from, to) => sb
+      .from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true)
+      .order("id").range(from, to).returns<{ id: string; class_id: string }[]>()),
     sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
     termId
       ? sb.rpc("term_fee_totals", { p_tenant_id: tenantId, p_term_id: termId })

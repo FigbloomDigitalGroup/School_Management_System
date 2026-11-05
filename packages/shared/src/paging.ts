@@ -17,3 +17,20 @@ export async function fetchAllPages<T>(
     if (!data || data.length < pageSize) return all;
   }
 }
+
+type PageReader<T> = (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+
+/**
+ * fetchAllPages, shaped like the answer of one query ({ data, error }), so it can sit among other queries in a Promise.all and be
+ * checked the same way. A page that fails gives the error and no rows, never a partial list that looks complete.
+ */
+export async function fetchAllRows<T>(
+  page: PageReader<T>,
+  pageSize = 1000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  try {
+    return { data: await fetchAllPages<T>(page, pageSize), error: null };
+  } catch (err) {
+    return { data: [], error: { message: err instanceof Error ? err.message : String(err) } };
+  }
+}
