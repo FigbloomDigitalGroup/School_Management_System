@@ -12,7 +12,9 @@ select id as aterm from terms where tenant_id = :'at' and is_current \gset
 
 begin;
 alter table students disable trigger students_class_required_for_k12;
-alter table students disable trigger refresh_org_summary_students;
+alter table students disable trigger refresh_org_summary_students_ins;
+alter table students disable trigger refresh_org_summary_students_upd;
+alter table students disable trigger refresh_org_summary_students_del;
 
 create or replace function pg_temp.measure(p_label text) returns void language plpgsql as $$
 declare t0 timestamptz; n int; ms1 numeric; ms2 numeric; tot int;

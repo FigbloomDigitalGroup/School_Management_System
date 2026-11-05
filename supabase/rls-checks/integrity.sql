@@ -399,6 +399,19 @@ begin
 end $$;
 select pg_temp.summary_case();
 
+-- FIG-1499: the group summary is recounted once per statement, not once per row. A row trigger recounted the school 42 times for a
+-- register and 1,512 times for a whole school's learners (1,690 ms against 4.9 ms); and every recount kept the school's one summary row
+-- locked until the transaction ended, so teachers saving at the same moment queued behind each other.
+select pg_temp.check('C6 no row-level trigger on attendance, students or fee_invoices recounts the group summary (FIG-1499)',
+  not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+               where not t.tgisinternal and t.tgrelid in ('attendance'::regclass, 'students'::regclass, 'fee_invoices'::regclass)
+                 and p.proname like 'trg_refresh_org_summary%' and (t.tgtype & 1) = 1));
+select pg_temp.check('C6 each of the three tables has a statement trigger for insert, update and delete that refreshes it (9 in all)',
+  (select count(*) from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+    where not t.tgisinternal and t.tgrelid in ('attendance'::regclass, 'students'::regclass, 'fee_invoices'::regclass)
+      and p.proname = 'trg_refresh_org_summary_statement' and (t.tgtype & 3) = 0
+      and (t.tgtype & 4) + (t.tgtype & 8) + (t.tgtype & 16) in (4, 8, 16)) = 9);
+
 -- ---------------------------------------------------------------- D. the login number
 -- next_login_number is "one past the highest number in profiles": it reads, it does not reserve. Two requests at the same moment
 -- read the same highest number and are handed the same number. The unique keys then make the later one fail (nothing is
