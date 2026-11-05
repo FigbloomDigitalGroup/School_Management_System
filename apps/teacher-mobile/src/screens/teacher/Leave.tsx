@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import {
-  cancelLeaveRequest, fetchMyLeaveRequests, formatShortDate, requestLeave,
+  cancelLeaveRequest, fetchHrLeaveAccess, fetchMyLeaveRequests, formatShortDate, requestLeave,
   type LeaveRequest, type LeaveStatus,
 } from "@figbloom/shared";
 import { accentFor, perScheme } from "../../theme";
@@ -38,6 +38,16 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  /** The school's leave runs in Figbloom HR (hr_leave_access(), 20261105800000): the school's own form is hidden. null: still asking. */
+  const [viaHr, setViaHr] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchHrLeaveAccess()
+      .then((a) => { if (alive) setViaHr(a.status === "available"); })
+      .catch(() => { if (alive) setViaHr(false); });
+    return () => { alive = false; };
+  }, [session.profileId]);
 
   useEffect(() => {
     let alive = true;
@@ -81,6 +91,16 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
       <ScreenHeader title="Leave" sub="Request time off" color={a.deep} back />
 
       <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+        {viaHr === null ? (
+          <ActivityIndicator color={accentInk(a.deep)} />
+        ) : viaHr ? (
+          <View style={[s.card, { gap: 6 }]}>
+            <Text style={{ color: t.appSurface.ink, fontSize: 14, fontWeight: "600" }}>Leave is in Figbloom HR</Text>
+            <Text style={s.small}>
+              Your school's leave runs in Figbloom HR. Apply, and follow your applications, from Leave in the Figbloom Schools web console. Approved leave shows below.
+            </Text>
+          </View>
+        ) : (
         <View style={[s.card, { gap: 10 }]}>
           <View style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
             <Field
@@ -111,6 +131,7 @@ export function TeacherLeave({ session }: { session: TeacherSession }) {
           <Button label="Request leave" loading={saving} disabled={!startsOn || !endsOn} onPress={() => void submit()} />
           {!!status && <Text accessibilityLiveRegion="polite" style={s.small}>{status}</Text>}
         </View>
+        )}
 
         <Text style={[s.eyebrow, { marginTop: 20, marginBottom: 8 }]}>YOUR REQUESTS</Text>
         {requests === null ? (

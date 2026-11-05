@@ -440,6 +440,50 @@ and applications with their approval steps, attendance (by month) and KPIs from 
 
 Checks: `supabase/rls-checks/my_hr.sql`; `supabase/functions/my-hr/index.test.ts` (against a fake HR shaped like bloomHR's `my_hr_routes.js`).
 
+## Figbloom HR: leave run by HR (Schools + HR phase 2, step 2a)
+
+At a school whose leave is HR's, staff apply for leave in Schools but HR keeps it: HR's types, rules, balances,
+documents and approval chain (SCHOOLS_HR_LEAVE_CONTRACT.md, section 3; `20261105800000_leave_via_hr`).
+
+- **When:** `HR_LEAVE_ENABLED` (`platform_settings`, off; one switch for the database) **and** HR on for the school:
+  known to the platform (`platform_links`) and the platform's latest answer about HR for it (`platform_module_status`,
+  from `open-hr`) isn't a `target_not_enabled` / `target_not_linked` "no". Unlike My HR, a "no" doesn't wear off after
+  an hour (which form a school uses mustn't flip). `hr_leave_access()` (the caller's own, no arguments) answers
+  `{status, approver}`.
+- **Leave page** (`teacher/leave`; `staff/leave`, new, shown only then): the form comes from HR (`my-hr` routes
+  `leave_form`, `leave_applications`, `leave_apply` with a document up to 5 MB sent as base64, `leave_cancel`). The old
+  Schools-only form is hidden there, and the database refuses a Schools-only request from an older app. Everywhere else
+  the old form and the office's Leave requests page work exactly as before. The teacher phone app says to apply on the web.
+- **Leave to approve** (`admin/leave-to-approve`): for the school's admins and staff holding the leave or fees area
+  (head teacher, deputy, bursar); HR decides who actually has items (`approvals`, `approval_decide`, done in HR as that
+  person's HR user). Someone HR can't match yet sees "Open HR & Payroll once to connect your HR account", with the
+  HR & Payroll button when they have it.
+- **HR's decision comes back** as `hr.leave.approved` / `hr.leave.cancelled` on `platform-events`:
+  `platform_hr_leave_event()` writes the person's `leave_requests` row (`source = 'hr'`, `hr_application_id` unique per
+  school) as approved, so cover planning (approved leave_requests), the affected lessons, the Needs-cover card and the
+  usual "Your leave request was approved" notice work unchanged. A cancel cancels the row, removes the cover arranged
+  for the days ahead (telling the substitute, as the office's change of cover does) and tells the person. Each delivery
+  once; each application in order (older events and a cancel of dates the row no longer has are `stale`, so a date
+  change works in either order). Overlap with other approved leave is refused (409, not recorded) for a person to sort
+  out. Applied only while `PLATFORM_EVENTS_ENABLED` and `HR_LEAVE_ENABLED` are both on; before that, recorded only.
+- **History export:** `platform-sync {"action":"leave_history_import","school_id":"..."}` lists (dry run, the default)
+  the school's approved Schools leave not yet exported, for staff whose `schools.staff` event was delivered;
+  `"dry_run":false` sends it to HR's `import/leave-history` and marks what HR accepted (`hr_exported_at`), so it can be
+  run again safely.
+
+**Deploy:** apply `20261105800000_leave_via_hr`; deploy `my-hr`, `platform-events` and `platform-sync`
+(`HR_MY_HR_URL` is already set for My HR; platform-sync now reads it too); check the platform subscribes Schools to
+`hr.leave.approved` / `hr.leave.cancelled` (contract section 1); for each school moving to HR leave, run the history
+export (dry run first); then switch it on:
+
+```sql
+update platform_settings set value = 'true', updated_at = now() where key = 'HR_LEAVE_ENABLED';
+```
+
+Checks: `supabase/rls-checks/leave_via_hr.sql`; `supabase/functions/my-hr/leave.test.ts`,
+`supabase/functions/platform-events/leave.test.ts`, `supabase/functions/platform-sync/leave.test.ts`;
+`apps/web/src/screens/leave/HrLeaveViews.test.ts`, `packages/shared/src/hrLeave.test.ts`.
+
 ## Rate limits on the public functions
 
 `search-schools`, `resolve-login-id`, `request-password-reset` and
