@@ -64,7 +64,11 @@ async function removeProbes(): Promise<string | null> {
   for (let i = 0; i < 40; i++) {
     const { data } = await admin.client.from("students").select("id").eq("tenant_id", tenantId).like("admission_no", "QA11-%").limit(200);
     if (!data?.length) return null;
-    const { error } = await admin.client.from("students").delete().in("id", data.map((s) => s.id as string));
+    const ids = data.map((s) => s.id as string);
+    // a learner with a health record cannot be deleted (FIG-1467): clear the records first, as the school would before deleting a mistake
+    const health = await admin.client.from("student_health").delete().in("student_id", ids);
+    if (health.error) return health.error.message;
+    const { error } = await admin.client.from("students").delete().in("id", ids);
     if (error) return error.message;
   }
   return "still more than 8,000 left";
@@ -263,7 +267,7 @@ describe("archive, restore and delete, as the People screen calls them", () => {
 // ---------------------------------------------------------------- 3. what an archived learner can still do
 
 describe("a learner who has been archived", () => {
-  it.fails("FIG-1305 (open): can no longer sign in", async () => {
+  it("FIG-1305 (fixed): can no longer sign in, and can again once restored", async () => {
     try {
       expect(await archiveLearners([faith])).toBe(1);
       const { error } = await anonClient().auth.signInWithPassword({ email: TEST_ROLES.student.email, password: TEST_ROLES.student.password });
@@ -271,5 +275,7 @@ describe("a learner who has been archived", () => {
     } finally {
       await restoreLearners([faith]);
     }
+    const back = await anonClient().auth.signInWithPassword({ email: TEST_ROLES.student.email, password: TEST_ROLES.student.password });
+    expect(back.error, "once restored, the learner signs in again").toBeNull();
   });
 });

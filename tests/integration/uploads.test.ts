@@ -163,11 +163,16 @@ describe("who may write the public bucket", () => {
     }
   });
 
-  // public_assets_write lets anyone with is_staff() (school admins AND teachers) write or delete any object in the school's public
-  // folders, so a teacher can replace the school's logo or another person's photo.
-  it.fails("QA14-TEACHER-OVERWRITE FIG-1461: a teacher cannot replace or delete the school's logo or another person's photo", async () => {
+  // public_assets_write used to let anyone with is_staff() (school admins AND teachers) write or delete any object in the school's public
+  // folders, so a teacher could replace the school's logo or another person's photo. Since 20261105450000 the logo is the school admin's,
+  // and a learner's photo is the admin's, the people office's, or that learner's class teacher's.
+  it("QA14-TEACHER-OVERWRITE FIG-1461 (fixed): a teacher cannot replace or delete the school's logo or the photo of a learner in another class", async () => {
+    const classes = (await admin.client.from("classes").select("id, class_teacher_id").eq("tenant_id", tenantId)).data ?? [];
+    const notMine = classes.filter((c) => c.class_teacher_id !== teacher.userId).map((c) => c.id as string);
+    const otherLearner = ((await admin.client.from("students").select("id").in("class_id", notMine).limit(1)).data?.[0]?.id as string) ?? "";
+    expect(otherLearner, "a learner in a class that is not the teacher's").toBeTruthy();
     const logo = `${tenantId}/branding/qa14-${run}-logo.png`;
-    const photo = `${tenantId}/avatars/students-${studentId}-qa14-${run}.png`;
+    const photo = `${tenantId}/avatars/students-${otherLearner}-qa14-${run}.png`;
     for (const p of [logo, photo]) expect((await put(admin, "public-assets", p, PNG, "image/png")).error).toBeNull();
     const evil = Uint8Array.from([...PNG, 1, 2, 3, 4]);
     const results: string[] = [];
@@ -180,5 +185,14 @@ describe("who may write the public bucket", () => {
       if (!del.error && (del.data?.length ?? 0) > 0) results.push(`deleted ${p.split("/")[1]}`);
     }
     expect(results, "what the teacher managed to do to files that are not hers").toEqual([]);
+  });
+
+  it("a class teacher may set the photo of a learner in their own class; the school admin may set the logo", async () => {
+    const mine = (await admin.client.from("classes").select("id").eq("tenant_id", tenantId).eq("class_teacher_id", teacher.userId)).data ?? [];
+    expect(mine.length, "the seeded teacher is the class teacher of a class").toBeGreaterThan(0);
+    const own = ((await admin.client.from("students").select("id").eq("class_id", mine[0]!.id).limit(1)).data?.[0]?.id as string) ?? "";
+    expect(own, "a learner in that class").toBeTruthy();
+    expect((await put(teacher, "public-assets", `${tenantId}/avatars/students-${own}-qa14-${run}-own.png`, PNG, "image/png", true)).error).toBeNull();
+    expect((await put(admin, "public-assets", `${tenantId}/branding/qa14-${run}-admin-logo.png`, PNG, "image/png", true)).error).toBeNull();
   });
 });

@@ -135,8 +135,11 @@ reset role;
 -- ---------------------------------------------------------------- teacher / driver
 select pg_temp.act_as(current_setting('t.teacher'));
 set local role authenticated;
-select pg_temp.expect_eq('teacher still sees every private document in the school',
-  (select count(*) from storage.objects where bucket_id = 'private-documents'), 6);
+-- FIG-1303: a teacher reads the homework hand-ins (2 of the 6 files), not learners' documents or payment proofs
+select pg_temp.expect_eq('teacher sees the homework hand-ins of the school, and neither the learners'' documents nor the payment proofs',
+  (select count(*) from storage.objects where bucket_id = 'private-documents'), 2);
+select pg_temp.expect_eq('teacher reads no learner document or payment proof file',
+  (select count(*) from storage.objects where bucket_id = 'private-documents' and (name like '%/students/%' or name like '%/invoices/%')), 0);
 reset role;
 
 select pg_temp.act_as(current_setting('t.driver'));

@@ -37,6 +37,7 @@ import { administersOrganization } from "../_shared/organizations.ts";
 import { dialCodeFor } from "../_shared/countryDialCodes.ts";
 import { loginIdEmail, nextLoginId } from "../_shared/loginId.ts";
 import { tempPassword } from "../_shared/tempPassword.ts";
+import { accountNotMade, undoAccount } from "../_shared/undoAccount.ts";
 import { holdsArea } from "../_shared/adminAreas.ts";
 import { actorName, deliverLoginDetails, emailContext, type EmailDeps, isDeliverable, resendMailer, signInPath } from "../_shared/email.ts";
 
@@ -170,13 +171,14 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   });
   if (profileErr) {
     // Roll back the orphaned auth account rather than leaving a login with no profile.
-    await admin.auth.admin.deleteUser(created.user.id);
-    return json(failure("invite-admin", "save the profile", profileErr), 500);
+    const left = await undoAccount("invite-admin", admin, created.user.id, []);
+    return json(accountNotMade("invite-admin", "save the profile", profileErr, left, loginId ?? undefined), 500);
   }
 
   const actorSuffix = callerProfile!.role === "super_admin" ? "Figbloom" : callerProfile!.role === "org_admin" ? "org admin"
     : callerProfile!.role === "school_admin" ? "school admin" : "people";
-  await admin.from("audit_events").insert({
+  // The audit entry is the record of who made this account: without it the account is taken back out (FIG-1470).
+  const { error: auditErr } = await admin.from("audit_events").insert({
     tenant_id,
     actor_label: callerProfile!.full_name ? `${callerProfile!.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
     event: role === "school_admin"
@@ -184,6 +186,10 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
       : `${STAFF_WORD[role]} ${full_name.trim()} (${role === "staff" && staffTitle ? `${staffTitle}, ` : ""}${loginId}) added for ${tenant.name}`,
     category: "provisioning",
   });
+  if (auditErr) {
+    const left = await undoAccount("invite-admin", admin, created.user.id, []);
+    return json(accountNotMade("invite-admin", "record the new login in the audit log", auditErr, left, loginId ?? undefined), 500);
+  }
 
   // The account exists now: whatever happens to the email, the password above is the way in.
   const emailed = await deliverLoginDetails(await emailContext(admin, emailDeps, user.id), email, {

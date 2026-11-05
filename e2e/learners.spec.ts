@@ -36,7 +36,11 @@ async function removeProbes() {
   for (let i = 0; i < 40; i++) {
     const { data } = await db.from("students").select("id").eq("tenant_id", tenantId).like("admission_no", "QA11-E-%").limit(100); // 100 ids: a longer list makes the request URL too long
     if (!data?.length) return null;
-    const { error } = await db.from("students").delete().in("id", data.map((s) => s.id as string));
+    const ids = data.map((s) => s.id as string);
+    // a learner with a health record cannot be deleted (FIG-1467): clear the records first
+    const health = await db.from("student_health").delete().in("student_id", ids);
+    if (health.error) return health.error.message;
+    const { error } = await db.from("students").delete().in("id", ids);
     if (error) return error.message;
   }
   return "more than 4,000 left";
@@ -354,8 +358,7 @@ test.describe("a school with more than 1,000 learners", () => {
 
 // ================================================================ deleting a learner who has a login
 test.describe("deleting a learner who was added by mistake and has a login", () => {
-  test("KNOWN QA11-LOGIN FIG-1419 (open): the login goes with the learner", async () => {
-    test.fail();
+  test("QA11-LOGIN FIG-1419 (fixed): the login goes with the learner", async () => {
     const made = await db.from("students").insert({ tenant_id: tenantId, admission_no: "QA11-E-LG1", full_name: "QA11E Login One", class_id: classId["Form 1 East"], boarding: false, active: true, gender: "female" }).select("id").single();
     expect(made.error).toBeNull();
     const url = process.env.SUPABASE_URL!;

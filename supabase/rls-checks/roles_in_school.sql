@@ -95,6 +95,7 @@ declare
   tid uuid; teacher uuid; parent uuid; stu_p uuid; admin uuid; drv uuid; recep uuid;
   good uuid; bad uuid; ex uuid; cx uuid; stu uuid; inv uuid; kid uuid; stu_row uuid; other_kid uuid; other_inv uuid; my_inv uuid;
   pre bigint; doc uuid; prf uuid; ann uuid; other_class uuid; r record; tbl text; kids uuid[]; rte uuid; trp uuid;
+  far uuid; expected bigint; o1 uuid; o2 uuid;
 begin
   select id into tid from tenants where slug = 'alliance';
   select id into teacher from profiles where tenant_id = tid and role = 'teacher' order by id limit 1;
@@ -166,11 +167,37 @@ begin
   perform pg_temp.refuse('teacher: delete a private document', 1, teacher, format('delete from student_documents where id=%L', doc));
   perform pg_temp.refuse('teacher: confirm or change a payment proof', 1, teacher, format('update payment_proofs set status = status, reviewed_by = %L where id=%L', teacher, prf));
   perform pg_temp.refuse('teacher: delete a payment proof', 1, teacher, format('delete from payment_proofs where id=%L', prf));
-  perform pg_temp.say('INFO', format('teacher reads school-wide (the issue says only their class and subject): invoices %s of %s, private documents %s of 1, payment proofs %s of 1, marks %s of %s (all subjects), health records %s of %s',
-    pg_temp.cnt(teacher, 'select count(*) from fee_invoices'), (select count(*) from fee_invoices where tenant_id = tid),
-    pg_temp.cnt(teacher, format('select count(*) from student_documents where id=%L', doc)), pg_temp.cnt(teacher, format('select count(*) from payment_proofs where id=%L', prf)),
-    pg_temp.cnt(teacher, 'select count(*) from marks'), (select count(*) from marks where tenant_id = tid),
-    pg_temp.cnt(teacher, 'select count(*) from student_health'), (select count(*) from student_health where tenant_id = tid)));
+  -- ---------------------------------------------------------------- teacher: fees, private documents, health and marks (FIG-1303)
+  -- A teacher reads only what their own work needs: no fee data, no private documents, no health record (a short flag for the learners of
+  -- classes they teach), and the marks of the classes and subjects they are assigned plus every subject of the class they are the class
+  -- teacher of.
+  perform pg_temp.see0('teacher reads fee invoices', (select count(*) from fee_invoices where tenant_id = tid), teacher, 'select count(*) from fee_invoices');
+  perform pg_temp.see0('teacher reads payments', (select count(*) from payments where tenant_id = tid), teacher, 'select count(*) from payments');
+  perform pg_temp.see0('teacher reads payment proofs', 1, teacher, format('select count(*) from payment_proofs where id=%L', prf));
+  perform pg_temp.see0('teacher reads private documents', 1, teacher, format('select count(*) from student_documents where id=%L', doc));
+  perform pg_temp.see0('teacher reads health records', (select count(*) from student_health where tenant_id = tid), teacher, 'select count(*) from student_health');
+  perform pg_temp.say(case when pg_temp.cnt(admin, 'select count(*) from fee_invoices') > 0 and pg_temp.cnt(admin, format('select count(*) from student_documents where id=%L', doc)) = 1
+                           and pg_temp.cnt(admin, format('select count(*) from payment_proofs where id=%L', prf)) = 1 and pg_temp.cnt(admin, 'select count(*) from student_health') > 0
+                      then 'CONTROL' else 'FAIL' end, 'the school admin reads the invoices, the document, the proof and the health records (so the 0s above are the teacher, not an empty table)');
+  -- the files behind a document and a proof
+  insert into storage.objects (bucket_id, name) values ('private-documents', tid || '/students/' || stu || '/qa.pdf') returning id into o1;
+  insert into storage.objects (bucket_id, name) values ('private-documents', tid || '/invoices/' || inv || '/qa.png') returning id into o2;
+  perform pg_temp.see0('teacher reads the file of a learner''s private document', 1, teacher, format('select count(*) from storage.objects where id=%L', o1));
+  perform pg_temp.see0('teacher reads the file of a payment proof', 1, teacher, format('select count(*) from storage.objects where id=%L', o2));
+  perform pg_temp.say(case when pg_temp.cnt(admin, format('select count(*) from storage.objects where id in (%L, %L)', o1, o2)) = 2 then 'CONTROL' else 'FAIL' end, 'the school admin reads both files');
+  -- a mark in a class and subject the teacher has nothing to do with: it exists and must stay hidden
+  select s.id into far from students s join classes c on c.id = s.class_id where s.tenant_id = tid and s.class_id <> cx and c.class_teacher_id is distinct from teacher order by s.id limit 1;
+  insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by) values (tid, ex, far, bad, 33, teacher) on conflict do nothing;
+  perform pg_temp.see0('teacher reads a mark in a subject and class they are not assigned to', 1, teacher, format('select count(*) from marks where student_id=%L and subject_id=%L', far, bad));
+  select count(*) into expected from marks m join students s on s.id = m.student_id
+   where m.tenant_id = tid and (exists (select 1 from teaching_assignments ta where ta.teacher_id = teacher and ta.subject_id = m.subject_id and ta.class_id = s.class_id)
+                              or exists (select 1 from classes c where c.id = s.class_id and c.class_teacher_id = teacher));
+  perform pg_temp.say(case when pg_temp.cnt(teacher, 'select count(*) from marks') = expected and expected > 0 and expected < (select count(*) from marks where tenant_id = tid) then 'PASS' else 'FAIL' end,
+    format('teacher reads exactly the marks of their assigned classes and subjects, and every subject of their own class (%s of %s)', pg_temp.cnt(teacher, 'select count(*) from marks'), (select count(*) from marks where tenant_id = tid)));
+  -- the health flags: a learner of a class they teach, and only the five flag fields
+  perform pg_temp.say(case when pg_temp.cnt(teacher, format('select count(*) from teacher_health_flags(array[%L]::uuid[])', stu)) = 1 then 'CONTROL' else 'FAIL' end, 'teacher: the health flags of a learner in a class they teach');
+  perform pg_temp.say(case when pg_get_function_result('teacher_health_flags(uuid[])'::regprocedure) !~ '(blood|notes|doctor|emergency)' then 'PASS' else 'FAIL' end, 'the health flags answer holds no blood group, notes, doctor or emergency contact');
+  perform pg_temp.say(case when has_function_privilege('anon', 'teacher_health_flags(uuid[])', 'execute') then 'FAIL' else 'PASS' end, 'a signed-out visitor cannot call teacher_health_flags');
 
   -- ---------------------------------------------------------------- parent: reads, then writes
   select s.id into other_kid from students s where s.tenant_id = tid and s.id not in (select student_id from guardians where profile_id = parent) order by s.id limit 1;
@@ -235,8 +262,38 @@ begin
   perform pg_temp.refuse('teacher: change marks of the same subject in a class they do NOT teach', pre, teacher, format('update marks set score = score + 1 where subject_id=%L and student_id in (select id from students where class_id=%L)', good, cx));
   perform pg_temp.refuse('teacher: set homework for a class they do NOT teach', 1, teacher, format('insert into assignments (tenant_id, class_id, subject_id, set_by, title, body, due_on) values (%L,%L,%L,%L,''qa'',''qa'',current_date)', tid, cx, good, teacher));
   perform pg_temp.refuse('teacher: publish_marks for a class they do NOT teach', 1, teacher, format('select public.publish_marks(%L,%L,%L)', ex, cx, good));
+  perform pg_temp.see0('teacher reads the marks of a class they do not teach', (select count(*) from marks m join students s on s.id = m.student_id where s.class_id = cx), teacher,
+    format('select count(*) from marks m join students s on s.id = m.student_id where s.class_id = %L', cx));
+  perform pg_temp.see0('teacher reads the health flags of a learner in a class they do not teach', 1, teacher, format('select count(*) from teacher_health_flags(array[%L]::uuid[])', stu));
 
-  -- ---------------------------------------------------------------- archived learner (known gap, seen at database level)
+  -- ---------------------------------------------------------------- archived learner: the sign-in ends (FIG-1305)
+  -- Archiving bans the learner's login the way suspending a school does; restoring lifts exactly that ban; reactivating a school does not
+  -- lift the ban of a learner archived in the meantime. The parent still sees an archived child and their invoices (fees may be owed).
+  perform set_config('request.jwt.claims', json_build_object('sub', admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform archive_learners(array[stu_row]::uuid[]);
+  reset role;
+  perform pg_temp.say(case when (select banned_until > now() + interval '50 years' and raw_app_meta_data ->> 'archived_learner' = 'true' from auth.users where id = stu_p) then 'PASS' else 'FAIL' end,
+    'archiving a learner bans their login (banned_until far ahead, flagged archived_learner)');
+  perform pg_temp.say(case when (select count(*) from auth.sessions where user_id = stu_p) = 0 then 'PASS' else 'FAIL' end, 'and ends their sessions');
+  perform pg_temp.say(case when (select banned_until is null from auth.users u join profiles p on p.id = u.id where p.tenant_id = tid and p.role = 'teacher' order by u.id limit 1) then 'PASS' else 'FAIL' end,
+    'nobody else is banned by it (a teacher of the school can still sign in)');
+  update tenants set status = 'suspended' where id = tid;
+  update tenants set status = 'active' where id = tid;
+  perform pg_temp.say(case when (select banned_until > now() + interval '50 years' from auth.users where id = stu_p) then 'PASS' else 'FAIL' end,
+    'reactivating the school does not lift the ban of a learner archived before or during the suspension');
+  perform pg_temp.say(case when (select banned_until is null from auth.users u join profiles p on p.id = u.id where p.tenant_id = tid and p.role = 'teacher' order by u.id limit 1) then 'PASS' else 'FAIL' end,
+    'but it does lift the school''s own ban on everyone else');
+  perform set_config('request.jwt.claims', json_build_object('sub', admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform restore_learners(array[stu_row]::uuid[]);
+  reset role;
+  perform pg_temp.say(case when (select banned_until is null and not (raw_app_meta_data ? 'archived_learner') from auth.users where id = stu_p) then 'PASS' else 'FAIL' end,
+    'restoring the learner lifts the ban');
+  perform pg_temp.say(case when pg_temp.cnt(teacher, format('select count(*) from (select archive_learners(array[%L]::uuid[])) x', stu_row)) = -1 then 'PASS' else 'FAIL' end,
+    'a teacher cannot archive a learner (and so cannot ban one)');
+
+  -- ---------------------------------------------------------------- archived learner: what they and their parent still read
   update students set archived_at = now(), active = false where id in (stu_row, kid);
   perform pg_temp.say('INFO', format('archived learner: still reads own record %s, own invoices %s; the parent still sees the archived child %s and their invoices %s (sign-in itself is not checked here)',
     pg_temp.cnt(stu_p, format('select count(*) from students where id=%L', stu_row)), pg_temp.cnt(stu_p, format('select count(*) from fee_invoices where student_id=%L', stu_row)),
@@ -247,6 +304,7 @@ end $$;
 do $$
 declare
   tid uuid; teacher uuid; parent uuid; stu_p uuid; admin uuid; drv uuid; myveh uuid; othveh uuid; othdrv uuid; trp uuid; pend uuid; lv uuid; kid uuid;
+  famveh uuid; rt uuid;
 begin
   select id into tid from tenants where slug = 'kijani-ridge';
   if tid is null then perform pg_temp.say('SKIPPED', 'Kijani Ridge is not seeded (run npm run db:seed-org): driver, trip, leave and bus checks did not run'); return; end if;
@@ -275,11 +333,29 @@ begin
   perform pg_temp.see0('driver reads learners'' marks', (select count(*) from marks where tenant_id = tid), drv, 'select count(*) from marks');
   perform pg_temp.see0('driver reads learners'' attendance', (select count(*) from attendance where tenant_id = tid), drv, 'select count(*) from attendance');
 
-  -- ---------------------------------------------------------------- who can see which bus (the issue: "driver: only their own vehicle")
+  -- ---------------------------------------------------------------- who can see which bus (FIG-1304)
+  -- A driver reads only their own bus; a parent (or a learner) only the bus on the route their child (they) ride, that is a vehicle that
+  -- runs a trip on it; teachers, the school admin and the transport area every bus.
   update vehicles set last_lat = -1.3, last_lng = 36.8, last_ping_at = now() where tenant_id = tid;
-  perform pg_temp.say('INFO', format('vehicles table (plate, last position) is readable school-wide: the driver sees %s of %s buses, a parent sees %s, a student sees %s, a teacher sees %s (the issue says a driver sees only their own vehicle and pings)',
-    pg_temp.cnt(drv, 'select count(last_lat) from vehicles'), (select count(*) from vehicles where tenant_id = tid),
-    pg_temp.cnt(parent, 'select count(last_lat) from vehicles'), pg_temp.cnt(stu_p, 'select count(last_lat) from vehicles'), pg_temp.cnt(teacher, 'select count(last_lat) from vehicles')));
+  select id into famveh from vehicles where tenant_id = tid and id <> myveh and id <> othveh order by id limit 1;
+  insert into routes (tenant_id, name) values (tid, 'QA family route') returning id into rt;
+  insert into trips (tenant_id, vehicle_id, route_id, driver_id) values (tid, famveh, rt, othdrv);
+  -- the parent's child rides that route (a row per learner, so it replaces any seeded one); the learner who signs in does not ride yet
+  insert into student_transport (tenant_id, student_id, route_id) values (tid, kid, rt)
+    on conflict (student_id) do update set route_id = excluded.route_id;
+  delete from student_transport where student_id = (select id from students where profile_id = stu_p);
+  perform pg_temp.say(case when pg_temp.cnt(drv, 'select count(*) from vehicles') = 1 and pg_temp.cnt(drv, format('select count(*) from vehicles where id=%L', myveh)) = 1 then 'PASS' else 'FAIL' end,
+    'a driver reads only their own bus (' || pg_temp.cnt(drv, 'select count(*) from vehicles') || ' of ' || (select count(*) from vehicles where tenant_id = tid) || ')');
+  perform pg_temp.say(case when pg_temp.cnt(parent, 'select count(*) from vehicles') = 1 and pg_temp.cnt(parent, format('select count(*) from vehicles where id=%L', famveh)) = 1 then 'PASS' else 'FAIL' end,
+    'a parent reads only the bus their child rides (' || pg_temp.cnt(parent, 'select count(*) from vehicles') || ' of ' || (select count(*) from vehicles where tenant_id = tid) || ')');
+  perform pg_temp.say(case when pg_temp.cnt(stu_p, 'select count(*) from vehicles') = 0 then 'PASS' else 'FAIL' end, 'a learner who rides no bus reads no bus');
+  insert into student_transport (tenant_id, student_id, route_id) select tid, id, rt from students where profile_id = stu_p;
+  perform pg_temp.say(case when pg_temp.cnt(stu_p, 'select count(*) from vehicles') = 1 and pg_temp.cnt(stu_p, format('select count(*) from vehicles where id=%L', famveh)) = 1 then 'PASS' else 'FAIL' end,
+    'a learner who rides reads only their own bus');
+  perform pg_temp.say(case when pg_temp.cnt(teacher, 'select count(*) from vehicles') = (select count(*) from vehicles where tenant_id = tid) and (select count(*) from vehicles where tenant_id = tid) > 1 then 'CONTROL' else 'FAIL' end,
+    'a teacher reads every bus of the school');
+  perform pg_temp.say(case when pg_temp.cnt(admin, 'select count(*) from vehicles') = (select count(*) from vehicles where tenant_id = tid) then 'CONTROL' else 'FAIL' end, 'the school admin reads every bus');
+  perform pg_temp.say(case when pg_temp.cnt(parent, 'select count(last_lat) from vehicles') = 1 then 'PASS' else 'FAIL' end, 'so a parent sees the position of one bus only');
 
   -- ---------------------------------------------------------------- teacher leave (known gap)
   select id into pend from leave_requests where teacher_id = teacher and status = 'pending' limit 1;

@@ -252,19 +252,13 @@ select pg_temp.check('C1 a learner with ' || x.kind || ' on file cannot be delet
   ) as x(kind, setup);
 select pg_temp.check('C1 a learner with nothing on file can be deleted', pg_temp.delete_case('nothing', 'select 1') = 'allowed 1 (learner gone)');
 
--- The guard names ten kinds of history. Every other table that cascades from students loses its rows silently on a delete.
-select pg_temp.check('C1 the guard names every table that cascades from students; unnamed: ' ||
-    coalesce((select string_agg(c.conrelid::regclass::text, ', ' order by c.conrelid::regclass::text) from pg_constraint c
-               where c.contype = 'f' and c.confrelid = 'public.students'::regclass and c.confdeltype = 'c'
-                 and position(c.conrelid::regclass::text in pg_get_functiondef('guard_student_delete'::regproc)) = 0
-                 and c.conrelid::regclass::text not in ('guardians')), 'none'),
-  not exists (select 1 from pg_constraint c
-               where c.contype = 'f' and c.confrelid = 'public.students'::regclass and c.confdeltype = 'c'
-                 and position(c.conrelid::regclass::text in pg_get_functiondef('guard_student_delete'::regproc)) = 0
-                 and c.conrelid::regclass::text not in ('guardians')),
-  'QA15-GUARD FIG-1467');
+-- FIG-1467: the guard names the ten kinds of history it always did, and asks the catalog for every other table that cascades from students.
+-- Only the links (guardians, student_transport) and the consent records (health_consents, health_consent_log) are left out on purpose.
+select pg_temp.check('C1 the guard reads the catalog for every table that cascades from students, and leaves out only the links and the consent records',
+  position('pg_constraint' in pg_get_functiondef('guard_student_delete'::regproc)) > 0
+  and pg_get_functiondef('guard_student_delete'::regproc) like '%''guardians'', ''student_transport'', ''health_consents'', ''health_consent_log''%');
 
-select pg_temp.check('C1 a learner with ' || x.kind || ' on file cannot be deleted (checked with a real delete)', pg_temp.delete_case(x.kind, x.setup) like 'refused 23001%', 'QA15-GUARD FIG-1467')
+select pg_temp.check('C1 a learner with ' || x.kind || ' on file cannot be deleted (checked with a real delete)', pg_temp.delete_case(x.kind, x.setup) like 'refused 23001%')
   from (values
     ('inventory on loan', $q$ with i as (insert into inventory_items (tenant_id, name) values (current_setting('t.a')::uuid, 'QA15 book') returning id) insert into inventory_issues (tenant_id, item_id, student_id) select current_setting('t.a')::uuid, id, $S from i $q$),
     ('a health record', $q$ insert into student_health (tenant_id, student_id) values (current_setting('t.a')::uuid, $S) $q$),
@@ -272,6 +266,12 @@ select pg_temp.check('C1 a learner with ' || x.kind || ' on file cannot be delet
     ('a report card', $q$ insert into report_cards (tenant_id, term_id, student_id, data) values (current_setting('t.a')::uuid, current_setting('t.term')::uuid, $S, '{}'::jsonb) $q$),
     ('a parent bio-data request', $q$ insert into student_bio_requests (tenant_id, student_id, changes) values (current_setting('t.a')::uuid, $S, '{}'::jsonb) $q$),
     ('core competencies', $q$ insert into learner_competencies (tenant_id, term_id, student_id, kind, item, level_code) values (current_setting('t.a')::uuid, current_setting('t.term')::uuid, $S, 'competency', 'teamwork', 'ME') $q$)
+  ) as x(kind, setup);
+
+select pg_temp.check('C1 a learner with only ' || x.kind || ' can still be deleted', pg_temp.delete_case(x.kind, x.setup) = 'allowed 1 (learner gone)')
+  from (values
+    ('a bus assignment', $q$ with r as (insert into routes (tenant_id, name) values (current_setting('t.a')::uuid, 'QA15 route') returning id) insert into student_transport (tenant_id, student_id, route_id) select current_setting('t.a')::uuid, $S, id from r $q$),
+    ('a health consent record', $q$ insert into health_consents (student_id, tenant_id, status, method, signed_by) values ($S, current_setting('t.a')::uuid, 'given', 'paper', 'QA15 form') $q$)
   ) as x(kind, setup);
 
 -- Removing a whole school must still work: the guard steps aside when the delete comes from the school's row (trigger depth above 1).
@@ -340,16 +340,22 @@ select pg_temp.check('C4 a payment proof against another school''s invoice is re
 select pg_temp.check('C4 and one against this school''s own invoice is allowed (control)', pg_temp.proof_into(current_setting('t.ainv')::uuid) = 'allowed');
 
 -- C5 a bus trip takes riders from its own school only
-select pg_temp.info('C5 bus riders: trip_riders has no same-school trigger (trip_riders_stamp only stamps times), and the admin write policy checks the caller''s permission only');
+-- (FIG-1466: trip_riders is covered by the same-school trigger since 20261103600000; 20261105420000 adds the school to the family branch of bus_updates_read)
 create function pg_temp.rider_case() returns void language plpgsql as $$
 declare trip uuid; r text; leaked bigint; seen bigint;
 begin
   insert into trips (tenant_id, vehicle_id, driver_id) values (current_setting('t.a')::uuid, current_setting('t.veh')::uuid, current_setting('t.drv')::uuid) returning id into trip;
   r := pg_temp.as_user(current_setting('t.admin')::uuid, format('insert into trip_riders (tenant_id, trip_id, student_id, status) values (%L, %L, %L, %L)', current_setting('t.a'), trip, current_setting('t.kchild'), 'boarded'));
-  perform pg_temp.check('C5 an Alliance trip takes another school''s learner as a rider (' || r || ')', r like 'refused%', 'QA15-RIDER FIG-1466');
+  perform pg_temp.check('C5 an Alliance trip takes another school''s learner as a rider (' || r || ')', r like 'refused%');
   select count(*) into leaked from bus_updates where trip_id = trip and current_setting('t.kchild')::uuid = any (student_ids);
   seen := pg_temp.count_as(current_setting('t.kparent')::uuid, format('select count(*) from bus_updates where trip_id = %L', trip));
-  perform pg_temp.check('C5 and the bus update about that learner ("got on the bus") is not shown to the other school''s parent (' || leaked || ' written, ' || seen || ' readable by them)', seen = 0, 'QA15-RIDER FIG-1466');
+  perform pg_temp.check('C5 and the bus update about that learner ("got on the bus") is not shown to the other school''s parent (' || leaked || ' written, ' || seen || ' readable by them)', seen = 0);
+  -- the second half on its own: a bus update that DOES name the other school's learner (written here as the owner, which nothing else can do
+  -- now) must still not reach that learner's family
+  insert into bus_updates (tenant_id, trip_id, vehicle_id, student_ids, kind, title, body, dedupe_key)
+    values (current_setting('t.a')::uuid, trip, current_setting('t.veh')::uuid, array[current_setting('t.kchild')::uuid], 'boarded', 'QA15 forced', 'QA15 forced', 'qa15-forced-' || trip);
+  seen := pg_temp.count_as(current_setting('t.kparent')::uuid, format('select count(*) from bus_updates where trip_id = %L', trip));
+  perform pg_temp.check('C5 a bus update that names another school''s learner is not readable by that learner''s parent even when written (' || seen || ' readable)', seen = 0);
 end $$;
 select pg_temp.rider_case();
 

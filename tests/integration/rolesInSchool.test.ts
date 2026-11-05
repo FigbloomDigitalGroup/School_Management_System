@@ -1,6 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PostgrestError } from "@supabase/supabase-js";
-import { signInAs, type SignedIn } from "./support/signInAs";
+import { anonClient, signInAs, type SignedIn } from "./support/signInAs";
 
 /**
  * QA 04 (FIG-1237): inside one school, can a parent, student, teacher or driver reach a record that is not theirs by
@@ -190,6 +190,90 @@ describe("teacher: writes follow the class and subject, never exams or fee data"
     const { error } = await teacher.client.rpc("publish_marks", { p_exam_id: exam!.id, p_class_id: cls!.id, p_subject_id: notMine!.id });
     expect(error).not.toBeNull();
     expect(error!.message).toMatch(/don't teach/i);
+  });
+});
+
+describe("teacher: reads follow the class and subject, with no fee data and no private documents (FIG-1303)", () => {
+  it.each(["fee_invoices", "payments"] as const)("reads no rows of %s, which the school admin does read", async (table) => {
+    const exists = await admin.client.from(table).select("id", { count: "exact", head: true });
+    expect(exists.error).toBeNull();
+    expect(exists.count, `the seed has rows in ${table}`).toBeGreaterThan(0);
+    expect(sees(await teacher.client.from(table).select("id").limit(5))).toBe(0);
+  });
+
+  it.each(["payment_proofs", "student_documents", "student_health"] as const)("reads no rows of %s (the SQL check plants a row in each)", async (table) => {
+    expect(sees(await teacher.client.from(table).select("*").limit(5))).toBe(0);
+  });
+
+  it("reads the marks of their own classes and subjects only", async () => {
+    const mine = await teacher.client.from("teaching_assignments").select("subject_id, class_id").eq("teacher_id", teacher.userId);
+    const classTeacher = await teacher.client.from("classes").select("id").eq("class_teacher_id", teacher.userId);
+    const assigned = new Set((mine.data ?? []).map((a) => `${a.class_id}/${a.subject_id}`));
+    const ownClasses = new Set((classTeacher.data ?? []).map((c) => c.id as string));
+    const seen = await teacher.client.from("marks").select("subject_id, students(class_id)").limit(1000);
+    expect(seen.error).toBeNull();
+    expect((seen.data ?? []).length).toBeGreaterThan(0);
+    for (const m of (seen.data ?? []) as unknown as { subject_id: string; students: { class_id: string } | null }[]) {
+      const cls = m.students?.class_id ?? "";
+      expect(assigned.has(`${cls}/${m.subject_id}`) || ownClasses.has(cls), `a mark of class ${cls}, subject ${m.subject_id}`).toBe(true);
+    }
+  });
+});
+
+describe("teacher: the register's health flags, not the health record (FIG-1303)", () => {
+  const run = Date.now().toString(36);
+  let learner = "";
+  beforeAll(async () => {
+    const tenant = (await admin.client.from("profiles").select("tenant_id").eq("id", admin.userId).single()).data!.tenant_id as string;
+    const cls = (await admin.client.from("classes").select("id").eq("tenant_id", tenant).eq("name", "Form 2 West").single()).data!.id as string;
+    const made = await admin.client.from("students")
+      .insert({ tenant_id: tenant, admission_no: `QA03-${run}`, full_name: "QA03 Flag Probe", boarding: false, active: true, class_id: cls }).select("id").single();
+    if (made.error) throw new Error(`could not add the probe learner: ${made.error.message}`);
+    learner = made.data.id as string;
+    const consent = await admin.client.rpc("set_health_consent", { p_student_id: learner, p_give: true, p_signed_by: "QA03 form", p_form_date: new Date().toISOString().slice(0, 10) });
+    if (consent.error) throw new Error(`could not record the consent: ${consent.error.message}`);
+    const saved = await admin.client.from("student_health").upsert({
+      tenant_id: tenant, student_id: learner, allergies: ["Peanuts"], medical_conditions: ["Asthma"], medications: "Inhaler",
+      blood_group: "O+", notes: "QA03 private note", doctor_name: "Dr QA03 Secret", emergency_name: "QA03 Contact", emergency_phone: "0700000003",
+    }, { onConflict: "student_id" });
+    if (saved.error) throw new Error(`could not save the health record: ${saved.error.message}`);
+  }, 60_000);
+
+  afterAll(async () => {
+    const errors: string[] = [];
+    if (learner) {
+      const h = await admin.client.from("student_health").delete().eq("student_id", learner);
+      if (h.error) errors.push(`health: ${h.error.message}`);
+      const s = await admin.client.from("students").delete().eq("id", learner);
+      if (s.error) errors.push(`learner: ${s.error.message}`);
+    }
+    if (errors.length) throw new Error(`cleanup failed (QA03-${run}): ${errors.join("; ")}`);
+  }, 60_000);
+
+  it("the teacher of the class gets the five flag fields and nothing else of the record", async () => {
+    const res = await teacher.client.rpc("teacher_health_flags", { p_student_ids: [learner] });
+    expect(res.error).toBeNull();
+    expect(res.data).toHaveLength(1);
+    const row = (res.data as Record<string, unknown>[])[0]!;
+    expect(Object.keys(row).sort()).toEqual(["allergies", "dietary_needs", "medical_conditions", "medications", "special_needs", "student_id"]);
+    expect(row.allergies).toEqual(["Peanuts"]);
+    expect(row.medical_conditions).toEqual(["Asthma"]);
+    expect(JSON.stringify(row)).not.toMatch(/QA03 private|Secret|0700000003|O\+/);
+  });
+
+  it("the teacher cannot read the record itself", async () => {
+    expect(sees(await teacher.client.from("student_health").select("*").eq("student_id", learner))).toBe(0);
+  });
+
+  it("the school admin and the parent of another child do not get the learner's flags through the teacher's function", async () => {
+    const other = await parent.client.rpc("teacher_health_flags", { p_student_ids: [learner] });
+    expect(other.error).toBeNull();
+    expect(other.data).toEqual([]);
+  });
+
+  it("a signed-out visitor cannot call it", async () => {
+    const res = await anonClient().rpc("teacher_health_flags", { p_student_ids: [learner] });
+    expect(res.error).not.toBeNull();
   });
 });
 

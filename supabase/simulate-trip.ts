@@ -197,7 +197,7 @@ async function main() {
         .update({ status, ...(status === "boarded" ? { boarded_at: new Date().toISOString() } : status === "alighted" ? { alighted_at: new Date().toISOString() } : {}) })
         .eq("trip_id", trip!.id).in("student_id", ids);
       if (error) { console.log(`    !! could not mark ${ids.length} rider(s) ${status}: ${error.message}`); return; }
-      for (const id of ids) (status === "boarded" ? onBus.add(id) : onBus.delete(id));
+      for (const id of ids) { if (status === "boarded") onBus.add(id); else onBus.delete(id); }
       console.log(`    -> ${ids.length} rider(s) ${status === "boarded" ? "got on" : status === "alighted" ? "got off" : "not at the pickup"}`);
     }
     const absentPct = Number(process.env.ABSENT_PCT ?? 5);
