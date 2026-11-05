@@ -54,6 +54,22 @@ export interface TenantBody {
   created_at?: string;
 }
 
+/** POST /events (contract section 1): a product's event for the platform to relay to its subscribers. */
+export interface PlatformEvent {
+  /** Starts with "schools.". */
+  type: string;
+  /** Unique per sender: a repeat is accepted and not delivered again. */
+  id: string;
+  occurred_at: string;
+  /** Schools' own id for the customer: the school's tenants.id. */
+  tenant_local_id: string;
+  data: Record<string, unknown>;
+}
+
+export interface EventAnswer {
+  deliveries?: number;
+}
+
 export interface TenantAnswer {
   tenant_id?: string;
   id?: string;
@@ -97,7 +113,7 @@ export class PlatformClient {
     this.now = deps.now ?? Date.now;
   }
 
-  // ---------------------------------------------------------------- the four calls
+  // ---------------------------------------------------------------- the calls
   putOrganization(localId: string, body: OrganizationBody): Promise<OrganizationAnswer> {
     return this.call("PUT", `/products/${PLATFORM_MODULE}/organizations/${encodeURIComponent(localId)}`, body);
   }
@@ -112,6 +128,14 @@ export class PlatformClient {
 
   putDecisionWebhook(url: string | null): Promise<unknown> {
     return this.call("PUT", `/products/${PLATFORM_MODULE}/decision-webhook`, { url });
+  }
+
+  postEvent(event: PlatformEvent): Promise<EventAnswer> {
+    return this.call("POST", "/events", event);
+  }
+
+  putEventWebhook(url: string | null): Promise<unknown> {
+    return this.call("PUT", `/products/${PLATFORM_MODULE}/event-webhook`, { url });
   }
 
   // ---------------------------------------------------------------- token

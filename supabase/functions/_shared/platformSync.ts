@@ -1,8 +1,10 @@
 /**
  * Figbloom Schools <-> the Figbloom platform (design 5.8): sending the
- * registration queue, the one-off backfill, the hourly reconcile, and
- * registering the decision webhook. The database side is
- * 20261104900000_platform_registration.sql; platform-sync calls these.
+ * registration queue and staff events, the one-off backfill, the staff
+ * backfill of one school, the hourly reconcile, and registering the decision
+ * and event webhooks. The database side is
+ * 20261104900000_platform_registration.sql and
+ * 20261105600000_platform_staff_events.sql; platform-sync calls these.
  */
 
 import { type OrganizationAnswer, type PlatformClient, PlatformError, type PlatformOrganizationStatus } from "./platformClient.ts";
@@ -12,7 +14,22 @@ type Admin = any;
 
 const PAGE = 500;
 
-interface QueueRow { id: number; kind: "organization" | "tenant"; local_id: string; attempts: number; version: number }
+interface QueueRow {
+  id: number; kind: "organization" | "tenant" | "staff"; local_id: string; attempts: number; version: number;
+  /** Staff rows only (20261105600000). */
+  event?: "created" | "updated" | "left" | null; event_id?: string | null; tenant_id?: string | null;
+  occurred_at?: string | null; left_on?: string | null;
+}
+
+/** platform_staff_event_data(): what schools.staff.created / .updated carries, read when it is sent. */
+interface StaffEventData {
+  tenant_id: string;
+  /** A staff role and not archived. */
+  current: boolean;
+  data: { person_id: string; full_name: string; phone: string | null; email: string | null; role: string; job_title: string };
+}
+
+export const QUEUE_KINDS = ["organization", "tenant", "staff"] as const;
 interface OrganizationRow { id: string; name: string; contact_email: string | null; created_at: string; status: string }
 interface TenantRow { id: string; name: string; slug: string; organization_id: string | null; created_at: string }
 
@@ -65,6 +82,8 @@ async function adoptPlatformStatus(admin: Admin, organization: OrganizationRow, 
 export interface SyncReport {
   claimed: number;
   sent: number;
+  /** Of those sent, staff events (POST /events). */
+  events: number;
   failed: { kind: string; local_id: string; error: string }[];
   /** Rows handed back without trying, because the platform was unreachable. */
   deferred: number;
@@ -73,7 +92,8 @@ export interface SyncReport {
 }
 
 /**
- * Sends what is due in platform_sync_queue, organisations first. Safe to run
+ * Sends what is due in platform_sync_queue: organisations, then schools, then
+ * staff events (as POST /events, 20261105600000). Safe to run
  * twice at once: rows are leased (skip locked), so a second run takes others
  * or none. What is sent is the record as it is now. A school whose
  * organisation isn't registered yet queues its organisation and waits a
@@ -81,8 +101,8 @@ export interface SyncReport {
  */
 export async function processQueue(admin: Admin, client: PlatformClient, { limit = 50 } = {}): Promise<SyncReport> {
   const enabled = await decisionsEnabled(admin);
-  const rows = (await rpc<QueueRow[]>(admin, "platform_sync_claim", { p_limit: limit })) ?? [];
-  const report: SyncReport = { claimed: rows.length, sent: 0, failed: [], deferred: 0, adopted: 0 };
+  const rows = (await rpc<QueueRow[]>(admin, "platform_sync_claim_kinds", { p_limit: limit, p_kinds: [...QUEUE_KINDS] })) ?? [];
+  const report: SyncReport = { claimed: rows.length, sent: 0, events: 0, failed: [], deferred: 0, adopted: 0 };
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -97,6 +117,8 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
         await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: answer?.organization_id ?? null });
         report.sent++;
         if (enabled && (await adoptPlatformStatus(admin, o, answer, "registration")) === "applied") report.adopted++;
+      } else if (row.kind === "staff") {
+        if (await sendStaffEvent(admin, client, row)) { report.sent++; report.events++; }
       } else {
         const { data: t, error } = await admin.from("tenants")
           .select("id, name, slug, organization_id, created_at").eq("id", row.local_id).maybeSingle();
@@ -138,6 +160,63 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
     }
   }
   return report;
+}
+
+/**
+ * One staff row as POST /events: schools.staff.<event>, the row's own event id
+ * (new whenever the content changed, so the platform's de-duplication never
+ * swallows a change), tenant_local_id the school. created/updated carry the
+ * person as they are now; a person no longer current (archived by HR, so not
+ * echoed back; or gone, whose left is queued in this same row) is not sent.
+ * Returns whether an event was sent.
+ */
+async function sendStaffEvent(admin: Admin, client: PlatformClient, row: QueueRow): Promise<boolean> {
+  if (!row.event || !row.event_id || !row.tenant_id) throw new Error("a staff row without its event");
+  let tenantLocalId = row.tenant_id;
+  let data: Record<string, unknown>;
+  if (row.event === "left") {
+    data = { person_id: row.local_id, left_on: row.left_on ?? new Date().toISOString().slice(0, 10) };
+  } else {
+    const info = await rpc<StaffEventData | null>(admin, "platform_staff_event_data", { p_profile_id: row.local_id });
+    if (!info || !info.current) {
+      await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null });
+      return false;
+    }
+    tenantLocalId = info.tenant_id;
+    data = { ...info.data };
+  }
+  await client.postEvent({
+    type: `schools.staff.${row.event}`,
+    id: row.event_id,
+    occurred_at: new Date(row.occurred_at ?? Date.now()).toISOString(),
+    tenant_local_id: tenantLocalId,
+    data,
+  });
+  // false: it changed while on its way, and is handed back to be sent again (as an update, with a new id)
+  await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null });
+  return true;
+}
+
+// ---------------------------------------------------------------- the staff backfill
+export interface StaffBackfillReport {
+  school_id: string;
+  dry_run: boolean;
+  count: number;
+  /** As schools.staff.created would carry them. */
+  staff: StaffEventData["data"][];
+  /** Not a dry run: each is now in the queue, and the next sync (every minute) sends it. */
+  queued?: number;
+}
+
+/**
+ * schools.staff.created for every current staff member of one school (right
+ * after HR is switched on for it). A dry run lists them; otherwise each is
+ * queued, merged into any pending row, and sent by the queue with its retries.
+ * Repeating it sends them again, which HR treats as an update.
+ */
+export async function staffBackfill(admin: Admin, { schoolId, dryRun = true }: { schoolId: string; dryRun?: boolean }): Promise<StaffBackfillReport> {
+  const answer = await rpc<StaffBackfillReport>(admin, "platform_staff_backfill", { p_tenant_id: schoolId, p_dry_run: dryRun });
+  return dryRun ? answer : { ...answer, queued: answer.count };
 }
 
 // ---------------------------------------------------------------- the backfill
@@ -281,11 +360,20 @@ export async function reconcile(admin: Admin, client: PlatformClient, { limit = 
   return report;
 }
 
-// ---------------------------------------------------------------- the webhook address
+// ---------------------------------------------------------------- the webhook addresses
 /** Where the platform should send decisions: PLATFORM_WEBHOOK_URL, or this project's platform-decisions function. */
 export function decisionWebhookUrl(env: { get(name: string): string | undefined } = Deno.env, given?: unknown): string | null {
+  return webhookUrl(env, given, "PLATFORM_WEBHOOK_URL", "platform-decisions");
+}
+
+/** Where the platform should send events (hr.employee.left): PLATFORM_EVENTS_URL, or this project's platform-events function. */
+export function eventWebhookUrl(env: { get(name: string): string | undefined } = Deno.env, given?: unknown): string | null {
+  return webhookUrl(env, given, "PLATFORM_EVENTS_URL", "platform-events");
+}
+
+function webhookUrl(env: { get(name: string): string | undefined }, given: unknown, variable: string, fn: string): string | null {
   const candidate = typeof given === "string" && given.trim() ? given.trim()
-    : env.get("PLATFORM_WEBHOOK_URL")?.trim() || (env.get("SUPABASE_URL") ? `${env.get("SUPABASE_URL")!.replace(/\/+$/, "")}/functions/v1/platform-decisions` : "");
+    : env.get(variable)?.trim() || (env.get("SUPABASE_URL") ? `${env.get("SUPABASE_URL")!.replace(/\/+$/, "")}/functions/v1/${fn}` : "");
   try {
     const url = new URL(candidate);
     return url.protocol === "https:" ? url.toString() : null;

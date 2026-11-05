@@ -21,6 +21,9 @@ export class FakePlatform {
   organizations = new Map<string, FakeOrganization>();
   tenants = new Map<string, FakeTenant>();
   webhookUrl: string | null = null;
+  eventWebhookUrl: string | null = null;
+  /** POST /events accepted, in order (a repeated id is accepted once, not again). */
+  events: { type: string; id: string; occurred_at: string; tenant_local_id: string; data: Record<string, unknown> }[] = [];
   /** Every call to the API (not the token endpoint), in order. */
   calls: { method: string; path: string; body: unknown; token: string }[] = [];
   tokensIssued = 0;
@@ -70,6 +73,11 @@ export class FakePlatform {
       this.tenants.set(local, t);
       return json({ tenant_id: t.tenant_id, slug: t.local_slug, local_slug: t.local_slug }, existing ? 200 : 201);
     }
+    if (url.pathname === "/events" && method === "POST") return this.postEvent(body);
+    if (url.pathname === "/products/schools/event-webhook" && method === "PUT") {
+      this.eventWebhookUrl = body.url;
+      return json({ url: body.url });
+    }
     if (url.pathname === "/products/schools/decision-webhook" && method === "PUT") {
       this.webhookUrl = body.url;
       return json({ url: body.url });
@@ -81,6 +89,16 @@ export class FakePlatform {
   decide(localId: string, status: string, reason: string | null = null) {
     const o = this.organizations.get(localId)!;
     Object.assign(o, { status, status_reason: reason, decided_on_platform: true });
+  }
+
+  /** Contract section 1: the sender's own types only; a repeated id accepted and not delivered; the school must be registered. */
+  // deno-lint-ignore no-explicit-any
+  private postEvent(body: any): Response {
+    if (typeof body?.type !== "string" || !body.type.startsWith("schools.")) return json({ error: { code: "forbidden", message: "Not your event type" } }, 403);
+    if (this.events.some((e) => e.id === body.id)) return json({ deliveries: 0, duplicate: true });
+    if (!this.tenants.has(body.tenant_local_id)) return json({ error: { code: "tenant_not_found", message: "Unknown tenant_local_id" } }, 404);
+    this.events.push(body);
+    return json({ deliveries: 1 }, 202);
   }
 
   private token(headers: Headers, body: string): Response {

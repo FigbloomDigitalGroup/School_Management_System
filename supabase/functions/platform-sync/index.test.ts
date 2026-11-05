@@ -123,3 +123,53 @@ describe("platform-sync", () => {
     assertEquals((await call({ action: "register_webhook" })).status, 502);
   });
 });
+
+describe("platform-sync: staff (20261105600000)", () => {
+  const SCHOOL = LONE;
+  const TEACHER = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
+
+  it("staff_backfill is a dry run unless dry_run is false, and works before the platform secrets are set", async () => {
+    const { db, call, platform } = setup({ configured: false });
+    db.seed("profiles", [{ id: TEACHER, tenant_id: SCHOOL, role: "teacher", full_name: "Jane Wanjiru", archived_at: null }]);
+    const dry = await (await call({ action: "staff_backfill", school_id: SCHOOL })).json();
+    assertEquals([dry.dry_run, dry.count, dry.staff[0].person_id], [true, 1, TEACHER]);
+    assertEquals(db.rowsIn("platform_sync_queue").length, 0);
+    const real = await (await call({ action: "staff_backfill", school_id: SCHOOL, dry_run: false })).json();
+    assertEquals([real.dry_run, real.queued], [false, 1]);
+    assertEquals(db.rowsIn("platform_sync_queue").map((r) => [r.kind, r.local_id, r.event]), [["staff", TEACHER, "created"]]);
+    assertEquals(platform.calls.length, 0, "queued: the next sync sends it");
+  });
+
+  it("staff_backfill needs a school id, and a school Schools has", async () => {
+    const { call } = setup();
+    assertEquals((await call({ action: "staff_backfill" })).status, 400);
+    assertEquals((await call({ action: "staff_backfill", school_id: "hillside" })).status, 400);
+    assertEquals((await call({ action: "staff_backfill", school_id: "99999999-9999-4999-8999-999999999999" })).status, 404);
+  });
+
+  it("register_event_webhook gives the platform PLATFORM_EVENTS_URL, this project's platform-events, or the one given", async () => {
+    const { call, platform } = setup();
+    assertEquals((await (await call({ action: "register_event_webhook" })).json()).url, "https://abc.supabase.co/functions/v1/platform-events");
+    assertEquals(platform.eventWebhookUrl, "https://abc.supabase.co/functions/v1/platform-events");
+    assertEquals(platform.calls.at(-1)?.path, "/products/schools/event-webhook");
+    await call({ action: "register_event_webhook", url: "https://schools.example/platform/events" });
+    assertEquals(platform.eventWebhookUrl, "https://schools.example/platform/events");
+    assertEquals((await call({ action: "register_event_webhook", url: "http://insecure.example/x" })).status, 400);
+
+    const configured = setup({ vars: { PLATFORM_EVENTS_URL: "https://ref.supabase.co/functions/v1/platform-events" } });
+    await configured.call({ action: "register_event_webhook" });
+    assertEquals(configured.platform.eventWebhookUrl, "https://ref.supabase.co/functions/v1/platform-events");
+    assertEquals(configured.platform.webhookUrl, null, "the decision webhook is left alone");
+  });
+
+  it("register_event_webhook needs the platform secrets", async () => {
+    const { call } = setup({ configured: false });
+    assertEquals((await call({ action: "register_event_webhook" })).status, 503);
+  });
+
+  it("refuses the staff actions without the key", async () => {
+    const { call } = setup();
+    assertEquals((await call({ action: "staff_backfill", school_id: LONE }, null)).status, 401);
+    assertEquals((await call({ action: "register_event_webhook" }, "nope")).status, 401);
+  });
+});

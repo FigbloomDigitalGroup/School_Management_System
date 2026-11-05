@@ -83,6 +83,9 @@ verify_jwt = false             # the Figbloom console's backend, server to serve
 [functions.platform-decisions]
 verify_jwt = false             # the Figbloom platform's decision webhook; its own check is x-figbloom-signature (HMAC) against PLATFORM_WEBHOOK_SECRET
 
+[functions.platform-events]
+verify_jwt = false             # the Figbloom platform's event relay (hr.employee.left); its own check is x-figbloom-signature (HMAC) against PLATFORM_WEBHOOK_SECRET
+
 [functions.platform-sync]
 verify_jwt = false             # pg_cron (pg_net) and staff, server to server; its own check is the service-role key, in constant time
 

@@ -419,6 +419,8 @@ export class FakeSupabaseClient {
   // ------------------------------------------------------------ platform registration (20261104900000)
   /** platform_settings 'PLATFORM_DECISIONS_ENABLED'. */
   platformDecisionsEnabled = false;
+  /** platform_settings 'PLATFORM_EVENTS_ENABLED' (20261105600000). */
+  platformEventsEnabled = false;
   /** The database's clock, for the queue's due times and leases. */
   clock: () => number = () => Date.now();
   private queueSeq = 0;
@@ -484,11 +486,16 @@ export class FakeSupabaseClient {
       return null;
     },
 
-    platform_sync_claim: ({ p_limit }) => {
+    platform_sync_claim: ({ p_limit }) => this.platformRpcs.platform_sync_claim_kinds({ p_limit, p_kinds: ["organization", "tenant"] }),
+
+    // 20261105600000: organisations, then schools, then staff events
+    platform_sync_claim_kinds: ({ p_limit, p_kinds }) => {
       const now = this.clock();
+      const rank = (k: string) => (k === "organization" ? 0 : k === "tenant" ? 1 : 2);
+      const kinds: string[] = p_kinds ?? ["organization", "tenant", "staff"];
       const due = this.rowsIn("platform_sync_queue")
-        .filter((r) => !r.done_at && Date.parse(r.next_attempt_at) <= now && (!r.locked_until || Date.parse(r.locked_until) < now))
-        .sort((a, b) => Number(b.kind === "organization") - Number(a.kind === "organization") || a.id - b.id)
+        .filter((r) => !r.done_at && kinds.includes(r.kind) && Date.parse(r.next_attempt_at) <= now && (!r.locked_until || Date.parse(r.locked_until) < now))
+        .sort((a, b) => rank(a.kind) - rank(b.kind) || a.id - b.id)
         .slice(0, Math.max(0, Number(p_limit ?? 50)));
       for (const r of due) { r.locked_until = this.iso(now + 5 * 60_000); r.attempts += 1; }
       return due.map((r) => ({ ...r }));
@@ -497,10 +504,83 @@ export class FakeSupabaseClient {
     platform_sync_done: ({ p_id, p_version, p_platform_id }) => {
       const r = this.rowsIn("platform_sync_queue").find((x) => x.id === p_id && !x.done_at);
       if (!r) return false;
-      this.platformLink(r.kind, r.local_id, p_platform_id ?? null);
-      if (r.version !== p_version) { Object.assign(r, { locked_until: null, next_attempt_at: this.iso() }); return false; }
+      if (r.kind !== "staff") this.platformLink(r.kind, r.local_id, p_platform_id ?? null);
+      if (r.version !== p_version) {
+        Object.assign(r, { locked_until: null, next_attempt_at: this.iso() });
+        if (r.kind === "staff" && r.event === "created") r.event = "updated";
+        return false;
+      }
       Object.assign(r, { done_at: this.iso(), locked_until: null, last_error: null });
       return true;
+    },
+
+    // ---------------------------------------------------------- staff events (20261105600000)
+    /** What the profiles triggers call; tests call it in their place. */
+    platform_staff_enqueue: ({ p_profile_id, p_event, p_tenant_id, p_left_on }) => {
+      const q = this.table("platform_sync_queue");
+      const existing = q.rows.find((r) => r.kind === "staff" && r.local_id === p_profile_id && !r.done_at);
+      if (existing) {
+        existing.version += 1;
+        existing.event_id = crypto.randomUUID();
+        existing.event = p_event === "left" ? "left" : existing.event === "created" || existing.event === "left" ? "created" : p_event;
+        Object.assign(existing, { tenant_id: p_tenant_id, occurred_at: this.iso(), left_on: p_event === "left" ? p_left_on ?? null : null });
+        if (Date.parse(existing.next_attempt_at) > this.clock()) existing.next_attempt_at = this.iso();
+        return null;
+      }
+      q.rows.push({ id: ++this.queueSeq, kind: "staff", local_id: p_profile_id, enqueued_at: this.iso(), attempts: 0,
+        next_attempt_at: this.iso(), locked_until: null, last_error: null, version: 1, done_at: null,
+        event: p_event, event_id: crypto.randomUUID(), tenant_id: p_tenant_id, occurred_at: this.iso(),
+        left_on: p_event === "left" ? p_left_on ?? null : null });
+      return null;
+    },
+
+    platform_staff_event_data: ({ p_profile_id }) => {
+      const p = this.rowsIn("profiles").find((x) => x.id === p_profile_id);
+      if (!p) return null;
+      const real = (e: unknown) => {
+        const a = typeof e === "string" ? e.trim().toLowerCase() : "";
+        return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a) && !/\.(internal|invalid)$/.test(a) ? a : null;
+      };
+      const labels: Record<string, string> = { teacher: "Teacher", driver: "Driver", staff: "Staff", school_admin: "School administrator" };
+      return {
+        tenant_id: p.tenant_id,
+        current: p.role in labels && !p.archived_at,
+        data: {
+          person_id: p.id, full_name: p.full_name, phone: (p.phone ?? "").trim() || null,
+          email: real(p.email) ?? real(p.auth_email), role: p.role,
+          job_title: (p.staff_title ?? "").trim() || labels[p.role] || p.role,
+        },
+      };
+    },
+
+    platform_staff_backfill: ({ p_tenant_id, p_dry_run }) => {
+      if (!this.rowsIn("tenants").some((t) => t.id === p_tenant_id)) throw new Error(`no school ${p_tenant_id}`);
+      const staff = this.rowsIn("profiles")
+        .filter((p) => p.tenant_id === p_tenant_id && ["teacher", "driver", "staff", "school_admin"].includes(p.role) && !p.archived_at);
+      if (!p_dry_run) for (const p of staff) this.platformRpcs.platform_staff_enqueue({ p_profile_id: p.id, p_event: "created", p_tenant_id });
+      const data = staff.map((p) => (this.platformRpcs.platform_staff_event_data({ p_profile_id: p.id }) as Row).data);
+      return { school_id: p_tenant_id, dry_run: p_dry_run, count: data.length, staff: data };
+    },
+
+    platform_events_enabled: () => this.platformEventsEnabled,
+
+    platform_staff_left: (a) => {
+      const deliveries = this.table("platform_event_deliveries");
+      if (deliveries.rows.some((d) => d.delivery_id === a.p_delivery_id)) return { outcome: "duplicate" };
+      const record = (outcome: string) => deliveries.rows.push({ delivery_id: a.p_delivery_id, event_type: "hr.employee.left", event_id: a.p_event_id,
+        tenant_id: a.p_tenant_id, profile_id: a.p_profile_id, outcome, detail: { employee_number: a.p_employee_number ?? null, left_on: a.p_left_on ?? null } });
+      if (a.p_apply === false) { record("not_enabled"); return { outcome: "not_enabled" }; }
+      const p = this.rowsIn("profiles").find((x) => x.id === a.p_profile_id);
+      if (!p) return { outcome: "not_found" };
+      if (p.tenant_id !== a.p_tenant_id) return { outcome: "tenant_mismatch" };
+      if (!["teacher", "driver", "staff", "school_admin"].includes(p.role)) return { outcome: "not_staff" };
+      if (p.archived_at) { record("already_archived"); return { outcome: "already_archived" }; }
+      Object.assign(p, { archived_at: this.iso(), archived_by: null, left_on: a.p_left_on ?? this.iso().slice(0, 10), login_banned: true });
+      this.table("audit_events").insert({ tenant_id: p.tenant_id, actor_id: null, actor_label: "Figbloom HR (via Figbloom platform)",
+        event: `Staff member ${p.full_name} archived: left on ${a.p_left_on} (recorded in Figbloom HR)`, category: "provisioning",
+        metadata: { table: "profiles", op: "update", via: "Figbloom platform", profile_ids: [p.id], employee_number: a.p_employee_number ?? null, delivery_id: a.p_delivery_id } });
+      record("archived");
+      return { outcome: "archived" };
     },
 
     platform_record_link: ({ p_kind, p_local_id, p_platform_id }) => {

@@ -316,6 +316,34 @@ or active with the platform's auto-approve), and the hourly reconcile runs.
 Turning it off again hands organisation status back to Schools' console.
 Checks: `supabase/rls-checks/platform_registration.sql` and `supabase/rls-checks/organization_suspension.sql`.
 
+## Figbloom HR: staff events (Schools + HR phase 1)
+
+Once Figbloom staff switch HR & Payroll on for a school (the console, on the platform), HR keeps a draft employee
+for each of the school's staff, and an exit completed in HR archives the Schools account
+(SCHOOLS_HR_PHASE1_CONTRACT.md, section 3; `20261105600000_platform_staff_events`).
+
+- **Staff events** go through the same outbox. Triggers on `profiles` queue a `staff` row for teachers, drivers,
+  other staff and school admins: `schools.staff.created` (hired, or restored), `.updated` (name, phone, title, role,
+  or a real email; a synthetic login address `…@login.<slug>.figbloom.internal` is sent as `email: null`) and
+  `.left` (archived, removed, or no longer a staff role; with `left_on`). `platform-sync` sends them as
+  `POST /events` after the organisations and schools, `tenant_local_id` the school's id, with the same retries.
+  Every school's events are sent; the platform delivers them only where HR is on.
+- **Archiving staff** (`archive_staff()` / `restore_staff()`, like learners): the account is kept, its login banned
+  and its sessions ended; restoring lifts the ban.
+- **`hr.employee.left`** arrives at `platform-events`, signed like decisions (`PLATFORM_WEBHOOK_SECRET`). The person
+  must belong to the school the event names. It archives them (not sent back to HR as `.left`); each delivery once.
+  **`PLATFORM_EVENTS_ENABLED`** (`platform_settings`, off): until it is on, events are verified, recorded in
+  `platform_event_deliveries`, logged and acknowledged, not applied.
+
+**Deploy:** `supabase db push`; `supabase functions deploy platform-sync --no-verify-jwt` and
+`supabase functions deploy platform-events --no-verify-jwt`; optional secret `PLATFORM_EVENTS_URL` (default
+`<SUPABASE_URL>/functions/v1/platform-events`); then
+`curl -X POST "$F/platform-sync" -H "x-platform-sync-key: $KEY" -d '{"action":"register_event_webhook"}'`.
+After HR is switched on for a school: `-d '{"action":"staff_backfill","school_id":"<tenants.id>"}'` lists its
+staff, and with `"dry_run":false` queues `schools.staff.created` for each (the next minute's sync sends them).
+Switch on receiving: `update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_EVENTS_ENABLED';`
+Checks: `supabase/rls-checks/platform_staff_events.sql`.
+
 ## Rate limits on the public functions
 
 `search-schools`, `resolve-login-id`, `request-password-reset` and
