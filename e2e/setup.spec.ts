@@ -139,8 +139,7 @@ test.describe("Term dates", () => {
     expect((await db.from("terms").select("is_current").eq("id", term3).single()).data!.is_current).toBe(false);
   });
 
-  test("KNOWN QA12-ROLLOVER FIG-1427 (open): a new term the database refuses (Term 3 of 2026 again) leaves the school with its current term", async ({ page }) => {
-    test.fail();
+  test("QA12-ROLLOVER FIG-1427: a new term the database refuses (Term 3 of 2026 again) leaves the school with its current term", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 3, year: 2026, starts: "2026-12-01", ends: "2026-12-20" });
     await expect(page.getByText(/Could not create the term/)).toBeVisible({ timeout: 15000 });
@@ -150,8 +149,7 @@ test.describe("Term dates", () => {
     expect(cur.map((t) => t.id)).toEqual([term3]);
   });
 
-  test("KNOWN QA12-ROLLOVER FIG-1427 (open): a term that ends the day it starts is refused before the current term is switched off", async ({ page }) => {
-    test.fail();
+  test("QA12-ROLLOVER FIG-1427: a term that ends the day it starts is refused before the current term is switched off", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 1, year: 2027, starts: "2027-01-05", ends: "2027-01-05" });
     await expect(page.getByText(/Could not create the term|must be after the start date/)).toBeVisible({ timeout: 15000 });
