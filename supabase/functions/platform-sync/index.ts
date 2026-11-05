@@ -26,11 +26,18 @@
  *   {"action":"backfill"}             report what the backfill would do (a dry run: the default)
  *   {"action":"backfill","dry_run":false}  do it: create each lone school's own organisation, register every organisation with today's status, then every school
  *   {"action":"register_webhook"}     tell the platform to send decisions to platform-decisions (or {"url": "https://..."})
+ *   {"action":"staff_backfill","school_id":"<tenants.id>"}  list the school's current staff (a dry run: the default)
+ *   {"action":"staff_backfill","school_id":"...","dry_run":false}  queue schools.staff.created for each; the next sync sends them
+ *                                    (409 while PLATFORM_STAFF_EVENTS_ENABLED is off, or the platform doesn't know the school)
+ *   {"action":"register_event_webhook"}  tell the platform to send events (hr.employee.left) to platform-events (or {"url": "https://..."})
+ *
+ * The queue carries staff events too (20261105600000): sync sends them as
+ * POST /events after the organisations and schools.
  *
  * Function secrets: PLATFORM_CLIENT_ID, PLATFORM_CLIENT_SECRET,
  * PLATFORM_TOKEN_URL, PLATFORM_API_URL (_shared/platformClient.ts); optional
- * PLATFORM_WEBHOOK_URL. Without the first four, every action but the dry run
- * answers 503 and nothing is sent; the queue waits.
+ * PLATFORM_WEBHOOK_URL and PLATFORM_EVENTS_URL. Without the first four, every
+ * action but the dry runs answers 503 and nothing is sent; the queue waits.
  *
  * Deploy: supabase functions deploy platform-sync --no-verify-jwt
  */
@@ -38,14 +45,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { describeKey, injectedServerKeys, matchesAnyKey } from "../_shared/serviceKeys.ts";
 import { PlatformClient, platformConfigFromEnv, PlatformError } from "../_shared/platformClient.ts";
-import { backfill, decisionWebhookUrl, processQueue, reconcile } from "../_shared/platformSync.ts";
+import { backfill, decisionWebhookUrl, eventWebhookUrl, processQueue, reconcile, staffBackfill } from "../_shared/platformSync.ts";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
   admin: any;
   /** null when the PLATFORM_* secrets aren't set. */
   client: PlatformClient | null;
-  /** Environment: PLATFORM_SYNC_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SECRET_KEYS, SUPABASE_URL, PLATFORM_WEBHOOK_URL. */
+  /** Environment: PLATFORM_SYNC_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SECRET_KEYS, SUPABASE_URL, PLATFORM_WEBHOOK_URL, PLATFORM_EVENTS_URL. */
   env?: { get(name: string): string | undefined };
 }
 
@@ -109,8 +118,32 @@ export async function handle(req: Request, { admin, client, env = Deno.env }: De
         await client.putDecisionWebhook(url);
         return json({ ok: true, url });
       }
+      case "staff_backfill": {
+        if (typeof body.school_id !== "string" || !UUID.test(body.school_id)) return fail(400, "invalid_school", "school_id must be a school's id.");
+        const dryRun = body.dry_run !== false;
+        try {
+          return json(await staffBackfill(admin, { schoolId: body.school_id, dryRun }));
+        } catch (err) {
+          if (err instanceof Error && /no school/.test(err.message)) return fail(404, "school_not_found", "Schools has no school with that id.");
+          if (err instanceof Error && /staff_events_disabled/.test(err.message)) {
+            return fail(409, "staff_events_disabled", "Sending staff events is switched off on this database (platform_settings PLATFORM_STAFF_EVENTS_ENABLED). Nothing was queued; the dry run still lists.");
+          }
+          if (err instanceof Error && /school_not_linked/.test(err.message)) {
+            return fail(409, "school_not_linked", "The platform doesn't know this school yet (its registration hasn't been delivered). Nothing was queued; run sync first.");
+          }
+          throw err;
+        }
+      }
+      case "register_event_webhook": {
+        if (!client) return needClient();
+        const url = eventWebhookUrl(env, body.url);
+        if (!url) return fail(400, "invalid_url", "The event webhook address must be an https URL (set PLATFORM_EVENTS_URL, or send url).");
+        await client.putEventWebhook(url);
+        return json({ ok: true, url });
+      }
       default:
-        return fail(400, "unknown_action", 'The action must be "sync", "reconcile", "backfill" or "register_webhook".');
+        return fail(400, "unknown_action",
+          'The action must be "sync", "reconcile", "backfill", "register_webhook", "staff_backfill" or "register_event_webhook".');
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

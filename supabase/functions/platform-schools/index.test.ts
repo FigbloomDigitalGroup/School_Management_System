@@ -162,6 +162,10 @@ describe("platform-schools handle", () => {
         organization: { id: ORG, name: "Highlands Group" },
         created_at: "2026-09-14T08:00:00Z",
         admin_email: "head@kilimani.example",
+        admins: [
+          { email: "head@kilimani.example", name: "Head Teacher", role: "school_admin" },
+          { email: "deputy@kilimani.example", name: "Second Admin", role: "school_admin" },
+        ],
         students: 2,   // the archived learner doesn't count
         teachers: 2,
         parents: 1,
@@ -176,12 +180,53 @@ describe("platform-schools handle", () => {
       assertEquals(alliance.status_reason, "Unpaid licence");
       assertEquals(alliance.organization, null);
       assertEquals(alliance.admin_email, null);          // the only admin has a login-ID address, not a mailbox
+      assertEquals(alliance.admins, []);                 // ...so there is nobody to invite
       assertEquals(alliance.last_activity_at, null);     // nobody there has signed in
       assertEquals([alliance.students, alliance.teachers, alliance.parents], [1, 1, 0]);
       assertEquals(body.schools.find((s: { id: string }) => s.id === TRIAL).status, "trial");
     });
 
-    it("returns nothing personal beyond admin_email, even if the database sent more", async () => {
+    it("admins: only current school admins with a real email, oldest first, at most 20", async () => {
+      const admin = makeAdmin();
+      admin.seed("profiles", [
+        ...admin.rowsIn("profiles"),
+        { id: "p-admin-archived", tenant_id: KILIMANI, role: "school_admin", full_name: "Left Admin", email: "left@kilimani.example", created_at: "2026-09-15T00:00:00Z", archived_at: "2026-10-01T00:00:00Z" },
+        { id: "p-admin-synthetic", tenant_id: KILIMANI, role: "school_admin", full_name: "Login ID Admin", email: "ad-0003@login.kilimani-secondary.figbloom.internal", created_at: "2026-09-16T00:00:00Z" },
+        { id: "p-admin-login", tenant_id: KILIMANI, role: "school_admin", full_name: "Login Mailbox Admin", email: null, created_at: "2026-09-17T00:00:00Z" },
+        ...Array.from({ length: 25 }, (_, i) => ({
+          id: `p-admin-x${i}`, tenant_id: TRIAL, role: "school_admin", full_name: `Admin ${i}`, email: `admin${i}@trial.example`,
+          created_at: `2026-10-01T00:00:${String(i).padStart(2, "0")}Z`,
+        })),
+      ]);
+      admin.authUsers.set("p-admin-login", { id: "p-admin-login", email: "Bursar@Kilimani.example" });
+      const body = await (await handle(call({ action: "list" }), deps(admin))).json();
+      const kilimani = body.schools.find((s: { id: string }) => s.id === KILIMANI);
+      assertEquals(kilimani.admins.map((a: { email: string }) => a.email),
+        ["head@kilimani.example", "bursar@kilimani.example", "deputy@kilimani.example"]);   // the login's mailbox counts; archived and synthetic don't
+      assertEquals(kilimani.admin_email, "head@kilimani.example", "admin_email unchanged");
+      const trial = body.schools.find((s: { id: string }) => s.id === TRIAL);
+      assertEquals(trial.admins.length, 20);
+      assertEquals(trial.admins[0], { email: "admin0@trial.example", name: "Admin 0", role: "school_admin" });
+    });
+
+    it("admins: drops a synthetic address and anything past 20 even if the database sent them", async () => {
+      const admin = makeAdmin();
+      const real = admin.rpc.bind(admin);
+      admin.rpc = async (name, args) => {
+        const r = await real(name, args);
+        return { ...r, data: (r.data as Record<string, unknown>[]).map((row) => ({ ...row, admins: [
+          { email: "ad-0001@login.alliance.figbloom.internal", name: "Synthetic", role: "school_admin", phone: "0700" },
+          ...Array.from({ length: 30 }, (_, i) => ({ email: `a${i}@x.example`, name: `A${i}`, role: "org_admin" })),
+        ] })) };
+      };
+      const body = await (await handle(call({ action: "list" }), deps(admin))).json();
+      const admins = body.schools[0].admins;
+      assertEquals(admins.length, 20);
+      assertEquals(admins[0], { email: "a0@x.example", name: "A0", role: "school_admin" });
+      assert(!JSON.stringify(body).includes("figbloom.internal"));
+    });
+
+    it("returns nothing personal beyond admin_email and admins, even if the database sent more", async () => {
       const admin = makeAdmin();
       admin.rpcAnswers = {};
       const real = admin.rpc.bind(admin);
@@ -192,12 +237,13 @@ describe("platform-schools handle", () => {
       const body = await (await handle(call({ action: "list" }), deps(admin))).json();
       for (const row of body.schools) {
         assertEquals(Object.keys(row).sort(), [
-          "admin_email", "created_at", "id", "last_activity_at", "name", "organization", "parents",
+          "admin_email", "admins", "created_at", "id", "last_activity_at", "name", "organization", "parents",
           "slug", "status", "status_reason", "students", "teachers",
         ]);
       }
       const text = JSON.stringify(body);
-      for (const name of ["Learner One", "Teacher One", "Parent One", "Head Teacher", "0700", "owner@highlands"]) {
+      // admins' names are in admins (for the HR invitations); nobody else's is
+      for (const name of ["Learner One", "Teacher One", "Parent One", "Alliance Teacher", "0700", "owner@highlands"]) {
         assert(!text.includes(name), `the list leaks "${name}"`);
       }
     });

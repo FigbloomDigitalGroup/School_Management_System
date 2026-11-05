@@ -111,6 +111,7 @@ describe("edge functions that need no sign-in", () => {
     // server to server (Figbloom platform work, dev-staging #222-#227): no user session to send, each checks a secret of its own
     "platform-schools": "the Figbloom console's backend (x-platform-secret against PLATFORM_CONSOLE_SECRET)",
     "platform-decisions": "the Figbloom platform's decision webhook (HMAC signature against PLATFORM_WEBHOOK_SECRET)",
+    "platform-events": "the Figbloom platform's event relay, hr.employee.left (HMAC signature against PLATFORM_WEBHOOK_SECRET)",
     "platform-sync": "pg_cron and staff (PLATFORM_SYNC_KEY, or an injected server key)",
   };
 
@@ -136,6 +137,7 @@ describe("edge functions that need no sign-in", () => {
   it("the server-to-server public functions check a secret of their own, in constant time", () => {
     expect(read("supabase/functions/platform-schools/index.ts")).toMatch(/PLATFORM_CONSOLE_SECRET[\s\S]*secretsMatch|secretsMatch[\s\S]*PLATFORM_CONSOLE_SECRET/);
     expect(read("supabase/functions/platform-decisions/index.ts")).toMatch(/verifyFigbloomWebhook/);
+    expect(read("supabase/functions/platform-events/index.ts")).toMatch(/verifyFigbloomWebhook/);
     expect(read("supabase/functions/_shared/platformWebhook.ts")).toMatch(/secretsMatch/);
     expect(read("supabase/functions/platform-sync/index.ts")).toMatch(/matchesAnyKey/);
   });

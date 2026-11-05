@@ -152,7 +152,11 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
 
 - **What it answers:** `{"action": "list"}` gives each school's id, name, slug,
   status (as stored, e.g. `active`, `trial`, `suspended`), status reason, group,
-  created date, the first school admin's email, counts of learners, teachers and
+  created date, the first school admin's email (`admin_email`), the school's
+  admins (`admins: [{email, name, role: "school_admin"}]`: every school admin
+  who is not archived and has a real email, synthetic login addresses dropped,
+  oldest first, at most 20; the console invites them to Figbloom HR;
+  `20261105610000_console_school_admins.sql`), counts of learners, teachers and
   parents, and the latest sign-in at that school. Nothing else personal.
   `{"action": "set_status", "school_id", "status": "suspended" | "active",
   "reason", "actor_email"}` suspends (reason required) or reactivates a
@@ -315,6 +319,56 @@ organisation takes the platform's decision when it is registered (pending,
 or active with the platform's auto-approve), and the hourly reconcile runs.
 Turning it off again hands organisation status back to Schools' console.
 Checks: `supabase/rls-checks/platform_registration.sql` and `supabase/rls-checks/organization_suspension.sql`.
+
+## Figbloom HR: staff events (Schools + HR phase 1)
+
+Once Figbloom staff switch HR & Payroll on for a school (the console, on the platform), HR keeps a draft employee
+for each of the school's staff, and an exit completed in HR archives the Schools account
+(SCHOOLS_HR_PHASE1_CONTRACT.md, section 3; `20261105600000_platform_staff_events`).
+
+- **Staff events** go through the same outbox. Triggers on `profiles` queue a `staff` row for teachers, drivers,
+  other staff and school admins: `schools.staff.created` (hired, or restored), `.updated` (name, phone, title, role,
+  or a real email; a synthetic login address `…@login.<slug>.figbloom.internal` is sent as `email: null`) and
+  `.left` (archived, removed, or no longer a staff role; with `left_on`). `platform-sync` sends them as
+  `POST /events` after the organisations and schools, `tenant_local_id` the school's id, with the same retries.
+- **Two gates on sending.** `PLATFORM_STAFF_EVENTS_ENABLED` (`platform_settings`, off by default): while it is off
+  nothing is queued at all, so no personal data piles up, and `staff_backfill` for real is refused (409
+  `staff_events_disabled`; the dry run still lists). And only schools the platform knows: a school whose registration
+  has been delivered (`platform_links`, kind `tenant`); otherwise nothing is queued and the backfill answers 409
+  `school_not_linked`. If the platform still answers 404 for a staff event, the row ends as `skipped_unlinked` (done,
+  not retried) and `platform-sync` logs it.
+- **Archiving staff** (`archive_staff()` / `restore_staff()`, like learners): the account is kept, its login banned
+  and its sessions ended; restoring lifts the ban.
+- **`hr.employee.left`** arrives at `platform-events`, signed like decisions (`PLATFORM_WEBHOOK_SECRET`). The person
+  must belong to the school the event names. It archives them (not sent back to HR as `.left`); each delivery once.
+  **`PLATFORM_EVENTS_ENABLED`** (`platform_settings`, off): until it is on, events are verified, recorded in
+  `platform_event_deliveries`, logged and acknowledged, not applied.
+
+**Deploy**, on the database and the functions host of the environment:
+
+1. Apply the migration `20261105600000_platform_staff_events`.
+2. Deploy the `platform-sync` and `platform-events` functions (`platform-events` is public: JWT verification off,
+   like `platform-decisions`; its own check is the signature).
+3. Function settings: set `PLATFORM_EVENTS_URL` to `<public functions URL>/platform-events`. `PLATFORM_WEBHOOK_SECRET`
+   (the platform's `figbloom/platform/webhook/schools` value) and the existing `PLATFORM_*` client settings are reused.
+4. Register the event webhook: call `platform-sync` (with `PLATFORM_SYNC_KEY` in `x-platform-sync-key`) with
+   `{"action":"register_event_webhook"}`.
+5. Switch sending on, only on a database whose platform should receive its staff:
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_STAFF_EVENTS_ENABLED';
+   ```
+
+6. After HR is switched on for a school: `{"action":"staff_backfill","school_id":"<tenants.id>"}` lists its staff;
+   with `"dry_run":false` it queues `schools.staff.created` for each, and the next minute's sync sends them.
+7. Switch receiving on (`hr.employee.left` archives accounts):
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_EVENTS_ENABLED';
+   ```
+
+Turning either setting back to `'false'` stops it again (rows already queued are still sent).
+Checks: `supabase/rls-checks/platform_staff_events.sql`.
 
 ## Rate limits on the public functions
 
