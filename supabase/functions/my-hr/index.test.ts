@@ -46,7 +46,15 @@ function myHrStatus(admin: FakeSupabaseClient, callerId: string, switchedOn: boo
   return no ? "not_enabled" : "available";
 }
 
-const PDF = new TextEncoder().encode("%PDF-1.7\nfake payslip\n%%EOF");
+const OCT = "aaaaaaaa-0000-4000-8000-000000000010";
+const OTHERS = "bbbbbbbb-0000-4000-8000-000000000099";
+/** One published payslip as HR's my_hr_payslip passes it on (salary_history less tenant_id and the account number). */
+const OCT_SLIP = {
+  id: OCT, employee_id: "EMP-001", employee_name: "Tom Teacher", pay_period: "2026-10", country: "Kenya", currency: "KES",
+  basic_salary: 45000, house_allowance: 5000, gross_pay: 50000, paye: 6000, nssf_deduction: 1080, shif: 1375, housing_levy: 750,
+  total_deductions: 9205, net_pay: 40795, bank_name: "KCB", account_number_last4: "4321", run_status: "paid",
+  approved_at: "2026-10-27T09:00:00Z", paid_at: "2026-10-28T09:00:00Z",
+};
 
 function setup({ caller, switchedOn = true, moduleStatus = [], platform, hrUrl = HR_BASE }: Setup) {
   const admin = new FakeSupabaseClient();
@@ -73,8 +81,8 @@ function setup({ caller, switchedOn = true, moduleStatus = [], platform, hrUrl =
   hr.hire("company-reu", "driver", { number: "EMP-004", name: "Dan Driver" });
   hr.hire("company-reu", "new-teacher", { number: "EMP-005", name: "Nina New", draft: true });
   hr.hire("company-other", "other-teacher", { number: "EMP-900", name: "Olga Other" });
-  hr.payslipPdfs.set("EMP-001", new Map([["ps-oct", PDF]]));
-  hr.payslipPdfs.set("EMP-900", new Map([["ps-other", PDF]]));
+  hr.payslips.set("EMP-001", [OCT_SLIP]);
+  hr.payslips.set("EMP-900", [{ ...OCT_SLIP, id: OTHERS, employee_id: "EMP-900", employee_name: "Olga Other" }]);
 
   const fake = platform === undefined ? new FakePlatform() : platform;
   return { admin, asUser, hr, fake, deps: { admin, asUser, client: fake ? fake.client() : null, hrUrl, fetch: hr.fetch } };
@@ -142,8 +150,10 @@ describe("my-hr: who", () => {
     assertEquals((await handle(request({}, { method: "OPTIONS", auth: null }), ctx.deps)).status, 200);
     assertEquals((await handle(request({ route: "salaries" }), ctx.deps)).status, 400);
     assertEquals((await handle(request({}), ctx.deps)).status, 400);
-    assertEquals((await handle(request({ route: "payslip_pdf" }), ctx.deps)).status, 400);
-    assertEquals((await handle(request({ route: "payslip_pdf", payslip_id: "../../admin" }), ctx.deps)).status, 400);
+    assertEquals((await handle(request({ route: "payslip" }), ctx.deps)).status, 400);
+    assertEquals((await handle(request({ route: "payslip", payslip_id: "../../admin" }), ctx.deps)).status, 400);
+    assertEquals((await handle(request({ route: "payslip_pdf", payslip_id: OCT }), ctx.deps)).status, 400);
+    assertEquals((await handle(request({ route: "attendance", from: "2026-01-01", to: "2026-06-30" }), ctx.deps)).status, 400);
     assertEquals((await handle(request({ route: "attendance", from: "yesterday" }), ctx.deps)).status, 400);
     assertEquals((await handle(request({ route: "attendance", from: "2026-11-05", to: "2026-11-01" }), ctx.deps)).status, 400);
     ctx.asUser.authUser = null;
@@ -175,7 +185,7 @@ describe("my-hr: the school and the person come from the session only", () => {
   });
 
   it("can't fetch another school's teacher's payslip by its id", async () => {
-    const { res, out } = await ask({ caller: "teacher" }, { route: "payslip_pdf", payslip_id: "ps-other" });
+    const { res, out } = await ask({ caller: "teacher" }, { route: "payslip", payslip_id: OTHERS });
     assertEquals(res.status, 404);
     assertEquals(out.code, "not_found");
   });
@@ -256,17 +266,17 @@ describe("my-hr: HR's answers, as a person reads them", () => {
     assertEquals(out, { status: "pending_hr", message: NOT_READY });
   });
 
-  it("HR's switch off (503) -> 503 hr_unavailable", async () => {
+  it("HR's switch off (503 my_hr_off) -> 503 hr_off", async () => {
     const ctx = setup({ caller: "teacher" });
     ctx.hr.enabled = false;
     const res = await handle(request({ route: "summary" }), ctx.deps);
     assertEquals(res.status, 503);
     const out = await res.json();
-    assertEquals(out.code, "hr_unavailable");
+    assertEquals(out.code, "hr_off");
     assert(/switched off/.test(out.error));
   });
 
-  it("HR refusing the school (403) -> 502 hr_not_connected", async () => {
+  it("HR refusing the school (403 school_not_linked) -> 502 hr_not_connected", async () => {
     const ctx = setup({ caller: "teacher" });
     ctx.hr.companies.delete(SCHOOL);
     const res = await handle(request({ route: "summary" }), ctx.deps);
@@ -302,6 +312,23 @@ describe("my-hr: HR's answers, as a person reads them", () => {
     assertFalse(ctx.hr.calls[0]!.token === ctx.hr.calls[1]!.token);
   });
 
+  it("HR refusing a date range (400) -> 400 with HR's own sentence", async () => {
+    const ctx = setup({ caller: "teacher" });
+    ctx.hr.rawAnswer = { status: 400, body: JSON.stringify({ error: { code: "bad_request", message: "Choose a range of 93 days or less." } }), type: "application/json" };
+    const res = await handle(request({ route: "attendance", from: "2026-10-01", to: "2026-10-31" }), ctx.deps);
+    assertEquals(res.status, 400);
+    assertEquals(await res.json(), { error: "Choose a range of 93 days or less.", code: "bad_request" });
+  });
+
+  it("a 401 twice (HR doesn't accept Schools' token) -> 502 hr_not_connected", async () => {
+    const ctx = setup({ caller: "teacher" });
+    ctx.hr.rejectNext = 2;
+    const res = await handle(request({ route: "summary" }), ctx.deps);
+    assertEquals(res.status, 502);
+    assertEquals((await res.json()).code, "hr_not_connected");
+    assertEquals(ctx.hr.calls.length, 2);
+  });
+
   it("HR answering something that isn't JSON -> 502", async () => {
     const ctx = setup({ caller: "teacher" });
     ctx.hr.rawAnswer = { status: 200, body: "<html>oops</html>", type: "text/html" };
@@ -317,34 +344,29 @@ describe("my-hr: HR's answers, as a person reads them", () => {
   });
 });
 
-describe("my-hr: payslip PDFs", () => {
-  it("streams the PDF through, byte for byte, as an attachment", async () => {
-    const { res, hr } = await ask({ caller: "teacher" }, { route: "payslip_pdf", payslip_id: "ps-oct" });
+describe("my-hr: one payslip (laid out and printed by the web app; HR has no server-side PDF)", () => {
+  it("passes on every saved figure from GET payslips/:id", async () => {
+    const { res, out, hr } = await ask({ caller: "teacher" }, { route: "payslip", payslip_id: OCT });
     assertEquals(res.status, 200);
-    assertEquals(res.headers.get("content-type"), "application/pdf");
-    assertEquals(res.headers.get("content-disposition"), 'attachment; filename="payslip-ps-oct.pdf"');
-    assertEquals(res.headers.get("content-length"), String(PDF.length));
-    assertEquals(new Uint8Array(await res.arrayBuffer()), PDF);
-    assertEquals(hr.calls[0]!.path, "payslips/ps-oct/pdf");
+    assertEquals(out, { status: "active", payslip: OCT_SLIP });
+    assertEquals(hr.calls[0]!.path, `payslips/${OCT}`);
+    assertEquals(res.headers.get("cache-control"), "no-store");
+  });
+
+  it("never asks HR for its PDF route", async () => {
+    const { hr } = await ask({ caller: "teacher" }, { route: "payslip", payslip_id: OCT });
+    assertFalse(hr.calls.some((c) => c.path.endsWith("/pdf")));
   });
 
   it("a payslip that isn't theirs (or doesn't exist) -> 404", async () => {
-    const { res, out } = await ask({ caller: "teacher" }, { route: "payslip_pdf", payslip_id: "ps-nope" });
+    const { res, out } = await ask({ caller: "teacher" }, { route: "payslip", payslip_id: "cccccccc-0000-4000-8000-000000000000" });
     assertEquals(res.status, 404);
     assertEquals(out.error, "That payslip isn't available.");
   });
 
-  it("a draft employee gets pending_hr, not a PDF", async () => {
-    const { res, out } = await ask({ caller: "new-teacher" }, { route: "payslip_pdf", payslip_id: "ps-oct" });
+  it("a draft employee gets pending_hr, not a payslip", async () => {
+    const { res, out } = await ask({ caller: "new-teacher" }, { route: "payslip", payslip_id: OCT });
     assertEquals(res.status, 200);
-    assertEquals(out.status, "pending_hr");
-  });
-
-  it("refuses to pass on something that isn't a PDF", async () => {
-    const ctx = setup({ caller: "teacher" });
-    ctx.hr.rawAnswer = { status: 200, body: "<html>login</html>", type: "text/html" };
-    const res = await handle(request({ route: "payslip_pdf", payslip_id: "ps-oct" }), ctx.deps);
-    assertEquals(res.status, 502);
-    assertEquals((await res.json()).code, "hr_bad_answer");
+    assertEquals(out, { status: "pending_hr", message: NOT_READY });
   });
 });

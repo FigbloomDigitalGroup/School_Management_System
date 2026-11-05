@@ -2,8 +2,8 @@
  * "My HR" (Phase 2 step 1, view only): a staff member's own payslips, leave,
  * attendance and KPIs from Figbloom HR (SCHOOLS_HR_PHASE2_CONTRACT.md section 3).
  *
- * POST {"route": "summary" | "payslips" | "payslip_pdf" | "leave" | "attendance" | "kpis",
- *       "payslip_id"?: "<HR's id>" (payslip_pdf), "from"?, "to"?: "YYYY-MM-DD" (attendance)}
+ * POST {"route": "summary" | "payslips" | "payslip" | "leave" | "attendance" | "kpis",
+ *       "payslip_id"?: "<HR's id>" (payslip), "from"?, "to"?: "YYYY-MM-DD", up to 93 days (attendance)}
  * with the person's own JWT.
  *
  *   1. The rule, asked as the caller: my_hr_status() (20261105710000). It takes no arguments: the school and the
@@ -16,14 +16,18 @@
  *      or a person; any such field is ignored.
  *   3. HR: GET <HR_MY_HR_URL>/<route> with Schools' platform token (_shared/platformClient.ts, the same client
  *      credentials as platform-sync) and the headers x-figbloom-school / x-figbloom-person. A 401 is retried once
- *      with a new token. A payslip PDF is streamed through as it comes; JSON is passed on as HR sent it.
+ *      with a new token. HR's JSON is passed on as it sent it. A payslip is GET payslips/<id>: every saved figure,
+ *      which the web app lays out and prints (HR makes payslip PDFs only in the browser; its payslips/<id>/pdf
+ *      answers 501 pdf_not_available, so it is never called).
  *   4. HR's refusals, as a sentence a person can read ({error, code}):
  *        404 not_linked, or 200 {"status":"pending_hr"}  -> "Your HR record isn't ready yet. Ask the school's HR administrator."
  *                                                          (pending_hr is a 200 {status, message}: the page shows the state)
  *        404 otherwise (a payslip that isn't theirs)     -> 404 not_found
- *        401 / 403                                       -> 502 hr_not_connected (HR doesn't accept Schools for this school)
- *        429                                             -> 429 rate_limited
- *        503 (MY_HR_API_ENABLED off in HR), 5xx, unreachable, timeout, no token -> 503 hr_unavailable
+ *        400 (e.g. a date range HR won't take)           -> 400 bad_request, with HR's sentence
+ *        403 school_not_linked, 401 invalid_token        -> 502 hr_not_connected (HR doesn't accept Schools for this school)
+ *        429 (120 calls per person per 10 minutes)       -> 429 rate_limited
+ *        503 my_hr_off (MY_HR_API_ENABLED off in HR)     -> 503 hr_off
+ *        5xx, unreachable, timeout, no token             -> 503 hr_unavailable
  *
  * Nothing HR sends is logged; HR audits every call.
  *
@@ -37,11 +41,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { PlatformClient, platformConfigFromEnv } from "../_shared/platformClient.ts";
 
-export const ROUTES = ["summary", "payslips", "payslip_pdf", "leave", "attendance", "kpis"] as const;
+export const ROUTES = ["summary", "payslips", "payslip", "leave", "attendance", "kpis"] as const;
 export type MyHrRoute = typeof ROUTES[number];
 
 const STAFF_ROLES = new Set(["teacher", "driver", "staff", "school_admin"]);
 const PAYSLIP_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const MAX_DAYS = 93;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIMEOUT_MS = 15_000;
 
@@ -88,10 +93,10 @@ export async function handle(req: Request, { admin, asUser, client, hrUrl, fetch
   const route = body?.route as MyHrRoute;
   if (!ROUTES.includes(route)) return fail(400, "invalid_route", "Say what to show (route).");
   let path: string = route;
-  if (route === "payslip_pdf") {
+  if (route === "payslip") {
     const id = typeof body.payslip_id === "string" ? body.payslip_id.trim() : "";
     if (!PAYSLIP_ID.test(id)) return fail(400, "invalid_payslip", "Say which payslip (payslip_id).");
-    path = `payslips/${encodeURIComponent(id)}/pdf`;
+    path = `payslips/${encodeURIComponent(id)}`;
   } else if (route === "attendance") {
     const q = new URLSearchParams();
     for (const k of ["from", "to"] as const) {
@@ -100,7 +105,11 @@ export async function handle(req: Request, { admin, asUser, client, hrUrl, fetch
       if (typeof v !== "string" || !DATE.test(v) || Number.isNaN(Date.parse(v))) return fail(400, "invalid_dates", "Dates are YYYY-MM-DD.");
       q.set(k, v);
     }
-    if (q.get("from") && q.get("to") && q.get("from")! > q.get("to")!) return fail(400, "invalid_dates", "The start date is after the end date.");
+    const from = q.get("from"), to = q.get("to");
+    if (from && to && from > to) return fail(400, "invalid_dates", "The start date is after the end date.");
+    if (from && to && (Date.parse(to) - Date.parse(from)) / 86_400_000 > MAX_DAYS - 1) {
+      return fail(400, "invalid_dates", `Choose a range of ${MAX_DAYS} days or less.`);
+    }
     if ([...q].length) path = `attendance?${q}`;
   }
 
@@ -141,12 +150,12 @@ export async function handle(req: Request, { admin, asUser, client, hrUrl, fetch
   // 3. HR
   let res: Response;
   try {
-    res = await callHr(fetchFn, client, `${hrUrl}/${path}`, profile.tenant_id, profile.id, route === "payslip_pdf");
+    res = await callHr(fetchFn, client, `${hrUrl}/${path}`, profile.tenant_id, profile.id);
     if (res.status === 401) {
       // the token was revoked or rotated early: once more with a fresh one
       await res.body?.cancel();
       client.forgetToken();
-      res = await callHr(fetchFn, client, `${hrUrl}/${path}`, profile.tenant_id, profile.id, route === "payslip_pdf");
+      res = await callHr(fetchFn, client, `${hrUrl}/${path}`, profile.tenant_id, profile.id);
     }
   } catch (err) {
     console.error(`my-hr: ${route} for school ${profile.tenant_id} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -154,55 +163,39 @@ export async function handle(req: Request, { admin, asUser, client, hrUrl, fetch
   }
 
   if (res.ok) {
-    const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-    if (route === "payslip_pdf" && type !== "application/json") {
-      if (type !== "application/pdf") {
-        await res.body?.cancel();
-        console.error(`my-hr: HR's payslip answer for school ${profile.tenant_id} is not a PDF (${type || "no type"})`);
-        return fail(502, "hr_bad_answer", UNAVAILABLE);
-      }
-      const headers: Record<string, string> = {
-        ...CORS_HEADERS,
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="payslip-${body.payslip_id.trim()}.pdf"`,
-        "Cache-Control": "no-store",
-      };
-      const length = res.headers.get("content-length");
-      if (length && /^\d+$/.test(length)) headers["Content-Length"] = length;
-      return new Response(res.body, { status: 200, headers });
-    }
     const data = await readJson(res);
     if (data === undefined || data === null || typeof data !== "object") {
       console.error(`my-hr: HR's ${route} answer for school ${profile.tenant_id} is not JSON`);
       return fail(502, "hr_bad_answer", UNAVAILABLE);
     }
     if ((data as { status?: unknown }).status === "pending_hr") return json({ status: "pending_hr", message: NOT_READY });
-    if (route === "payslip_pdf") {
-      console.error(`my-hr: HR's payslip answer for school ${profile.tenant_id} is JSON, not a PDF`);
-      return fail(502, "hr_bad_answer", UNAVAILABLE);
-    }
     return json(data);
   }
 
   // 4. refusals
-  const code = errorCode(await readJson(res));
+  const answer = await readJson(res);
+  const code = errorCode(answer);
   switch (true) {
     case code === "not_linked" || code === "pending_hr":
       return fail(404, code!, NOT_READY);
     case res.status === 404:
-      return fail(404, "not_found", route === "payslip_pdf" ? "That payslip isn't available." : "That isn't available in HR.");
+      return fail(404, "not_found", route === "payslip" ? "That payslip isn't available." : "That isn't available in HR.");
+    case res.status === 400:
+      return fail(400, "bad_request", hrMessage(answer) ?? "HR couldn't answer that. Check the dates and try again.");
     case res.status === 401 || res.status === 403:
       console.error(`my-hr: HR refused Schools for school ${profile.tenant_id}: ${res.status} ${code ?? ""}`);
       return fail(502, "hr_not_connected", "Figbloom HR isn't connected to this school yet. Ask Figbloom.");
     case res.status === 429:
-      return fail(429, "rate_limited", "Too many requests to HR in the last minute. Wait a moment and try again.");
+      return fail(429, "rate_limited", "You've opened My HR many times in the last few minutes. Wait a few minutes and try again.");
+    case res.status === 503 && code === "my_hr_off":
+      return fail(503, "hr_off", "My HR is switched off in Figbloom HR for now. Try again later.");
     default:
       console.error(`my-hr: HR answered ${res.status} ${code ?? ""} for ${route} at school ${profile.tenant_id}`);
-      return fail(503, "hr_unavailable", res.status === 503 ? "My HR is switched off in Figbloom HR for now. Try again later." : UNAVAILABLE);
+      return fail(503, "hr_unavailable", UNAVAILABLE);
   }
 }
 
-async function callHr(fetchFn: typeof fetch, client: PlatformClient, url: string, school: string, person: string, pdf: boolean): Promise<Response> {
+async function callHr(fetchFn: typeof fetch, client: PlatformClient, url: string, school: string, person: string): Promise<Response> {
   const token = await client.accessToken();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -211,7 +204,7 @@ async function callHr(fetchFn: typeof fetch, client: PlatformClient, url: string
       method: "GET",
       headers: {
         authorization: `Bearer ${token}`,
-        accept: pdf ? "application/pdf" : "application/json",
+        accept: "application/json",
         "x-figbloom-school": school,
         "x-figbloom-person": person,
       },
@@ -230,6 +223,13 @@ async function readJson(res: Response): Promise<unknown> {
   } catch {
     return undefined;
   }
+}
+
+/** HR's own sentence for a refusal ({error: {message}}), when it is a short plain one. */
+function hrMessage(body: unknown): string | null {
+  // deno-lint-ignore no-explicit-any
+  const m = (body as any)?.error?.message;
+  return typeof m === "string" && m.length <= 200 ? m : null;
 }
 
 /** HR's error code: {error: {code}}, {code} or {error: "<code>"}. */

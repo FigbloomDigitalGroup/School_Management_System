@@ -45,17 +45,18 @@ export async function fetchMyHrStatus(): Promise<MyHrStatus> {
 }
 
 // ---------------------------------------------------------------- HR's answers, as the page shows them
-// HR's exact field names are its own (section 2 names the contents, not the fields); these read the likely
-// spellings and leave out what isn't there, so the page never breaks on an extra or missing field.
-
-/** HR has the person, but their record isn't ready (a draft employee): no data, just the sentence. */
-export interface MyHrPending { pending: true; message: string }
+// The field names are bloomHR's (my_hr_routes.js and its my_hr_* SQL functions; docs/PLATFORM_EVENTS.md "My HR").
+// Each reader leaves out what isn't there, so the page never breaks on a missing field.
 
 export interface MyHrSummary {
   name: string | null;
   employeeNumber: string | null;
   jobTitle: string | null;
   department: string | null;
+  branch: string | null;
+  startDate: string | null;
+  company: string | null;
+  leavePending: number | null;
 }
 
 export interface Payslip {
@@ -65,20 +66,59 @@ export interface Payslip {
   deductions: number | null;
   net: number | null;
   currency: string;
+  /** HR's run status: approved or paid (only those reach Schools). */
+  runStatus: string | null;
   paidOn: string | null;
-  hasPdf: boolean;
 }
 
-export interface LeaveBalance { type: string; entitled: number | null; taken: number | null; pending: number | null; balance: number | null }
-export interface LeaveApplication { id: string; type: string; from: string | null; to: string | null; days: number | null; status: string; approver: string | null }
+/** One line on a payslip. */
+export interface PayslipLine { label: string; amount: number }
+
+/** One payslip in full (GET payslips/:id: every saved figure), laid out by the web app. */
+export interface PayslipDetail {
+  id: string;
+  period: string;
+  currency: string;
+  employeeName: string | null;
+  employeeNumber: string | null;
+  taxPin: string | null;
+  nssfNumber: string | null;
+  shifNumber: string | null;
+  bank: string | null;
+  accountLast4: string | null;
+  earnings: PayslipLine[];
+  deductions: PayslipLine[];
+  gross: number | null;
+  totalDeductions: number | null;
+  net: number | null;
+  taxRelief: number | null;
+  note: string | null;
+  runStatus: string | null;
+  paidOn: string | null;
+}
+
+export interface LeaveBalance { type: string; accrued: number | null; carriedOver: number | null; used: number | null; pending: number | null; available: number | null }
+export interface LeaveApplication {
+  id: string; type: string; from: string | null; to: string | null; days: number | null; status: string; reason: string | null;
+  /** Who it's waiting on now, or who decided it last. */
+  approver: string | null;
+  /** The approval chain, step by step ("Head teacher: approved"). */
+  steps: { label: string; status: string; who: string | null }[];
+}
 export interface MyLeave { balances: LeaveBalance[]; applications: LeaveApplication[] }
 
-export interface AttendanceDay { date: string; status: string; clockIn: string | null; clockOut: string | null; lateMinutes: number | null }
+export interface AttendanceDay { date: string; status: string; clockIn: string | null; clockOut: string | null; hours: number | null; lateMinutes: number | null }
 export interface AttendanceNotice { date: string | null; text: string; status: string | null }
-export interface MyAttendance { days: AttendanceDay[]; notices: AttendanceNotice[]; missedScans: AttendanceNotice[] }
+export interface MyAttendance { days: AttendanceDay[]; notices: AttendanceNotice[]; missedScans: AttendanceNotice[]; absences: AttendanceNotice[] }
 
-export interface KpiTarget { name: string; target: string | null; score: string | null; weight: number | null }
-export interface MyKpis { period: string | null; targets: KpiTarget[]; measures: { label: string; value: string }[] }
+export interface KpiTarget { name: string; target: string | null; actual: string | null; achievement: number | null; weight: number | null; self: string | null }
+export interface MyKpis {
+  period: string | null;
+  targets: KpiTarget[];
+  /** HR's weighted score over the scored KPIs (the staff portal's overallScore). */
+  overall: number | null;
+  measures: { label: string; value: string }[];
+}
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
@@ -109,109 +149,200 @@ export function isMyHrPending(data: unknown): boolean {
   return isObj(data) && data.status === "pending_hr";
 }
 
+/** GET summary: {employee: {employee_number, name, job_title, department, branch, start_date, ...}, company: {name}, leave_pending}. */
 export function readSummary(data: unknown): MyHrSummary {
-  const e = isObj(data) ? (isObj(data.employee) ? data.employee : data) : {};
+  const o = isObj(data) ? data : {};
+  const e = isObj(o.employee) ? o.employee : o;
   return {
-    name: str(pick(e, "name", "full_name", "display_name")),
-    employeeNumber: str(pick(e, "number", "employee_number", "employee_no", "staff_number")),
-    jobTitle: str(pick(e, "job_title", "position", "designation", "title")),
-    department: str(pick(e, "department", "department_name")),
+    name: str(pick(e, "name", "full_name")),
+    employeeNumber: str(pick(e, "employee_number", "number")),
+    jobTitle: str(pick(e, "job_title", "position")),
+    department: str(pick(e, "department")),
+    branch: str(pick(e, "branch")),
+    startDate: str(pick(e, "start_date")),
+    company: str(o.company),
+    leavePending: num(o.leave_pending),
   };
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-/** "2026-10" -> "October 2026"; anything else as it came. */
-export function periodLabel(raw: unknown, month?: unknown, year?: unknown): string {
-  const m = num(month);
-  const y = num(year);
-  if (m && y && m >= 1 && m <= 12) return `${MONTHS[m - 1]} ${y}`;
+/** "2026-10" (or "2026-10-01") -> "October 2026"; anything else as it came. */
+export function periodLabel(raw: unknown): string {
   const s = str(raw) ?? "";
-  const ym = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(s);
+  const ym = /^(\d{4})-(\d{2})(?:-\d{2})?/.exec(s);
   if (ym && Number(ym[2]) >= 1 && Number(ym[2]) <= 12) return `${MONTHS[Number(ym[2]) - 1]} ${ym[1]}`;
   return s || "—";
 }
 
+/** GET payslips: {payslips: [{id, pay_period, currency, gross_pay, total_deductions, net_pay, run_status, paid_at}]}. */
 export function readPayslips(data: unknown): Payslip[] {
-  return list(data, "payslips", "items", "data").flatMap((p) => {
-    const id = str(pick(p, "id", "payslip_id"));
+  return list(data, "payslips").flatMap((p) => {
+    const id = str(p.id);
     if (!id) return [];
     return [{
       id,
-      period: periodLabel(pick(p, "period", "pay_period", "period_label", "month_label"), p.month, p.year),
-      gross: num(pick(p, "gross", "gross_pay", "gross_salary")),
-      deductions: num(pick(p, "deductions", "total_deductions")),
-      net: num(pick(p, "net", "net_pay", "net_salary")),
-      currency: str(pick(p, "currency")) ?? "KES",
-      paidOn: str(pick(p, "paid_on", "pay_date", "payment_date")),
-      hasPdf: p.has_pdf !== false && p.pdf_available !== false,
+      period: periodLabel(p.pay_period),
+      gross: num(p.gross_pay),
+      deductions: num(p.total_deductions),
+      net: num(p.net_pay),
+      currency: str(p.currency) ?? "KES",
+      runStatus: str(p.run_status),
+      paidOn: str(p.paid_at),
     }];
   });
 }
 
-export function readLeave(data: unknown): MyLeave {
-  const balances = list(isObj(data) ? data.balances : undefined).map((b) => ({
-    type: str(pick(b, "type", "leave_type", "type_name", "name")) ?? "Leave",
-    entitled: num(pick(b, "entitled", "entitlement", "allowed", "days_entitled")),
-    taken: num(pick(b, "taken", "used", "days_taken")),
-    pending: num(pick(b, "pending", "days_pending")),
-    balance: num(pick(b, "balance", "remaining", "available", "days_remaining")),
-  }));
-  const applications = list(isObj(data) ? data.applications ?? data.history ?? data.requests : undefined).map((a, i) => ({
-    id: str(pick(a, "id")) ?? String(i),
-    type: str(pick(a, "type", "leave_type", "type_name")) ?? "Leave",
-    from: str(pick(a, "from", "start_date", "starts_on")),
-    to: str(pick(a, "to", "end_date", "ends_on")),
-    days: num(pick(a, "days", "number_of_days", "total_days")),
-    status: str(pick(a, "status")) ?? "unknown",
-    approver: str(pick(a, "approver", "approver_name", "approved_by", "decided_by")),
-  }));
-  return { balances, applications };
+/** The named earnings and deductions a payslip (salary_history) can carry, in the order HR's payslip shows them. */
+const EARNINGS: [string, string][] = [
+  ["basic_salary", "Basic salary"], ["house_allowance", "House allowance"], ["transport_allowance", "Transport allowance"],
+  ["medical_allowance", "Medical allowance"], ["other_allowances", "Other allowances"], ["overtime_pay", "Overtime"],
+  ["commission", "Commission"], ["bonus", "Bonus"], ["reimbursements", "Reimbursements"],
+];
+const DEDUCTIONS: [string, string][] = [
+  ["paye", "PAYE"], ["paye_tax", "PAYE"], ["nssf_deduction", "NSSF"], ["nssf", "NSSF"], ["shif", "SHIF"],
+  ["nhif_deduction", "NHIF"], ["housing_levy", "Housing levy"], ["lst_deduction", "Local service tax"],
+  ["heslb_deduction", "HESLB"], ["leave_deduction", "Unpaid leave"], ["loan_deduction", "Loan"],
+  ["advance_deduction", "Salary advance"], ["welfare_deduction", "Welfare"], ["other_deductions", "Other deductions"],
+];
+
+function lines(p: Obj, named: [string, string][], itemKeys: string[]): PayslipLine[] {
+  const out: PayslipLine[] = [];
+  const seen = new Set<string>();
+  for (const [key, text] of named) {
+    const amount = num(p[key]);
+    if (amount === null || amount === 0 || seen.has(text)) continue;
+    seen.add(text);
+    out.push({ label: text, amount });
+  }
+  // itemised extras (bonuses, overtime lines, other deductions): [{name, amount}]
+  for (const k of itemKeys) {
+    for (const it of list(p[k])) {
+      const amount = num(pick(it, "amount", "value"));
+      const name = str(pick(it, "name", "label", "description"));
+      if (amount === null || amount === 0 || !name) continue;
+      out.push({ label: name, amount });
+    }
+  }
+  return out;
 }
 
-export function readAttendance(data: unknown): MyAttendance {
-  const o = isObj(data) ? data : {};
-  const notice = (n: Obj): AttendanceNotice => ({
-    date: str(pick(n, "date", "day", "for_date")),
-    text: str(pick(n, "message", "reason", "text", "note", "description")) ?? "",
-    status: str(pick(n, "status")),
-  });
+/** GET payslips/:id: {payslip: {...every saved figure, account_number_last4, run_status, approved_at, paid_at}}. */
+export function readPayslip(data: unknown): PayslipDetail | null {
+  const p = isObj(data) && isObj(data.payslip) ? data.payslip : null;
+  const id = p ? str(p.id) : null;
+  if (!p || !id) return null;
   return {
-    days: list(o.days ?? data).flatMap((d) => {
-      const date = str(pick(d, "date", "day"));
-      if (!date) return [];
-      return [{
-        date,
-        status: str(pick(d, "status")) ?? "unknown",
-        clockIn: str(pick(d, "clock_in", "first_in", "time_in", "in")),
-        clockOut: str(pick(d, "clock_out", "last_out", "time_out", "out")),
-        lateMinutes: num(pick(d, "late_minutes", "minutes_late")),
-      }];
-    }),
-    notices: list(pick(o, "notices", "possible_absences", "absence_notices")).map(notice),
-    missedScans: list(pick(o, "missed_scans", "missed_scan_requests")).map(notice),
+    id,
+    period: periodLabel(p.pay_period),
+    currency: str(p.currency) ?? "KES",
+    employeeName: str(p.employee_name),
+    employeeNumber: str(p.employee_id),
+    taxPin: str(p.tax_pin),
+    nssfNumber: str(p.nssf_number),
+    shifNumber: str(pick(p, "shif_number", "nhif_number")),
+    bank: str(p.bank_name),
+    accountLast4: str(p.account_number_last4),
+    earnings: lines(p, EARNINGS, ["earning_items", "overtime_items", "reimbursement_items"]),
+    deductions: lines(p, DEDUCTIONS, ["deduction_items", "leave_items"]),
+    gross: num(p.gross_pay),
+    totalDeductions: num(p.total_deductions),
+    net: num(p.net_pay),
+    taxRelief: num(p.tax_relief),
+    note: str(p.payslip_note),
+    runStatus: str(p.run_status),
+    paidOn: str(p.paid_at),
   };
 }
 
+/** GET leave: {balances: [{leave_type, accrued_days, carried_over_days, used_days, pending_days, available_days}], applications: [...]}. */
+export function readLeave(data: unknown): MyLeave {
+  const o = isObj(data) ? data : {};
+  const balances = list(o.balances).map((b) => ({
+    type: str(b.leave_type) ?? "Leave",
+    accrued: num(b.accrued_days),
+    carriedOver: num(b.carried_over_days),
+    used: num(b.used_days),
+    pending: num(b.pending_days),
+    available: num(b.available_days),
+  }));
+  const applications = list(o.applications).map((a, i) => {
+    const steps = list(isObj(a.approval) ? a.approval.steps : undefined).map((s) => ({
+      label: str(s.label) ?? "Approval",
+      status: str(s.status) ?? "upcoming",
+      who: str(pick(s, "actor_name", "waiting_on")),
+    }));
+    const current = steps.find((s) => s.status === "current");
+    const decided = [...steps].reverse().find((s) => s.status !== "current" && s.status !== "upcoming" && s.status !== "not_reached" && s.who);
+    return {
+      id: str(a.id) ?? String(i),
+      type: str(a.leave_type) ?? "Leave",
+      from: str(a.start_date),
+      to: str(a.end_date),
+      days: num(a.days),
+      status: str(a.status) ?? "pending",
+      reason: str(a.reason),
+      approver: current?.who ?? decided?.who ?? null,
+      steps,
+    };
+  });
+  return { balances, applications };
+}
+
+/** GET attendance: {days: [{day, status, clock_in, clock_out, hours, late_minutes}], possible_absence_notices, missed_scan_requests, absences_recorded}. */
+export function readAttendance(data: unknown): MyAttendance {
+  const o = isObj(data) ? data : {};
+  const range = (n: Obj) => {
+    const from = str(n.start_date), to = str(n.end_date);
+    return from && to && from !== to ? `${from} – ${to}` : from;
+  };
+  return {
+    days: list(o.days).flatMap((d) => {
+      const date = str(pick(d, "day", "date"));
+      if (!date) return [];
+      return [{
+        date,
+        status: str(d.status) ?? "unknown",
+        clockIn: str(d.clock_in),
+        clockOut: str(d.clock_out),
+        hours: num(d.hours),
+        lateMinutes: num(d.late_minutes),
+      }];
+    }),
+    notices: list(o.possible_absence_notices).map((n) => ({
+      date: str(n.start_date),
+      text: [n.end_date && n.end_date !== n.start_date ? `to ${str(n.end_date)}` : null, n.reply_by ? `reply by ${str(n.reply_by)}` : null].filter(Boolean).join(", "),
+      status: null,
+    })),
+    missedScans: list(o.missed_scan_requests).map((q) => ({
+      date: str(q.work_date),
+      text: [str(q.reason), str(q.approver_name) ? `to ${str(q.approver_name)}` : null, str(q.decision_comment)].filter(Boolean).join(" · "),
+      status: str(q.status),
+    })),
+    absences: list(o.absences_recorded).map((x) => ({
+      date: range(x),
+      text: [str(x.kind) ? label(str(x.kind)!) : null, num(x.days) !== null ? `${num(x.days)} day(s)` : null, str(x.note)].filter(Boolean).join(" · "),
+      status: str(x.status),
+    })),
+  };
+}
+
+/** GET kpis: {period: {name, ...}, items: [{name, unit, target, weight, self_value, actual, achievement}], overall: {score}, attendance: {...}}. */
 export function readKpis(data: unknown): MyKpis {
   const o = isObj(data) ? data : {};
-  const period = isObj(o.period) ? str(pick(o.period, "name", "label", "title")) : str(o.period);
-  const targets = list(pick(o, "targets", "kpis", "items")).map((t) => ({
-    name: str(pick(t, "name", "kpi", "title", "description")) ?? "KPI",
-    target: str(pick(t, "target", "target_value", "goal")),
-    score: str(pick(t, "score", "actual", "achieved", "rating")),
-    weight: num(pick(t, "weight", "weighting")),
+  const period = isObj(o.period) ? str(o.period.name) : str(o.period);
+  const targets = list(o.items).map((t) => ({
+    name: str(t.name) ?? "KPI",
+    target: str(t.target),
+    actual: str(pick(t, "actual", "actual_value", "auto_value")),
+    achievement: num(t.achievement),
+    weight: num(t.weight),
+    self: str(t.self_value),
   }));
-  const att = pick(o, "attendance", "attendance_measures");
-  const measures = Array.isArray(att)
-    ? att.filter(isObj).flatMap((m) => {
-      const l = str(pick(m, "label", "name", "measure"));
-      const v = str(pick(m, "value", "score"));
-      return l && v ? [{ label: l, value: v }] : [];
-    })
-    : isObj(att)
-      ? Object.entries(att).flatMap(([k, v]) => (str(v) ? [{ label: label(k), value: str(v)! }] : []))
-      : [];
-  return { period, targets, measures };
+  const overall = isObj(o.overall) ? num(o.overall.score) : null;
+  const att = isObj(o.attendance) ? o.attendance : null;
+  const ATT: [string, string][] = [["working_days", "Working days"], ["present", "Present"], ["late", "Late"], ["absent", "Absent"], ["leave", "On leave"], ["late_minutes", "Minutes late"]];
+  const measures = att ? ATT.flatMap(([k, l]) => (num(att[k]) !== null ? [{ label: l, value: String(num(att[k])) }] : [])) : [];
+  return { period, targets, overall, measures };
 }
 
 /** "KES 41,000.00" */
@@ -224,10 +355,10 @@ export function formatPay(amount: number | null, currency: string): string {
   }
 }
 
-/** A status word from HR as a person reads it ("pending_approval" -> "Pending approval"). */
+/** A status word from HR as a person reads it ("not_reached" -> "Not reached"). */
 export const hrStatusLabel = (s: string) => label(s.toLowerCase());
 
-/** The first and last day of a "YYYY-MM" month: the attendance tab's range. */
+/** The first and last day of a "YYYY-MM" month: the attendance tab's range (HR takes up to 93 days). */
 export function monthRange(month: string): { from: string; to: string } {
   const [y, m] = month.split("-").map(Number) as [number, number];
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -242,10 +373,7 @@ export async function fetchMyHr(route: MyHrRoute, params: { from?: string; to?: 
   return invokeEdge<unknown>("my-hr", { route, ...params }, { timeoutMs: 25_000 });
 }
 
-/** A payslip's PDF (my-hr streams HR's file through). */
-export async function fetchPayslipPdf(payslipId: string): Promise<Blob> {
-  const data = await invokeEdge<unknown>("my-hr", { route: "payslip_pdf", payslip_id: payslipId }, { timeoutMs: 40_000 });
-  if (typeof Blob !== "undefined" && data instanceof Blob) return data;
-  if (isMyHrPending(data)) throw new Error(MY_HR_NOT_READY);
-  throw new Error("The payslip couldn't be downloaded. Try again.");
+/** One payslip in full (HR has no server-side PDF: the page lays it out and the browser prints or saves it). */
+export async function fetchPayslip(payslipId: string): Promise<unknown> {
+  return invokeEdge<unknown>("my-hr", { route: "payslip", payslip_id: payslipId }, { timeoutMs: 25_000 });
 }

@@ -404,8 +404,9 @@ Checks: `supabase/rls-checks/platform_hr_handoff.sql`.
 
 ## Figbloom HR: "My HR" (Schools + HR phase 2, step 1, view only)
 
-Teachers, other staff and the school's own admins see **My HR** in their console: their own payslips (with PDF
-download), leave balances and applications, attendance (by month) and KPIs from Figbloom HR, read only
+Teachers, other staff and the school's own admins see **My HR** in their console: their own payslips (each one laid
+out from HR's figures, with Print / Save as PDF through the browser: HR has no server-side payslip PDF), leave balances
+and applications with their approval steps, attendance (by month) and KPIs from Figbloom HR, read only
 (SCHOOLS_HR_PHASE2_CONTRACT.md, section 3; `20261105710000_my_hr`, the `my-hr` function).
 
 - **Where:** `teacher/my-hr`, `staff/my-hr`, and `admin/my-hr` (only for a `school_admin`, as staff; not for an org
@@ -417,9 +418,11 @@ download), leave balances and applications, attendance (by month) and KPIs from 
   in `platform_module_status`; `target_no_handoff_url` doesn't hide My HR). Whether the person's own HR record is
   ready is HR's answer, shown on the page: "Your HR record isn't ready yet. Ask the school's HR administrator."
 - **`my-hr`** takes `{route, payslip_id?, from?, to?}` and calls `HR_MY_HR_URL/<route>` with Schools' platform token and
-  `x-figbloom-school` / `x-figbloom-person` set from the caller's own profile, never from the request. PDFs are streamed
-  through; HR's refusals become sentences (`not_linked` and `pending_hr`: not ready; 403: HR isn't connected to the
-  school; 503: HR's switch is off; 429; anything else: try again shortly).
+  `x-figbloom-school` / `x-figbloom-person` set from the caller's own profile, never from the request. A payslip is
+  `payslips/<id>` (every saved figure; HR's `payslips/<id>/pdf` answers 501 and is never called). HR's refusals become
+  sentences (`not_linked` and `pending_hr`: not ready; 403 `school_not_linked` or 401: HR isn't connected to the
+  school; 503 `my_hr_off`: HR's switch is off; 429: 120 calls per person per 10 minutes; 400: HR's own sentence;
+  anything else: try again shortly).
 - **Switch:** `MY_HR_ENABLED` (`platform_settings`, off by default): while off nobody sees the page and `my-hr` refuses.
 
 **Deploy**, on the database and the functions host of the environment:
@@ -435,7 +438,7 @@ download), leave balances and applications, attendance (by month) and KPIs from 
    update platform_settings set value = 'true', updated_at = now() where key = 'MY_HR_ENABLED';
    ```
 
-Checks: `supabase/rls-checks/my_hr.sql`; `supabase/functions/my-hr/index.test.ts` (against a fake HR).
+Checks: `supabase/rls-checks/my_hr.sql`; `supabase/functions/my-hr/index.test.ts` (against a fake HR shaped like bloomHR's `my_hr_routes.js`).
 
 ## Rate limits on the public functions
 
