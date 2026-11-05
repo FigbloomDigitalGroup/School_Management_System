@@ -192,18 +192,16 @@ interface UsageRow { tenant: Pick<Tenant, "id" | "name" | "slug" | "licensed_sea
 
 async function fetchUsage(): Promise<UsageRow[]> {
   const sb = supabase();
-  const [{ data: tenants, error: e1 }, { data: students, error: e2 }, { data: staff, error: e3 }] = await Promise.all([
+  const [{ data: tenants, error: e1 }, { data: counts, error: e2 }] = await Promise.all([
     sb.from("tenants").select("id,name,slug,licensed_seats,status").order("name").returns<UsageRow["tenant"][]>(),
-    sb.from("students").select("id,tenant_id").eq("active", true).returns<{ id: string; tenant_id: string }[]>(),
-    sb.from("profiles").select("id,tenant_id").in("role", ["school_admin", "teacher"]).returns<{ id: string; tenant_id: string | null }[]>(),
+    // Counted in the database: the API answers at most 1,000 rows and says nothing when it stops (FIG-1450).
+    sb.rpc("platform_usage_counts"),
   ]);
   if (e1) throw e1;
   if (e2) throw e2;
-  if (e3) throw e3;
 
   const inUseByTenant = new Map<string, number>();
-  for (const s of students ?? []) inUseByTenant.set(s.tenant_id, (inUseByTenant.get(s.tenant_id) ?? 0) + 1);
-  for (const p of staff ?? []) { if (p.tenant_id) inUseByTenant.set(p.tenant_id, (inUseByTenant.get(p.tenant_id) ?? 0) + 1); }
+  for (const c of (counts ?? []) as { tenant_id: string; learners: number; staff: number }[]) inUseByTenant.set(c.tenant_id, c.learners + c.staff);
 
   return (tenants ?? []).map((tenant) => ({ tenant, inUse: inUseByTenant.get(tenant.id) ?? 0 }));
 }

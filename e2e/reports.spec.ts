@@ -1512,8 +1512,7 @@ test.describe("More than 1,000 rows", () => {
     expect(seats).toBe(learners.toLocaleString("en-US"));
   });
 
-  test("KNOWN QA13-USAGE-LARGE FIG-1450 (open): Platform > Usage counts every active learner of the platform, not the first 1,000", async ({ page }) => {
-    test.fail();
+  test("QA13-USAGE-LARGE FIG-1450: Platform > Usage counts every active learner of the platform, not the first 1,000", async ({ page }) => {
     const learners = (await db.from("students").select("id", { count: "exact", head: true }).eq("active", true)).count ?? 0;
     const staff = (await db.from("profiles").select("id", { count: "exact", head: true }).in("role", ["school_admin", "teacher"]).not("tenant_id", "is", null)).count ?? 0;
     await signIn(page, "joyce@figbloom.co.ke");
