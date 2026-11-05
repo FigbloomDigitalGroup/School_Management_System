@@ -1,3 +1,4 @@
+// My HR (Phase 2 step 1): a staff member's own HR record from Figbloom HR, view only (ERP/SCHOOLS_HR_PHASE2_CONTRACT.md).
 import { useState, type ReactNode } from "react";
 import { EdgeError, fetchMyHr, fetchPayslip, isMyHrPending, monthRange, MY_HR_NOT_READY, readSummary, showsMyHr, type MyHrTab } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
