@@ -26,7 +26,11 @@ export interface FakeEmployee {
 /** A published payslip, as salary_history keeps it (the fields HR's my_hr_payslip passes on). */
 export type FakePayslip = Record<string, unknown> & { id: string };
 
-export interface FakeLeaveType { id: string; name: string; half_days: boolean; requires_document: boolean; max_days: number | null; notice_days: number }
+/** A type as GET leave/form shows it (bloomHR my_hr_leave_form()), plus whether this fake requires a document with the application. */
+export interface FakeLeaveType {
+  id: string; name: string; half_days: boolean; max_days_per_request: number | null; min_notice_days: number;
+  document: { name: string; when: "with_application" | "after"; within_days: number | null; required_if_longer_than: number | null } | null;
+}
 
 export interface FakeApplication {
   id: string;
@@ -50,9 +54,12 @@ export interface FakeApplication {
 /** An event HR's outbox would send through the platform. */
 export interface FakeHrEvent { type: "hr.leave.approved" | "hr.leave.cancelled"; id: string; occurred_at: string; school: string; data: Record<string, unknown> }
 
+export const ANNUAL = "aaaaaaaa-1111-4111-8111-000000000001";
+export const SICK = "aaaaaaaa-1111-4111-8111-000000000002";
 export const LEAVE_TYPES: FakeLeaveType[] = [
-  { id: "lt-annual", name: "Annual leave", half_days: true, requires_document: false, max_days: 21, notice_days: 0 },
-  { id: "lt-sick", name: "Sick leave", half_days: false, requires_document: true, max_days: null, notice_days: 0 },
+  { id: ANNUAL, name: "Annual leave", half_days: true, max_days_per_request: 21, min_notice_days: 0, document: null },
+  { id: SICK, name: "Sick leave", half_days: true, max_days_per_request: null, min_notice_days: 0,
+    document: { name: "Doctor's note", when: "with_application", within_days: null, required_if_longer_than: null } },
 ];
 
 /** Mon-Fri days from one date to another (a half day is 0.5). */
@@ -86,6 +93,10 @@ export class FakeHr {
   /** The HR user every new application waits on, per company (the first step of the chain). */
   firstApprover = new Map<string, string>();
   applications: FakeApplication[] = [];
+  /** HR logins that are no longer active members (403 approver_no_access). */
+  noAccess = new Set<string>();
+  /** source_ids HR's balance refuses on import. */
+  refuseImport = new Set<string>();
   events: FakeHrEvent[] = [];
   /** company -> source_id -> imported record (the history import) */
   imported = new Map<string, Map<string, Record<string, unknown>>>();
@@ -128,12 +139,16 @@ export class FakeHr {
     if (was === "approved") this.emit("hr.leave.cancelled", a);
   }
 
+  /** HR's my_hr_leave_application(): the application as GET leave and the apply / cancel answers show it. */
   private view(a: FakeApplication) {
+    const today = new Date(this.clock()).toISOString().slice(0, 10);
     return {
-      id: a.id, leave_type: a.type.name, leave_type_id: a.type.id, start_date: a.start_date, end_date: a.end_date, half_day: a.half_day,
-      days: a.days, status: a.status, reason: a.reason, document: a.document ? { name: a.document.name } : null,
-      approval: { steps: [{ label: "Head teacher", status: a.status === "pending" ? "current" : a.status, waiting_on: a.status === "pending" ? a.waiting_on : null,
-        actor_name: a.decisions[0]?.by ?? null }] },
+      id: a.id, leave_type: a.type.name, start_date: a.start_date, end_date: a.end_date, days: a.days, half_day: a.half_day,
+      status: a.status, reason: a.reason, submitted_at: null, decision_note: a.decisions[0]?.comment ?? null,
+      document_name: a.document?.name ?? null, followup_document_name: null,
+      cancellable: a.status === "pending" || (a.status === "approved" && a.start_date > today),
+      approval: { status: a.status, current_step: 1, steps: [{ position: 1, label: "Head teacher", status: a.status === "pending" ? "current" : a.status,
+        waiting_on: a.status === "pending" ? a.waiting_on : null, actor_name: a.decisions[0]?.by ?? null }] },
     };
   }
 
@@ -141,10 +156,17 @@ export class FakeHr {
     const hrUser = this.approvers.get(`${company}:${person}`);
     if (path === "approvals" || /^approvals\/[^/]+\/decide$/.test(path)) {
       if (!hrUser) return fail(409, "approver_not_linked", "Open HR & Payroll once to connect your HR account.");
+      if (this.noAccess.has(hrUser)) return fail(403, "approver_no_access", "You don't have access to HR for this school. Ask your HR administrator.");
       if (method === "GET" && path === "approvals") {
+        const expires = new Date(this.clock() + 5 * 60_000).toISOString();
         return json({ status: "active", approvals: this.applications.filter((a) => a.company === company && a.status === "pending" && a.waiting_on === hrUser).map((a) => ({
-          ...this.view(a), application_id: a.id, employee_name: this.people.get(`${company}:${a.person}`)?.name ?? null,
-          document_url: a.document ? `https://hr.test/files/${a.id}?token=short-lived` : null,
+          application_id: a.id,
+          employee: { employee_number: a.employee, name: this.people.get(`${company}:${a.person}`)?.name ?? null, external_id: a.person },
+          leave_type: a.type.name, start_date: a.start_date, end_date: a.end_date, days: a.days, half_day: a.half_day,
+          reason: a.reason, submitted_at: null, status: a.status, step_label: "Head teacher",
+          document: a.document ? { name: a.document.name, url: `https://hr.test/storage/leave-documents/${a.id}?token=signed`, expires_at: expires } : null,
+          followup_document: null,
+          approval: this.view(a).approval,
         })) });
       }
       if (method !== "POST") return fail(404, "not_found", "Not found.");
@@ -152,35 +174,50 @@ export class FakeHr {
       const a = this.applications.find((x) => x.id === id && x.company === company);
       if (!a) return fail(404, "not_found", "No such application.");
       if (a.status !== "pending") return fail(409, "already_decided", "This application has already been decided.");
-      if (a.waiting_on !== hrUser) return fail(403, "not_your_step", "This application isn't waiting on you.");
+      if (a.waiting_on !== hrUser) return fail(403, "not_your_approval", "You are not the approver for this step.");
       const decision = body.decision;
-      if (decision !== "approve" && decision !== "decline") return fail(400, "bad_request", "Approve or decline.");
-      if (decision === "decline" && !body.comment) return fail(422, "comment_required", "Say why you are declining.");
+      if (decision !== "approve" && decision !== "decline") return fail(400, "bad_request", 'decision is "approve" or "decline".');
+      if (decision === "decline" && !body.comment) return fail(422, "invalid", "Please give a reason for declining.");
       a.decisions.push({ by: hrUser, decision: String(decision), comment: typeof body.comment === "string" ? body.comment : null });
       a.status = decision === "approve" ? "approved" : "declined";
       if (a.status === "approved") this.emit("hr.leave.approved", a);
-      return json({ status: "active", application: this.view(a) });
+      return json({ status: "active", request_status: a.status, application: this.view(a) });
     }
     if (!employee) return fail(404, "not_linked", "Your HR record isn't ready yet.");
     if (method === "GET" && path === "leave/form") {
-      return json({ status: "active", leave_types: LEAVE_TYPES, balances: [{ leave_type_id: "lt-annual", leave_type: "Annual leave", available_days: 18 }],
-        approval_chain: [{ label: "Head teacher", approver_name: "Mary Principal" }] });
+      const balances = [{ leave_type_id: ANNUAL, leave_type: "Annual leave", year: 2026, month: null, accrued_days: 21, carried_over_days: 0, used_days: 3, pending_days: 0, available_days: 18 }];
+      return json({
+        status: "active",
+        leave_types: LEAVE_TYPES.map((t) => ({ id: t.id, name: t.name, description: null, deductible: true, paid: true, half_days: t.half_days, count_days: "working",
+          max_days_per_request: t.max_days_per_request, min_notice_days: t.min_notice_days, earliest_start: null, one_per_month: false,
+          service_months_before_use: 0, available_from: null,
+          document: t.document ? { name: t.document.name, when: t.document.when, within_days: t.document.within_days, required_if_longer_than: t.document.required_if_longer_than, followup_name: null, followup_within_days: null } : null,
+          balance: balances.find((b) => b.leave_type_id === t.id) ?? null })),
+        balances,
+        approval_chain: [{ position: 1, label: "Head teacher", waiting_on: "Mary Principal", skipped: false }],
+        admins_can_act: true, reason_min_length: 10, document_max_bytes: 5 * 1024 * 1024,
+      });
     }
     if (method === "POST" && path === "leave/applications") {
+      if (typeof body.reason !== "string" || body.reason.trim().length < 10) return fail(400, "bad_request", "Please give a reason of at least 10 characters.");
+      // deno-lint-ignore no-explicit-any
+      const docIn = body.document as any;
+      if (docIn && String(docIn.base64 ?? "").length / 4 * 3 > 5 * 1024 * 1024) return fail(413, "too_large", "The document is larger than 5 MB.");
       const type = LEAVE_TYPES.find((t) => t.id === body.type_id);
-      if (!type) return fail(422, "unknown_type", "That type of leave isn't available to you.");
-      if (type.requires_document && !body.document) return fail(422, "document_required", `${type.name} needs a document.`);
-      if (body.half_day && !type.half_days) return fail(422, "no_half_days", `${type.name} can't be taken as a half day.`);
+      if (!type) return fail(422, "invalid", "That type of leave isn't available to you.");
       const start = String(body.start_date), end = String(body.end_date);
       const days = workingDays(start, end, body.half_day === true);
-      if (type.max_days !== null && days > type.max_days) return fail(422, "insufficient_balance", "You don't have enough days left.");
+      const problems: string[] = [];
+      if (type.document?.when === "with_application" && !body.document) problems.push(`${type.name} needs a ${type.document.name}`);
+      if (type.max_days_per_request !== null && days > type.max_days_per_request) problems.push("You don't have enough days left");
       if (this.applications.some((x) => x.person === person && x.company === company && ["pending", "approved"].includes(x.status) && x.start_date <= end && x.end_date >= start)) {
-        return fail(422, "overlap", "You already have leave on some of these days.");
+        problems.push("You already have leave on some of these days");
       }
+      if (problems.length) return json({ error: { code: "leave_rules", message: problems.map((p) => `${p}.`).join(" "), problems } }, 422);
       // deno-lint-ignore no-explicit-any
       const doc = body.document as any;
       const a: FakeApplication = {
-        id: `app-${++this.seq}`, company, person, employee: employee.number, type, start_date: start, end_date: end, half_day: body.half_day === true,
+        id: `bbbbbbbb-2222-4222-8222-${String(++this.seq).padStart(12, "0")}`, company, person, employee: employee.number, type, start_date: start, end_date: end, half_day: body.half_day === true,
         days, reason: String(body.reason ?? ""), status: "pending", waiting_on: this.firstApprover.get(company) ?? "hr-user-principal",
         document: doc ? { name: doc.name, content_type: doc.content_type, bytes: String(doc.base64).length / 4 * 3 - (String(doc.base64).match(/=*$/)?.[0].length ?? 0) } : null, decisions: [],
       };
@@ -192,7 +229,7 @@ export class FakeHr {
       const a = this.applications.find((x) => x.id === decodeURIComponent(cancel[1]!) && x.company === company && x.person === person);
       if (!a) return fail(404, "not_found", "No such application.");
       if (!["pending", "approved"].includes(a.status) || (a.status === "approved" && a.start_date <= new Date(this.clock()).toISOString().slice(0, 10))) {
-        return fail(409, "not_cancellable", "This application can't be cancelled any more.");
+        return fail(409, "not_cancellable", "This leave has already started, so it can no longer be cancelled");
       }
       const was = a.status;
       a.status = "cancelled";
@@ -202,19 +239,31 @@ export class FakeHr {
     return null;
   }
 
+  /** HR's my_hr_leave_import(): {dry_run, counts: {<outcome>: n}, results: [{source_id, external_id, outcome, application_id?, message?}]}. */
   private importRoute(body: Record<string, unknown>, company: string): Response {
-    const records = Array.isArray(body.records) ? body.records as Record<string, unknown>[] : [];
+    if (!Array.isArray(body.records)) return fail(400, "bad_request", "Send {records: [...], dry_run?} as JSON.");
+    if (body.records.length > 5000) return fail(400, "bad_request", "Send 5000 records or fewer at a time.");
+    const records = body.records as Record<string, unknown>[];
+    const dryRun = body.dry_run === true;
     const store = this.imported.get(company) ?? new Map<string, Record<string, unknown>>();
     this.imported.set(company, store);
-    const skipped: { source_id: unknown; reason: string }[] = [];
-    let imported = 0, already = 0;
-    for (const r of records) {
-      if (!this.people.has(`${company}:${r.external_id}`)) { skipped.push({ source_id: r.source_id, reason: "unknown_person" }); continue; }
-      if (store.has(String(r.source_id))) { already++; continue; }
-      if (body.dry_run !== true) store.set(String(r.source_id), r);
-      imported++;
-    }
-    return json({ status: "active", dry_run: body.dry_run === true, imported, already_imported: already, skipped });
+    const counts: Record<string, number> = {};
+    const results = records.map((r) => {
+      const id = String(r.source_id ?? "");
+      let res: Record<string, unknown>;
+      if (!id) res = { outcome: "invalid", message: "source_id is needed (200 characters at most)" };
+      else if (store.has(id)) res = { outcome: "already_imported", application_id: `imp-${id}` };
+      else if (!this.people.has(`${company}:${r.external_id}`)) res = { outcome: "not_linked", message: "This person is not linked to an HR employee" };
+      else if (r.status !== "approved") res = { outcome: "skipped", message: "Only approved leave is imported" };
+      else if (this.refuseImport.has(id)) res = { outcome: "refused", message: "Not enough days left" };
+      else {
+        if (!dryRun) store.set(id, r);
+        res = { outcome: dryRun ? "would_import" : "imported", application_id: dryRun ? null : `imp-${id}` };
+      }
+      counts[String(res.outcome)] = (counts[String(res.outcome)] ?? 0) + 1;
+      return { source_id: id || null, external_id: r.external_id ?? null, ...res };
+    });
+    return json({ status: "active", dry_run: dryRun, counts, results });
   }
 
   // deno-lint-ignore require-await

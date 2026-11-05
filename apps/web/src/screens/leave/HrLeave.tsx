@@ -1,7 +1,7 @@
 // Leave run by Figbloom HR (SCHOOLS_HR_LEAVE_CONTRACT.md section 3): the staff leave page at a school whose leave is HR's.
 import { useState } from "react";
 import {
-  applyForLeave, cancelHrLeave, documentProblem, fetchHrLeaveApplications, fetchLeaveForm, readLeave, readLeaveForm,
+  applyForLeave, cancelHrLeave, documentProblem, EdgeError, fetchHrLeaveApplications, fetchLeaveForm, leaveProblems, readLeave, readLeaveForm,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { confirmDialog } from "../../components/ui/Confirm";
@@ -35,6 +35,8 @@ export function HrLeave() {
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  /** HR's refusal of the last try (422 leave_rules), shown on the form with each rule */
+  const [refusal, setRefusal] = useState<{ message: string; problems: string[] } | null>(null);
 
   function onDocument(f: File | null) {
     if (f) {
@@ -48,6 +50,7 @@ export function HrLeave() {
   async function submit() {
     if (values.endDate < values.startDate) { toast("The last day is before the first.", "error"); return; }
     setSaving(true);
+    setRefusal(null);
     try {
       const document = file ? { name: file.name, contentType: file.type, base64: await readBase64(file) } : null;
       await applyForLeave({ typeId: values.typeId, startDate: values.startDate, endDate: values.endDate, halfDay: values.halfDay, reason: values.reason, document });
@@ -56,7 +59,8 @@ export function HrLeave() {
       setFile(null);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not apply for leave.", "error");
+      if (err instanceof EdgeError && err.code === "leave_rules") setRefusal(leaveProblems(err));
+      else toast(err instanceof Error ? err.message : "Could not apply for leave.", "error");
     } finally {
       setSaving(false);
     }
@@ -71,6 +75,8 @@ export function HrLeave() {
       setReloadKey((k) => k + 1);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not cancel.", "error");
+      // not_cancellable: HR's answer changed since the list was read
+      setReloadKey((k) => k + 1);
     } finally {
       setCancellingId(null);
     }
@@ -83,7 +89,7 @@ export function HrLeave() {
         <HrLeaveForm
           form={form.data ?? null} loading={form.loading} error={form.error?.message ?? null}
           values={values} onChange={(v) => setValues((old) => ({ ...old, ...v }))} onDocument={onDocument}
-          onSubmit={() => void submit()} saving={saving}
+          onSubmit={() => void submit()} saving={saving} refusal={refusal}
         />
         <div className="overflow-hidden rounded-lg border border-line bg-white">
           <header className="border-b border-line px-4 py-3">

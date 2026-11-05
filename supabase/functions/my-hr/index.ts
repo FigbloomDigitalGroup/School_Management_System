@@ -13,7 +13,7 @@
  *     "leave_form"                            GET leave/form: types and their rules, balances, the approval chain
  *     "leave_applications"                    GET leave: balances and applications with their approval progress
  *     "leave_apply" {"type_id", "start_date", "end_date", "half_day"?, "reason", "document"?: {"name",
- *                    "content_type", "base64"}}  POST leave/applications (document up to 5 MB)
+ *                    "content_type", "base64"}}  POST leave/applications (reason 10+ characters, document up to 3 MB)
  *     "leave_cancel" {"application_id"}       POST leave/applications/<id>/cancel
  *   Approving (the same, and an approver: the school's admins, staff holding the leave or fees area):
  *     "approvals"                             GET approvals: what waits on this person's HR user
@@ -34,12 +34,13 @@
  *        404 not_linked, or 200 {"status":"pending_hr"}  -> "Your HR record isn't ready yet. Ask the school's HR administrator."
  *        409 approver_not_linked                         -> 409 approver_not_linked: "Open HR & Payroll once to connect your HR account."
  *        404 otherwise                                   -> 404 not_found
- *        400 / 422 (a rule of HR's: balance, notice, overlap, document needed)
- *                                                        -> 400 bad_request, with HR's sentence
- *        409 otherwise (no longer cancellable, already decided) -> 409 conflict, with HR's sentence
+ *        422 leave_rules (HR's applicant checks)         -> 422 leave_rules, HR's sentence and its problems[] (one per rule)
+ *        422 otherwise (a decline needs a comment)       -> 422 with HR's code and sentence
+ *        400                                             -> 400 bad_request, with HR's sentence
+ *        409 not_cancellable / already_decided           -> 409 with that code and HR's sentence (other 409: conflict)
  *        403 school_not_linked, 401 invalid_token        -> 502 hr_not_connected (HR doesn't accept Schools for this school)
- *        403 otherwise (not this person's to decide)     -> 403 hr_forbidden, with HR's sentence
- *        413                                             -> 413 document_too_large
+ *        403 approver_no_access / not_your_approval      -> 403 with that code and HR's sentence (other 403: hr_forbidden)
+ *        413 too_large                                   -> 413 document_too_large
  *        429                                             -> 429 rate_limited
  *        503 my_hr_off                                   -> 503 hr_off
  *        5xx, unreachable, timeout, no token             -> 503 hr_unavailable
@@ -72,15 +73,21 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIMEOUT_MS = 15_000;
 const UPLOAD_TIMEOUT_MS = 45_000;
 
-/** A leave document: up to 5 MB, passed to HR as base64. */
-export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+/**
+ * A leave document: up to 3 MB, passed to HR as base64. HR takes 5 MB, but its production sits behind Vercel's
+ * ~4.5 MB request limit, and base64 adds a third.
+ */
+export const MAX_DOCUMENT_BYTES = 3 * 1024 * 1024;
+const TOO_LARGE = "The document is larger than 3 MB. Choose a smaller file.";
 /** The request itself: the document's base64 (a third larger) and the rest. */
 const MAX_BODY_CHARS = Math.ceil(MAX_DOCUMENT_BYTES / 3) * 4 + 16 * 1024;
 export const DOCUMENT_TYPES = new Set([
   "application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic",
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
-const MAX_REASON = 1000;
+/** HR's rule for the reason (leave/form reason_min_length; my_hr_routes.js REASON_MIN / REASON_MAX). */
+export const MIN_REASON = 10;
+const MAX_REASON = 2000;
 const MAX_COMMENT = 1000;
 const MAX_LEAVE_DAYS = 366;
 
@@ -155,7 +162,7 @@ function plan(route: MyHrRoute, body: any): Plan | Response {
       const halfDay = body.half_day === true;
       if (halfDay && start !== end) return fail(400, "invalid_half_day", "A half day is one day: the first and last day must be the same.");
       const reason = typeof body.reason === "string" ? body.reason.trim() : "";
-      if (!reason) return fail(400, "invalid_reason", "Give a reason.");
+      if (reason.length < MIN_REASON) return fail(400, "invalid_reason", `Give a reason of at least ${MIN_REASON} characters.`);
       if (reason.length > MAX_REASON) return fail(400, "invalid_reason", `Keep the reason to ${MAX_REASON} characters.`);
       const out: Record<string, unknown> = { type_id: typeId, start_date: start, end_date: end, half_day: halfDay, reason };
       if (body.document !== undefined && body.document !== null) {
@@ -167,7 +174,7 @@ function plan(route: MyHrRoute, body: any): Plan | Response {
         if (!DOCUMENT_TYPES.has(contentType)) return fail(400, "invalid_document", "Attach a PDF, a photo (JPEG, PNG, WebP, HEIC) or a Word document.");
         const size = base64Bytes(b64);
         if (size === null || size === 0) return fail(400, "invalid_document", "The document couldn't be read. Choose it again.");
-        if (size > MAX_DOCUMENT_BYTES) return fail(413, "document_too_large", "The document is larger than 5 MB. Choose a smaller file.");
+        if (size > MAX_DOCUMENT_BYTES) return fail(413, "document_too_large", TOO_LARGE);
         out.document = { name, content_type: contentType, base64: b64 };
       }
       return { path: "leave/applications", method: "POST", body: out, timeoutMs: out.document ? UPLOAD_TIMEOUT_MS : TIMEOUT_MS };
@@ -245,7 +252,7 @@ export async function handle(req: Request, { admin, asUser, client, hrUrl, fetch
   if (!user) return fail(401, "unauthorized", "Sign in first.");
 
   const raw = await req.text();
-  if (raw.length > MAX_BODY_CHARS) return fail(413, "document_too_large", "The document is larger than 5 MB. Choose a smaller file.");
+  if (raw.length > MAX_BODY_CHARS) return fail(413, "document_too_large", TOO_LARGE);
   // deno-lint-ignore no-explicit-any
   let body: any;
   try { body = JSON.parse(raw); } catch { return fail(400, "invalid_json", "The body must be JSON."); }
@@ -305,17 +312,27 @@ export async function handle(req: Request, { admin, asUser, client, hrUrl, fetch
     case res.status === 404:
       return fail(404, "not_found", route === "payslip" ? "That payslip isn't available."
         : route === "leave_cancel" || route === "approval_decide" ? "That application isn't available any more." : "That isn't available in HR.");
-    case res.status === 400 || res.status === 422:
+    case res.status === 422 && code === "leave_rules":
+      return json({ error: said ?? "HR's leave rules don't allow that.", code: "leave_rules", problems: problemsOf(answer) }, 422);
+    case res.status === 422:
+      return fail(422, code ?? "invalid", said ?? "HR couldn't take that. Check the details and try again.");
+    case res.status === 400:
       return fail(400, "bad_request", said ?? "HR couldn't take that. Check the details and try again.");
+    case res.status === 409 && (code === "not_cancellable" || code === "already_decided"):
+      return fail(409, code!, said ?? (code === "not_cancellable" ? "This leave can't be cancelled any more." : "This application has already been decided."));
     case res.status === 409:
       return fail(409, "conflict", said ?? "That can't be done any more. Reload and try again.");
     case res.status === 401 || code === "school_not_linked" || code === "invalid_token":
       console.error(`my-hr: HR refused Schools for school ${profile.tenant_id}: ${res.status} ${code ?? ""}`);
       return fail(502, "hr_not_connected", "Figbloom HR isn't connected to this school yet. Ask Figbloom.");
+    case res.status === 403 && code === "approver_no_access":
+      return fail(403, "approver_no_access", said ?? "You don't have access to HR for this school. Ask your HR administrator.");
+    case res.status === 403 && code === "not_your_approval":
+      return fail(403, "not_your_approval", said ?? "You are not the approver for this step.");
     case res.status === 403:
       return fail(403, "hr_forbidden", said ?? "Figbloom HR didn't allow that.");
     case res.status === 413:
-      return fail(413, "document_too_large", said ?? "The document is too large for HR. Choose a smaller file.");
+      return fail(413, "document_too_large", TOO_LARGE);
     case res.status === 429:
       return fail(429, "rate_limited", "You've opened My HR many times in the last few minutes. Wait a few minutes and try again.");
     case res.status === 503 && code === "my_hr_off":
@@ -330,6 +347,13 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 const fail = (status: number, code: string, error: string) => json({ error, code }, status);
+
+/** HR's problems[] on a 422 leave_rules: one short sentence per rule that failed. */
+function problemsOf(answer: unknown): string[] {
+  // deno-lint-ignore no-explicit-any
+  const list = (answer as any)?.error?.problems ?? (answer as any)?.problems;
+  return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string" && p.length <= 300).slice(0, 20) : [];
+}
 
 let platformClient: PlatformClient | null | undefined;
 

@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_PAGE_AREA, mayOpenAdminPage } from "./adminAreas";
 import { NAV } from "./auth";
 import { PAGE_ABOUT } from "./guide";
+import { EdgeError } from "./edge";
 import {
-  approvalsState, documentProblem, leaveMode, MAX_LEAVE_DOCUMENT_BYTES, readAccess, readApprovals, readLeaveForm,
-  showsLeaveToApprove, showsStaffLeave,
+  approvalsState, documentNeeded, documentProblem, leaveMode, leaveProblems, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, readAccess,
+  readApprovals, readLeaveForm, showsLeaveToApprove, showsStaffLeave,
 } from "./hrLeave";
 
 describe("hr_leave_access, as the pages read it", () => {
@@ -45,42 +46,70 @@ describe("the pages and the console", () => {
   });
 });
 
-describe("HR's answers", () => {
-  it("leave/form: types with their rules and balance, and the approval chain", () => {
+describe("HR's answers (bloomHR my_hr_routes.js field names)", () => {
+  it("leave/form: types with their rules and balance, the chain without skipped steps, the reason's least length", () => {
     const form = readLeaveForm({
-      leave_types: [{ id: 7, name: "Annual", allow_half_day: true, document_required: false, max_days: "21", notice_days: 2 }, { name: "no id" }],
-      balances: [{ leave_type_id: "7", available_days: 18.5 }],
-      approval_chain: [{ label: "Head teacher", approver_name: "Mary" }, { role: "HR" }],
+      leave_types: [
+        { id: "t1", name: "Annual", half_days: true, max_days_per_request: 21, min_notice_days: 2, earliest_start: "2026-11-07",
+          one_per_month: true, available_from: "2027-01-01", document: null, balance: { available_days: 18.5 } },
+        { id: "t2", name: "Sick", half_days: true, document: { name: "Doctor's note", when: "with_application", required_if_longer_than: 2 }, balance: null },
+        { name: "no id" },
+      ],
+      approval_chain: [{ label: "Head teacher", waiting_on: "Mary", skipped: false }, { label: "HR", waiting_on: null, skipped: true }],
+      reason_min_length: 12,
     });
-    expect(form.types).toEqual([{ id: "7", name: "Annual", halfDays: true, documentRequired: false, maxDays: 21, noticeDays: 2, available: 18.5 }]);
-    expect(form.chain).toEqual(["Head teacher (Mary)", "HR"]);
-    expect(readLeaveForm(undefined)).toEqual({ types: [], chain: [] });
+    expect(form.types[0]).toEqual({ id: "t1", name: "Annual", halfDays: true, document: null, maxDays: 21, noticeDays: 2, earliestStart: "2026-11-07",
+      availableFrom: "2027-01-01", onePerMonth: true, available: 18.5 });
+    expect(form.types[1]!.document).toEqual({ name: "Doctor's note", withApplication: true, longerThan: 2 });
+    expect(form.types).toHaveLength(2);
+    expect(form.chain).toEqual(["Head teacher (Mary)"]);
+    expect(form.reasonMin).toBe(12);
+    expect(readLeaveForm(undefined)).toEqual({ types: [], chain: [], reasonMin: 10 });
+    expect(documentNeeded(form.types[1]!, 2)).toBe(false);
+    expect(documentNeeded(form.types[1]!, 3)).toBe(true);
+    expect(documentNeeded(form.types[0]!, 30)).toBe(false);
   });
 
-  it("approvals: what waits on the person, with an https document link only", () => {
+  it("approvals: employee, step, documents as https links with their expiry", () => {
     const items = readApprovals({ approvals: [
-      { id: "a1", employee: { name: "Sketch" }, leave_type: "Annual", start_date: "2026-11-12", end_date: "2026-11-13", days: 2, half_day: false,
-        document: { url: "https://hr.example/f/a1" }, approval: { steps: [{ label: "Head teacher", status: "current" }] } },
-      { application_id: "a2", employee_name: "Tom", document_url: "http://insecure.example/f" },
-      { employee_name: "no id" },
+      { application_id: "a1", employee: { name: "Sketch" }, leave_type: "Annual", start_date: "2026-11-12", end_date: "2026-11-13", days: 2, half_day: false,
+        step_label: "Head teacher", document: { name: "note.pdf", url: "https://hr.example/f/a1", expires_at: "2026-11-05T10:05:00Z" },
+        followup_document: { name: "followup.pdf", url: "http://insecure.example/f", expires_at: null },
+        approval: { steps: [{ label: "Head teacher", status: "current", waiting_on: "Mary" }] } },
+      { employee: { name: "no id" } },
     ] });
-    expect(items.map((i) => [i.id, i.employee, i.documentUrl])).toEqual([["a1", "Sketch", "https://hr.example/f/a1"], ["a2", "Tom", null]]);
-    expect(items[0]!.steps).toEqual([{ label: "Head teacher", status: "current", who: null }]);
+    expect(items.map((i) => [i.id, i.employee, i.step])).toEqual([["a1", "Sketch", "Head teacher"]]);
+    expect(items[0]!.documents).toEqual([
+      { name: "note.pdf", url: "https://hr.example/f/a1", expiresAt: "2026-11-05T10:05:00Z" },
+      { name: "followup.pdf", url: null, expiresAt: null },
+    ]);
+    expect(linkExpired(items[0]!.documents[0]!, Date.parse("2026-11-05T10:04:00Z"))).toBe(false);
+    expect(linkExpired(items[0]!.documents[0]!, Date.parse("2026-11-05T10:05:00Z"))).toBe(true);
+    expect(linkExpired(items[0]!.documents[1]!)).toBe(true);
+    expect(items[0]!.steps).toEqual([{ label: "Head teacher", status: "current", who: "Mary", comment: null }]);
   });
 
   it("approvalsState: approver_not_linked is its own state", () => {
     const on = { status: "available", approver: true } as const;
     expect(approvalsState(on, { loading: false, error: { code: "approver_not_linked", message: "x" }, data: null })).toEqual({ kind: "not_linked" });
+    expect(approvalsState(on, { loading: false, error: { code: "approver_no_access", message: "No access" }, data: null })).toEqual({ kind: "error", message: "No access" });
     expect(approvalsState(on, { loading: true, error: null, data: null })).toEqual({ kind: "loading" });
     expect(approvalsState(on, { loading: false, error: null, data: { approvals: [] } })).toEqual({ kind: "empty" });
+  });
+
+  it("leave_rules: HR's sentence and problems[] from the refusal", () => {
+    const err = new EdgeError("Not enough days. Too short notice.", 422, false, "leave_rules", { error: "x", code: "leave_rules", problems: ["Not enough days", "Too short notice", 3] });
+    expect(leaveProblems(err)).toEqual({ message: "Not enough days. Too short notice.", problems: ["Not enough days", "Too short notice"] });
+    expect(leaveProblems(new Error("Down"))).toEqual({ message: "Down", problems: [] });
   });
 });
 
 describe("a leave document", () => {
-  it("up to 5 MB, of the kinds HR takes", () => {
+  it("up to 3 MB (HR's production takes about 4.5 MB per request), of the kinds HR takes", () => {
+    expect(MAX_LEAVE_DOCUMENT_BYTES).toBe(3 * 1024 * 1024);
     expect(documentProblem({ size: MAX_LEAVE_DOCUMENT_BYTES, type: "application/pdf" })).toBeNull();
     expect(documentProblem({ size: 1000, type: "image/jpeg" })).toBeNull();
-    expect(documentProblem({ size: MAX_LEAVE_DOCUMENT_BYTES + 1, type: "application/pdf" })).toMatch(/larger than 5 MB/);
+    expect(documentProblem({ size: MAX_LEAVE_DOCUMENT_BYTES + 1, type: "application/pdf" })).toMatch(/larger than 3 MB/);
     expect(documentProblem({ size: 1000, type: "application/zip" })).toMatch(/PDF/);
     expect(documentProblem({ size: 0, type: "application/pdf" })).toMatch(/empty/);
   });

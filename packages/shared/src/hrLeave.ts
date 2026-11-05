@@ -18,8 +18,13 @@ export interface HrLeaveAccess { status: HrLeaveStatus; approver: boolean }
 export const LEAVE_TO_APPROVE_LABEL = "Leave to approve";
 /** my-hr's sentence for 409 approver_not_linked (the person never opened HR & Payroll from Schools). */
 export const HR_CONNECT_ONCE = "Open HR & Payroll once to connect your HR account.";
-/** A leave document goes to HR as base64, up to this size. */
-export const MAX_LEAVE_DOCUMENT_BYTES = 5 * 1024 * 1024;
+/**
+ * A leave document goes to HR as base64, up to this size. HR takes 5 MB, but its production sits behind Vercel's
+ * ~4.5 MB request limit, and base64 adds a third.
+ */
+export const MAX_LEAVE_DOCUMENT_BYTES = 3 * 1024 * 1024;
+/** HR's rule for the reason, when leave/form doesn't say (reason_min_length). */
+export const LEAVE_REASON_MIN = 10;
 export const LEAVE_DOCUMENT_TYPES = [
   "application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic",
   "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -69,43 +74,67 @@ export interface LeaveTypeRule {
   id: string;
   name: string;
   halfDays: boolean;
-  documentRequired: boolean;
+  /** the document HR asks for with the application (a doctor's note), and from how many days on (null: always) */
+  document: { name: string; withApplication: boolean; longerThan: number | null } | null;
   maxDays: number | null;
   noticeDays: number | null;
-  /** days left this year, when HR says */
+  /** the first day it can start (notice) and the day it can first be used (service months), when HR says */
+  earliestStart: string | null;
+  availableFrom: string | null;
+  onePerMonth: boolean;
+  /** days left in the balance, when HR keeps one */
   available: number | null;
 }
 export interface LeaveForm {
   types: LeaveTypeRule[];
-  /** "Head teacher (Mary Principal)", in order */
+  /** "Head teacher (Mary Principal)", in order; skipped steps left out */
   chain: string[];
+  /** the reason's least length (HR: 10) */
+  reasonMin: number;
 }
 
-/** GET leave/form: {leave_types: [{id, name, half_days, requires_document, max_days, notice_days}], balances, approval_chain}. */
+/**
+ * GET leave/form (bloomHR my_hr_leave_form()): {leave_types: [{id, name, half_days, count_days, max_days_per_request,
+ * min_notice_days, earliest_start, one_per_month, available_from, document: {name, when, within_days,
+ * required_if_longer_than}, balance: {available_days}}], balances, approval_chain: [{label, waiting_on, skipped}],
+ * reason_min_length, document_max_bytes}.
+ */
 export function readLeaveForm(data: unknown): LeaveForm {
   const o = isObj(data) ? data : {};
-  const balances = list(o.balances);
   const types = list(o.leave_types).flatMap((t) => {
     const id = str(t.id);
     if (!id) return [];
-    const balance = balances.find((b) => str(b.leave_type_id) === id);
+    const doc = isObj(t.document) && str(t.document.name) ? t.document : null;
+    const balance = isObj(t.balance) ? t.balance : null;
     return [{
       id,
       name: str(t.name) ?? "Leave",
-      halfDays: bool(t.half_days, t.allow_half_day, t.half_day_allowed),
-      documentRequired: bool(t.requires_document, t.document_required),
-      maxDays: num(t.max_days),
-      noticeDays: num(t.notice_days),
+      halfDays: bool(t.half_days),
+      document: doc ? { name: str(doc.name)!, withApplication: doc.when === "with_application", longerThan: num(doc.required_if_longer_than) } : null,
+      maxDays: num(t.max_days_per_request),
+      noticeDays: num(t.min_notice_days),
+      earliestStart: str(t.earliest_start),
+      availableFrom: str(t.available_from),
+      onePerMonth: bool(t.one_per_month),
       available: balance ? num(balance.available_days) : null,
     }];
   });
-  const chain = list(o.approval_chain).map((s) => {
-    const label = str(s.label) ?? str(s.role) ?? "Approver";
-    const who = str(s.approver_name) ?? str(s.name);
+  const chain = list(o.approval_chain).filter((s) => s.skipped !== true).map((s) => {
+    const label = str(s.label) ?? "Approver";
+    const who = str(s.waiting_on);
     return who ? `${label} (${who})` : label;
   });
-  return { types, chain };
+  return { types, chain, reasonMin: num(o.reason_min_length) ?? LEAVE_REASON_MIN };
 }
+
+/** Whether HR wants the document with this application: always, or for leave longer than its limit. */
+export function documentNeeded(type: LeaveTypeRule | null, days: number | null): boolean {
+  if (!type?.document?.withApplication) return false;
+  return type.document.longerThan === null || (days !== null && days > type.document.longerThan);
+}
+
+/** A document link from HR: valid for 5 minutes, opened directly, never kept. */
+export interface HrDocumentLink { name: string; url: string | null; expiresAt: string | null }
 
 export interface ApprovalItem {
   id: string;
@@ -116,36 +145,60 @@ export interface ApprovalItem {
   days: number | null;
   halfDay: boolean;
   reason: string | null;
-  /** HR's short-lived link to the document, if there is one */
-  documentUrl: string | null;
+  /** the step this approver decides ("Head teacher") */
+  step: string | null;
+  documents: HrDocumentLink[];
   /** the chain so far: "Head teacher: current" */
-  steps: { label: string; status: string; who: string | null }[];
+  steps: { label: string; status: string; who: string | null; comment: string | null }[];
 }
 
-/** GET approvals: {approvals: [{application_id, employee_name, leave_type, start_date, end_date, days, reason, document_url, approval: {steps}}]}. */
+function link(v: unknown, fallback: string): HrDocumentLink | null {
+  if (!isObj(v)) return null;
+  return { name: str(v.name) ?? fallback, url: safeLink(str(v.url)), expiresAt: str(v.expires_at) };
+}
+
+/**
+ * GET approvals (bloomHR my_hr_leave_approval_item()): {approvals: [{application_id, employee: {employee_number, name,
+ * external_id}, leave_type, start_date, end_date, days, half_day, reason, status, step_label, document / followup_document:
+ * {name, url, expires_at}, approval: {steps: [{label, status, waiting_on, actor_name, comment}]}}]}.
+ */
 export function readApprovals(data: unknown): ApprovalItem[] {
   const o = isObj(data) ? data : {};
-  return list(o.approvals ?? o.applications ?? o.items).flatMap((a) => {
-    const id = str(a.application_id) ?? str(a.id);
+  return list(o.approvals).flatMap((a) => {
+    const id = str(a.application_id);
     if (!id) return [];
-    const doc = isObj(a.document) ? a.document : null;
     return [{
       id,
-      employee: str(a.employee_name) ?? (isObj(a.employee) ? str(a.employee.name) : null) ?? "A member of staff",
+      employee: (isObj(a.employee) ? str(a.employee.name) : null) ?? "A member of staff",
       type: str(a.leave_type) ?? "Leave",
       from: str(a.start_date),
       to: str(a.end_date),
       days: num(a.days),
       halfDay: a.half_day === true,
       reason: str(a.reason),
-      documentUrl: safeLink(str(a.document_url) ?? (doc ? str(doc.url) : null)),
-      steps: list(isObj(a.approval) ? a.approval.steps : a.steps).map((s) => ({
+      step: str(a.step_label),
+      documents: [link(a.document, "Document"), link(a.followup_document, "Follow-up document")].filter((d): d is HrDocumentLink => d !== null),
+      steps: list(isObj(a.approval) ? a.approval.steps : undefined).map((s) => ({
         label: str(s.label) ?? "Approval",
         status: str(s.status) ?? "upcoming",
         who: str(s.actor_name) ?? str(s.waiting_on),
+        comment: str(s.comment),
       })),
     }];
   });
+}
+
+/** A link HR said is valid until `expiresAt` has run out (reload the list for a new one). */
+export function linkExpired(doc: HrDocumentLink, now = Date.now()): boolean {
+  return !doc.url || (!!doc.expiresAt && Date.parse(doc.expiresAt) <= now);
+}
+
+/** HR's refusal of an application, as the form shows it: its sentence and one line per rule (422 leave_rules). */
+export function leaveProblems(err: unknown): { message: string; problems: string[] } {
+  const message = err instanceof Error ? err.message : "Could not apply for leave.";
+  const d = err && typeof err === "object" && "details" in err ? (err as { details?: unknown }).details : null;
+  const problems = isObj(d) && Array.isArray(d.problems) ? d.problems.filter((p): p is string => typeof p === "string") : [];
+  return { message, problems };
 }
 
 /** Only an https link is shown (a document link comes from HR). */
@@ -175,7 +228,7 @@ export function approvalsState(access: HrLeaveAccess | null, result: { loading: 
 
 /** Why a chosen document can't go (null: it can). */
 export function documentProblem(file: { size: number; type: string }): string | null {
-  if (file.size > MAX_LEAVE_DOCUMENT_BYTES) return "The document is larger than 5 MB. Choose a smaller file.";
+  if (file.size > MAX_LEAVE_DOCUMENT_BYTES) return "The document is larger than 3 MB. Choose a smaller file.";
   if (file.size === 0) return "The document is empty. Choose it again.";
   if (!(LEAVE_DOCUMENT_TYPES as readonly string[]).includes(file.type)) return "Attach a PDF, a photo (JPEG, PNG, WebP, HEIC) or a Word document.";
   return null;

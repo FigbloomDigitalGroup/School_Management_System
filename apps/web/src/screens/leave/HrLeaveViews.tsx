@@ -1,6 +1,6 @@
 import {
-  formatShortDate, HR_CONNECT_ONCE, hrStatusLabel, MAX_LEAVE_DOCUMENT_BYTES, type ApprovalItem, type ApprovalsState,
-  type LeaveForm, type MyLeave,
+  documentNeeded, formatShortDate, HR_CONNECT_ONCE, hrStatusLabel, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, type ApprovalItem,
+  type ApprovalsState, type LeaveForm, type MyLeave,
 } from "@figbloom/shared";
 import type { ReactNode } from "react";
 import { Badge, type Tone } from "../../components/ui/Badge";
@@ -19,6 +19,9 @@ const date = (d: string | null) => (d ? formatShortDate(d.slice(0, 10)) : "—")
 const range = (from: string | null, to: string | null) => (from && to && from !== to ? `${date(from)} – ${date(to)}` : date(from ?? to));
 const daysWords = (days: number | null, halfDay: boolean) =>
   halfDay ? "Half a day" : days === null ? null : `${days} ${days === 1 ? "day" : "days"}`;
+/** Calendar days from one date to the other, both counted (HR counts its own way; this only decides what to ask for). */
+const spanDays = (from: string, to: string) =>
+  from && to && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : null;
 
 function tone(status: string): Tone {
   const s = status.toLowerCase();
@@ -28,8 +31,15 @@ function tone(status: string): Tone {
   return "muted";
 }
 
-export const ErrorNote = ({ message }: { message: string }) => (
-  <p role="alert" className="rounded-lg border border-line bg-white px-4 py-3.5 text-[12.5px] text-warn-ink">{message}</p>
+export const ErrorNote = ({ message, problems = [] }: { message: string; problems?: string[] }) => (
+  <div role="alert" className="rounded-lg border border-line bg-white px-4 py-3.5 text-[12.5px] text-warn-ink">
+    <p>{message}</p>
+    {problems.length > 1 && (
+      <ul className="mt-1.5 list-disc pl-5">
+        {problems.map((p) => <li key={p}>{p}</li>)}
+      </ul>
+    )}
+  </div>
 );
 
 /** The approver hasn't opened HR & Payroll from Schools yet, so HR doesn't know which of its users they are. */
@@ -55,10 +65,14 @@ export interface ApprovalsViewProps {
   busyId: string | null;
   /** the "HR & Payroll" button, when this person has it */
   hrButton?: ReactNode;
+  /** asks HR again (new document links: they last 5 minutes) */
+  onReload?: () => void;
+  /** for the links' expiry; defaults to now */
+  now?: number;
 }
 
-/** "Leave to approve": what waits on this person in HR, each with its document, the chain so far, and approve / decline with a comment. */
-export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hrButton }: ApprovalsViewProps) {
+/** "Leave to approve": what waits on this person in HR, each with its documents, the chain so far, and approve / decline with a comment. */
+export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hrButton, onReload, now = Date.now() }: ApprovalsViewProps) {
   switch (state.kind) {
     case "loading":
       return <TableSkeleton rows={4} />;
@@ -90,18 +104,29 @@ export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hr
                     {a.type} · {range(a.from, a.to)}{daysWords(a.days, a.halfDay) ? ` · ${daysWords(a.days, a.halfDay)}` : ""}
                   </div>
                   {a.reason && <p className="mt-1 text-[12.5px] text-ink-muted">{a.reason}</p>}
+                  {a.step && <p className="mt-1 text-[12px] text-ink-faint">Your step: {a.step}</p>}
                 </div>
-                {a.documentUrl && (
-                  <a href={a.documentUrl} target="_blank" rel="noopener noreferrer" className="text-[12.5px] font-semibold text-accent hover:underline">
-                    View document
-                  </a>
+                {a.documents.length > 0 && (
+                  <div className="grid justify-items-end gap-1">
+                    {a.documents.map((d) => linkExpired(d, now) ? (
+                      <span key={d.name} className="text-[12px] text-ink-muted">
+                        {d.name}: link expired.{" "}
+                        {onReload && <button type="button" onClick={onReload} className="font-semibold text-accent hover:underline">Reload</button>}
+                      </span>
+                    ) : (
+                      <a key={d.name} href={d.url!} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer"
+                        title="Opens HR's copy; the link works for 5 minutes" className="text-[12.5px] font-semibold text-accent hover:underline">
+                        View {d.name}
+                      </a>
+                    ))}
+                  </div>
                 )}
               </div>
               {a.steps.length > 0 && (
                 <ol className="flex flex-wrap gap-2" aria-label="Approval so far">
                   {a.steps.map((s, i) => (
                     <li key={i} className="flex items-center gap-1.5 text-[12px]">
-                      <Badge tone={tone(s.status)}>{s.label}: {hrStatusLabel(s.status)}</Badge>
+                      <Badge tone={tone(s.status)}>{s.label}: {hrStatusLabel(s.status)}{s.who ? ` (${s.who})` : ""}</Badge>
                     </li>
                   ))}
                 </ol>
@@ -109,11 +134,11 @@ export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hr
               <div className="flex flex-wrap items-end gap-2">
                 <div className="min-w-[220px] flex-1">
                   <TextField
-                    id={`comment-${a.id}`} label="Comment (optional; HR may need one to decline)" value={comments[a.id] ?? ""}
+                    id={`comment-${a.id}`} label="Comment (needed to decline)" value={comments[a.id] ?? ""}
                     onChange={(e) => onComment(a.id, e.target.value)} maxLength={1000}
                   />
                 </div>
-                <Button disabled={busyId === a.id} onClick={() => onDecide(a, "decline")}>Decline</Button>
+                <Button disabled={busyId === a.id || !(comments[a.id] ?? "").trim()} title="Say why in the comment first" onClick={() => onDecide(a, "decline")}>Decline</Button>
                 <Button variant="accent" disabled={busyId === a.id} onClick={() => onDecide(a, "approve")}>
                   {busyId === a.id ? "Saving…" : "Approve"}
                 </Button>
@@ -144,10 +169,12 @@ export interface HrLeaveFormProps {
   onDocument: (file: File | null) => void;
   onSubmit: () => void;
   saving: boolean;
+  /** HR's refusal of the last try (422 leave_rules): its sentence and one line per rule */
+  refusal?: { message: string; problems: string[] } | null;
 }
 
 /** The application form, from HR's leave/form: the types this person may use with their rules, and who approves. */
-export function HrLeaveForm({ form, loading, error, values, onChange, onDocument, onSubmit, saving }: HrLeaveFormProps) {
+export function HrLeaveForm({ form, loading, error, values, onChange, onDocument, onSubmit, saving, refusal }: HrLeaveFormProps) {
   if (error) return <ErrorNote message={error} />;
   if (loading || !form) return <TableSkeleton rows={4} />;
   if (form.types.length === 0) {
@@ -158,14 +185,20 @@ export function HrLeaveForm({ form, loading, error, values, onChange, onDocument
     );
   }
   const type = form.types.find((t) => t.id === values.typeId) ?? null;
+  const needsDocument = documentNeeded(type, values.halfDay ? 0.5 : spanDays(values.startDate, values.endDate));
   const rules = type ? [
     type.available !== null && `${type.available} ${type.available === 1 ? "day" : "days"} left`,
     type.maxDays !== null && `up to ${type.maxDays} days at a time`,
-    type.noticeDays ? `${type.noticeDays} days' notice` : null,
-    type.documentRequired && "a document is needed",
+    type.noticeDays ? `${type.noticeDays} days' notice${type.earliestStart ? ` (from ${date(type.earliestStart)})` : ""}` : null,
+    type.availableFrom && `can be used from ${date(type.availableFrom)}`,
+    type.onePerMonth && "once a month",
+    type.document && (type.document.withApplication
+      ? `${type.document.name} needed${type.document.longerThan !== null ? ` for more than ${type.document.longerThan} days` : ""}`
+      : `${type.document.name} to follow`),
     type.halfDays && "half days allowed",
   ].filter(Boolean).join(" · ") : "";
-  const ready = !!type && !!values.startDate && !!values.endDate && !!values.reason.trim() && (!type.documentRequired || !!values.documentName);
+  const reason = values.reason.trim();
+  const ready = !!type && !!values.startDate && !!values.endDate && reason.length >= form.reasonMin && (!needsDocument || !!values.documentName);
   return (
     <form
       className="grid content-start gap-3.5 rounded-lg border border-line bg-white p-4"
@@ -189,16 +222,18 @@ export function HrLeaveForm({ form, loading, error, values, onChange, onDocument
           Half a day
         </label>
       )}
-      <TextArea id="hr-leave-reason" label="Reason" value={values.reason} onChange={(e) => onChange({ reason: e.target.value })} maxLength={1000} />
+      <TextArea id="hr-leave-reason" label={`Reason (at least ${form.reasonMin} characters)`} value={values.reason}
+        onChange={(e) => onChange({ reason: e.target.value })} maxLength={2000} />
       <div className="grid gap-1">
         <label htmlFor="hr-leave-document" className="text-[12.5px] font-medium">
-          Document {type?.documentRequired ? "(needed)" : "(optional)"}: PDF, photo or Word, up to {MAX_LEAVE_DOCUMENT_BYTES / 1024 / 1024} MB
+          {type?.document?.name ?? "Document"} {needsDocument ? "(needed)" : "(optional)"}: PDF, photo or Word, up to {MAX_LEAVE_DOCUMENT_BYTES / 1024 / 1024} MB
         </label>
         <input id="hr-leave-document" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.doc,.docx"
           onChange={(e) => onDocument(e.target.files?.[0] ?? null)} className="text-[12.5px]" />
         {values.documentName && <span className="text-[12px] text-ink-muted">Attached: {values.documentName}</span>}
       </div>
       {form.chain.length > 0 && <p className="text-[12px] text-ink-muted">Approved by: {form.chain.join(", then ")}.</p>}
+      {refusal && <ErrorNote message={refusal.message} problems={refusal.problems} />}
       <Button type="submit" variant="accent" disabled={!ready || saving}>{saving ? "Sending to HR…" : "Apply for leave"}</Button>
     </form>
   );
@@ -221,32 +256,30 @@ export function HrApplications({ leave, loading, error, onCancel, cancellingId }
       )}
       {leave.applications.length === 0 ? (
         <EmptyState title="Nothing applied for yet" body="Your applications show up here, with who has approved them so far." />
-      ) : leave.applications.map((a) => {
-        const cancellable = a.status === "pending" || (a.status === "approved" && !!a.from && a.from > new Date().toISOString().slice(0, 10));
-        return (
-          <div key={a.id} className="border-b border-line-soft px-1 py-3 last:border-0">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[13px] font-medium">{a.type} · {range(a.from, a.to)}{a.days !== null ? ` · ${a.days} ${a.days === 1 ? "day" : "days"}` : ""}</div>
-                {a.reason && <p className="mt-0.5 text-[12px] text-ink-faint">{a.reason}</p>}
-                {a.steps.length > 0 && (
-                  <p className="mt-1 text-[12px] text-ink-muted">
-                    {a.steps.map((s) => `${s.label}: ${hrStatusLabel(s.status)}${s.who ? ` (${s.who})` : ""}`).join(" → ")}
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Badge tone={tone(a.status)}>{hrStatusLabel(a.status)}</Badge>
-                {cancellable && (
-                  <button type="button" disabled={cancellingId === a.id} onClick={() => onCancel(a.id)} className="text-[12px] font-semibold text-warn-ink hover:underline">
-                    {cancellingId === a.id ? "Cancelling…" : "Cancel"}
-                  </button>
-                )}
-              </div>
+      ) : leave.applications.map((a) => (
+        <div key={a.id} className="border-b border-line-soft px-1 py-3 last:border-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium">{a.type} · {range(a.from, a.to)}{a.days !== null ? ` · ${a.days} ${a.days === 1 ? "day" : "days"}` : ""}</div>
+              {a.reason && <p className="mt-0.5 text-[12px] text-ink-faint">{a.reason}</p>}
+              {a.steps.length > 0 && (
+                <p className="mt-1 text-[12px] text-ink-muted">
+                  {a.steps.map((s) => `${s.label}: ${hrStatusLabel(s.status)}${s.who ? ` (${s.who})` : ""}`).join(" → ")}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge tone={tone(a.status)}>{hrStatusLabel(a.status)}</Badge>
+              {/* HR's own answer to "can it be cancelled now" (pending, or approved before it starts) */}
+              {a.cancellable === true && (
+                <button type="button" disabled={cancellingId === a.id} onClick={() => onCancel(a.id)} className="text-[12px] font-semibold text-warn-ink hover:underline">
+                  {cancellingId === a.id ? "Cancelling…" : "Cancel"}
+                </button>
+              )}
             </div>
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }

@@ -38,6 +38,7 @@ export function LeaveToApprove() {
       setComments((c) => { const next = { ...c }; delete next[item.id]; return next; });
       setReloadKey((k) => k + 1);
     } catch (err) {
+      // HR's own words: not_your_approval, already_decided, a decline without a comment, approver_no_access
       toast(err instanceof Error ? err.message : "Could not record the decision.", "error");
       setReloadKey((k) => k + 1);
     } finally {
@@ -56,6 +57,7 @@ export function LeaveToApprove() {
         <ApprovalsView
           state={state} comments={comments} onComment={(id, text) => setComments((c) => ({ ...c, [id]: text }))}
           onDecide={(item, d) => void decide(item, d)} busyId={busyId} hrButton={hrButton}
+          onReload={() => setReloadKey((k) => k + 1)}
         />
       </div>
     </>

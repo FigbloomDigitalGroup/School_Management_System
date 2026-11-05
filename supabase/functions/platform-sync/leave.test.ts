@@ -66,7 +66,21 @@ describe("platform-sync leave_history_import", () => {
       start_date: "2026-03-02", end_date: "2026-03-06", days: 5, status: "approved", reason: "Funeral",
     });
     assertEquals(out.not_linked, [{ external_id: NEW, full_name: "Nina New", source_id: "l-5" }]);
+    assertEquals(out.hr_dry_run_error, "hr_not_configured");
     assertEquals(hr.calls.length, 0);
+    assertEquals(exported(db), []);
+  });
+
+  it("a dry run also asks HR's own dry run, record by record, and changes nothing anywhere", async () => {
+    const { call, hr, db } = setup();
+    hr.people.delete(`company:${T2}`);
+    const { status, out } = await call({ action: "leave_history_import", school_id: SCHOOL });
+    assertEquals(status, 200);
+    // deno-lint-ignore no-explicit-any
+    assertEquals((hr.calls[0]!.body as any).dry_run, true);
+    assertEquals(out.hr_counts, { would_import: 1, not_linked: 1 });
+    assertEquals(out.hr_results.map((r: { source_id: string; outcome: string }) => [r.source_id, r.outcome]), [["l-1", "would_import"], ["l-2", "not_linked"]]);
+    assertEquals(hr.imported.get("company")!.size, 0);
     assertEquals(exported(db), []);
   });
 
@@ -74,7 +88,7 @@ describe("platform-sync leave_history_import", () => {
     const { call, hr, db } = setup();
     let r = await call({ action: "leave_history_import", school_id: SCHOOL, dry_run: false });
     assertEquals(r.status, 200);
-    assertEquals([r.out.sent, r.out.marked, r.out.refused_by_hr], [2, 2, []]);
+    assertEquals([r.out.sent, r.out.marked, r.out.hr_counts, r.out.hr_results], [2, 2, { imported: 2 }, []]);
     const sent = hr.calls[0]!;
     assertEquals([sent.method, sent.path, sent.school, sent.person], ["POST", "import/leave-history", SCHOOL, null]);
     // deno-lint-ignore no-explicit-any
@@ -90,12 +104,25 @@ describe("platform-sync leave_history_import", () => {
     assertEquals(hr.calls.length, 1);
   });
 
-  it("a record HR skips (a person it doesn't have) is not marked, and is listed", async () => {
+  it("already in HR (a run whose answer was lost): already_imported, marked, nothing twice", async () => {
+    const { call, hr, db } = setup();
+    hr.imported.set("company", new Map([["l-1", {}]]));
+    const r = await call({ action: "leave_history_import", school_id: SCHOOL, dry_run: false });
+    assertEquals(r.out.hr_counts, { already_imported: 1, imported: 1 });
+    assertEquals(exported(db), ["l-1", "l-2"]);
+    assertEquals(hr.imported.get("company")!.size, 2);
+  });
+
+  it("records HR doesn't import (not_linked, refused) are not marked, and are listed with HR's message", async () => {
     const { call, hr, db } = setup();
     hr.people.delete(`company:${T2}`);
+    hr.refuseImport.add("l-1");
     const r = await call({ action: "leave_history_import", school_id: SCHOOL, dry_run: false });
-    assertEquals(r.out.refused_by_hr, [{ source_id: "l-2", reason: "unknown_person" }]);
-    assertEquals(exported(db), ["l-1"]);
+    assertEquals(r.out.hr_counts, { refused: 1, not_linked: 1 });
+    assertEquals(r.out.hr_results.map((x: { source_id: string; outcome: string; message: string }) => [x.source_id, x.outcome, x.message]), [
+      ["l-1", "refused", "Not enough days left"], ["l-2", "not_linked", "This person is not linked to an HR employee"],
+    ]);
+    assertEquals(exported(db), []);
   });
 
   it("HR failing: 502, nothing marked, so the next run sends it all again (HR is idempotent on source_id)", async () => {

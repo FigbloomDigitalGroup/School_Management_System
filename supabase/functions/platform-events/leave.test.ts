@@ -3,7 +3,7 @@ import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient, type Row } from "../_shared/fakeSupabase.ts";
 import { signFigbloomWebhook } from "../_shared/platformWebhook.ts";
-import { FakeHr, HR_BASE } from "../_shared/fakeHr.ts";
+import { ANNUAL, FakeHr, HR_BASE } from "../_shared/fakeHr.ts";
 import { FakePlatform } from "../_shared/fakePlatform.ts";
 import { handle as myHr } from "../my-hr/index.ts";
 import { handle } from "./index.ts";
@@ -272,10 +272,10 @@ describe("Sketch's two days, end to end (the fake HR, my-hr and platform-events)
       }
     };
 
-    let r = await ask(as(TEACHER, false), { route: "leave_apply", type_id: "lt-annual", start_date: "2026-11-12", end_date: "2026-11-13", reason: "Graduation" });
+    let r = await ask(as(TEACHER, false), { route: "leave_apply", type_id: ANNUAL, start_date: "2026-11-12", end_date: "2026-11-13", reason: "My graduation ceremony" });
     assertEquals(r.status, 201);
     r = await ask(as(PRINCIPAL, true), { route: "approvals" });
-    assertEquals(r.out.approvals.map((a: Row) => a.employee_name), ["Sketch Kamau"]);
+    assertEquals(r.out.approvals.map((a: Row) => a.employee.name), ["Sketch Kamau"]);
     r = await ask(as(PRINCIPAL, true), { route: "approval_decide", application_id: r.out.approvals[0].application_id, decision: "approve" });
     assertEquals(r.status, 200);
     await relay();

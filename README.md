@@ -451,7 +451,7 @@ documents and approval chain (SCHOOLS_HR_LEAVE_CONTRACT.md, section 3; `20261105
   an hour (which form a school uses mustn't flip). `hr_leave_access()` (the caller's own, no arguments) answers
   `{status, approver}`.
 - **Leave page** (`teacher/leave`; `staff/leave`, new, shown only then): the form comes from HR (`my-hr` routes
-  `leave_form`, `leave_applications`, `leave_apply` with a document up to 5 MB sent as base64, `leave_cancel`). The old
+  `leave_form`, `leave_applications`, `leave_apply` with a reason of 10+ characters and a document up to 3 MB sent as base64 (HR production sits behind Vercel's ~4.5 MB request limit), `leave_cancel`, shown only when HR says `cancellable`). The old
   Schools-only form is hidden there, and the database refuses a Schools-only request from an older app. Everywhere else
   the old form and the office's Leave requests page work exactly as before. The teacher phone app says to apply on the web.
 - **Leave to approve** (`admin/leave-to-approve`): for the school's admins and staff holding the leave or fees area
@@ -468,7 +468,7 @@ documents and approval chain (SCHOOLS_HR_LEAVE_CONTRACT.md, section 3; `20261105
   out. Applied only while `PLATFORM_EVENTS_ENABLED` and `HR_LEAVE_ENABLED` are both on; before that, recorded only.
 - **History export:** `platform-sync {"action":"leave_history_import","school_id":"..."}` lists (dry run, the default)
   the school's approved Schools leave not yet exported, for staff whose `schools.staff` event was delivered;
-  `"dry_run":false` sends it to HR's `import/leave-history` and marks what HR accepted (`hr_exported_at`), so it can be
+  the dry run also asks HR's own dry run (per-record `would_import`, `not_linked`, ...); `"dry_run":false` sends it to HR's `import/leave-history` (up to 5000 per call) and marks what HR answered `imported` or `already_imported` (`hr_exported_at`; `not_linked`, `skipped`, `invalid`, `refused` are listed, not marked), so it can be
   run again safely.
 
 **Deploy:** apply `20261105800000_leave_via_hr`; deploy `my-hr`, `platform-events` and `platform-sync`

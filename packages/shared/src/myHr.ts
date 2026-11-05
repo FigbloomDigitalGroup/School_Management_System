@@ -104,6 +104,8 @@ export interface LeaveApplication {
   approver: string | null;
   /** The approval chain, step by step ("Head teacher: approved"). */
   steps: { label: string; status: string; who: string | null }[];
+  /** HR's own answer to "may the employee cancel it now" (null: HR didn't say) */
+  cancellable: boolean | null;
 }
 export interface MyLeave { balances: LeaveBalance[]; applications: LeaveApplication[] }
 
@@ -283,6 +285,7 @@ export function readLeave(data: unknown): MyLeave {
       reason: str(a.reason),
       approver: current?.who ?? decided?.who ?? null,
       steps,
+      cancellable: typeof a.cancellable === "boolean" ? a.cancellable : null,
     };
   });
   return { balances, applications };

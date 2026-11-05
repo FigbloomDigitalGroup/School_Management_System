@@ -3,7 +3,7 @@ import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert";
 import { FakeSupabaseClient, type Row } from "../_shared/fakeSupabase.ts";
 import { FakePlatform } from "../_shared/fakePlatform.ts";
-import { FakeHr, HR_BASE } from "../_shared/fakeHr.ts";
+import { ANNUAL, FakeHr, HR_BASE, SICK } from "../_shared/fakeHr.ts";
 import { CONNECT_ONCE, handle, MAX_DOCUMENT_BYTES } from "./index.ts";
 
 const SCHOOL = "11111111-1111-4111-8111-111111111111";
@@ -73,7 +73,7 @@ async function call(ctx: ReturnType<typeof setup>, body: Record<string, unknown>
   return { res, out: await res.json() };
 }
 
-const APPLY = { route: "leave_apply", type_id: "lt-annual", start_date: "2026-11-16", end_date: "2026-11-17", reason: "Family wedding" };
+const APPLY = { route: "leave_apply", type_id: ANNUAL, start_date: "2026-11-16", end_date: "2026-11-17", reason: "Family wedding upcountry" };
 /** base64 of `bytes` bytes (all zero). */
 const b64 = (bytes: number) => "A".repeat(Math.ceil(bytes / 3) * 4).slice(0, Math.floor(bytes / 3) * 4) + (bytes % 3 === 1 ? "AA==" : bytes % 3 === 2 ? "AAA=" : "");
 
@@ -96,7 +96,7 @@ describe("my-hr leave: applying through HR", () => {
     assertEquals(out.application.status, "pending");
     const sent = ctx.hr.calls[0]!;
     assertEquals([sent.method, sent.path, sent.school, sent.person], ["POST", "leave/applications", SCHOOL, "teacher"]);
-    assertEquals(sent.body, { type_id: "lt-annual", start_date: "2026-11-16", end_date: "2026-11-17", half_day: false, reason: "Family wedding" });
+    assertEquals(sent.body, { type_id: ANNUAL, start_date: "2026-11-16", end_date: "2026-11-17", half_day: false, reason: "Family wedding upcountry" });
     assertEquals(ctx.hr.applications[0]!.person, "teacher");
     assertEquals(ctx.hr.applications[0]!.days, 2);
   });
@@ -111,10 +111,10 @@ describe("my-hr leave: applying through HR", () => {
     assertEquals(ctx.hr.calls[1]!.path, "leave");
   });
 
-  it("a document up to 5 MB goes to HR as base64", async () => {
+  it("a document up to 3 MB goes to HR as base64 (HR's production takes about 4.5 MB per request)", async () => {
     const ctx = setup({ caller: "teacher" });
     const base64 = b64(MAX_DOCUMENT_BYTES);
-    const { res } = await call(ctx, { ...APPLY, type_id: "lt-sick", document: { name: "note.pdf", content_type: "application/pdf", base64 } });
+    const { res } = await call(ctx, { ...APPLY, type_id: SICK, document: { name: "note.pdf", content_type: "application/pdf", base64 } });
     assertEquals(res.status, 201);
     // deno-lint-ignore no-explicit-any
     assertEquals((ctx.hr.calls[0]!.body as any).document, { name: "note.pdf", content_type: "application/pdf", base64 });
@@ -150,7 +150,8 @@ describe("my-hr leave: applying through HR", () => {
       [{ half_day: "morning" }, "invalid_half_day"],
       [{ half_day: true }, "invalid_half_day"],
       [{ reason: "  " }, "invalid_reason"],
-      [{ reason: "x".repeat(1001) }, "invalid_reason"],
+      [{ reason: "Too short" }, "invalid_reason"],
+      [{ reason: "x".repeat(2001) }, "invalid_reason"],
     ] as const) {
       const { res, out } = await call(ctx, { ...APPLY, ...bad });
       assertEquals([res.status, out.code], [400, code], JSON.stringify(bad));
@@ -160,11 +161,14 @@ describe("my-hr leave: applying through HR", () => {
 
   it("HR's own rules (a document needed, the balance, an overlap) come back as HR's sentence", async () => {
     const ctx = setup({ caller: "teacher" });
-    let r = await call(ctx, { ...APPLY, type_id: "lt-sick" });
-    assertEquals([r.res.status, r.out.code, r.out.error], [400, "bad_request", "Sick leave needs a document."]);
+    let r = await call(ctx, { ...APPLY, type_id: SICK });
+    assertEquals([r.res.status, r.out.code, r.out.error, r.out.problems], [422, "leave_rules", "Sick leave needs a Doctor's note.", ["Sick leave needs a Doctor's note"]]);
     await call(ctx, APPLY);
     r = await call(ctx, APPLY);
-    assertEquals([r.res.status, r.out.error], [400, "You already have leave on some of these days."]);
+    assertEquals([r.res.status, r.out.code, r.out.problems], [422, "leave_rules", ["You already have leave on some of these days"]]);
+    ctx.hr.rawAnswer = { status: 413, body: JSON.stringify({ error: { code: "too_large", message: "The request is too large (a document can be 5 MB at most)." } }), type: "application/json" };
+    r = await call(ctx, APPLY);
+    assertEquals([r.res.status, r.out.code], [413, "document_too_large"]);
   });
 
   it("cancels the caller's own application only", async () => {
@@ -180,7 +184,7 @@ describe("my-hr leave: applying through HR", () => {
     assertEquals(ctx.hr.applications[0]!.status, "cancelled");
     assertEquals(ctx.hr.calls.at(-1)!.path, `leave/applications/${id}/cancel`);
     r = await call(ctx, { route: "leave_cancel", application_id: id });
-    assertEquals([r.res.status, r.out.code], [409, "conflict"]);
+    assertEquals([r.res.status, r.out.code], [409, "not_cancellable"]);
     r = await call(ctx, { route: "leave_cancel", application_id: "../approvals" });
     assertEquals([r.res.status, r.out.code], [400, "invalid_application"]);
   });
@@ -218,15 +222,17 @@ describe("my-hr leave: the switch", () => {
 describe("my-hr leave: approving inside Schools", () => {
   it("the principal sees what waits on their HR user, with the document link, and approves it as that HR user", async () => {
     const ctx = setup({ caller: "teacher" });
-    await call(ctx, { ...APPLY, type_id: "lt-sick", document: { name: "note.pdf", content_type: "application/pdf", base64: b64(300) } });
+    await call(ctx, { ...APPLY, type_id: SICK, document: { name: "note.pdf", content_type: "application/pdf", base64: b64(300) } });
     const principal = setup({ caller: "principal" });
     principal.hr.applications = ctx.hr.applications;
     principal.hr.events = ctx.hr.events;
     let r = await call(principal, { route: "approvals" });
     assertEquals(r.res.status, 200);
     assertEquals(r.out.approvals.length, 1);
-    assertEquals(r.out.approvals[0].employee_name, "Tom Teacher");
-    assert(r.out.approvals[0].document_url);
+    assertEquals(r.out.approvals[0].employee.name, "Tom Teacher");
+    assertEquals(r.out.approvals[0].document.name, "note.pdf");
+    assert(r.out.approvals[0].document.url.startsWith("https://"));
+    assert(r.out.approvals[0].document.expires_at);
     assertEquals(principal.hr.calls[0]!.person, "principal");
 
     const id = ctx.hr.applications[0]!.id;
@@ -241,6 +247,13 @@ describe("my-hr leave: approving inside Schools", () => {
     const ctx = setup({ caller: "deputy" });
     const { res, out } = await call(ctx, { route: "approvals" });
     assertEquals([res.status, out.code, out.error], [409, "approver_not_linked", CONNECT_ONCE]);
+  });
+
+  it("a linked HR login that is no longer an active member: 403 approver_no_access", async () => {
+    const ctx = setup({ caller: "principal" });
+    ctx.hr.noAccess.add("hr-user-principal");
+    const { res, out } = await call(ctx, { route: "approvals" });
+    assertEquals([res.status, out.code], [403, "approver_no_access"]);
   });
 
   it("a teacher or staff member without the leave or fees area isn't an approver: refused before HR", async () => {
@@ -266,11 +279,11 @@ describe("my-hr leave: approving inside Schools", () => {
     const bursar = setup({ caller: "bursar" });
     bursar.hr.applications = ctx.hr.applications;
     let r = await call(bursar, { route: "approval_decide", application_id: id, decision: "approve" });
-    assertEquals([r.res.status, r.out.code, r.out.error], [403, "hr_forbidden", "This application isn't waiting on you."]);
+    assertEquals([r.res.status, r.out.code, r.out.error], [403, "not_your_approval", "You are not the approver for this step."]);
     const principal = setup({ caller: "principal" });
     principal.hr.applications = ctx.hr.applications;
     r = await call(principal, { route: "approval_decide", application_id: id, decision: "decline" });
-    assertEquals([r.res.status, r.out.error], [400, "Say why you are declining."]);
+    assertEquals([r.res.status, r.out.code, r.out.error], [422, "invalid", "Please give a reason for declining."]);
     r = await call(principal, { route: "approval_decide", application_id: id, decision: "maybe" });
     assertEquals([r.res.status, r.out.code], [400, "invalid_decision"]);
     r = await call(principal, { route: "approval_decide", application_id: id, decision: "decline", comment: 42 });
@@ -280,6 +293,6 @@ describe("my-hr leave: approving inside Schools", () => {
     assertEquals(ctx.hr.applications[0]!.status, "declined");
     assertFalse(principal.hr.calls.some((c) => (c.body as Row | undefined)?.decision === "maybe"));
     r = await call(principal, { route: "approval_decide", application_id: id, decision: "approve" });
-    assertEquals([r.res.status, r.out.code], [409, "conflict"]);
+    assertEquals([r.res.status, r.out.code], [409, "already_decided"]);
   });
 });
