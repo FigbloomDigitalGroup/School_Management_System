@@ -49,7 +49,7 @@ grant execute on function platform_handoff_enabled() to service_role;
 -- organisation, or a teacher or other staff member holding the fees area there; Figbloom staff are left out.
 -- A "no" from the platform hides the item for an hour.
 create or replace function hr_handoff_status(p_tenant_id uuid) returns text
-language plpgsql stable security definer set search_path = public as $
+language plpgsql stable security definer set search_path = public as $$
 begin
   if p_tenant_id is null or auth.uid() is null or is_super() or not has_perm(p_tenant_id, 'fees') then
     raise exception 'HR & Payroll is for the school''s administrators and the bursar.' using errcode = '42501';
@@ -62,7 +62,7 @@ begin
     return 'not_enabled';
   end if;
   return 'available';
-end $;
+end $$;
 revoke execute on function hr_handoff_status(uuid) from public, anon;
 grant execute on function hr_handoff_status(uuid) to authenticated, service_role;
 

@@ -21,7 +21,7 @@ create function pg_temp.check(label text, ok boolean) returns void language plpg
 begin raise notice '% %', case when coalesce(ok, false) then 'PASS' else 'FAIL' end, label; end $$;
 -- hr_handoff_status as this signed-in person, with the authenticated role (as the web app calls it);
 -- 'forbidden' when it refuses them (42501), the error code when it fails otherwise
-create function pg_temp.status_as(uid uuid, p_tenant uuid) returns text language plpgsql as $
+create function pg_temp.status_as(uid uuid, p_tenant uuid) returns text language plpgsql as $$
 declare s text;
 begin
   perform set_config('request.jwt.claims', json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -33,7 +33,7 @@ begin
   end;
   reset role;
   return s;
-end $;
+end $$;
 -- back to no one signed in (status_as leaves its claims set for the rest of the transaction)
 create function pg_temp.signed_out() returns void language sql as $$ select set_config('request.jwt.claims', '', true) $$;
 create function pg_temp.person(p_id uuid, p_tenant uuid, p_role app_role, p_name text) returns void
@@ -114,11 +114,11 @@ update platform_settings set value = 'true', updated_at = now() where key = 'PLA
 select pg_temp.check('switched on: ' || label || ' -> ' || expected, pg_temp.status_as(uid, school) = expected)
   from hr_people order by label;
 select pg_temp.signed_out();
-do $ begin
+do $$ begin
   perform hr_handoff_status('00000000-0000-4000-8000-00000000a701');
   raise notice 'FAIL nobody signed in gets an answer';
 exception when insufficient_privilege then raise notice 'PASS nobody signed in gets an answer';
-end $;
+end $$;
 select pg_temp.check('the org admin gets it for their own school only, not another organisation''s',
   pg_temp.status_as('00000000-0000-4000-8000-00000000a7a7', '00000000-0000-4000-8000-00000000a702') = 'forbidden');
 select pg_temp.signed_out();
