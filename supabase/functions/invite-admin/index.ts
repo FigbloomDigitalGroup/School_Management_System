@@ -143,18 +143,22 @@ export async function handle(req: Request, { admin, asUser, ...emailDeps }: Deps
   const loginEmail = isIdBased ? loginIdEmail(loginId!, tenant.slug) : email!;
   const password = tempPassword();
 
+  // The phone is a contact detail, kept on the profile only. Nobody signs in
+  // with it (there is no SMS/OTP sign-in), and auth.users.phone is unique, so
+  // putting it there stopped one person -- a teacher at two schools -- from
+  // having an account at each with the same number. The same goes for a
+  // teacher/driver/staff member's real email: their auth email is the
+  // synthetic per-account login address, so the real one (profiles.email) may
+  // repeat across accounts too. Only a school_admin's email is its login, and
+  // so unique.
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: loginEmail,
     password,
     email_confirm: true,
-    phone: phone ? normalisePhone(phone, tenant.country) : undefined,
-    phone_confirm: phone ? true : undefined,
   });
   if (createErr || !created.user) {
-    // Supabase's real message is "...has already been registered" — "been" sits
-    // between the two words, so a plain "already registered" substring never matches.
-    const already = createErr?.message?.toLowerCase().includes("already been registered");
-    return json(already ? { error: "That email is already in use." } : failure("invite-admin", "create the account", createErr), already ? 409 : 500);
+    const clash = accountClash(createErr, isIdBased ? loginId : undefined);
+    return json(clash ?? failure("invite-admin", "create the account", createErr), clash ? 409 : 500);
   }
 
   const { error: profileErr } = await admin.from("profiles").insert({
@@ -220,6 +224,33 @@ if (import.meta.main) {
     });
     return handle(req, { admin, asUser, mailer: resendMailer() });
   });
+}
+
+/**
+ * A createUser error that is a genuine clash with another account, as a
+ * sentence for whoever is adding them (answered 409), or null for anything
+ * else (a 500 with the generic "Try again"). Supabase Auth gives a `code`
+ * ("email_exists", "phone_exists") on newer versions and only a message on
+ * older ones; its email message is "...has already been registered" ("been"
+ * sits between the words, so "already registered" alone never matches it),
+ * its phone one "Phone number already registered by another user".
+ */
+export function accountClash(err: unknown, loginId?: string): { error: string } | null {
+  const e = (err && typeof err === "object" ? err : {}) as { code?: unknown; message?: unknown };
+  const code = typeof e.code === "string" ? e.code : "";
+  const message = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  if (code === "phone_exists" || (message.includes("phone") && message.includes("already registered"))) {
+    // createUser is no longer given a phone, so this only guards a future change.
+    return { error: "This phone number is already used by another account." };
+  }
+  if (code === "email_exists" || code === "user_already_exists" || message.includes("already been registered")) {
+    // For a login-ID account the auth email is its own synthetic address, so a
+    // clash means that login ID was taken a moment ago, not that the contact email is.
+    return loginId
+      ? { error: `Login ID ${loginId} was taken by another account a moment ago. Add them again to get the next one.` }
+      : { error: "That email is already in use by another account." };
+  }
+  return null;
 }
 
 /** "07xx xxx xxx" → "+2547xxxxxxxx"; leaves an already-international number alone.
