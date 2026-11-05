@@ -28,6 +28,7 @@
  *   {"action":"register_webhook"}     tell the platform to send decisions to platform-decisions (or {"url": "https://..."})
  *   {"action":"staff_backfill","school_id":"<tenants.id>"}  list the school's current staff (a dry run: the default)
  *   {"action":"staff_backfill","school_id":"...","dry_run":false}  queue schools.staff.created for each; the next sync sends them
+ *                                    (409 while PLATFORM_STAFF_EVENTS_ENABLED is off, or the platform doesn't know the school)
  *   {"action":"register_event_webhook"}  tell the platform to send events (hr.employee.left) to platform-events (or {"url": "https://..."})
  *
  * The queue carries staff events too (20261105600000): sync sends them as
@@ -124,6 +125,12 @@ export async function handle(req: Request, { admin, client, env = Deno.env }: De
           return json(await staffBackfill(admin, { schoolId: body.school_id, dryRun }));
         } catch (err) {
           if (err instanceof Error && /no school/.test(err.message)) return fail(404, "school_not_found", "Schools has no school with that id.");
+          if (err instanceof Error && /staff_events_disabled/.test(err.message)) {
+            return fail(409, "staff_events_disabled", "Sending staff events is switched off on this database (platform_settings PLATFORM_STAFF_EVENTS_ENABLED). Nothing was queued; the dry run still lists.");
+          }
+          if (err instanceof Error && /school_not_linked/.test(err.message)) {
+            return fail(409, "school_not_linked", "The platform doesn't know this school yet (its registration hasn't been delivered). Nothing was queued; run sync first.");
+          }
           throw err;
         }
       }

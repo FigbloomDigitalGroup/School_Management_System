@@ -421,6 +421,11 @@ export class FakeSupabaseClient {
   platformDecisionsEnabled = false;
   /** platform_settings 'PLATFORM_EVENTS_ENABLED' (20261105600000). */
   platformEventsEnabled = false;
+  /** platform_settings 'PLATFORM_STAFF_EVENTS_ENABLED' (20261105600000): sending staff events. */
+  platformStaffEventsEnabled = false;
+  private schoolLinked(tenantId: unknown) {
+    return this.rowsIn("platform_links").some((l) => l.kind === "tenant" && l.local_id === tenantId);
+  }
   /** The database's clock, for the queue's due times and leases. */
   clock: () => number = () => Date.now();
   private queueSeq = 0;
@@ -517,6 +522,7 @@ export class FakeSupabaseClient {
     // ---------------------------------------------------------- staff events (20261105600000)
     /** What the profiles triggers call; tests call it in their place. */
     platform_staff_enqueue: ({ p_profile_id, p_event, p_tenant_id, p_left_on }) => {
+      if (!this.platformStaffEventsEnabled || !this.schoolLinked(p_tenant_id)) return null;   // the two gates
       const q = this.table("platform_sync_queue");
       const existing = q.rows.find((r) => r.kind === "staff" && r.local_id === p_profile_id && !r.done_at);
       if (existing) {
@@ -557,12 +563,22 @@ export class FakeSupabaseClient {
       if (!this.rowsIn("tenants").some((t) => t.id === p_tenant_id)) throw new Error(`no school ${p_tenant_id}`);
       const staff = this.rowsIn("profiles")
         .filter((p) => p.tenant_id === p_tenant_id && ["teacher", "driver", "staff", "school_admin"].includes(p.role) && !p.archived_at);
+      if (!p_dry_run && !this.platformStaffEventsEnabled) throw new Error("staff_events_disabled: sending staff events is switched off");
+      if (!p_dry_run && !this.schoolLinked(p_tenant_id)) throw new Error("school_not_linked: the platform does not know this school yet");
       if (!p_dry_run) for (const p of staff) this.platformRpcs.platform_staff_enqueue({ p_profile_id: p.id, p_event: "created", p_tenant_id });
       const data = staff.map((p) => (this.platformRpcs.platform_staff_event_data({ p_profile_id: p.id }) as Row).data);
-      return { school_id: p_tenant_id, dry_run: p_dry_run, count: data.length, staff: data };
+      return { school_id: p_tenant_id, dry_run: p_dry_run, count: data.length, staff: data,
+        sending_enabled: this.platformStaffEventsEnabled, school_linked: this.schoolLinked(p_tenant_id) };
     },
 
     platform_events_enabled: () => this.platformEventsEnabled,
+    platform_staff_events_enabled: () => this.platformStaffEventsEnabled,
+
+    platform_sync_skipped: ({ p_id, p_reason }) => {
+      const r = this.rowsIn("platform_sync_queue").find((x) => x.id === p_id && !x.done_at && x.kind === "staff");
+      if (r) Object.assign(r, { done_at: this.iso(), locked_until: null, skipped: String(p_reason).slice(0, 100), last_error: null });
+      return null;
+    },
 
     platform_staff_left: (a) => {
       const deliveries = this.table("platform_event_deliveries");
@@ -714,11 +730,23 @@ export class FakeSupabaseClient {
           .map((p) => (String(p.email ?? "").trim() || this.authUsers.get(p.id)?.email) as string | undefined)
           .find((e) => e && !e.endsWith(".figbloom.internal"));
         const org = this.rowsIn("organizations").find((o) => o.id === t.organization_id);
+        // 20261105610000: every current school admin with a real email (platform_real_email), oldest first, at most 20
+        const real = (e: unknown) => {
+          const a = typeof e === "string" ? e.trim().toLowerCase() : "";
+          return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a) && !/\.(internal|invalid)$/.test(a) ? a : null;
+        };
+        const admins = people
+          .filter((p) => p.role === "school_admin" && !p.archived_at)
+          .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || String(a.id).localeCompare(String(b.id)))
+          .map((p) => ({ email: real(p.email) ?? real(this.authUsers.get(p.id)?.email), name: p.full_name, role: "school_admin" }))
+          .filter((a) => a.email)
+          .slice(0, 20);
         return {
           id: t.id, name: t.name, slug: t.slug, status: t.status, status_reason: t.status_reason ?? null,
           organization: org ? { id: org.id, name: org.name } : null,
           created_at: iso(t.created_at),
           admin_email: admin ?? null,
+          admins,
           students: this.rowsIn("students").filter((s) => s.tenant_id === t.id && s.active !== false).length,
           teachers: people.filter((p) => p.role === "teacher").length,
           parents: people.filter((p) => p.role === "parent").length,

@@ -30,9 +30,10 @@
  *   but not applied.
  * - A signed event of another type is acknowledged (202) and ignored.
  *
- * Deploy: supabase functions deploy platform-events --no-verify-jwt
- * (the platform sends no Supabase JWT; config.toml says so too). Register its
- * address with platform-sync {"action":"register_event_webhook"}.
+ * Deployed with JWT verification off (the platform sends no Supabase JWT;
+ * config.toml says so too). Register its address (PLATFORM_EVENTS_URL,
+ * <public functions URL>/platform-events) with platform-sync
+ * {"action":"register_event_webhook"}.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";

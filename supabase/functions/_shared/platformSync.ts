@@ -84,6 +84,8 @@ export interface SyncReport {
   sent: number;
   /** Of those sent, staff events (POST /events). */
   events: number;
+  /** Staff events the platform answered 404 for (the school isn't linked there): ended, not retried. */
+  skipped: { local_id: string; tenant_local_id: string; reason: "skipped_unlinked" }[];
   failed: { kind: string; local_id: string; error: string }[];
   /** Rows handed back without trying, because the platform was unreachable. */
   deferred: number;
@@ -102,7 +104,7 @@ export interface SyncReport {
 export async function processQueue(admin: Admin, client: PlatformClient, { limit = 50 } = {}): Promise<SyncReport> {
   const enabled = await decisionsEnabled(admin);
   const rows = (await rpc<QueueRow[]>(admin, "platform_sync_claim_kinds", { p_limit: limit, p_kinds: [...QUEUE_KINDS] })) ?? [];
-  const report: SyncReport = { claimed: rows.length, sent: 0, events: 0, failed: [], deferred: 0, adopted: 0 };
+  const report: SyncReport = { claimed: rows.length, sent: 0, events: 0, skipped: [], failed: [], deferred: 0, adopted: 0 };
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -118,7 +120,9 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
         report.sent++;
         if (enabled && (await adoptPlatformStatus(admin, o, answer, "registration")) === "applied") report.adopted++;
       } else if (row.kind === "staff") {
-        if (await sendStaffEvent(admin, client, row)) { report.sent++; report.events++; }
+        const outcome = await sendStaffEvent(admin, client, row);
+        if (outcome === "sent") { report.sent++; report.events++; }
+        if (outcome === "skipped_unlinked") report.skipped.push({ local_id: row.local_id, tenant_local_id: row.tenant_id!, reason: outcome });
       } else {
         const { data: t, error } = await admin.from("tenants")
           .select("id, name, slug, organization_id, created_at").eq("id", row.local_id).maybeSingle();
@@ -168,9 +172,10 @@ export async function processQueue(admin: Admin, client: PlatformClient, { limit
  * swallows a change), tenant_local_id the school. created/updated carry the
  * person as they are now; a person no longer current (archived by HR, so not
  * echoed back; or gone, whose left is queued in this same row) is not sent.
- * Returns whether an event was sent.
+ * A 404 (the platform doesn't know the school: not linked) ends the row as
+ * skipped_unlinked instead of retrying it for ever; it is logged.
  */
-async function sendStaffEvent(admin: Admin, client: PlatformClient, row: QueueRow): Promise<boolean> {
+async function sendStaffEvent(admin: Admin, client: PlatformClient, row: QueueRow): Promise<"sent" | "not_current" | "skipped_unlinked"> {
   if (!row.event || !row.event_id || !row.tenant_id) throw new Error("a staff row without its event");
   let tenantLocalId = row.tenant_id;
   let data: Record<string, unknown>;
@@ -180,21 +185,28 @@ async function sendStaffEvent(admin: Admin, client: PlatformClient, row: QueueRo
     const info = await rpc<StaffEventData | null>(admin, "platform_staff_event_data", { p_profile_id: row.local_id });
     if (!info || !info.current) {
       await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null });
-      return false;
+      return "not_current";
     }
     tenantLocalId = info.tenant_id;
     data = { ...info.data };
   }
-  await client.postEvent({
-    type: `schools.staff.${row.event}`,
-    id: row.event_id,
-    occurred_at: new Date(row.occurred_at ?? Date.now()).toISOString(),
-    tenant_local_id: tenantLocalId,
-    data,
-  });
+  try {
+    await client.postEvent({
+      type: `schools.staff.${row.event}`,
+      id: row.event_id,
+      occurred_at: new Date(row.occurred_at ?? Date.now()).toISOString(),
+      tenant_local_id: tenantLocalId,
+      data,
+    });
+  } catch (err) {
+    if (!(err instanceof PlatformError && err.status === 404)) throw err;
+    console.warn(`platform-sync: schools.staff.${row.event} for ${row.local_id} skipped: the platform doesn't know school ${tenantLocalId} (${err.code}); not retried`);
+    await rpc(admin, "platform_sync_skipped", { p_id: row.id, p_reason: "skipped_unlinked" });
+    return "skipped_unlinked";
+  }
   // false: it changed while on its way, and is handed back to be sent again (as an update, with a new id)
   await rpc(admin, "platform_sync_done", { p_id: row.id, p_version: row.version, p_platform_id: null });
-  return true;
+  return "sent";
 }
 
 // ---------------------------------------------------------------- the staff backfill
@@ -206,13 +218,18 @@ export interface StaffBackfillReport {
   staff: StaffEventData["data"][];
   /** Not a dry run: each is now in the queue, and the next sync (every minute) sends it. */
   queued?: number;
+  /** PLATFORM_STAFF_EVENTS_ENABLED, and whether the platform knows the school: both needed to run it for real. */
+  sending_enabled: boolean;
+  school_linked: boolean;
 }
 
 /**
  * schools.staff.created for every current staff member of one school (right
  * after HR is switched on for it). A dry run lists them; otherwise each is
  * queued, merged into any pending row, and sent by the queue with its retries.
- * Repeating it sends them again, which HR treats as an update.
+ * Repeating it sends them again, which HR treats as an update. Refused (the
+ * database raises staff_events_disabled or school_not_linked) while sending is
+ * switched off or the platform doesn't know the school; the dry run still lists.
  */
 export async function staffBackfill(admin: Admin, { schoolId, dryRun = true }: { schoolId: string; dryRun?: boolean }): Promise<StaffBackfillReport> {
   const answer = await rpc<StaffBackfillReport>(admin, "platform_staff_backfill", { p_tenant_id: schoolId, p_dry_run: dryRun });

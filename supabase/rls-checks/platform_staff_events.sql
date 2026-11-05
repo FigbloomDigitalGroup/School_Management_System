@@ -12,7 +12,8 @@
 -- restoring lifts it (and reactivating a suspended school does not); nobody archives themselves with a plain
 -- update; hr.employee.left is applied once, only to a profile of the school the delivery names, never echoed back,
 -- and only once PLATFORM_EVENTS_ENABLED is on; the staff backfill lists or queues the school's current staff;
--- and only the service role can run the platform side.
+-- sending is gated by PLATFORM_STAFF_EVENTS_ENABLED and by the school being registered on the platform; a 404 ends a row as
+-- skipped_unlinked; and only the service role can run the platform side.
 
 \set ON_ERROR_STOP 1
 begin;
@@ -64,6 +65,45 @@ select pg_temp.check('a school''s own staff can run archive_staff and restore_st
   has_function_privilege('authenticated', 'archive_staff(uuid[], date)', 'execute')
   and not has_function_privilege('anon', 'archive_staff(uuid[], date)', 'execute'));
 select pg_temp.check('PLATFORM_EVENTS_ENABLED is off by default', not platform_events_enabled());
+select pg_temp.check('PLATFORM_STAFF_EVENTS_ENABLED (sending) is off by default', not platform_staff_events_enabled());
+
+-- ---------------------------------------------------------------- the two gates on sending
+select pg_temp.person('00000000-0000-4000-8000-00000000f0c1', '00000000-0000-4000-8000-00000000f001', 'teacher', 'Hired While Off');
+select pg_temp.check('sending switched off: a new teacher queues nothing',
+  pg_temp.pending('00000000-0000-4000-8000-00000000f0c1') = 0);
+set local role service_role;
+select pg_temp.check('switched off: the staff backfill dry run still lists, and says why it can''t run',
+  (select (d ->> 'count')::int >= 1 and not (d ->> 'sending_enabled')::boolean and not (d ->> 'school_linked')::boolean
+     from platform_staff_backfill('00000000-0000-4000-8000-00000000f001', true) d));
+do $$ begin
+  perform platform_staff_backfill('00000000-0000-4000-8000-00000000f001', false);
+  raise notice 'FAIL the staff backfill runs for real while sending is switched off';
+exception when others then
+  raise notice '% the staff backfill for real is refused while sending is switched off',
+    case when sqlerrm like 'staff_events_disabled:%' then 'PASS' else 'FAIL (' || sqlerrm || ')' end;
+end $$;
+reset role;
+
+update platform_settings set value = 'true' where key = 'PLATFORM_STAFF_EVENTS_ENABLED';
+update profiles set full_name = 'Hired While Off 2' where id = '00000000-0000-4000-8000-00000000f0c1';
+select pg_temp.check('switched on, but the platform doesn''t know the school (registration not delivered): nothing queued',
+  pg_temp.pending('00000000-0000-4000-8000-00000000f0c1') = 0);
+set local role service_role;
+do $$ begin
+  perform platform_staff_backfill('00000000-0000-4000-8000-00000000f001', false);
+  raise notice 'FAIL the staff backfill runs for real for a school the platform doesn''t know';
+exception when others then
+  raise notice '% the staff backfill for real is refused for a school the platform doesn''t know',
+    case when sqlerrm like 'school_not_linked:%' then 'PASS' else 'FAIL (' || sqlerrm || ')' end;
+end $$;
+reset role;
+delete from profiles where id = '00000000-0000-4000-8000-00000000f0c1';
+delete from auth.users where id = '00000000-0000-4000-8000-00000000f0c1';
+
+-- from here on: sending on, and both schools' registrations delivered
+select platform_record_link('tenant', '00000000-0000-4000-8000-00000000f001', 'platform-school-1');
+select platform_record_link('tenant', '00000000-0000-4000-8000-00000000f002', 'platform-school-2');
+select pg_temp.flush();
 
 -- ---------------------------------------------------------------- the triggers fill the queue
 select pg_temp.person('00000000-0000-4000-8000-00000000f0a1', '00000000-0000-4000-8000-00000000f001', 'school_admin', 'Check Head', 'head@staffcheck.ac.ke');
@@ -274,5 +314,46 @@ reset role;
 select pg_temp.check('deliveries recorded with their outcomes',
   (select array_agg(delivery_id || ':' || outcome order by delivery_id) from platform_event_deliveries where delivery_id like 'dl-%')
   = array['dl-1:not_enabled', 'dl-5:archived', 'dl-6:already_archived']);
+
+-- ---------------------------------------------------------------- a 404 from the platform ends the row
+select pg_temp.flush();
+update profiles set full_name = 'Check Head 404' where id = '00000000-0000-4000-8000-00000000f0a1';
+set local role service_role;
+select platform_sync_skipped((pg_temp.staff_row('00000000-0000-4000-8000-00000000f0a1')).id, 'skipped_unlinked');
+reset role;
+select pg_temp.check('skipped_unlinked: done, not due again, the reason kept',
+  pg_temp.pending('00000000-0000-4000-8000-00000000f0a1') = 0
+  and exists (select 1 from platform_sync_queue where kind = 'staff' and local_id = '00000000-0000-4000-8000-00000000f0a1'
+                and skipped = 'skipped_unlinked' and done_at is not null));
+select pg_temp.check('...and only the service role may skip a row',
+  not has_function_privilege('authenticated', 'platform_sync_skipped(bigint, text)', 'execute')
+  and has_function_privilege('service_role', 'platform_sync_skipped(bigint, text)', 'execute'));
+
+-- ---------------------------------------------------------------- the console's admins (20261105610000)
+select pg_temp.person('00000000-0000-4000-8000-00000000f0d1', '00000000-0000-4000-8000-00000000f001', 'school_admin', 'Synthetic Admin');
+select pg_temp.person('00000000-0000-4000-8000-00000000f0d2', '00000000-0000-4000-8000-00000000f001', 'school_admin', 'Archived Admin', 'gone@staffcheck.ac.ke');
+select set_config('figbloom.staff_archive', 'true', true);   -- as the archive functions do
+update profiles set archived_at = now() where id = '00000000-0000-4000-8000-00000000f0d2';
+select set_config('figbloom.staff_archive', '', true);
+select pg_temp.person('00000000-0000-4000-8000-00000000f0d3', '00000000-0000-4000-8000-00000000f001', 'school_admin', 'Login Mailbox Admin');
+update auth.users set email = 'Deputy@StaffCheck.ac.ke' where id = '00000000-0000-4000-8000-00000000f0d3';
+set local role service_role;
+select set_config('t.console', (platform_console_schools('00000000-0000-4000-8000-00000000f001') -> 0)::text, true);
+reset role;
+select pg_temp.check('console list: admins are the current school admins with a real email (the login''s counts), oldest first',
+  current_setting('t.console')::jsonb -> 'admins' = jsonb_build_array(
+    jsonb_build_object('email', 'head@staffcheck.ac.ke', 'name', (select full_name from profiles where id = '00000000-0000-4000-8000-00000000f0a1'), 'role', 'school_admin'),
+    jsonb_build_object('email', 'deputy@staffcheck.ac.ke', 'name', 'Login Mailbox Admin', 'role', 'school_admin')));
+select pg_temp.check('...and admin_email is as before',
+  current_setting('t.console')::jsonb ->> 'admin_email' = 'head@staffcheck.ac.ke');
+set local role service_role;
+select pg_temp.check('a school with no admin: admins is an empty list',
+  platform_console_schools('00000000-0000-4000-8000-00000000f002') -> 0 -> 'admins' = '[]'::jsonb);
+reset role;
+
+-- switched off again: nothing more is queued
+update platform_settings set value = 'false' where key = 'PLATFORM_STAFF_EVENTS_ENABLED';
+update profiles set full_name = 'Check Head Off Again' where id = '00000000-0000-4000-8000-00000000f0a1';
+select pg_temp.check('switched off again: a rename queues nothing', pg_temp.pending('00000000-0000-4000-8000-00000000f0a1') = 0);
 
 rollback;

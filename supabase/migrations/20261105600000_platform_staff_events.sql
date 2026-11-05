@@ -14,6 +14,14 @@
 --     does not deliver it again, so a changed record needs a new one). Merging while pending: left wins;
 --     a pending created stays created (HR has not heard of them yet); a restore after a pending left is created.
 --
+--   Two gates on sending, both checked when a row would be queued (platform_staff_enqueue):
+--     platform_settings 'PLATFORM_STAFF_EVENTS_ENABLED' (off): while off nothing is queued at all, so no backlog of
+--       personal data builds up (one codebase runs every environment; switch it on per database). staff_backfill
+--       for real is refused while it is off; its dry run still lists.
+--     only schools the platform knows: a school whose registration has been delivered (platform_links 'tenant').
+--       If the platform still answers 404 for a staff event (not linked there), the row ends as
+--       skipped = 'skipped_unlinked' (done, not retried) and platform-sync logs it.
+--
 --   Archiving staff. Schools had no staff archive (delete-account removes a profile only when nothing refers to
 --     it). This adds one, the way learners are archived (20261105460000): profiles.archived_at/archived_by, and
 --     the login banned (banned_until 100 years out, app_metadata flag "archived_staff", sessions ended); restoring
@@ -184,7 +192,9 @@ alter table platform_sync_queue
   add column event_id    uuid,
   add column tenant_id   uuid,
   add column occurred_at timestamptz,
-  add column left_on     date;
+  add column left_on     date,
+  -- why a row ended without being sent (done_at set): 'skipped_unlinked'
+  add column skipped     text;
 alter table platform_sync_queue add constraint platform_sync_queue_staff_event
   check ((kind = 'staff') = (event is not null and event_id is not null and tenant_id is not null and occurred_at is not null));
 create unique index platform_sync_queue_event_id on platform_sync_queue (event_id) where event_id is not null;
@@ -207,10 +217,27 @@ language sql immutable set search_path = public as $$
   end
 $$;
 
--- Queues one staff event, merged into the person's pending row if there is one. Never blocks the change itself.
+-- The sending switch: off by default. Switch on per database:
+--   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_STAFF_EVENTS_ENABLED';
+insert into platform_settings (key, value) values ('PLATFORM_STAFF_EVENTS_ENABLED', 'false') on conflict (key) do nothing;
+
+create or replace function platform_staff_events_enabled() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select value = 'true'::jsonb from platform_settings where key = 'PLATFORM_STAFF_EVENTS_ENABLED'), false)
+$$;
+
+-- A school the platform knows: its registration has been delivered (platform_sync_done / platform_record_link).
+create or replace function platform_school_linked(p_tenant_id uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from platform_links where kind = 'tenant' and local_id = p_tenant_id)
+$$;
+
+-- Queues one staff event, merged into the person's pending row if there is one; nothing while sending is
+-- switched off or the platform doesn't know the school. Never blocks the change itself.
 create or replace function platform_staff_enqueue(p_profile_id uuid, p_event text, p_tenant_id uuid, p_left_on date default null) returns void
 language plpgsql security definer set search_path = public as $$
 begin
+  if not platform_staff_events_enabled() or not platform_school_linked(p_tenant_id) then return; end if;
   insert into platform_sync_queue (kind, local_id, event, event_id, tenant_id, occurred_at, left_on)
   values ('staff', p_profile_id, p_event, gen_random_uuid(), p_tenant_id, now(), case when p_event = 'left' then p_left_on end)
   on conflict (kind, local_id) where done_at is null do update
@@ -306,8 +333,9 @@ language sql stable security definer set search_path = public as $$
    where p.id = p_profile_id
 $$;
 
--- staff_backfill: every current staff member of one school. A dry run lists them; otherwise each gets a
--- schools.staff.created in the queue (sent by the next sync, with its retries), merged into any pending row.
+-- staff_backfill: every current staff member of one school. A dry run lists them (and says whether it could
+-- run); otherwise each gets a schools.staff.created in the queue (sent by the next sync, with its retries), merged
+-- into any pending row. Refused while sending is switched off, or for a school the platform doesn't know yet.
 create or replace function platform_staff_backfill(p_tenant_id uuid, p_dry_run boolean default true) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -320,6 +348,14 @@ begin
   select coalesce(jsonb_agg(platform_staff_event_data(p.id) -> 'data' order by p.created_at, p.id), '[]'::jsonb) into v_staff
     from profiles p
    where p.tenant_id = p_tenant_id and platform_is_staff_role(p.role) and p.archived_at is null;
+  if not p_dry_run and not platform_staff_events_enabled() then
+    raise exception 'staff_events_disabled: sending staff events is switched off (platform_settings PLATFORM_STAFF_EVENTS_ENABLED); nothing was queued'
+      using errcode = 'P0001';
+  end if;
+  if not p_dry_run and not platform_school_linked(p_tenant_id) then
+    raise exception 'school_not_linked: the platform does not know this school yet (its registration has not been delivered); nothing was queued'
+      using errcode = 'P0001';
+  end if;
   if not p_dry_run then
     for r in select p.id from profiles p
               where p.tenant_id = p_tenant_id and platform_is_staff_role(p.role) and p.archived_at is null
@@ -327,7 +363,8 @@ begin
       perform platform_staff_enqueue(r.id, 'created', p_tenant_id);
     end loop;
   end if;
-  return jsonb_build_object('school_id', p_tenant_id, 'dry_run', p_dry_run, 'count', jsonb_array_length(v_staff), 'staff', v_staff);
+  return jsonb_build_object('school_id', p_tenant_id, 'dry_run', p_dry_run, 'count', jsonb_array_length(v_staff), 'staff', v_staff,
+                            'sending_enabled', platform_staff_events_enabled(), 'school_linked', platform_school_linked(p_tenant_id));
 end $$;
 
 -- ------------------------------------------------------------ claiming and completing, kind by kind
@@ -383,6 +420,14 @@ begin
     perform platform_record_link(r.kind, r.local_id, p_platform_id);
   end if;
   return true;
+end $$;
+
+-- A staff event the platform can't place (404: the school isn't linked there): done, not retried, and why.
+create or replace function platform_sync_skipped(p_id bigint, p_reason text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update platform_sync_queue set done_at = now(), locked_until = null, skipped = left(p_reason, 100), last_error = null
+   where id = p_id and done_at is null and kind = 'staff';
 end $$;
 
 -- ------------------------------------------------------------ receiving hr.employee.left (platform-events)
@@ -474,7 +519,8 @@ begin
   foreach f in array array[
     'platform_sync_claim_kinds(int, text[])', 'platform_sync_claim(int)', 'platform_sync_done(bigint, int, text)',
     'platform_staff_event_data(uuid)', 'platform_staff_backfill(uuid, boolean)',
-    'platform_staff_left(text, text, uuid, uuid, date, text, boolean)', 'platform_events_enabled()'
+    'platform_staff_left(text, text, uuid, uuid, date, text, boolean)', 'platform_events_enabled()',
+    'platform_staff_events_enabled()', 'platform_school_linked(uuid)', 'platform_sync_skipped(bigint, text)'
   ] loop
     execute format('revoke execute on function %s from public, anon, authenticated', f);
     execute format('grant execute on function %s to service_role', f);

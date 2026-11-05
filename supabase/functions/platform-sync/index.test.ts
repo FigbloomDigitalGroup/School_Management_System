@@ -131,6 +131,8 @@ describe("platform-sync: staff (20261105600000)", () => {
   it("staff_backfill is a dry run unless dry_run is false, and works before the platform secrets are set", async () => {
     const { db, call, platform } = setup({ configured: false });
     db.seed("profiles", [{ id: TEACHER, tenant_id: SCHOOL, role: "teacher", full_name: "Jane Wanjiru", archived_at: null }]);
+    db.platformStaffEventsEnabled = true;
+    db.platformRpcs.platform_record_link({ p_kind: "tenant", p_local_id: SCHOOL, p_platform_id: "pt-1" });
     const dry = await (await call({ action: "staff_backfill", school_id: SCHOOL })).json();
     assertEquals([dry.dry_run, dry.count, dry.staff[0].person_id], [true, 1, TEACHER]);
     assertEquals(db.rowsIn("platform_sync_queue").length, 0);
@@ -138,6 +140,18 @@ describe("platform-sync: staff (20261105600000)", () => {
     assertEquals([real.dry_run, real.queued], [false, 1]);
     assertEquals(db.rowsIn("platform_sync_queue").map((r) => [r.kind, r.local_id, r.event]), [["staff", TEACHER, "created"]]);
     assertEquals(platform.calls.length, 0, "queued: the next sync sends it");
+  });
+
+  it("staff_backfill for real answers 409 while sending is switched off, or the platform doesn't know the school", async () => {
+    const { db, call } = setup();
+    db.seed("profiles", [{ id: TEACHER, tenant_id: SCHOOL, role: "teacher", full_name: "Jane Wanjiru", archived_at: null }]);
+    assertEquals((await call({ action: "staff_backfill", school_id: SCHOOL })).status, 200, "the dry run still lists");
+    const off = await call({ action: "staff_backfill", school_id: SCHOOL, dry_run: false });
+    assertEquals([off.status, (await off.json()).error.code], [409, "staff_events_disabled"]);
+    db.platformStaffEventsEnabled = true;
+    const unlinked = await call({ action: "staff_backfill", school_id: SCHOOL, dry_run: false });
+    assertEquals([unlinked.status, (await unlinked.json()).error.code], [409, "school_not_linked"]);
+    assertEquals(db.rowsIn("platform_sync_queue").length, 0);
   });
 
   it("staff_backfill needs a school id, and a school Schools has", async () => {
