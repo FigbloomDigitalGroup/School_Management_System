@@ -1465,8 +1465,7 @@ test.describe("More than 1,000 rows", () => {
     expect(num(marks!)).toBeGreaterThan(1000);
   });
 
-  test("KNOWN QA13-LARGE FIG-1438 (open): Reports' fee totals are the sums of every invoice of the term, not of the first 1,000", async ({ page }) => {
-    test.fail();
+  test("QA13-LARGE FIG-1438: Reports' fee totals are the sums of every invoice of the term, not of the first 1,000", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     const ls = await lines(page, "/s/alliance/admin/reports");
     const [pct, amounts] = after(ls, "FEES COLLECTED", 2, 0, true);
@@ -1475,8 +1474,7 @@ test.describe("More than 1,000 rows", () => {
     expect(`${pct} ${amounts}`).toBe(`${Math.round((expected.paid / expected.billed) * 100)}% ${want}`);
   });
 
-  test("KNOWN QA13-LARGE FIG-1438 (open): the Dashboard's fee totals are the sums of every invoice of the term, not of the first 1,000", async ({ page }) => {
-    test.fail();
+  test("QA13-LARGE FIG-1438: the Dashboard's fee totals are the sums of every invoice of the term, not of the first 1,000", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     const ls = await lines(page, "/s/alliance/admin");
     const [pct, amounts] = after(ls, "FEES COLLECTED", 2, 0, true);
@@ -1485,8 +1483,7 @@ test.describe("More than 1,000 rows", () => {
     expect(`${pct} ${amounts}`).toBe(`${Math.round((expected.paid / expected.billed) * 100)}% ${want}`);
   });
 
-  test("KNOWN QA13-LARGE FIG-1439 (open): Reports' class means use every mark of the exam, not the first 1,000", async ({ page }) => {
-    test.fail();
+  test("QA13-LARGE FIG-1439: Reports' class means use every mark of the exam, not the first 1,000", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     const ls = await lines(page, "/s/alliance/admin/reports");
     const start = ls.findIndex((l) => l.toLowerCase().startsWith("academic performance"));

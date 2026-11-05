@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { formatMoney, supabase } from "@figbloom/shared";
-import type { ClassGroup, FeeInvoice, Term } from "@figbloom/shared";
+import { fetchAllPages, formatMoney, supabase } from "@figbloom/shared";
+import type { ClassGroup, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -13,13 +13,25 @@ import { AttendanceDetail } from "./AttendanceDetail";
 import { CoverageCard } from "./CoverageCard";
 import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
+/** What term_fee_totals() returns: the term's invoices added up in the database (the API cannot be read past 1,000 rows). */
+interface FeeTotals {
+  billed: number;
+  paid: number;
+  invoices: number;
+  nothing_paid: number;
+  part_paid: number;
+  full_paid: number;
+  owing: number;
+}
+const NO_FEES: FeeTotals = { billed: 0, paid: 0, invoices: 0, nothing_paid: 0, part_paid: 0, full_paid: 0, owing: 0 };
+
 interface DashboardData {
   term: Term | null;
   classes: Pick<ClassGroup, "id" | "name" | "class_teacher_id">[];
   studentsByClass: Map<string, number>;
   activeStudents: number;
   staffCount: number;
-  invoices: Pick<FeeInvoice, "total_cents" | "paid_cents">[];
+  fees: FeeTotals;
   attendanceDate: string | null;
   presentByClass: Map<string, number>;
   lateByClass: Map<string, number>;
@@ -33,14 +45,15 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
 
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, feesRes] = await Promise.all([
     sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
     sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
     sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
     termId
-      ? sb.from("fee_invoices").select("total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", termId).returns<Pick<FeeInvoice, "total_cents" | "paid_cents">[]>()
-      : Promise.resolve({ data: [] as Pick<FeeInvoice, "total_cents" | "paid_cents">[] }),
+      ? sb.rpc("term_fee_totals", { p_tenant_id: tenantId, p_term_id: termId })
+      : Promise.resolve({ data: [] as FeeTotals[], error: null }),
   ]);
+  if (feesRes.error) throw new Error(feesRes.error.message);
 
   const studentsByClass = new Map<string, number>();
   for (const s of studentRows ?? []) studentsByClass.set(s.class_id, (studentsByClass.get(s.class_id) ?? 0) + 1);
@@ -59,11 +72,11 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
     attendanceDate = latest?.[0]?.taken_on ?? null;
 
     if (attendanceDate) {
-      const { data: rows } = await sb
+      const rows = await fetchAllPages<{ class_id: string; mark: string }>((from, to) => sb
         .from("attendance").select("class_id,mark")
         .eq("tenant_id", tenantId).eq("term_id", termId).eq("taken_on", attendanceDate)
-        .returns<{ class_id: string; mark: string }[]>();
-      for (const r of rows ?? []) {
+        .order("id").range(from, to).returns<{ class_id: string; mark: string }[]>());
+      for (const r of rows) {
         submittedClasses.add(r.class_id);
         // A late arrival still attended — only "absent"/"excused" should read as not-here.
         if (r.mark === "present" || r.mark === "late") presentByClass.set(r.class_id, (presentByClass.get(r.class_id) ?? 0) + 1);
@@ -79,7 +92,7 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
     studentsByClass,
     activeStudents: studentRows?.length ?? 0,
     staffCount: staffRows?.length ?? 0,
-    invoices: invoicesRes.data ?? [],
+    fees: ((feesRes.data ?? []) as FeeTotals[])[0] ?? NO_FEES,
     attendanceDate,
     presentByClass,
     lateByClass,
@@ -126,17 +139,17 @@ export function AdminDashboard() {
 
   const firstName = profile.full_name.split(" ")[0];
 
-  const totalBilled = data ? data.invoices.reduce((a, i) => a + i.total_cents, 0) : 0;
-  const totalPaid = data ? data.invoices.reduce((a, i) => a + i.paid_cents, 0) : 0;
+  const totalBilled = data?.fees.billed ?? 0;
+  const totalPaid = data?.fees.paid ?? 0;
   const feePct = totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 0;
 
-  const nothingPaid = data ? data.invoices.filter((i) => i.paid_cents === 0).length : 0;
-  const partPaid = data ? data.invoices.filter((i) => i.paid_cents > 0 && i.paid_cents < i.total_cents).length : 0;
-  const fullPaid = data ? data.invoices.filter((i) => i.paid_cents >= i.total_cents && i.total_cents > 0).length : 0;
-  const bucketTotal = Math.max(data?.invoices.length ?? 0, 1);
+  const nothingPaid = data?.fees.nothing_paid ?? 0;
+  const partPaid = data?.fees.part_paid ?? 0;
+  const fullPaid = data?.fees.full_paid ?? 0;
+  const bucketTotal = Math.max(data?.fees.invoices ?? 0, 1);
 
   const missingClasses = data ? data.classes.filter((c) => !data.submittedClasses.has(c.id)) : [];
-  const owingCount = data ? data.invoices.filter((i) => i.paid_cents < i.total_cents).length : 0;
+  const owingCount = data?.fees.owing ?? 0;
 
   const needs: { title: string; body: string }[] = data
     ? [

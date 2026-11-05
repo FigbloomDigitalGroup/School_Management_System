@@ -261,8 +261,7 @@ test.describe("admin Reports: the term's attendance against the rows", () => {
     await reportsMatch(page, SCHOOLS[0]);
   });
 
-  test("KNOWN QA10-REPORTS FIG-1402 (open): kijani-ridge, whose term has more than 1,000 register entries, is counted in full", async ({ page }) => {
-    test.fail();
+  test("QA10-REPORTS FIG-1402: kijani-ridge, whose term has more than 1,000 register entries, is counted in full", async ({ page }) => {
     await reportsMatch(page, SCHOOLS[1]);
   });
 });
