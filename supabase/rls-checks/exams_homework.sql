@@ -32,6 +32,14 @@ insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by
   (current_setting('t.a')::uuid, current_setting('t.exam')::uuid, current_setting('t.child')::uuid, current_setting('t.chem')::uuid, 70, current_setting('t.teacher')::uuid),
   (current_setting('t.a')::uuid, current_setting('t.exam')::uuid, current_setting('t.child')::uuid, current_setting('t.math')::uuid, 80, current_setting('t.teacher')::uuid);
 
+-- The server publishes a class and subject only when every active learner has an entry (FIG-1375): the rest of the class is entered as a
+-- missed paper, in both subjects, so the checks below can publish.
+insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by, absence)
+  select current_setting('t.a')::uuid, current_setting('t.exam')::uuid, s.id, subj.id, null, current_setting('t.teacher')::uuid, 'missed'
+    from students s cross join (values (current_setting('t.chem')::uuid), (current_setting('t.math')::uuid)) as subj(id)
+   where s.class_id = current_setting('t.cls')::uuid and s.active
+  on conflict (exam_id, student_id, subject_id) do nothing;
+
 create function pg_temp.check(label text, ok boolean) returns void language plpgsql as $$
 begin raise notice '% %', case when ok then 'PASS' else 'FAIL' end, label; end $$;
 create function pg_temp.expect_eq(label text, actual bigint, expected bigint) returns void language plpgsql as $$
