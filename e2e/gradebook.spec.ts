@@ -64,7 +64,7 @@ async function openColumn(page: Page) {
 const input = (page: Page, i: number) => page.locator(`[data-row="${i}"]`);
 /** The grade cell of row i: the fourth cell of the row that holds the input. */
 const gradeCell = (page: Page, i: number) => input(page, i).locator("xpath=../..").locator(":scope > div").nth(3);
-const publishButton = (page: Page) => page.getByRole("button", { name: /still to enter|Publish marks/ });
+const publishButton = (page: Page) => page.getByRole("button", { name: /still to enter|Publish marks|Fix \d+ marks?/ });
 
 // The KCSE table as printed: [lowest mark, grade]. Each grade runs up to the next line.
 const KCSE: Array<[number, string]> = [
@@ -161,13 +161,13 @@ test.describe("teacher gradebook, one empty column", () => {
   // the class with one learner missing (the server accepts that too: FIG-1375, in marksAndPublishing.test.ts).
   // test.fail(): passes while the defect is there; when it is fixed it fails and tells you to remove test.fail().
   for (const typed of ["abc", "140", "72.5"]) {
-    test(`KNOWN FIG-1374 (open): '${typed}' in one box does not make the column ready to publish`, async ({ page }) => {
-      test.fail();
+    test(`FIG-1374: '${typed}' in one box does not make the column ready to publish`, async ({ page }) => {
       const learners = await openColumn(page);
       for (let i = 0; i < learners - 1; i++) await input(page, i).fill("60");
       await input(page, learners - 1).fill(typed);
       await expect(input(page, learners - 1)).toHaveAttribute("aria-invalid", "true"); // the screen does see it is wrong
       await expect(publishButton(page)).toBeDisabled();
+      await expect(publishButton(page)).toHaveText("Fix 1 mark");
     });
   }
 
