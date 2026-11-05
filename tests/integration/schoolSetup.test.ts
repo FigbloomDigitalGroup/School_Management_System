@@ -162,7 +162,7 @@ describe("saving a class's timetable", () => {
     expect(refused).toMatch(/check constraint|violates/i);
   });
 
-  it.fails("QA12-TIMETABLE FIG-1431: a refused save leaves the class's old timetable as it was (the save deletes every period first, then inserts, in two requests)", () => {
+  it("QA12-TIMETABLE FIG-1431: a refused save leaves the class's old timetable as it was (one database call, so the delete is undone with the insert)", () => {
     expect(kept).toBe(3);
   });
 });
