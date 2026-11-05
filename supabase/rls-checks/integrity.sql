@@ -427,10 +427,10 @@ select pg_temp.check('C6 each of the three tables has a statement trigger for in
 -- read the same highest number and are handed the same number. The unique keys then make the later one fail (nothing is
 -- duplicated), but that one fails with a raw error. Two calls before either has inserted its profile show it without any timing luck.
 select pg_temp.check('D1 two calls for the same school and role give different numbers (so two simultaneous account creations cannot be handed the same one)',
-  next_login_number(current_setting('t.a')::uuid, 'student') <> next_login_number(current_setting('t.a')::uuid, 'student'), 'QA15-LOGIN-NUMBER FIG-1468');
+  next_login_number(current_setting('t.a')::uuid, 'student') <> next_login_number(current_setting('t.a')::uuid, 'student'));
 select pg_temp.check('D1 the function is volatile or takes a lock or a sequence (it is STABLE and reads max+1)',
   (select provolatile <> 's' from pg_proc where oid = 'next_login_number'::regproc) or position('nextval' in pg_get_functiondef('next_login_number'::regproc)) > 0
-  or position('lock' in lower(pg_get_functiondef('next_login_number'::regproc))) > 0, 'QA15-LOGIN-NUMBER FIG-1468');
+  or position('lock' in lower(pg_get_functiondef('next_login_number'::regproc))) > 0);
 select pg_temp.check('D1 login IDs are unique per school, so a clash can fail but never duplicate (profiles: tenant_id, login_id; auth email is unique too)',
   pg_temp.has_unique('profiles', array['tenant_id', 'login_id']));
 
