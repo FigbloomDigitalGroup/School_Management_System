@@ -83,20 +83,22 @@ select pg_temp.check('A4 no *_at column is a date, and no *_on or date column is
               and ((column_name ~ '_at$' and data_type = 'date') or ((column_name ~ '_on$' or column_name ~ '(^|_)date$') and data_type = 'timestamp with time zone'))));
 
 -- A5 every reference to another row is a foreign key
-select pg_temp.check('A5 every uuid *_id column has a foreign key, except the two that are keyed by (doc_kind, doc_id) on purpose (signatures are evidence that outlives the document)',
-  (select coalesce(string_agg(c.table_name || '.' || c.column_name, ',' order by c.table_name), '') from information_schema.columns c
+select pg_temp.check('A5 every uuid *_id column has a foreign key, except the two that are keyed by (doc_kind, doc_id) on purpose (signatures are evidence that outlives the document), '
+  || 'the platform outbox''s local_id (an organisation''s or a school''s id: platform_links, platform_sync_queue) and event_id (an event''s own id, not a reference), '
+  || 'and the organisation a platform decision named (platform_webhook_deliveries: recorded even when Schools has no such organisation)',
+  (select coalesce(string_agg(c.table_name || '.' || c.column_name, ',' order by c.table_name, c.column_name), '') from information_schema.columns c
     join pg_tables t on t.schemaname = c.table_schema and t.tablename = c.table_name
    where c.table_schema = 'public' and c.data_type = 'uuid' and c.column_name like '%\_id' and c.column_name <> 'id'
      and not exists (select 1 from pg_constraint k where k.contype = 'f' and k.conrelid = format('public.%I', c.table_name)::regclass
                       and (select attnum from pg_attribute where attrelid = k.conrelid and attname = c.column_name) = any (k.conkey)))
-  = 'signature_requests.doc_id,signatures.doc_id');
+  = 'platform_links.local_id,platform_sync_queue.event_id,platform_sync_queue.local_id,platform_webhook_deliveries.organization_id,signature_requests.doc_id,signatures.doc_id');
 
 -- A6 every school-owned row has a school
-select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand, an org admin''s guide question in their organization console, which names the organization instead: 20261105200000)',
+select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand, an org admin''s guide question in their organization console, which names the organization instead: 20261105200000, a platform outbox row registering an organisation or a school rather than a school''s staff event: 20261105620000)',
   (select coalesce(string_agg(table_name, ',' order by table_name), '') from information_schema.columns
     where table_schema = 'public' and column_name = 'tenant_id' and is_nullable = 'YES'
       and table_name in (select tablename from pg_tables where schemaname = 'public'))
-  = 'ai_usage,audit_events,organization_access_log,profiles,strands');
+  = 'ai_usage,audit_events,organization_access_log,platform_sync_queue,profiles,strands');
 
 -- A7 uniqueness per school
 create function pg_temp.has_unique(p_tbl text, p_cols text[]) returns boolean language sql as $$
@@ -392,19 +394,17 @@ begin
   select count(*) into live_n from students where tenant_id = current_setting('t.k')::uuid and active;
   perform pg_temp.check('C6 adding a learner moves the organization summary by one (' || before_n || ' to ' || after_add || ')', after_add = before_n + 1);
   perform pg_temp.check('C6 removing the learner puts it back (' || after_del || '), and it equals the live count (' || live_n || ')', after_del = before_n and after_del = live_n);
-  -- Every school belongs to an organization (organization_id is NOT NULL since 20261104920000), so a school cannot leave one; it can move to
-  -- another, and its summary row follows it.
-  declare org uuid; other uuid;
+  -- a school leaving its organization drops out of the summary, and rejoining brings it back. Since 20261104920000 every school has
+  -- an organization, so leaving one means moving to an organization of its own.
+  declare org uuid;
   begin
     select organization_id into org from tenants where id = current_setting('t.k')::uuid;
-    select organization_id into other from tenants where id = current_setting('t.a')::uuid;
-    update tenants set organization_id = other where id = current_setting('t.k')::uuid;
-    perform pg_temp.check('C6 a school moved to another organization takes its summary row with it',
-      (select organization_id from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = other);
+    update tenants set organization_id = create_school_own_organization('QA15 own organization', 'qa15-own-org', 'Nairobi', null)
+     where id = current_setting('t.k')::uuid;
+    perform pg_temp.check('C6 a school that leaves its organization drops out of the group''s summary', not exists (select 1 from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid and organization_id = org));
     update tenants set organization_id = org where id = current_setting('t.k')::uuid;
-    perform pg_temp.check('C6 and moved back, the summary row is its old organization''s again, with the right learner count',
-      (select organization_id from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = org
-      and (select active_students from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = live_n);
+    perform pg_temp.check('C6 and has one again, with the right learner count, when it rejoins',
+      (select active_students from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = live_n);
   end;
 end $$;
 select pg_temp.summary_case();
