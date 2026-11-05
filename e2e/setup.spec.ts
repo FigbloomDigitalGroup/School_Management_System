@@ -139,8 +139,7 @@ test.describe("Term dates", () => {
     expect((await db.from("terms").select("is_current").eq("id", term3).single()).data!.is_current).toBe(false);
   });
 
-  test("KNOWN QA12-ROLLOVER FIG-1427 (open): a new term the database refuses (Term 3 of 2026 again) leaves the school with its current term", async ({ page }) => {
-    test.fail();
+  test("QA12-ROLLOVER FIG-1427: a new term the database refuses (Term 3 of 2026 again) leaves the school with its current term", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 3, year: 2026, starts: "2026-12-01", ends: "2026-12-20" });
     await expect(page.getByText(/Could not create the term/)).toBeVisible({ timeout: 15000 });
@@ -150,8 +149,7 @@ test.describe("Term dates", () => {
     expect(cur.map((t) => t.id)).toEqual([term3]);
   });
 
-  test("KNOWN QA12-ROLLOVER FIG-1427 (open): a term that ends the day it starts is refused before the current term is switched off", async ({ page }) => {
-    test.fail();
+  test("QA12-ROLLOVER FIG-1427: a term that ends the day it starts is refused before the current term is switched off", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 1, year: 2027, starts: "2027-01-05", ends: "2027-01-05" });
     await expect(page.getByText(/Could not create the term|must be after the start date/)).toBeVisible({ timeout: 15000 });
@@ -161,14 +159,15 @@ test.describe("Term dates", () => {
     expect(cur.map((t) => t.id)).toEqual([term3]);
   });
 
-  test("KNOWN QA12-TERMS FIG-1432 (open): a new term that starts while the current term is still running is refused or warned about", async ({ page }) => {
-    test.fail();
+  test("QA12-TERMS FIG-1432: a new term that starts while the current term is still running is refused, in words, and the current term stays", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 1, year: 2027, starts: "2026-10-01", ends: "2027-02-01" }); // Term 3, 2026 runs to 27 November
     await page.waitForTimeout(2500);
     const made = (await db.from("terms").select("id").eq("tenant_id", tenantId).eq("year", 2027).eq("index", 1)).data ?? [];
-    table.push(["Term dates", "start Term 1, 2027 on 1 October (Term 3 runs to 27 November)", "refused or warned", made.length ? "saved; Term 3 ended early" : "not saved"]);
+    table.push(["Term dates", "start Term 1, 2027 on 1 October (Term 3 runs to 27 November)", "refused; Term 3 stays current", made.length ? "saved; Term 3 ended early" : "not saved"]);
     expect(made, "the overlapping term was not saved").toHaveLength(0);
+    await expect(page.getByText(/overlaps or runs out of order with Term 3, 2026/)).toBeVisible();
+    expect((await currentTerms()).map((t) => t.id), "Term 3 is still the current term").toEqual([term3]);
   });
 });
 

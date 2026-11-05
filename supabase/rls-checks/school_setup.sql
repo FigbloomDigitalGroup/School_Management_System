@@ -107,9 +107,18 @@ select pg_temp.check('a second current term is refused: a school has one current
 select pg_temp.check('an ordinary new term is accepted (Term 1, 2040)',
   pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 1, '2040-01-05', '2040-04-01') = 'allowed');
 select pg_temp.check('a term that starts before the previous one has ended is refused (Term 2, 2040 starting 2040-03-01, inside Term 1)',
-  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 2, '2040-03-01', '2040-07-01') like 'refused%', 'QA12-TERMS FIG-1432');
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 2, '2040-03-01', '2040-07-01') = 'refused 23P01');
 select pg_temp.check('a Term 3 that sits before the year''s Term 1 is refused (terms must run in order)',
-  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 3, '2039-12-01', '2039-12-20') like 'refused%', 'QA12-TERMS FIG-1432');
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 3, '2039-12-01', '2039-12-20') = 'refused 23P01');
+select pg_temp.check('a term that starts the day after the previous one ends is accepted (Term 2, 2040 from 2040-04-02: they follow one another)',
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 2, '2040-04-02', '2040-07-01') = 'allowed');
+select pg_temp.check('moving a term''s dates onto the one before it is refused too (Term 2, 2040 moved to start 2040-03-01)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update terms set starts_on = %L where tenant_id = %L and year = 2040 and index = 2', '2040-03-01', current_setting('t.a'))) = 'refused 23P01');
+select pg_temp.check('a term that starts on the very day the previous one ends is refused as well (they share that day)',
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 3, '2040-07-01', '2040-10-01') = 'refused 23P01');
+select pg_temp.check('switching a term off as the current one still works, whatever its dates (the rule looks only at dates, year and number)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update terms set is_current = false where id = %L', current_setting('t.term'))) = 'allowed');
+update terms set is_current = true where id = current_setting('t.term')::uuid;
 select pg_temp.info('two terms may carry the same name (the screen writes "Term N, YEAR", so only a direct write can): '
   || pg_temp.term_as(current_setting('t.admin')::uuid, 2041, 1, '2041-01-05', '2041-04-01', false, 'QA12 same name') || ' then '
   || pg_temp.term_as(current_setting('t.admin')::uuid, 2041, 2, '2041-05-01', '2041-08-01', false, 'QA12 same name'));
@@ -201,14 +210,26 @@ select set_config('t.r', pg_temp.as_user(current_setting('t.admin')::uuid,
 select pg_temp.check('the principal approves it',
   current_setting('t.r') = 'allowed' and (select status::text from leave_requests where id = current_setting('t.lv1')::uuid) = 'approved');
 select pg_temp.check('a second request that overlaps leave already approved for the same teacher is refused (12-14 May, while 10-12 May is approved)',
-  pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-12', '2040-05-14') like 'refused%', 'QA12-LEAVE FIG-1433');
+  pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-12', '2040-05-14') = 'refused 23P01');
 select pg_temp.check('the exact same dates as leave already approved are refused (10-12 May again)',
-  pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-10', '2040-05-12') like 'refused%', 'QA12-LEAVE FIG-1433');
-select set_config('t.lv2', coalesce((select id::text from leave_requests where teacher_id = current_setting('t.teacher')::uuid and starts_on = '2040-05-12' and ends_on = '2040-05-14' limit 1), ''), true);
-select set_config('t.r', case when current_setting('t.lv2') = '' then 'no second request' else pg_temp.as_user(current_setting('t.admin')::uuid,
-  format('update leave_requests set status = %L, reviewed_by = %L, reviewed_at = now() where id = %L', 'approved', current_setting('t.admin'), current_setting('t.lv2'))) end, true);
-select pg_temp.check('the principal cannot approve a second request over days that are already approved (nothing in the review looks at the other requests)',
-  current_setting('t.r') like 'refused%' or current_setting('t.r') = 'no second request', 'QA12-LEAVE FIG-1433');
+  pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-10', '2040-05-12') = 'refused 23P01');
+select pg_temp.check('a request for the day after approved leave is accepted (13-14 May), and one that shares only its last day with a pending request is refused (14-15 May)',
+  pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-13', '2040-05-14') = 'allowed'
+  and pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-14', '2040-05-15') = 'refused 23P01');
+select pg_temp.check('a pending request cannot be moved onto approved leave (13-14 May edited to 11-13 May)',
+  pg_temp.as_user(current_setting('t.teacher')::uuid, format('update leave_requests set starts_on = %L, ends_on = %L where teacher_id = %L and starts_on = %L', '2040-05-11', '2040-05-13', current_setting('t.teacher'), '2040-05-13')) = 'refused 23P01');
+select pg_temp.check('a withdrawn request no longer counts: after withdrawing 13-14 May the same dates can be filed again',
+  pg_temp.as_user(current_setting('t.teacher')::uuid, format('update leave_requests set status = %L where teacher_id = %L and starts_on = %L', 'cancelled', current_setting('t.teacher'), '2040-05-13')) = 'allowed'
+  and pg_temp.leave_as(current_setting('t.teacher')::uuid, '2040-05-13', '2040-05-14') = 'allowed');
+-- A request that overlaps approved leave can only exist from before the rule: make one with the rule switched off, then try to approve it.
+alter table leave_requests disable trigger leave_requests_no_overlap;
+insert into leave_requests (tenant_id, teacher_id, starts_on, ends_on) values (current_setting('t.a')::uuid, current_setting('t.teacher')::uuid, '2040-05-12', '2040-05-14');
+alter table leave_requests enable trigger leave_requests_no_overlap;
+select set_config('t.lv2', (select id::text from leave_requests where teacher_id = current_setting('t.teacher')::uuid and starts_on = '2040-05-12' and ends_on = '2040-05-14' limit 1), true);
+select set_config('t.r', pg_temp.as_user(current_setting('t.admin')::uuid,
+  format('update leave_requests set status = %L, reviewed_by = %L, reviewed_at = now() where id = %L', 'approved', current_setting('t.admin'), current_setting('t.lv2'))), true);
+select pg_temp.check('the principal cannot approve a request over days that are already approved (one made before the rule existed)',
+  current_setting('t.r') = 'refused 23P01');
 select pg_temp.check('the school admin cannot file leave on behalf of a teacher through the request insert (42501)',
   pg_temp.as_user(current_setting('t.admin')::uuid, format('insert into leave_requests (tenant_id, teacher_id, starts_on, ends_on) values (%L, %L, %L, %L)', current_setting('t.a'), current_setting('t.teacher'), '2040-06-01', '2040-06-02')) = 'refused 42501');
 select pg_temp.check('a cover can be recorded once for a class at a date and time; a second for the same slot is refused (unique date, class, start_time)',
