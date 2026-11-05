@@ -316,8 +316,7 @@ test.describe("Cover on the admin Dashboard", () => {
     await expect(item(page)).toContainText("Wed 07:30");
   });
 
-  test("KNOWN QA12-COVER FIG-1434 (open): a teacher who is teaching another class at that time is not offered as the substitute", async ({ page }) => {
-    test.fail();
+  test("QA12-COVER FIG-1434: a teacher who is teaching another class at that time is not offered as the substitute", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin");
     await expect(item(page)).toBeVisible({ timeout: 30000 });
@@ -327,6 +326,8 @@ test.describe("Cover on the admin Dashboard", () => {
   });
 
   test("assigning the substitute tells them in the app, and the card says who covers", async ({ page }) => {
+    // The substitute was busy teaching Biology in Form 3 East at 07:30 (so not offered, above). Now they are free, they are offered.
+    expect((await db.from("teaching_assignments").delete().eq("teacher_id", subId)).error).toBeNull();
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin");
     await expect(item(page)).toBeVisible({ timeout: 30000 });
@@ -339,8 +340,7 @@ test.describe("Cover on the admin Dashboard", () => {
     expect(told[0]!.body).toContain("You're covering Chemistry");
   });
 
-  test("KNOWN QA12-COVER FIG-1434 (open): marking the slot a free period afterwards tells the substitute it is off", async ({ page }) => {
-    test.fail();
+  test("QA12-COVER FIG-1434: marking the slot a free period afterwards tells the substitute it is off", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin");
     await expect(item(page)).toBeVisible({ timeout: 30000 });
