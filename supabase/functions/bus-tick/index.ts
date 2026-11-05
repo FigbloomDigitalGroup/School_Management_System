@@ -16,6 +16,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { injectedServerKeys, matchesAnyKey } from "../_shared/serviceKeys.ts";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { fcmAccessToken, sendToToken, serviceAccountFromEnv } from "../_shared/fcm.ts";
 import { inTravelOrder, personalise, plan, routeProgress, type Direction, type Eta, type Stop, type StopState } from "./plan.ts";
@@ -31,7 +32,8 @@ function json(body: unknown, status = 200): Response {
 }
 
 // deno-lint-ignore no-explicit-any
-export interface Deps { admin: any; asUser: any; serviceKey: string; googleKey: string | null }
+/** serviceKeys: the server keys the runtime injected (_shared/serviceKeys.ts), for the trip simulator. */
+export interface Deps { admin: any; asUser: any; serviceKeys: string[]; googleKey: string | null }
 
 /** Live-traffic arrival at each destination, one Routes API matrix call. */
 async function trafficEtas(
@@ -65,7 +67,9 @@ export async function handle(req: Request, deps: Deps, fetchImpl: typeof fetch =
   const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!token) return json({ error: "Unauthorized" }, 401);
   let callerId: string | null = null; // null = service role (the trip simulator)
-  if (token !== deps.serviceKey) {
+  // the trip simulator (simulate-trip.ts) calls with a server key; compared in constant time,
+  // and any of them (legacy service_role or sb_secret_), since they needn't match the dashboard's
+  if (!matchesAnyKey(token, deps.serviceKeys)) {
     const { data: { user } } = await asUser.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
     callerId = user.id;
@@ -223,6 +227,6 @@ if (import.meta.main) {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
     const asUser = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
-    return handle(req, { admin, asUser, serviceKey, googleKey: Deno.env.get("GOOGLE_MAPS_SERVER_KEY") ?? null });
+    return handle(req, { admin, asUser, serviceKeys: injectedServerKeys(), googleKey: Deno.env.get("GOOGLE_MAPS_SERVER_KEY") ?? null });
   });
 }

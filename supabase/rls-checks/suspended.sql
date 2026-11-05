@@ -98,6 +98,24 @@ select pg_temp.check('suspended school: a user at another school is not banned',
   (select count(*) = 0 from auth.users u join profiles p on p.id = u.id
     where p.tenant_id <> current_setting('t.a')::uuid and u.banned_until is not null));
 
+-- my_school_suspended() (20261104700000): an open session can tell why the school went blank
+select pg_temp.act_as(current_setting('t.teacher')); set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is true for its teacher', my_school_suspended());
+reset role;
+select pg_temp.act_as(current_setting('t.parent')); set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is true for its parent', my_school_suspended());
+reset role;
+select pg_temp.act_as((select id::text from profiles where tenant_id <> current_setting('t.a')::uuid and role = 'teacher' limit 1));
+set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is false for a teacher at another school', not my_school_suspended());
+reset role;
+select pg_temp.act_as(current_setting('t.super')); set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is false for the super admin (no school)', not my_school_suspended());
+reset role;
+select pg_temp.check('my_school_suspended() is for signed-in users only',
+  not has_function_privilege('anon', 'my_school_suspended()', 'execute')
+  and has_function_privilege('authenticated', 'my_school_suspended()', 'execute'));
+
 select pg_temp.act_as(current_setting('t.super')); set local role authenticated;
 -- Alliance's learners only: other seeded schools (db:seed-org) are visible to the super admin too
 select pg_temp.expect_eq('suspended school: the super admin still sees the learners',
@@ -108,6 +126,7 @@ reset role;
 update tenants set status = 'active' where id = current_setting('t.a')::uuid;
 select pg_temp.act_as(current_setting('t.teacher')); set local role authenticated;
 select pg_temp.expect_eq('reactivated: a teacher sees the learners again', pg_temp.visible('students'), current_setting('t.n_students')::bigint);
+select pg_temp.check('reactivated: my_school_suspended() is false again', not my_school_suspended());
 reset role;
 select pg_temp.check('reactivated: the teacher, school admin and parent can sign in again',
   (select count(*) = 3 from auth.users where banned_until is null

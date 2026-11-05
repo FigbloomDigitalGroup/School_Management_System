@@ -263,9 +263,10 @@ export function OnboardSchool({
           </div>
           {organizations && organizations.length > 0 && (
             <SelectField
-              id="organization" label="Part of an organization? (optional)"
+              id="organization" label="Part of a group?"
               value={form.organizationId} onChange={(e) => set("organizationId", e.target.value)}
-              options={[{ value: "", label: "Not part of one" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
+              // every school belongs to an organisation: "no group" gets one of its own, named after it (20261104920000)
+              options={[{ value: "", label: "No: its own organization, named after the school" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
             />
           )}
           <div>
