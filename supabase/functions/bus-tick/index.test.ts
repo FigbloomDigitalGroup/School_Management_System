@@ -22,7 +22,8 @@ function clients(opts: { caller?: string | null; trip?: Record<string, unknown> 
   return { admin, asUser };
 }
 
-const deps = (c: { admin: FakeSupabaseClient; asUser: FakeSupabaseClient }) => ({ admin: c.admin, asUser: c.asUser, serviceKey: SERVICE_KEY, googleKey: null });
+// dev-staging (#227): bus-tick accepts any server key the runtime injected (legacy service_role or sb_secret_), compared in constant time
+const deps = (c: { admin: FakeSupabaseClient; asUser: FakeSupabaseClient }) => ({ admin: c.admin, asUser: c.asUser, serviceKeys: [SERVICE_KEY], googleKey: null });
 
 function request(body: unknown = { trip_id: TRIP_ID }, opts: { method?: string; auth?: string | null } = {}) {
   const method = opts.method ?? "POST";

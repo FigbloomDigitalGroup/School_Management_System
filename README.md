@@ -126,6 +126,24 @@ desktop test (a cold page load), which makes the rest of the desktop block show 
 Tenants resolve by **path**, not subdomain: one deployment, no wildcard DNS, and
 a school's URL survives a domain change. Mobile bakes the slug into the session.
 
+## Production database: `schools-db.figbloom.org` (self-hosted, since 5 Nov 2026)
+
+Figbloom Schools runs on self-hosted Supabase on AWS (figbloom-platform,
+"Figbloom Schools' database"), at `schools-db.figbloom.org`. Supabase Cloud is
+no longer production. Wherever a section below says `supabase db push` or
+`supabase functions deploy`, apply it to schools-db instead: bundle
+`supabase/` (`supabase/migrations`, `supabase/functions`,
+`supabase/config.toml`) as a `.tgz` in the platform's backups bucket under
+`migrations/`, and run `sudo /opt/figbloom/supabase/apply-migrations.sh
+<bundle>.tgz` on the host (SSM Run Command or Session Manager; the
+figbloom-platform README has the steps). It applies only the migrations the
+database hasn't run. Function secrets on that host live in the functions
+container's environment, not `supabase secrets set`.
+
+The edge functions there sit behind the ALB and Envoy, so the per-caller rate
+limits need `CLIENT_IP_HEADER=x-forwarded-for` and `TRUSTED_PROXY_HOPS=2`
+("Rate limits on the public functions").
+
 ## Figbloom console (`platform-schools`)
 
 Figbloom's own console (console.figbloom.org) lists every school and can suspend
