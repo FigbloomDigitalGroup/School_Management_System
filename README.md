@@ -126,6 +126,219 @@ desktop test (a cold page load), which makes the rest of the desktop block show 
 Tenants resolve by **path**, not subdomain: one deployment, no wildcard DNS, and
 a school's URL survives a domain change. Mobile bakes the slug into the session.
 
+## Production database: `schools-db.figbloom.org` (self-hosted, since 5 Nov 2026)
+
+Figbloom Schools runs on self-hosted Supabase on AWS (figbloom-platform,
+"Figbloom Schools' database"), at `schools-db.figbloom.org`. Supabase Cloud is
+no longer production. Wherever a section below says `supabase db push` or
+`supabase functions deploy`, apply it to schools-db instead: bundle
+`supabase/` (`supabase/migrations`, `supabase/functions`,
+`supabase/config.toml`) as a `.tgz` in the platform's backups bucket under
+`migrations/`, and run `sudo /opt/figbloom/supabase/apply-migrations.sh
+<bundle>.tgz` on the host (SSM Run Command or Session Manager; the
+figbloom-platform README has the steps). It applies only the migrations the
+database hasn't run. Function secrets on that host live in the functions
+container's environment, not `supabase secrets set`.
+
+The edge functions there sit behind the ALB and Envoy, so the per-caller rate
+limits need `CLIENT_IP_HEADER=x-forwarded-for` and `TRUSTED_PROXY_HOPS=2`
+("Rate limits on the public functions").
+
+## Figbloom console (`platform-schools`)
+
+Figbloom's own console (console.figbloom.org) lists every school and can suspend
+or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
+`platform-schools` server to server; no browser calls it.
+
+- **What it answers:** `{"action": "list"}` gives each school's id, name, slug,
+  status (as stored, e.g. `active`, `trial`, `suspended`), status reason, group,
+  created date, the first school admin's email, counts of learners, teachers and
+  parents, and the latest sign-in at that school. Nothing else personal.
+  `{"action": "set_status", "school_id", "status": "suspended" | "active",
+  "reason", "actor_email"}` suspends (reason required) or reactivates a
+  suspended school. Only a school that is `active`, `trial` or `overdue` can
+  be suspended from the console; `onboarding` and `setup_stalled` answer 422
+  (`20261104800000_console_suspends_working_schools.sql`). `"active"` means reactivate: the school gets back the
+  status it had before it was suspended (`trial`, `overdue`, ...), or `active`
+  if none was recorded, and the returned row shows it. Errors are
+  `{"error": {"code", "message"}}`: 400 bad input, 404 no such school, 409
+  already suspended / not suspended, 422 a status the console can't set.
+- **Same suspension as our own console.** It updates `tenants.status`, so the
+  school's users lose access and are banned in Auth exactly as when Figbloom
+  staff suspend it here (`20261026080000_suspended_tenants_and_orgs.sql`).
+  Every suspension, from either console, remembers the previous status in
+  `tenants.status_before_suspension`. The SQL is in
+  `20261104600000_platform_console_schools.sql`; only the service role can run it.
+- **Reasons are written for the school to read.** The reason is shown to the
+  school (`tenants.status_reason`, and its audit log, where the change is by
+  "Figbloom (via Figbloom console)"). The Figbloom staff member's email is
+  never on the school's side: it is kept only in an audit event with no
+  school, which only Figbloom staff (super admins) can read.
+- **What the school's people see.** Sign-in on the web and both phone apps
+  says "Your school's account is suspended. Please contact your school's
+  administrator or Figbloom support." (with `FIGBLOOM_SUPPORT_EMAIL` from
+  `packages/shared/src/legalLinks.ts`), never the reason: for a login ID at a
+  suspended school (resolve-login-id answers `school_suspended` before looking
+  at the ID), for Auth's `user_banned`, and for a session that was already
+  open (`my_school_suspended()`). The school picker lists suspended schools so
+  their people can be told.
+- **The secret.** JWT verification is off for this function; instead the
+  `x-platform-secret` header must equal the function secret
+  `PLATFORM_CONSOLE_SECRET` (compared in constant time). Unset, or shorter
+  than 32 characters, refuses everything with 401. Generate it, set it, and
+  give the same value to the console backend as `SCHOOLS_PLATFORM_SECRET`.
+  Never commit it:
+
+  ```bash
+  openssl rand -hex 32                                     # copy the output
+  supabase secrets set PLATFORM_CONSOLE_SECRET=<that value>
+  ```
+
+- **Deploy:** apply the migration, then the function.
+
+  ```bash
+  supabase db push                                         # 20261104600000_platform_console_schools
+  supabase functions deploy platform-schools --no-verify-jwt
+  ```
+
+  Checks: `deno test --allow-env --config supabase/functions/deno.json supabase/functions/platform-schools`
+  and `supabase/rls-checks/platform_console.sql` against a seeded local database.
+
+## Figbloom platform registration
+
+Figbloom Schools registers its organisations and schools with the Figbloom
+platform, and follows the platform's organisation decisions (design 5.8;
+the platform side is figbloomHR-platform, "Organisations and product
+registration (5.8)"). On the platform an organisation is the unit Figbloom
+staff approve, reject, suspend and reactivate.
+
+- **Every school belongs to an organisation** (`20261104920000`): a single
+  school has its own, named after it. A school created without one (staff
+  onboarding, a seed, a script) gets its own first, by a trigger;
+  `tenants.organization_id` is NOT NULL, and an organisation with schools
+  can't be deleted. Staff take a school out of a group with "A new
+  organization of its own" (`give_school_own_organization()`). The migration
+  gives every school that has none today its own; to see which before
+  deploying: `select name, slug from tenants where organization_id is null`.
+- **Suspending an organisation locks out all its schools**
+  (`20261104910000`). When it becomes `suspended` or `rejected`, each of its
+  schools that isn't already suspended is suspended through the school's own
+  status (Auth ban, `my_tenant()`), exactly as a single suspended school, and
+  is recorded as held by the organisation. When the organisation is
+  reactivated, only those schools come back, each to the status it had. A
+  school suspended on its own (before, or by Figbloom staff while the
+  organisation was suspended) stays suspended; a new school added to a
+  suspended organisation starts suspended; a school moved out of one into a
+  working organisation is restored. One school of a suspended organisation
+  can't be reactivated on its own (reactivate the organisation).
+
+- **Registering** never blocks Schools. Creating an organisation or school,
+  or changing its name, slug or organisation, queues it in
+  `platform_sync_queue` (triggers, same transaction). `platform-sync` sends
+  the queue every minute (pg_cron + pg_net), organisations before their
+  schools, with retries and backoff (1, 2, 4… minutes, at most an hour).
+- **Decisions** arrive at `platform-decisions`, signed (HMAC-SHA256,
+  `PLATFORM_WEBHOOK_SECRET`, ±5 minutes). They are applied through
+  `organizations.status`, the same column Schools' own console sets and
+  every check reads. The organisation's schools see "Figbloom" and the
+  reason in their audit log; who decided is kept in an event only Figbloom
+  staff can read.
+- **Safety net:** Schools' own `organizations.status` stays the enforcement,
+  and nothing calls the platform on a request. Every hour `platform-sync`
+  asks the platform about the organisations most likely to have missed a
+  decision, and fixes any difference (logged).
+
+**Secrets** (`supabase secrets set …`; never committed):
+
+| Secret | What |
+|---|---|
+| `PLATFORM_CLIENT_ID`, `PLATFORM_CLIENT_SECRET` | the `schools-service-<env>` client (`SchoolsServiceClientId` output; its secret from Cognito) |
+| `PLATFORM_TOKEN_URL` | the platform's `TokenEndpoint` output (`…/oauth2/token`) |
+| `PLATFORM_API_URL` | the platform's `PlatformApiUrl` output |
+| `PLATFORM_WEBHOOK_SECRET` | the 64 characters in `figbloom/platform/webhook/schools` (platform Secrets Manager) |
+| `PLATFORM_SYNC_KEY` | the key that calls `platform-sync` (pg_cron and staff): at least 32 characters, e.g. `openssl rand -hex 32`. The same value goes in the Vault secret `platform_service_key` below |
+| `PLATFORM_WEBHOOK_URL` (optional) | where the platform should send decisions, if not `<SUPABASE_URL>/functions/v1/platform-decisions` (a self-hosted stack whose `SUPABASE_URL` is internal) |
+
+And two **Vault** secrets, for pg_cron to call `platform-sync` (SQL editor, as postgres):
+
+```sql
+select vault.create_secret('https://<ref>.supabase.co/functions/v1', 'platform_functions_url');
+select vault.create_secret('<the PLATFORM_SYNC_KEY value>', 'platform_service_key');
+-- already created with the service-role key? replace it:
+-- select vault.update_secret((select id from vault.secrets where name = 'platform_service_key'), '<the PLATFORM_SYNC_KEY value>');
+```
+
+`platform-sync` accepts `PLATFORM_SYNC_KEY` in an `x-platform-sync-key`
+header (preferred, and what pg_cron sends) or as `Authorization: Bearer`. It
+also accepts a key the runtime injected (`SUPABASE_SERVICE_ROLE_KEY`, or an
+`sb_secret_…` key from `SUPABASE_SECRET_KEYS`). Don't rely on the dashboard's
+legacy `service_role` key: on Supabase Cloud the injected
+`SUPABASE_SERVICE_ROLE_KEY` turned out not to be that value, and it got 401.
+A refusal is logged in the function's logs with what was sent (its kind and
+length) and what is configured, never a key.
+
+**Deploy, in this order** (`$KEY` is the `PLATFORM_SYNC_KEY` value, `$F` is `https://<ref>.supabase.co/functions/v1`):
+
+1. Migrations: `supabase db push` (`20261104900000_platform_registration`,
+   `20261104910000_organization_suspension_reaches_schools`,
+   `20261104920000_every_school_has_an_organization`, `20261104930000_platform_sync_key`).
+2. Functions: `supabase functions deploy platform-sync --no-verify-jwt` and
+   `supabase functions deploy platform-decisions --no-verify-jwt`; the secrets
+   (including `supabase secrets set PLATFORM_SYNC_KEY=<value>`) and the Vault
+   secrets above, with the same value in `platform_service_key`.
+3. Register the webhook:
+   `curl -X POST "$F/platform-sync" -H "x-platform-sync-key: $KEY" -d '{"action":"register_webhook"}'`
+4. Dry-run the backfill and read what it would do: every organisation with
+   the status it will copy, and every school (the migration has already given
+   each lone school its own organisation, so none is left to create):
+   `curl -X POST "$F/platform-sync" -H "x-platform-sync-key: $KEY" -d '{"action":"backfill"}'`
+5. Run it: `… -d '{"action":"backfill","dry_run":false}'`. It registers
+   every organisation with today's status (`backfill: true`), then every school. Running it again only
+   re-sends names; a status Figbloom staff have decided on the platform is
+   kept.
+6. Switch on (below).
+
+**`PLATFORM_DECISIONS_ENABLED`** is a row in `platform_settings`, off by
+default; until then nothing changes for anyone. While it is off, decisions
+are verified and acknowledged but not applied (Schools' own staff console
+still decides), and the reconcile doesn't run. Turn it on once the
+backfill has run:
+
+```sql
+update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_DECISIONS_ENABLED';
+```
+
+From then on organisation status comes only from the platform: the database
+refuses any other change, Schools' staff console shows the status (and
+"decided on the Figbloom platform") instead of an Approve button, a new
+organisation takes the platform's decision when it is registered (pending,
+or active with the platform's auto-approve), and the hourly reconcile runs.
+Turning it off again hands organisation status back to Schools' console.
+Checks: `supabase/rls-checks/platform_registration.sql` and `supabase/rls-checks/organization_suspension.sql`.
+
+## Rate limits on the public functions
+
+`search-schools`, `resolve-login-id`, `request-password-reset` and
+`signup-organization` answer anyone, so each limits calls per caller address
+(`supabase/functions/_shared/rateLimit.ts`), plus an overall or per-school
+limit no request can change. The address is read from **one** header, at a
+fixed distance from its right-hand end, because everything else in these
+headers is whatever the caller chose to send:
+
+| Where it runs | `CLIENT_IP_HEADER` | `TRUSTED_PROXY_HOPS` | Why |
+|---|---|---|---|
+| Supabase Cloud (today) | `cf-connecting-ip` (default) | `1` (default) | Cloudflare sets CF-Connecting-IP itself. X-Forwarded-For keeps what the caller sent and appends. |
+| Self-hosted on AWS (figbloom-platform: ALB, Envoy gateway, edge runtime) | `x-forwarded-for` | `2` | The ALB appends the caller, then Envoy (`use_remote_address: true`) appends the ALB: the caller is second from the right. |
+
+Set them as edge function secrets/environment (`supabase secrets set
+CLIENT_IP_HEADER=x-forwarded-for TRUSTED_PROXY_HOPS=2` on a stack that takes
+secrets that way; on the self-hosted host, the functions container's
+environment). **Never set more hops than there are proxies of ours that
+append**: one too many reads an address the caller wrote. One too few only
+makes everyone behind the load balancer share one allowance. A request with
+no usable address shares one "unknown" allowance per function; it is never
+let through unlimited.
+
 ## SEO for the marketing page
 
 Only `/` (and `/privacy`, served from `public/privacy.html`, and `/delete-account.html`) is meant to be found on Google; everything else is

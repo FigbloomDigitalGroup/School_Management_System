@@ -108,13 +108,17 @@ describe("edge functions that need no sign-in", () => {
     "search-schools": "the school search before sign-in",
     "resolve-login-id": "login ID to email, before sign-in",
     "request-password-reset": "forgot password, before sign-in",
+    // server to server (Figbloom platform work, dev-staging #222-#227): no user session to send, each checks a secret of its own
+    "platform-schools": "the Figbloom console's backend (x-platform-secret against PLATFORM_CONSOLE_SECRET)",
+    "platform-decisions": "the Figbloom platform's decision webhook (HMAC signature against PLATFORM_WEBHOOK_SECRET)",
+    "platform-sync": "pg_cron and staff (PLATFORM_SYNC_KEY, or an injected server key)",
   };
 
   const config = read("supabase/config.toml");
   const explicit = new Map<string, boolean>();
   for (const m of config.matchAll(/\[functions\.([a-z0-9-]+)\]\s*\r?\nverify_jwt\s*=\s*(true|false)/g)) explicit.set(m[1]!, m[2] === "true");
 
-  it("exactly these five functions are public, no more", () => {
+  it("exactly these functions are public, no more", () => {
     const open = [...explicit].filter(([, v]) => !v).map(([k]) => k).sort();
     expect(open).toEqual(Object.keys(PUBLIC).sort());
   });
@@ -127,6 +131,13 @@ describe("edge functions that need no sign-in", () => {
       const code = read(`supabase/functions/${d}/index.ts`);
       expect(/auth\.getUser|getUser\(/.test(code) || /SERVICE_ROLE|serviceRole/.test(code), `${d} checks who is calling`).toBe(true);
     }
+  });
+
+  it("the server-to-server public functions check a secret of their own, in constant time", () => {
+    expect(read("supabase/functions/platform-schools/index.ts")).toMatch(/PLATFORM_CONSOLE_SECRET[\s\S]*secretsMatch|secretsMatch[\s\S]*PLATFORM_CONSOLE_SECRET/);
+    expect(read("supabase/functions/platform-decisions/index.ts")).toMatch(/verifyFigbloomWebhook/);
+    expect(read("supabase/functions/_shared/platformWebhook.ts")).toMatch(/secretsMatch/);
+    expect(read("supabase/functions/platform-sync/index.ts")).toMatch(/matchesAnyKey/);
   });
 
   it("the public functions that reach the database limit how often one caller may ask", () => {

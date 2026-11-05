@@ -146,7 +146,13 @@ test.describe("platform", () => {
   async function removeNyeriGirls() {
     const { data: admins } = await admin.from("profiles").select("id").eq("email", "peter.mwangi@nyerigirls.sc.ke");
     for (const row of admins ?? []) await admin.auth.admin.deleteUser(row.id);
+    const { data: school } = await admin.from("tenants").select("organization_id").eq("slug", "nyeri-girls").maybeSingle();
     await admin.from("tenants").delete().eq("slug", "nyeri-girls");
+    // every school has an organisation (20261104920000): a single school's own goes with it
+    if (school?.organization_id) {
+      const { count } = await admin.from("tenants").select("id", { count: "exact", head: true }).eq("organization_id", school.organization_id);
+      if (!count) await admin.from("organizations").delete().eq("id", school.organization_id);
+    }
   }
   test.afterAll(removeNyeriGirls);
 

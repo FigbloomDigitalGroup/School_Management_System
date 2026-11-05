@@ -100,7 +100,7 @@ describe("resolve-login-id handle", () => {
     assertEquals(res.status, 404);
   });
 
-  for (const status of ["onboarding", "setup_stalled", "suspended"]) {
+  for (const status of ["onboarding", "setup_stalled"]) {
     it(`404s for a school that is ${status}`, async () => {
       const admin = makeClient();
       admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status }]);
@@ -108,6 +108,38 @@ describe("resolve-login-id handle", () => {
       assertEquals(res.status, 404);
     });
   }
+
+  describe("a suspended school", () => {
+    it("answers 403 school_suspended with the suspended message, and no account", async () => {
+      const admin = makeClient();
+      admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status: "suspended", status_reason: "Unpaid licence" }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), deps(admin));
+      assertEquals(res.status, 403);
+      const out = await res.json();
+      assertEquals(out, {
+        error: "Your school's account is suspended. Please contact your school's administrator or Figbloom support.",
+        code: "school_suspended",
+      });
+    });
+
+    it("gives the same answer for an ID that exists and one that doesn't, so it confirms nothing about the ID", async () => {
+      const admin = makeClient();
+      admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status: "suspended", status_reason: "Unpaid licence" }]);
+      const known = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), deps(admin));
+      const unknown = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-9999" }), deps(admin));
+      assertEquals(known.status, unknown.status);
+      assertEquals(await known.text(), await unknown.text());
+    });
+
+    it("never says why the school is suspended", async () => {
+      const admin = makeClient();
+      admin.seed("tenants", [{ id: TENANT_ID, slug: "green-valley", status: "suspended", status_reason: "Unpaid licence" }]);
+      const res = await handle(request({ tenant_id: TENANT_ID, login_id: "TC-0001" }), deps(admin));
+      const text = await res.text();
+      assertEquals(text.includes("Unpaid"), false);
+      assertEquals(text.includes("Otieno"), false);
+    });
+  });
 
   for (const status of ["trial", "overdue"]) {
     it(`still resolves the account of a school that is ${status}`, async () => {

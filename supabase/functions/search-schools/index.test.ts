@@ -68,7 +68,7 @@ describe("search-schools handle", () => {
     assertEquals(out.schools, []);
   });
 
-  it("finds schools on trial or overdue, but not stalled or suspended ones", async () => {
+  it("finds schools on trial, overdue or suspended (to be told so at the ID step), but not stalled ones", async () => {
     const admin = makeClient();
     admin.seed("tenants", [
       { id: "s1", name: "Status Trial School", slug: "status-trial", county: "Nairobi", status: "trial" },
@@ -78,7 +78,7 @@ describe("search-schools handle", () => {
     ]);
     const res = await handle(request({ query: "status " }), deps(admin));
     const out = await res.json();
-    assertEquals(out.schools.map((s: { slug: string }) => s.slug).sort(), ["status-overdue", "status-trial"]);
+    assertEquals(out.schools.map((s: { slug: string }) => s.slug).sort(), ["status-overdue", "status-suspended", "status-trial"]);
   });
 
   it("matches more than one school for a shared name fragment", async () => {

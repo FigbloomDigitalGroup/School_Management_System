@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  DEMO_LOGINS, homeRouteFor, passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, searchSchools, supabase,
+  DEMO_LOGINS, homeRouteFor, isBannedAuthError, isSchoolSuspendedError, mySchoolSuspended, passwordResetRequestedMessage,
+  requestPasswordReset, resolveLoginId, searchSchools, supabase,
   type ResolvedLogin, type Role, type SchoolSearchResult, type Tenant,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
+import { SuspendedNotice } from "../components/SuspendedNotice";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
 type Mode = "id" | "email";
+
+/** Set (sessionStorage) by the console when an open session finds its school suspended; shown once, here. */
+export const SUSPENDED_NOTICE_KEY = "figbloom.suspendedNotice";
+
+function suspendedNoticePending(): boolean {
+  try { return sessionStorage.getItem(SUSPENDED_NOTICE_KEY) === "1"; } catch { return false; }
+}
 type Portal = "admin" | "teacher" | "student" | "parent" | "driver" | "staff";
 
 /** The illustrated side before a portal is picked. */
@@ -69,6 +78,7 @@ const portalOfRole = (role: Role) => PORTALS.find((p) => p.roles.includes(role))
  */
 export function SignIn() {
   const nav = useNavigate();
+  const location = useLocation();
   const [portal, setPortal] = useState<Portal | null>(null);
   const [mode, setMode] = useState<Mode>("id");
 
@@ -85,6 +95,11 @@ export function SignIn() {
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  // The school is suspended: said by Auth (user_banned), by resolve-login-id
+  // (school_suspended), or by the console that sent an open session here.
+  const [suspended, setSuspended] = useState(() => !!(location.state as { suspended?: boolean } | null)?.suspended || suspendedNoticePending());
+  // shown once: a later visit to sign-in in this tab starts clean
+  useEffect(() => { try { sessionStorage.removeItem(SUSPENDED_NOTICE_KEY); } catch { /* nothing to clear */ } }, []);
   // "Forgot password?" for a school ID: there's no mailbox, so it asks the school instead.
   const [forgot, setForgot] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
@@ -118,6 +133,7 @@ export function SignIn() {
   }
 
   function selectSchool(s: SchoolSearchResult) {
+    setSuspended(false);
     setSchool(s);
     setResolved(null);
     setLoginId("");
@@ -125,6 +141,7 @@ export function SignIn() {
   }
 
   function clearSchool() {
+    setSuspended(false);
     setSchool(null);
     setResolved(null);
     setLoginId("");
@@ -140,6 +157,7 @@ export function SignIn() {
       setIdHint("");
     } catch (err) {
       setResolved(null);
+      if (isSchoolSuspendedError(err)) { setIdHint(""); setSuspended(true); return; }
       setIdHint(err instanceof Error ? err.message : "Could not find that ID.");
     } finally {
       setResolving(false);
@@ -179,13 +197,19 @@ export function SignIn() {
 
   async function submit() {
     setError("");
+    setSuspended(false);
     setBusy(true);
     try {
       const signInEmail = mode === "email" ? email.trim() : resolved?.email;
       if (!signInEmail) { setError("Enter your ID and wait for it to be recognized first."); return; }
 
       const { data, error: err } = await supabase().auth.signInWithPassword({ email: signInEmail, password });
-      if (err) { setError(mode === "email" ? "Check the email and password." : "Check your ID and password."); return; }
+      if (err) {
+        // Auth's own answer for a banned account: it already says the account exists, so this adds nothing to that
+        if (isBannedAuthError(err)) { setSuspended(true); return; }
+        setError(mode === "email" ? "Check the email and password." : "Check your ID and password.");
+        return;
+      }
       const userId = data.user?.id;
       if (!userId) { setError("Something went wrong signing you in."); return; }
 
@@ -225,6 +249,12 @@ export function SignIn() {
         if (slugs.length > 1) { nav("/org-picker"); return; }
         destSlug = slugs[0] ?? null;
       }
+      // Signed in, but the school can't be read: suspended in the moment since the ban (my_tenant() hides it).
+      if (profile.tenant_id && !destSlug && await mySchoolSuspended()) {
+        await supabase().auth.signOut({ scope: "local" });
+        setSuspended(true);
+        return;
+      }
       if (profile.role !== "super_admin" && !destSlug) {
         setError(profile.role === "org_admin" ? "Could not find your organization. Contact Figbloom support." : "Could not find your school. Contact Figbloom support.");
         return;
@@ -240,6 +270,7 @@ export function SignIn() {
 
   return (
     <AuthLayout scene={activePortal ?? WELCOME} subtitle={activePortal ? `${activePortal.label.toUpperCase()} PORTAL` : "SIGN IN"}>
+        {suspended && <SuspendedNotice className="mb-4" />}
         {!activePortal ? (
           <div className="animate-rise">
             <h2 className="text-[22px] font-semibold tracking-tight">Welcome back</h2>
@@ -316,7 +347,7 @@ export function SignIn() {
                 <TextField
                   id="login-id" label="Your ID" mono placeholder={activePortal.idHint}
                   value={loginId}
-                  onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); }}
+                  onChange={(e) => { setLoginId(e.target.value); setResolved(null); setIdHint(""); setSuspended(false); }}
                   onBlur={() => void resolveId()}
                   hint={resolving ? "Checking…" : resolved ? `Signing in as ${resolved.display_name}` : undefined}
                   error={!resolving && idHint ? idHint : undefined}

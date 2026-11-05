@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, StatusBar, View } from "react-native";
-import { isNoSignalError, openSession, supabase } from "@figbloom/shared";
+import { isNoSignalError, openSession, sessionSchoolSuspended, supabase } from "@figbloom/shared";
 import "./src/lib/client";
 import { FingerprintLock } from "./src/components/FingerprintLock";
 import { NoConnection, SavedCopyNotice } from "./src/components/OfflineNotice";
@@ -45,6 +45,11 @@ function AppContent() {
   // Choosing a password fires USER_UPDATED, whose reload can read the profile
   // before must_change_password is cleared — don't let that bring the prompt back.
   const passwordChosen = useRef(false);
+  // An open session found its school suspended (shared suspended.ts): readProfile only notes it, since
+  // signing out can stop to ask about unsent data, which must not run out openSession's wait; the
+  // signed-out branch then signs this phone out and sign-in says why.
+  const suspendedFound = useRef(false);
+  const [suspendedNotice, setSuspendedNotice] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -70,11 +75,18 @@ function AppContent() {
 
           let accent = "#7A1F2B";
           let country = "KE";
+          let tenant: { accent: string | null; country: string | null } | null = null;
           if (profile.tenant_id) {
-            const { data: tenant } = await supabase()
-              .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
+            ({ data: tenant } = await supabase()
+              .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle());
             if (tenant?.accent) accent = tenant.accent;
             if (tenant?.country) country = tenant.country;
+          }
+          // The school row can't be read: if that is because the school was just suspended (my_tenant()
+          // hides it until the Auth ban ends the session), this phone is signed out and sign-in says so.
+          if (await sessionSchoolSuspended(profile, !!tenant)) {
+            suspendedFound.current = true;
+            return "unsupported";
           }
 
           const fresh: Session = profile.role === "driver"
@@ -93,7 +105,13 @@ function AppContent() {
         passwordChosen.current = false;
         shown.current = null;
         setSession(null); setConnection("ok"); setChoosePassword(null);
+        if (suspendedFound.current) {
+          suspendedFound.current = false;
+          setSuspendedNotice(true);
+          void signOutOfThisPhone();
+        }
       } else if (opened.status === "online") {
+        setSuspendedNotice(false);
         const mustChoose = opened.extra.mustChoose && !passwordChosen.current;
         shown.current = opened.session;
         setSession(opened.session); setConnection("ok");
@@ -167,7 +185,7 @@ function AppContent() {
         </FingerprintLock>
       ) : connection === "none" ? (
         <NoConnection onRetry={() => retry.current()} retrying={retrying} onSignOut={() => void signOutOfThisPhone()} />
-      ) : <SignIn />}
+      ) : <SignIn key={suspendedNotice ? "suspended" : "sign-in"} suspendedAtStart={suspendedNotice} />}
     </SafeAreaProvider>
   );
 }

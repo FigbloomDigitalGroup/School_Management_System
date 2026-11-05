@@ -83,3 +83,4 @@ export * from "./audit";
 export * from "./medical";
 export * from "./legalLinks";
 export * from "./guide";
+export * from "./suspended";

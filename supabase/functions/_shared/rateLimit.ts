@@ -8,19 +8,83 @@
  */
 
 /**
- * The caller's address, from the one header this deployment's own edge sets
- * (FIG-1336). Any other header is the caller's to write, so trusting the
- * first that happened to be there let a script take a fresh allowance on
- * every request. CLIENT_IP_HEADER names it: cf-connecting-ip (the default)
- * on hosted Supabase, which Cloudflare overwrites; a deployment behind its
- * own proxy can name x-forwarded-for, and then the last address counts, the
- * one that proxy appended. Without it every caller shares one "unknown"
- * allowance, which the overall limits below still bound.
+ * Where the caller's address comes from, and how far to trust it (FIG-1336, then this).
+ *
+ * The address is read from ONE header, CLIENT_IP_HEADER, and from the entry
+ * TRUSTED_PROXY_HOPS places from its right-hand end: each proxy we run
+ * appends the address it received the request from, so the client's own
+ * address is the one our outermost proxy appended, and everything to the left
+ * of it is whatever the client chose to send. The leftmost entry is never
+ * read, nor any header the client can set unchecked.
+ *
+ *   Supabase Cloud (the default): CLIENT_IP_HEADER=cf-connecting-ip,
+ *     TRUSTED_PROXY_HOPS=1. Cloudflare sets CF-Connecting-IP to the address
+ *     that connected to it; a request coming from another Cloudflare zone's
+ *     Worker gets a fixed Cloudflare address instead, never one the caller
+ *     wrote. (X-Forwarded-For there keeps what the client sent and appends.)
+ *   Self-hosted on AWS (figbloom-platform: ALB -> Envoy gateway -> edge
+ *     runtime): CLIENT_IP_HEADER=x-forwarded-for, TRUSTED_PROXY_HOPS=2. The
+ *     ALB appends the client's address (its default "append" mode), then
+ *     Envoy (use_remote_address: true) appends the ALB's, so the client is
+ *     second from the right.
+ *
+ * TRUSTED_PROXY_HOPS must never be more than the proxies that really append:
+ * one too many reads an entry the client wrote. One too few is safe (everyone
+ * behind the same proxy shares one allowance). An invalid value counts as 1.
+ *
+ * No usable address (header missing, fewer entries than hops, not an IP):
+ * the caller gets "unknown", one allowance shared by everyone in that state
+ * for that function. Never unlimited; the overall limits bound it as well.
  */
-export function clientAddress(req: Request): string {
-  const header = (Deno.env.get("CLIENT_IP_HEADER") ?? "cf-connecting-ip").trim().toLowerCase();
-  const parts = (req.headers.get(header) ?? "").split(",").map((p) => p.trim()).filter(Boolean);
-  return parts[parts.length - 1] ?? "unknown";
+export interface ClientIpConfig {
+  /** Lower-case header name. */
+  header: string;
+  /** Entries from the right-hand end: 1 is the last. */
+  hops: number;
+}
+
+export const UNKNOWN_CLIENT = "unknown";
+const DEFAULT_HEADER = "cf-connecting-ip";
+const DEFAULT_HOPS = 1;
+
+export function clientIpConfig(env: { get(name: string): string | undefined } = Deno.env): ClientIpConfig {
+  const header = (env.get("CLIENT_IP_HEADER") ?? "").trim().toLowerCase() || DEFAULT_HEADER;
+  const raw = (env.get("TRUSTED_PROXY_HOPS") ?? "").trim();
+  let hops = DEFAULT_HOPS;
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 1 && n <= 10) hops = n;
+    else console.error(`rate limit: TRUSTED_PROXY_HOPS="${raw}" is not a whole number from 1 to 10; using ${DEFAULT_HOPS}`);
+  }
+  return { header, hops };
+}
+
+const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+const IPV6 = /^[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}(%[0-9a-z]+)?$|^[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,6}:\d{1,3}(\.\d{1,3}){3}$/i;
+
+/** An address as a proxy wrote it ("1.2.3.4", "1.2.3.4:8080", "[2001:db8::1]:8080", "2001:db8::1"), or null if it isn't one. */
+export function normaliseAddress(entry: string): string | null {
+  let a = entry.trim().replace(/^"|"$/g, "");
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(a);
+  if (bracketed) a = bracketed[1];
+  else if (/^[\d.]+:\d+$/.test(a)) a = a.slice(0, a.lastIndexOf(":"));
+  a = a.toLowerCase();
+  return IPV4.test(a) || IPV6.test(a) ? a : null;
+}
+
+let warnedUnknown = false;
+
+/** The caller's address, as the deployment's own proxies recorded it; UNKNOWN_CLIENT when they didn't. */
+export function clientAddress(req: Request, config: ClientIpConfig = clientIpConfig()): string {
+  const parts = (req.headers.get(config.header) ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  const entry = parts.length >= config.hops ? parts[parts.length - config.hops] : undefined;
+  const address = entry === undefined ? null : normaliseAddress(entry);
+  if (address) return address;
+  if (!warnedUnknown) {
+    warnedUnknown = true;
+    console.warn(`rate limit: no usable client address in ${config.header} (${parts.length} entries, ${config.hops} trusted hops); such callers share one allowance per function`);
+  }
+  return UNKNOWN_CLIENT;
 }
 
 async function sha256(text: string): Promise<string> {
