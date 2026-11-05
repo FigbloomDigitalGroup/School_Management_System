@@ -1,4 +1,4 @@
-/** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
+/** Domain types. They follow the database as supabase/migrations builds it (there is no other schema file): keep them in step with it. */
 
 export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "staff";
 

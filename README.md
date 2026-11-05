@@ -22,7 +22,7 @@ supabase/          Schema, row-level security, seed script, M-Pesa edge function
 e2e/               Playwright tests over the five critical flows
 tests/integration/ Vitest tests against the local Supabase: sign-in per role, school isolation, who may record payments, billing
 tests/security/    Vitest static checks (no database): HTML sinks and secrets in the client code, which edge functions are public, web headers, workflow hardening, and scripts/security-scan.sh run against seeded attacks
-tests/integrity/   Vitest static checks (no database) on the migration files: naming and versions, the split organizations migration, row-level security on every table, and that schema.sql and rls.sql are stale
+tests/integrity/   Vitest static checks (no database) on the migration files: naming and versions, the split organizations migration, row-level security on every table, and that the old schema.sql and rls.sql stay deleted (the migrations are the only schema)
 ```
 
 ## Running it
