@@ -48,6 +48,7 @@ export const PAGE_ABOUT: Record<string, string> = {
   "admin/audit": "The audit log: every change in the school, who made it and when. Read only.",
   "admin/assistant": "The School assistant: a checklist of what is set up and what is left, and a chat that sets up classes, subjects, a term, exams and fee items, or explains how to do the rest.",
   "admin/account": "Your own name, phone, photo and password.",
+  "admin/my-hr": "Your own payslips, leave balances, attendance and KPIs from Figbloom HR, as a member of staff.",
   // teachers
   "teacher/attendance": "Take a class's register for today and correct it; registers taken offline send themselves later.",
   "teacher/gradebook": "Enter marks for an exam, class and subject you teach (type abs for an absence), then publish them when ready.",
@@ -66,6 +67,7 @@ export const PAGE_ABOUT: Record<string, string> = {
   "teacher/buses": "Where every bus is now and when it reaches its next stop.",
   "teacher/leave": "Ask for time off; the office approves or declines it.",
   "teacher/loans": "Ask for a salary advance or staff loan.",
+  "teacher/my-hr": "Your own payslips, leave balances, attendance and KPIs from Figbloom HR.",
   "teacher/visitors": "Visitors who asked for you at the gate or reception today.",
   "teacher/items": "Things the school has issued you, and when they're due back.",
   "teacher/account": "Your own name, phone, photo and password.",
@@ -75,6 +77,7 @@ export const PAGE_ABOUT: Record<string, string> = {
   "staff/notices": "Announcements from the school office.",
   "staff/chats": "Chats and calls with colleagues.",
   "staff/loans": "Ask for a salary advance or staff loan; repayments come off your salary.",
+  "staff/my-hr": "Your own payslips, leave balances, attendance and KPIs from Figbloom HR.",
   "staff/items": "Things the school has issued you, and when they're due back.",
   "staff/account": "Your own name, phone, photo and password. Your title is set by the school office.",
   // organization admins (relative to /org/<slug>/)

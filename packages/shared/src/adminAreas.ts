@@ -186,6 +186,8 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   // setting the school up is for full admins; everyone else has the Guide panel
   "admin/assistant": "full",
   "admin/account": null,
+  // the school admin's own HR record, as staff (20261105710000); the shell shows it only to the school's own admins
+  "admin/my-hr": null,
 };
 
 /** Whether this access opens that admin page. A page not listed is full admins only. */

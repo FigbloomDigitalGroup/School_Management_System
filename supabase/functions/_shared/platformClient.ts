@@ -187,6 +187,11 @@ export class PlatformClient {
     return this.token.value;
   }
 
+  /** Drops the kept token, so the next accessToken() fetches a new one (another API answered 401 to it). */
+  forgetToken(): void {
+    this.token = null;
+  }
+
   // ---------------------------------------------------------------- plumbing
   private async call<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
     const token = await this.accessToken();
