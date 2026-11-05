@@ -236,9 +236,11 @@ select pg_temp.check('a cover can be recorded once for a class at a date and tim
   pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-04', current_setting('t.c1')::uuid, '08:00', current_setting('t.teacher')::uuid, current_setting('t.admin')::uuid) = 'allowed'
   and pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-04', current_setting('t.c1')::uuid, '08:00', current_setting('t.teacher')::uuid, current_setting('t.admin')::uuid) = 'refused 23505');
 select pg_temp.check('one person cannot be asked to cover two classes at the same date and time',
-  pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-04', current_setting('t.c3')::uuid, '08:00', current_setting('t.teacher')::uuid, current_setting('t.admin')::uuid) like 'refused%', 'QA12-COVER FIG-1434');
+  pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-04', current_setting('t.c3')::uuid, '08:00', current_setting('t.teacher')::uuid, current_setting('t.admin')::uuid) = 'refused 23P01');
+select pg_temp.check('the same person can still be saved again for the same class and time, and for another class at another time',
+  pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-04', current_setting('t.c3')::uuid, '09:00', current_setting('t.teacher')::uuid, current_setting('t.admin')::uuid) = 'allowed');
 select pg_temp.check('a teacher cannot be recorded as covering for themself',
-  pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-05', current_setting('t.c1')::uuid, '09:00', current_setting('t.teacher')::uuid, current_setting('t.teacher')::uuid) like 'refused%', 'QA12-COVER FIG-1434');
+  pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-05', current_setting('t.c1')::uuid, '09:00', current_setting('t.teacher')::uuid, current_setting('t.teacher')::uuid) = 'refused 23514');
 select pg_temp.info('cover can be recorded for a teacher who has no leave that day (the screen only offers leave days, the database does not tie them): '
   || pg_temp.cover_as(current_setting('t.admin')::uuid, '2040-03-06', current_setting('t.c1')::uuid, '10:00', current_setting('t.teacher')::uuid, current_setting('t.admin')::uuid));
 select pg_temp.check('a teacher cannot assign cover (42501)',

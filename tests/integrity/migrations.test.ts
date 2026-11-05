@@ -68,14 +68,14 @@ describe("migration files", () => {
 describe("supabase/schema.sql and supabase/rls.sql", () => {
   // Both files say they are the source of truth, types.ts says it "mirrors supabase/schema.sql", and PRODUCTION_TODO line 104 says
   // delete them. The migrations are what runs; the two files no longer describe the database.
-  it.fails("QA15-STALE-SCHEMA FIG-1469: schema.sql is gone, or it lists every table the migrations create", () => {
+  it("QA15-STALE-SCHEMA FIG-1469: schema.sql is gone, or it lists every table the migrations create", () => {
     if (!existsSync(join(ROOT, "supabase", "schema.sql"))) return;
     const doc = strip(readFileSync(join(ROOT, "supabase", "schema.sql"), "utf8"));
     const documented = new Set([...doc.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z0-9_]+)"?/gi)].map((m) => m[1]!.toLowerCase()));
     expect([...tablesFromMigrations()].filter((t) => !documented.has(t))).toEqual([]);
   });
 
-  it.fails("QA15-STALE-SCHEMA FIG-1469: rls.sql is gone, or it holds every policy the migrations create", () => {
+  it("QA15-STALE-SCHEMA FIG-1469: rls.sql is gone, or it holds every policy the migrations create", () => {
     if (!existsSync(join(ROOT, "supabase", "rls.sql"))) return;
     const policies = (sql: string) => new Set([...strip(sql).matchAll(/create\s+policy\s+"?([a-z0-9_]+)"?/gi)].map((m) => m[1]!.toLowerCase()));
     const real = new Set(files.flatMap((f) => [...policies(read(f))]));

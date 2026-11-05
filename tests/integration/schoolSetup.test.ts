@@ -76,13 +76,13 @@ afterAll(async () => {
     if (now.data?.status !== "active") errors.push(`Kijani Ridge is ${now.data?.status}`);
   }
   if (admin) {
-    const notes = await admin.client.from("announcements").delete().eq("tenant_id", tenantId).like("subject", `Covering % QA12 ${run}%`);
+    const notes = await admin.client.from("announcements").delete().eq("tenant_id", tenantId).like("subject", `%QA12 ${run}%`);
     if (notes.error) errors.push(`removing the cover messages: ${notes.error.message}`);
     const gone = await admin.client.from("classes").delete().eq("id", wipeClass);
     if (gone.error) errors.push(`removing the throwaway class: ${gone.error.message}`);
     const left = await admin.client.from("classes").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).like("name", "QA12 %");
     if (left.count) errors.push(`${left.count} QA12 classes are still there`);
-    const msgs = await admin.client.from("announcements").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).like("subject", `Covering % QA12 ${run}%`);
+    const msgs = await admin.client.from("announcements").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).like("subject", `%QA12 ${run}%`);
     if (msgs.count) errors.push(`${msgs.count} cover messages are still there`);
   }
   if (table.length) console.log("\n" + table.map((r) => r.join(" | ")).join("\n"));
@@ -173,7 +173,7 @@ describe("assigning cover", () => {
   // The substitute is TC-0002 (so the test can read what the substitute sees); the "absent" teacher is the admin's profile, which is all
   // the database needs: any two profiles of the school. The slot is a throwaway class's, a date far in the future.
   const item = () => ({ date: "2041-03-03", classId: wipeClass, className: `QA12 ${run} wipe`, subjectId: chemistry, subjectName: "Chemistry", time: "08:00", absentTeacherId: admin.userId });
-  const mine = async () => ((await teacher.client.from("announcements").select("subject, body").like("subject", `Covering % QA12 ${run}%`)).data ?? []) as { subject: string; body: string }[];
+  const mine = async () => ((await teacher.client.from("announcements").select("subject, body").like("subject", `%QA12 ${run}%`)).data ?? []) as { subject: string; body: string }[];
   let afterFree: { subject: string; body: string }[] = [];
 
   it("the substitute is told in the app when cover is assigned to them", async () => {
@@ -193,7 +193,7 @@ describe("assigning cover", () => {
     table.push(["Cover changed to a free period", "what the earlier substitute can read", "told it is off", `${afterFree.length} message(s): ${afterFree.map((m) => m.body.slice(0, 22)).join(" / ")}`]);
   });
 
-  it.fails("QA12-COVER FIG-1434: a substitute who was told they are covering is told when the cover is taken away", () => {
+  it("QA12-COVER FIG-1434: a substitute who was told they are covering is told when the cover is taken away", () => {
     const stillCovering = afterFree.some((m) => /You're covering/.test(m.body));
     const toldItIsOff = afterFree.some((m) => /no longer|not covering|cancel|withdrawn|free period/i.test(m.subject + " " + m.body));
     expect(!stillCovering || toldItIsOff).toBe(true);
