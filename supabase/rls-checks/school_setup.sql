@@ -107,9 +107,18 @@ select pg_temp.check('a second current term is refused: a school has one current
 select pg_temp.check('an ordinary new term is accepted (Term 1, 2040)',
   pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 1, '2040-01-05', '2040-04-01') = 'allowed');
 select pg_temp.check('a term that starts before the previous one has ended is refused (Term 2, 2040 starting 2040-03-01, inside Term 1)',
-  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 2, '2040-03-01', '2040-07-01') like 'refused%', 'QA12-TERMS FIG-1432');
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 2, '2040-03-01', '2040-07-01') = 'refused 23P01');
 select pg_temp.check('a Term 3 that sits before the year''s Term 1 is refused (terms must run in order)',
-  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 3, '2039-12-01', '2039-12-20') like 'refused%', 'QA12-TERMS FIG-1432');
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 3, '2039-12-01', '2039-12-20') = 'refused 23P01');
+select pg_temp.check('a term that starts the day after the previous one ends is accepted (Term 2, 2040 from 2040-04-02: they follow one another)',
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 2, '2040-04-02', '2040-07-01') = 'allowed');
+select pg_temp.check('moving a term''s dates onto the one before it is refused too (Term 2, 2040 moved to start 2040-03-01)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update terms set starts_on = %L where tenant_id = %L and year = 2040 and index = 2', '2040-03-01', current_setting('t.a'))) = 'refused 23P01');
+select pg_temp.check('a term that starts on the very day the previous one ends is refused as well (they share that day)',
+  pg_temp.term_as(current_setting('t.admin')::uuid, 2040, 3, '2040-07-01', '2040-10-01') = 'refused 23P01');
+select pg_temp.check('switching a term off as the current one still works, whatever its dates (the rule looks only at dates, year and number)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update terms set is_current = false where id = %L', current_setting('t.term'))) = 'allowed');
+update terms set is_current = true where id = current_setting('t.term')::uuid;
 select pg_temp.info('two terms may carry the same name (the screen writes "Term N, YEAR", so only a direct write can): '
   || pg_temp.term_as(current_setting('t.admin')::uuid, 2041, 1, '2041-01-05', '2041-04-01', false, 'QA12 same name') || ' then '
   || pg_temp.term_as(current_setting('t.admin')::uuid, 2041, 2, '2041-05-01', '2041-08-01', false, 'QA12 same name'));
