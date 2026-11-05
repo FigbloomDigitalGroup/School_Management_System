@@ -131,16 +131,22 @@ select pg_temp.info('A8 delete rules over every foreign key: ' || (select string
 
 -- A9 an index the hot reads need (QA 18). The Dashboard's "latest register date" (FIG-1496) reads the newest taken_on of one school's
 -- term; without an index in that order it read and checked every row of the term (20.7 s at 1,512 learners, cut off at 8 s).
-create function pg_temp.has_index_starting(p_tbl text, p_cols text[]) returns boolean language sql as $$
+create function pg_temp.has_index_starting(p_tbl text, p_cols text[], p_partial_ok boolean default true) returns boolean language sql as $$
   select exists (
     select 1 from pg_index i
-     where i.indrelid = ('public.' || quote_ident(p_tbl))::regclass and i.indisvalid
+     where i.indrelid = ('public.' || quote_ident(p_tbl))::regclass and i.indisvalid and (p_partial_ok or i.indpred is null)
        and (select array_agg(a.attname::text order by k.ord) from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
               join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum
              where k.ord <= cardinality(p_cols)) = p_cols);
 $$;
 select pg_temp.check('A9 attendance has an index that starts tenant_id, term_id, taken_on (the Dashboard''s latest register date stops at the first entry)',
   pg_temp.has_index_starting('attendance', array['tenant_id', 'term_id', 'taken_on']));
+-- FIG-1497: a parent's payments are reached through their children's invoices (payments by invoice), and a learner's own login by profile_id.
+-- Without them every payment of every school, and every learner of the platform, was read and permission-checked (12.1 s at 1,512 learners).
+select pg_temp.check('A9 payments has an index that starts invoice_id (a family''s payments are found from their invoices, not by reading every payment)',
+  pg_temp.has_index_starting('payments', array['invoice_id'], false)); -- a whole index: the older one on pending payments only does not count
+select pg_temp.check('A9 students has an index that starts profile_id (the rule "a learner reads their own payments" no longer reads every learner)',
+  pg_temp.has_index_starting('students', array['profile_id']));
 
 -- ---------------------------------------------------------------- B. rows that point at nothing, or at another school
 -- A foreign key only proves the parent exists, wherever it lives. For every single-column foreign key between two tables that both

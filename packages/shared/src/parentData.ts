@@ -4,6 +4,7 @@ import { receiptRef } from "./fees";
 import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharges";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
 import { audienceIncludes, type AudienceViewer } from "./audience";
+import { fetchPaidPayments } from "./paidPayments";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -203,9 +204,7 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
     term
       ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level, level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as ParentData["feeItems"] }),
-    studentIds.length
-      ? supabase().from("payments").select("id, amount_cents, method, mpesa_receipt, reference, msisdn, completed_at, created_at, fee_invoices!inner(student_id)").in("fee_invoices.student_id", studentIds).eq("status", "success").order("completed_at", { ascending: false })
-      : Promise.resolve({ data: [] as { id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; msisdn: string | null; completed_at: string | null; created_at: string }[] }),
+    fetchPaidPayments(studentIds),
     supabase().from("announcements").select("id, subject, body, audience, published_at, created_at, profiles!announcements_author_id_fkey(full_name, role)").order("created_at", { ascending: false }),
     supabase().from("announcement_reads").select("announcement_id").eq("profile_id", profileId),
   ]);
