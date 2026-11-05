@@ -10,6 +10,7 @@ import { useQueueSync, useQueueUser } from "./lib/queue";
 import { Skeleton } from "./components/ui/Skeleton";
 import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
+import { useHrItem } from "./lib/useHrItem";
 import { SessionCtx, useTenantSession } from "./lib/sessionContext";
 import { useOrgSession } from "./lib/useOrgSession";
 import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
@@ -466,6 +467,7 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
     nav(org ? `/org/${org.slug}/schools/${session.tenant.id}` : "/signin");
   }
   const chatUnread = useChatUnread(session.tenant.id);
+  const hrItem = useHrItem(session);
   if (!mayOpenAdminPage(access, page)) {
     const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
     return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
@@ -490,6 +492,7 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
           onExit: () => void exitToOrganization(),
         } : undefined}
         badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
+        sideActions={hrItem}
         guide={session.tenant.ai_enabled ? {
           tenantId: session.actingForTenant ? session.tenant.id : undefined,
           adminAreas: !full,
@@ -507,6 +510,7 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
 const StaffShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
   const chatUnread = useChatUnread(session.tenant.id);
+  const hrItem = useHrItem(session);
   return (
     <RoleGate allow={["staff"]}>
       <ConsoleShell
@@ -515,6 +519,7 @@ const StaffShell = ({ children }: { children: ReactNode }) => {
         hiddenNav={session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]}
         consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
         badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
+        sideActions={hrItem}
         guide={session.tenant.ai_enabled ? {} : undefined}
       >
         {children}
@@ -546,6 +551,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
   const chatUnread = useChatUnread(session.tenant.id);
+  const hrItem = useHrItem(session);
 
   return (
     <RoleGate allow={allow}>
@@ -561,6 +567,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
             ...(unread ? { "teacher/notices": String(unread) } : {}),
             ...(chatUnread ? { "teacher/chats": String(chatUnread) } : {}),
           }}
+          sideActions={hrItem}
           guide={session.tenant.ai_enabled ? {} : undefined}
         >
           <QueueNotice />

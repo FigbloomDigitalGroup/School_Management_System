@@ -79,6 +79,7 @@ export * from "./inventory";
 export * from "./feeCharges";
 export * from "./otherStaff";
 export * from "./adminAreas";
+export * from "./hrHandoff";
 export * from "./audit";
 export * from "./medical";
 export * from "./legalLinks";
