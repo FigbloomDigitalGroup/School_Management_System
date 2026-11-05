@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, showsMyHr, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
+import { adminAccessFor, fetchMyOrganizations, showsLeaveToApprove, showsStaffLeave, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, showsMyHr, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
@@ -12,6 +12,7 @@ import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
 import { useHrItem } from "./lib/useHrItem";
 import { useMyHrStatus } from "./lib/useMyHr";
+import { useHrLeaveAccess } from "./lib/useHrLeave";
 import { SessionCtx, useTenantSession } from "./lib/sessionContext";
 import { useOrgSession } from "./lib/useOrgSession";
 import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
@@ -107,6 +108,8 @@ import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { StaffLoans } from "./screens/staff/Loans";
 import { MyHr } from "./screens/myhr/MyHr";
+import { HrLeave } from "./screens/leave/HrLeave";
+import { LeaveToApprove } from "./screens/leave/LeaveToApprove";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
 import { AdminAuditLog } from "./screens/admin/AuditLog";
@@ -260,6 +263,7 @@ function TenantRoutes() {
           <Route path="admin/reports" element={<AdminShell page="admin/reports"><AdminReports /></AdminShell>} />
           <Route path="admin/performance" element={<AdminShell page="admin/performance"><K12Gate><Performance /></K12Gate></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell page="admin/leave"><AdminLeave /></AdminShell>} />
+          <Route path="admin/leave-to-approve" element={<AdminShell page="admin/leave-to-approve"><LeaveToApprove /></AdminShell>} />
           <Route path="admin/inventory" element={<AdminShell page="admin/inventory"><AdminInventory /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell page="admin/exams"><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell page="admin/papers"><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
@@ -335,6 +339,7 @@ function TenantRoutes() {
           <Route path="staff/notices" element={<StaffShell><StaffNotices /></StaffShell>} />
           <Route path="staff/chats" element={<StaffShell><MyChats role="staff" /></StaffShell>} />
           <Route path="staff/items" element={<StaffShell><TeacherItems /></StaffShell>} />
+          <Route path="staff/leave" element={<StaffShell><StaffLeave /></StaffShell>} />
           <Route path="staff/loans" element={<StaffShell><StaffLoans /></StaffShell>} />
           <Route path="staff/my-hr" element={<StaffShell><MyHr /></StaffShell>} />
           <Route path="staff/account" element={<StaffShell><StaffAccount /></StaffShell>} />
@@ -475,6 +480,8 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
   const hrItem = useHrItem(session);
   // My HR in the admin console is the school's own admins' record as staff; anyone else has it in their own console
   const myHrShown = showsMyHr(useMyHrStatus(session)) && session.profile.role === "school_admin" && !session.actingForTenant;
+  // leave applications waiting on this person in Figbloom HR: approvers, at a school whose leave is HR's
+  const approvalsShown = showsLeaveToApprove(useHrLeaveAccess(session));
   if (!mayOpenAdminPage(access, page)) {
     const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
     return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
@@ -489,6 +496,7 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
         hiddenNav={[
           ...(full ? [] : NAV.school_admin.map((i) => i.to).filter((to) => !mayOpenAdminPage(access, to))),
           ...(myHrShown ? [] : ["admin/my-hr"]),
+          ...(approvalsShown ? [] : ["admin/leave-to-approve"]),
         ]}
         consoleSwitch={full ? undefined : {
           current: "admin",
@@ -522,12 +530,14 @@ const StaffShell = ({ children }: { children: ReactNode }) => {
   const chatUnread = useChatUnread(session.tenant.id);
   const hrItem = useHrItem(session);
   const myHrShown = showsMyHr(useMyHrStatus(session));
+  // other staff had no leave page before HR: it shows only where the school's leave is HR's
+  const leaveShown = showsStaffLeave(useHrLeaveAccess(session));
   return (
     <RoleGate allow={["staff"]}>
       <ConsoleShell
         role="staff"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Staff" }}
-        hiddenNav={[...(session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]), ...(myHrShown ? [] : ["staff/my-hr"])]}
+        hiddenNav={[...(session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]), ...(myHrShown ? [] : ["staff/my-hr"]), ...(leaveShown ? [] : ["staff/leave"])]}
         consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
         badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
         sideActions={hrItem}
@@ -591,6 +601,15 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     </RoleGate>
   );
 };
+
+/** Other staff's leave page: Figbloom HR's, where the school's leave is HR's (there was no Schools-only one for them). */
+function StaffLeave() {
+  const session = useTenantSession();
+  const access = useHrLeaveAccess(session);
+  if (!access) return <FullPageSkeleton />;
+  if (showsStaffLeave(access)) return <HrLeave />;
+  return <Navigate to={`/s/${session.tenant.slug}/staff`} replace />;
+}
 
 /** One "Gradebook" nav entry, two different screens underneath — K-12's letter-grade/class-mean model vs higher-ed's credit/GPA one (FIG-330). */
 function GradebookRouter() {

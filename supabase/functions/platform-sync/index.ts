@@ -29,14 +29,18 @@
  *   {"action":"staff_backfill","school_id":"<tenants.id>"}  list the school's current staff (a dry run: the default)
  *   {"action":"staff_backfill","school_id":"...","dry_run":false}  queue schools.staff.created for each; the next sync sends them
  *                                    (409 while PLATFORM_STAFF_EVENTS_ENABLED is off, or the platform doesn't know the school)
- *   {"action":"register_event_webhook"}  tell the platform to send events (hr.employee.left) to platform-events (or {"url": "https://..."})
+ *   {"action":"register_event_webhook"}  tell the platform to send events (hr.employee.left, hr.leave.*) to platform-events (or {"url": "https://..."})
+ *   {"action":"leave_history_import","school_id":"<tenants.id>"}  list the school's approved Schools leave not yet in HR (a dry run: the default)
+ *   {"action":"leave_history_import","school_id":"...","dry_run":false}  send it to HR's leave history import and mark it exported
+ *                                    (linked staff only; idempotent: a second run sends only what is left; needs HR_MY_HR_URL)
  *
  * The queue carries staff events too (20261105600000): sync sends them as
  * POST /events after the organisations and schools.
  *
  * Function secrets: PLATFORM_CLIENT_ID, PLATFORM_CLIENT_SECRET,
  * PLATFORM_TOKEN_URL, PLATFORM_API_URL (_shared/platformClient.ts); optional
- * PLATFORM_WEBHOOK_URL and PLATFORM_EVENTS_URL. Without the first four, every
+ * PLATFORM_WEBHOOK_URL and PLATFORM_EVENTS_URL; HR_MY_HR_URL (HR's integration
+ * base, as for my-hr) for leave_history_import. Without the first four, every
  * action but the dry runs answers 503 and nothing is sent; the queue waits.
  *
  * Deploy: supabase functions deploy platform-sync --no-verify-jwt
@@ -46,6 +50,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { describeKey, injectedServerKeys, matchesAnyKey } from "../_shared/serviceKeys.ts";
 import { PlatformClient, platformConfigFromEnv, PlatformError } from "../_shared/platformClient.ts";
 import { backfill, decisionWebhookUrl, eventWebhookUrl, processQueue, reconcile, staffBackfill } from "../_shared/platformSync.ts";
+import { hrUrlFromEnv } from "../_shared/hrApi.ts";
+import { HrImportError, leaveHistoryImport } from "../_shared/leaveHistory.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -56,6 +62,9 @@ export interface Deps {
   client: PlatformClient | null;
   /** Environment: PLATFORM_SYNC_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SECRET_KEYS, SUPABASE_URL, PLATFORM_WEBHOOK_URL, PLATFORM_EVENTS_URL. */
   env?: { get(name: string): string | undefined };
+  /** HR_MY_HR_URL (leave_history_import); defaults to the environment's. */
+  hrUrl?: string | null;
+  fetch?: typeof fetch;
 }
 
 export const MIN_SYNC_KEY_LENGTH = 32;
@@ -86,7 +95,7 @@ export function authorized(req: Request, env: { get(name: string): string | unde
   return ok;
 }
 
-export async function handle(req: Request, { admin, client, env = Deno.env }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, client, env = Deno.env, hrUrl, fetch: fetchFn }: Deps): Promise<Response> {
   if (!authorized(req, env)) return fail(401, "unauthorized", "Send PLATFORM_SYNC_KEY (x-platform-sync-key or Authorization: Bearer), or the project's service-role or secret key.");
   if (req.method !== "POST") return fail(405, "method_not_allowed", "Use POST.");
 
@@ -141,9 +150,30 @@ export async function handle(req: Request, { admin, client, env = Deno.env }: De
         await client.putEventWebhook(url);
         return json({ ok: true, url });
       }
+      case "leave_history_import": {
+        if (typeof body.school_id !== "string" || !UUID.test(body.school_id)) return fail(400, "invalid_school", "school_id must be a school's id.");
+        const dryRun = body.dry_run !== false;
+        try {
+          return json(await leaveHistoryImport(admin, {
+            schoolId: body.school_id, dryRun, client, hrUrl: hrUrl === undefined ? hrUrlFromEnv(env) : hrUrl, fetch: fetchFn,
+          }));
+        } catch (err) {
+          if (err instanceof HrImportError) {
+            return fail(502, "hr_error", `Figbloom HR's leave history import answered ${err.status}${err.code ? ` ${err.code}` : ""}. ${err.marked} record(s) were marked exported before it; run it again to send the rest.`);
+          }
+          if (err instanceof Error && /no school/.test(err.message)) return fail(404, "school_not_found", "Schools has no school with that id.");
+          if (err instanceof Error && err.message === "hr_not_configured") {
+            return fail(503, "hr_not_configured", "Set PLATFORM_CLIENT_ID, PLATFORM_CLIENT_SECRET, PLATFORM_TOKEN_URL, PLATFORM_API_URL and HR_MY_HR_URL first. The dry run still lists.");
+          }
+          if (err instanceof Error && err.message === "school_not_linked") {
+            return fail(409, "school_not_linked", "The platform doesn't know this school yet (its registration hasn't been delivered). Nothing was sent.");
+          }
+          throw err;
+        }
+      }
       default:
         return fail(400, "unknown_action",
-          'The action must be "sync", "reconcile", "backfill", "register_webhook", "staff_backfill" or "register_event_webhook".');
+          'The action must be "sync", "reconcile", "backfill", "register_webhook", "staff_backfill", "register_event_webhook" or "leave_history_import".');
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
