@@ -156,9 +156,12 @@ select pg_temp.expect_eq('suspended organization: its admin sees no learners at 
 select pg_temp.expect_eq('suspended organization: its admin can still read their own organization (to see why)', (select count(*) from organizations where id = '00000000-0000-4000-8000-0000000000b1'), 1);
 reset role;
 
--- and the member school itself carries on: suspending the organization is not suspending the school
+-- and since 20261104910000 the member school is suspended with it (organization_suspension.sql checks the details)
 select pg_temp.act_as(current_setting('t.admin')); set local role authenticated;
-select pg_temp.expect_eq('suspended organization: the member school''s own admin is unaffected', pg_temp.visible('students'), current_setting('t.n_students')::bigint);
+select pg_temp.expect_eq('suspended organization: the member school is suspended with it, so its own admin sees no learners', pg_temp.visible('students'), 0);
 reset role;
+select pg_temp.check('suspended organization: the member school''s status is suspended, held by the organization',
+  (select status = 'suspended' from tenants where id = current_setting('t.a')::uuid)
+  and exists (select 1 from organization_suspended_schools where tenant_id = current_setting('t.a')::uuid and organization_id = '00000000-0000-4000-8000-0000000000b1'));
 
 rollback;
