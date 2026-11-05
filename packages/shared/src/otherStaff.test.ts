@@ -14,8 +14,8 @@ describe("the visitor log", () => {
 });
 
 describe("the other staff console", () => {
-  it("has notices, chats, loans, items and the account, plus Visitors (hidden without the visitors area)", () => {
-    expect(NAV.staff.map((i) => i.to)).toEqual(["staff/visitors", "staff/notices", "staff/chats", "staff/loans", "staff/items", "staff/account"]);
+  it("has notices, chats, loans, My HR, items and the account, plus Visitors (hidden without the visitors area)", () => {
+    expect(NAV.staff.map((i) => i.to)).toEqual(["staff/visitors", "staff/notices", "staff/chats", "staff/loans", "staff/my-hr", "staff/items", "staff/account"]);
   });
   it("suggests the jobs the gate and reception accounts became", () => {
     expect(STAFF_TITLE_SUGGESTIONS).toContain("Guard");

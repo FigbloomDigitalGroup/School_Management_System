@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
+import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, showsMyHr, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
@@ -11,6 +11,7 @@ import { Skeleton } from "./components/ui/Skeleton";
 import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
 import { useHrItem } from "./lib/useHrItem";
+import { useMyHrStatus } from "./lib/useMyHr";
 import { SessionCtx, useTenantSession } from "./lib/sessionContext";
 import { useOrgSession } from "./lib/useOrgSession";
 import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
@@ -105,6 +106,7 @@ import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { StaffLoans } from "./screens/staff/Loans";
+import { MyHr } from "./screens/myhr/MyHr";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
 import { AdminAuditLog } from "./screens/admin/AuditLog";
@@ -265,6 +267,7 @@ function TenantRoutes() {
           <Route path="admin/report-cards" element={<AdminShell page="admin/report-cards"><K12Gate><ReportCards /></K12Gate></AdminShell>} />
           <Route path="admin/chats" element={<AdminShell page="admin/chats"><AdminChats /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell page="admin/account"><AdminAccount /></AdminShell>} />
+          <Route path="admin/my-hr" element={<AdminShell page="admin/my-hr"><MyHr /></AdminShell>} />
           <Route path="admin/activities" element={<AdminShell page="admin/activities"><Activities admin /></AdminShell>} />
           <Route path="admin/visitors" element={<AdminShell page="admin/visitors"><AdminVisitors /></AdminShell>} />
           <Route path="admin/medical" element={<AdminShell page="admin/medical"><AdminMedical /></AdminShell>} />
@@ -282,6 +285,7 @@ function TenantRoutes() {
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
           <Route path="teacher/loans" element={<TeacherShell allow={["teacher"]}><StaffLoans /></TeacherShell>} />
+          <Route path="teacher/my-hr" element={<TeacherShell allow={["teacher"]}><MyHr /></TeacherShell>} />
           <Route path="teacher/items" element={<TeacherShell allow={["teacher"]}><TeacherItems /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
           <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
@@ -332,6 +336,7 @@ function TenantRoutes() {
           <Route path="staff/chats" element={<StaffShell><MyChats role="staff" /></StaffShell>} />
           <Route path="staff/items" element={<StaffShell><TeacherItems /></StaffShell>} />
           <Route path="staff/loans" element={<StaffShell><StaffLoans /></StaffShell>} />
+          <Route path="staff/my-hr" element={<StaffShell><MyHr /></StaffShell>} />
           <Route path="staff/account" element={<StaffShell><StaffAccount /></StaffShell>} />
           {/* the old gate and reception consoles (before 20261028100001), for a desk left open on one */}
           <Route path="gate" element={<Navigate to="../staff" replace />} />
@@ -468,6 +473,8 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
   }
   const chatUnread = useChatUnread(session.tenant.id);
   const hrItem = useHrItem(session);
+  // My HR in the admin console is the school's own admins' record as staff; anyone else has it in their own console
+  const myHrShown = showsMyHr(useMyHrStatus(session)) && session.profile.role === "school_admin" && !session.actingForTenant;
   if (!mayOpenAdminPage(access, page)) {
     const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
     return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
@@ -479,7 +486,10 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
       <ConsoleShell
         role="school_admin"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
-        hiddenNav={full ? undefined : NAV.school_admin.map((i) => i.to).filter((to) => !mayOpenAdminPage(access, to))}
+        hiddenNav={[
+          ...(full ? [] : NAV.school_admin.map((i) => i.to).filter((to) => !mayOpenAdminPage(access, to))),
+          ...(myHrShown ? [] : ["admin/my-hr"]),
+        ]}
         consoleSwitch={full ? undefined : {
           current: "admin",
           ownLabel: teacher ? roleLabel(session.tenant, "teacher") : "Staff",
@@ -511,12 +521,13 @@ const StaffShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
   const chatUnread = useChatUnread(session.tenant.id);
   const hrItem = useHrItem(session);
+  const myHrShown = showsMyHr(useMyHrStatus(session));
   return (
     <RoleGate allow={["staff"]}>
       <ConsoleShell
         role="staff"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Staff" }}
-        hiddenNav={session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]}
+        hiddenNav={[...(session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]), ...(myHrShown ? [] : ["staff/my-hr"])]}
         consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
         badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
         sideActions={hrItem}
@@ -552,6 +563,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
   }, [session.profile.id, session.tenant.id]);
   const chatUnread = useChatUnread(session.tenant.id);
   const hrItem = useHrItem(session);
+  const myHrShown = showsMyHr(useMyHrStatus(session));
 
   return (
     <RoleGate allow={allow}>
@@ -559,6 +571,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
       <TeacherNoticesProvider value={() => setUnread((n) => (n ? n - 1 : n))}>
         <ConsoleShell
           role="teacher"
+          hiddenNav={myHrShown ? [] : ["teacher/my-hr"]}
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
           consoleSwitch={showsAdminSwitch("teacher", session.adminAreas)
             ? { current: "own", ownLabel: roleLabel(session.tenant, "teacher"), ownTo: teacherHome(session.tenant), adminTo: "admin" }

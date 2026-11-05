@@ -96,3 +96,12 @@ html[data-a11y-reduce-motion] *::after {
 .auth-theme .focus\:border-forest:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal) 18%, transparent); }
 /* list rows (e.g. the school search results) hover in a faint wash of the portal colour */
 .auth-theme .hover\:bg-page:hover { background-color: color-mix(in srgb, var(--portal) 8%, #fff); }
+
+/* My HR: "Print / Save as PDF" on a payslip prints the payslip alone (HR makes its payslip PDFs in the browser
+   too; there is no server-side file). body.printing-payslip is set just for the print. */
+@media print {
+  body.printing-payslip * { visibility: hidden; }
+  body.printing-payslip .my-hr-payslip,
+  body.printing-payslip .my-hr-payslip * { visibility: visible; }
+  body.printing-payslip .my-hr-payslip { position: absolute; inset: 0 auto auto 0; width: 100%; }
+}
