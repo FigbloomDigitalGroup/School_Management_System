@@ -74,7 +74,14 @@ select pg_temp.check('the list has every school',
   (select count(*) from l) = (select count(*) from tenants));
 select pg_temp.check('a row has exactly the contract''s fields',
   (select array_agg(k order by k) from jsonb_object_keys((select row from l where row ->> 'id' = current_setting('t.a'))) k)
-  = array['admin_email','created_at','id','last_activity_at','name','organization','parents','slug','status','status_reason','students','teachers']);
+  = array['admin_email','admins','created_at','id','last_activity_at','name','organization','parents','slug','status','status_reason','students','teachers']);
+select pg_temp.check('admins lists the school''s current admins with a real email, as {email, name, role}',
+  (select row -> 'admins' from l where row ->> 'id' = current_setting('t.a'))
+  = (select coalesce(jsonb_agg(jsonb_build_object('email', e.email, 'name', e.full_name, 'role', 'school_admin') order by e.created_at, e.id), '[]'::jsonb)
+       from (select p.id, p.full_name, p.created_at, coalesce(platform_real_email(p.email), platform_real_email(u.email)) as email
+               from profiles p left join auth.users u on u.id = p.id
+              where p.tenant_id = current_setting('t.a')::uuid and p.role = 'school_admin' and p.archived_at is null) e
+      where e.email is not null));
 select pg_temp.check('students counts current learners',
   (select (row ->> 'students')::int from l where row ->> 'id' = current_setting('t.a'))
   = (select count(*) from students where tenant_id = current_setting('t.a')::uuid and active));

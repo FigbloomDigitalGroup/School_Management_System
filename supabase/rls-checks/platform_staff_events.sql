@@ -203,7 +203,7 @@ exception when insufficient_privilege then raise notice 'PASS a teacher can''t a
 end $$;
 reset role;
 
-insert into auth.sessions (user_id) values ('00000000-0000-4000-8000-00000000f0a2');
+insert into auth.sessions (id, user_id) values (gen_random_uuid(), '00000000-0000-4000-8000-00000000f0a2');
 select pg_temp.act_as('00000000-0000-4000-8000-00000000f0a1'); set local role authenticated;
 do $$ begin
   perform archive_staff(array['00000000-0000-4000-8000-00000000f0a1']::uuid[]);
@@ -350,6 +350,15 @@ set local role service_role;
 select pg_temp.check('a school with no admin: admins is an empty list',
   platform_console_schools('00000000-0000-4000-8000-00000000f002') -> 0 -> 'admins' = '[]'::jsonb);
 reset role;
+
+-- archived_by is a same-school reference (20261105620000)
+do $$ begin
+  perform set_config('figbloom.staff_archive', 'true', true);
+  update profiles set archived_at = now(), archived_by = '00000000-0000-4000-8000-00000000f0b1' where id = '00000000-0000-4000-8000-00000000f0a3';
+  raise notice 'FAIL archived_by may name another school''s teacher';
+exception when insufficient_privilege then raise notice 'PASS archived_by may not name another school''s teacher';
+end $$;
+select set_config('figbloom.staff_archive', '', true);
 
 -- switched off again: nothing more is queued
 update platform_settings set value = 'false' where key = 'PLATFORM_STAFF_EVENTS_ENABLED';
