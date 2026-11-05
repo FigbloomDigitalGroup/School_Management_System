@@ -370,6 +370,38 @@ for each of the school's staff, and an exit completed in HR archives the Schools
 Turning either setting back to `'false'` stops it again (rows already queued are still sent).
 Checks: `supabase/rls-checks/platform_staff_events.sql`.
 
+## Figbloom HR: one-click sign-in ("HR & Payroll")
+
+The web console's sidebar has **HR & Payroll**: one click opens Figbloom HR in a new tab, signed in
+(SCHOOLS_HR_HANDOFF_CONTRACT.md, section 3; `20261105700000_platform_hr_handoff`, the `open-hr` function).
+
+- **Who sees it:** the school's admin, an org admin acting for a school of their organisation, and a teacher or other
+  staff member holding the **fees** area (the bursar). Not Figbloom staff. HR decides real access; Schools only hides
+  the item from people who can't use it. The rule is the database's `hr_handoff_status(school)`, used by the sidebar and
+  by `open-hr` alike; it refuses (42501) anyone else.
+- **Whether HR is on for the school:** learned from the platform's answer to `POST /handoffs` itself (the platform
+  doesn't relay `platform.module.enabled` to Schools, and its tenant lookup is console-only). `open-hr` records each
+  answer in `platform_module_status`: the item shows while the answer is unknown or yes, hides for an hour after a 409
+  (`target_not_enabled`, `target_not_linked`, `target_no_handoff_url`), then shows again and the next click asks
+  again. A school the platform doesn't know yet (no `platform_links` row) never shows it.
+- **The click** opens a blank tab at once (so no popup blocker), calls `open-hr`, which checks the rule again and asks
+  the platform for a one-time link with the caller's id, name, role and real email (a synthetic login address is sent
+  as `null`), and sends the tab there. A refusal closes the tab and says why.
+- **Switch:** `PLATFORM_HANDOFF_ENABLED` (`platform_settings`, off by default): while off nobody sees the item and
+  `open-hr` refuses.
+
+**Deploy**, on the database and the functions host of the environment:
+
+1. Apply the migration `20261105700000_platform_hr_handoff`.
+2. Deploy the `open-hr` function (JWT verification on). It reuses the existing `PLATFORM_*` client settings.
+3. Once HR has registered its handoff URL with the platform, switch it on:
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_HANDOFF_ENABLED';
+   ```
+
+Checks: `supabase/rls-checks/platform_hr_handoff.sql`.
+
 ## Rate limits on the public functions
 
 `search-schools`, `resolve-login-id`, `request-password-reset` and

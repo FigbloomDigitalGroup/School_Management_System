@@ -19,6 +19,17 @@ import { useToast } from "./ui/Toast";
  *  ConsoleShell, where PageHead then shows no accessibility button. */
 const OpenAccessibility = createContext<(() => void) | null>(null);
 
+/** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
+export interface ShellAction {
+  key: string;
+  label: string;
+  icon: string;
+  title?: string;
+  /** Working on it: the entry is dimmed and says so. */
+  busy?: boolean;
+  onClick: () => void;
+}
+
 interface Props {
   role: Role;
   user: { id: string; name: string; roleLabel: string; avatarUrl?: string | null };
@@ -45,6 +56,8 @@ interface Props {
   consoleSwitch?: { current: "own" | "admin"; ownLabel: string; ownTo: string; adminTo: string };
   /** The Figbloom guide (GuidePanel): a "Guide" button in the sidebar. Absent: no guide here. */
   guide?: GuideOptions;
+  /** Entries after the pages that open something else (useHrItem). */
+  sideActions?: ShellAction[];
 }
 
 /**
@@ -52,7 +65,7 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch, guide }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch, guide, sideActions = [] }: Props) {
   // Start collapsed when the labelled sidebar would eat too much of a narrow
   // (or heavily zoomed) window; the person can still expand it.
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
@@ -234,6 +247,22 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </NavLink>
           );
         })}
+        {sideActions.map((a) => (
+          <button
+            key={a.key}
+            type="button"
+            onClick={a.onClick}
+            disabled={a.busy}
+            aria-busy={a.busy || undefined}
+            title={a.title ?? a.label}
+            className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
+            style={{ height: 38 }}
+          >
+            <Icon name={a.icon} />
+            {open && <span className="flex-1 truncate text-body">{a.label}</span>}
+            {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
+          </button>
+        ))}
         </div>
 
         <div className="shrink-0 border-t border-white/10 pt-2">
