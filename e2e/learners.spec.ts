@@ -328,20 +328,18 @@ test.describe("a school with more than 1,000 learners", () => {
     expect(active, "Alliance now has well over 1,000 active learners").toBeGreaterThan(1400);
   });
 
-  test("KNOWN QA11-CAP FIG-1416 (open): People lists every learner of the school, and can find the last one by name", async ({ page }) => {
-    test.fail();
+  test("QA11-CAP FIG-1416: People lists every learner of the school, and can find the last one by name", async ({ page }) => {
     await openPeople(page);
     const shown = await totalShown(page);
     table.push(["People", "learners in the school / total shown", String(active), String(shown)]);
     await search(page, "zzz qa11e last");
     const found = await page.getByText("ADM QA11-E-KLAST").count();
     table.push(["People", "search for the last learner by name", "found", found ? "found" : "not found"]);
-    expect(shown, "People shows the first 1,000 learners only").toBe(active);
+    expect(shown, "People shows every learner, not the first 1,000").toBe(active);
     expect(found).toBe(1);
   });
 
-  test("KNOWN QA11-CAP FIG-1416 (open): the Dashboard's Learners card counts every learner of the school", async ({ page }) => {
-    test.fail();
+  test("QA11-CAP FIG-1416: the Dashboard's Learners card counts every learner of the school", async ({ page }) => {
     await signInAdmin(page);
     await page.goto("/s/alliance/admin");
     await expect(page.getByText(/classes submitted/).first()).toBeVisible({ timeout: 30000 });

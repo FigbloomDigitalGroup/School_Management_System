@@ -12,9 +12,15 @@ begin;
 
 -- The three org-summary triggers recount the whole school on EVERY row. Off for the bulk load only
 -- (DDL is transactional, so a failure puts them back); the summary is refreshed once at the end.
-alter table attendance   disable trigger refresh_org_summary_attendance;
-alter table students     disable trigger refresh_org_summary_students;
-alter table fee_invoices disable trigger refresh_org_summary_fee_invoices;
+alter table attendance   disable trigger refresh_org_summary_attendance_ins;
+alter table attendance   disable trigger refresh_org_summary_attendance_upd;
+alter table attendance   disable trigger refresh_org_summary_attendance_del;
+alter table students     disable trigger refresh_org_summary_students_ins;
+alter table students     disable trigger refresh_org_summary_students_upd;
+alter table students     disable trigger refresh_org_summary_students_del;
+alter table fee_invoices disable trigger refresh_org_summary_fee_invoices_ins;
+alter table fee_invoices disable trigger refresh_org_summary_fee_invoices_upd;
+alter table fee_invoices disable trigger refresh_org_summary_fee_invoices_del;
 
 select id as t from tenants where slug = 'load-test' \gset
 select id as alliance from tenants where slug = 'alliance' \gset
@@ -103,9 +109,15 @@ insert into guardians (tenant_id, profile_id, student_id, relationship, is_prima
 select :'t', p.id, st.id, 'mother', true
 from p join st on st.rn between (p.k - 1) * 3 + 1 and (p.k - 1) * 3 + 1 + (p.k % 3);
 
-alter table attendance   enable trigger refresh_org_summary_attendance;
-alter table students     enable trigger refresh_org_summary_students;
-alter table fee_invoices enable trigger refresh_org_summary_fee_invoices;
+alter table attendance   enable trigger refresh_org_summary_attendance_ins;
+alter table attendance   enable trigger refresh_org_summary_attendance_upd;
+alter table attendance   enable trigger refresh_org_summary_attendance_del;
+alter table students     enable trigger refresh_org_summary_students_ins;
+alter table students     enable trigger refresh_org_summary_students_upd;
+alter table students     enable trigger refresh_org_summary_students_del;
+alter table fee_invoices enable trigger refresh_org_summary_fee_invoices_ins;
+alter table fee_invoices enable trigger refresh_org_summary_fee_invoices_upd;
+alter table fee_invoices enable trigger refresh_org_summary_fee_invoices_del;
 select refresh_organization_tenant_summary(:'t');
 
 commit;
