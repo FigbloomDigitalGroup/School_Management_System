@@ -129,6 +129,19 @@ select pg_temp.info('A8 delete rules over every foreign key: ' || (select string
   (select case confdeltype when 'c' then 'CASCADE' when 'n' then 'SET NULL' when 'r' then 'RESTRICT' when 'a' then 'NO ACTION' else 'OTHER' end as r, count(*) as n
      from pg_constraint where contype = 'f' and connamespace = 'public'::regnamespace group by 1) d));
 
+-- A9 an index the hot reads need (QA 18). The Dashboard's "latest register date" (FIG-1496) reads the newest taken_on of one school's
+-- term; without an index in that order it read and checked every row of the term (20.7 s at 1,512 learners, cut off at 8 s).
+create function pg_temp.has_index_starting(p_tbl text, p_cols text[]) returns boolean language sql as $$
+  select exists (
+    select 1 from pg_index i
+     where i.indrelid = ('public.' || quote_ident(p_tbl))::regclass and i.indisvalid
+       and (select array_agg(a.attname::text order by k.ord) from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum
+             where k.ord <= cardinality(p_cols)) = p_cols);
+$$;
+select pg_temp.check('A9 attendance has an index that starts tenant_id, term_id, taken_on (the Dashboard''s latest register date stops at the first entry)',
+  pg_temp.has_index_starting('attendance', array['tenant_id', 'term_id', 'taken_on']));
+
 -- ---------------------------------------------------------------- B. rows that point at nothing, or at another school
 -- A foreign key only proves the parent exists, wherever it lives. For every single-column foreign key between two tables that both
 -- have a tenant_id, count the rows whose school differs from their parent's school.
