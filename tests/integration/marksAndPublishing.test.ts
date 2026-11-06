@@ -174,10 +174,16 @@ describe("marks entry: what the database accepts, field by field", () => {
     expect(res.error).not.toBeNull();
   });
 
-  // entered_by says who typed the mark. Nothing checks it is the person writing: a teacher can sign a mark with a colleague's name.
-  it.fails("FIG-1376 (open): a mark cannot be saved in someone else's name", async () => {
-    const res = await save([mark(roster[0]!, subject1, 33, { entered_by: admin.userId })]);
-    expect(res.error, "writing a mark as the school admin").not.toBeNull();
+  // entered_by says who typed the mark. The server sets it from the signed-in caller (FIG-1376), so a request cannot sign a mark with a
+  // colleague's name; with no caller (the service role, the seed) the value is left as sent.
+  it("FIG-1376: a mark is stored under the person who saved it, whatever \"entered by\" the request names", async () => {
+    const stored = async () => (await teacher.client.from("marks").select("entered_by, score").eq("exam_id", examId).eq("subject_id", subject1).eq("student_id", roster[0]!).single()).data;
+    const signedAsAdmin = await save([mark(roster[0]!, subject1, 33, { entered_by: admin.userId })]);
+    expect(signedAsAdmin.error).toBeNull();
+    expect(await stored(), "the teacher signed the school admin's name").toMatchObject({ entered_by: teacher.userId, score: 33 });
+    const corrected = await admin.client.from("marks").upsert(mark(roster[0]!, subject1, 34, { entered_by: teacher.userId }), { onConflict: "exam_id,student_id,subject_id" });
+    expect(corrected.error).toBeNull();
+    expect(await stored(), "the school admin corrected it, naming the teacher").toMatchObject({ entered_by: admin.userId, score: 34 });
   });
 });
 
