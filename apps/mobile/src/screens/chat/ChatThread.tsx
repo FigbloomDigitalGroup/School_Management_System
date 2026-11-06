@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TextInput, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import {
-  CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord, fetchChatMessages,
+  CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord, fetchChatMessages, fetchConversationPeople,
   formatFileSize, groupMessagesByDay, markConversationRead, mergeMessage, pushChatMessage, removeUnsentChatFile, sendChatMessage,
-  subscribeChatMessages, uploadChatBlob, uploadProblem, type ChatMessage, type Role,
+  subscribeChatMessages, uploadChatBlob, uploadProblem, type ChatMessage, type ChatPerson, type Role,
 } from "@figbloom/shared";
 import { CallButtons } from "../../calls/CallButtons";
 import { notifyChatRead } from "../../lib/chatUnread";
@@ -22,21 +22,33 @@ interface ThreadParams {
   /** The other person, for calling them. */
   otherId?: string;
   name: string;
-  role: Role;
+  /** The other person's role, said under their name. */
+  role?: Role;
+  /** Said under the name instead of the role (an oversight thread has two people). */
+  subtitle?: string;
   /** False once the pair may no longer talk: the thread stays readable but has no composer. */
   canReply: boolean;
+  /** The office reading someone else's chat: no composer, no calls, nothing marked read, each bubble named. */
+  oversight?: boolean;
+  /** What the way back is called; "All chats" unless it says otherwise. */
+  backLabel?: string;
 }
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** One conversation: header, the messages by day, and the composer. A photo (taken now or from the gallery), a PDF or another document can be sent; files in a chat open in the phone's viewer. */
+/**
+ * One conversation: header, the messages by day, and the composer. A photo (taken now or from the gallery), a PDF or another
+ * document can be sent; files in a chat open in the phone's viewer. In oversight, the school's office reads someone else's
+ * chat without being in it (as the web's does): every message is on the left under its sender's name, and there is no composer.
+ */
 export function ChatThread({ tint }: { tint: string }) {
   const { t, s, accentInk } = useTheme();
   const nav = useNavigation<any>();
-  const { conversationId, otherId, name, role, canReply } = useRoute<any>().params as ThreadParams;
+  const { conversationId, otherId, name, role, subtitle, canReply, oversight = false, backLabel } = useRoute<any>().params as ThreadParams;
   const session = useChatSession();
   const myId = session?.profileId ?? null;
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
+  const [people, setPeople] = useState<ChatPerson[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -54,17 +66,19 @@ export function ChatThread({ tint }: { tint: string }) {
     let alive = true;
     setMessages(null);
     setError(null);
+    // Whose message is whose, for the names on an oversight thread. A failure only leaves the names as "Former member".
+    if (oversight) fetchConversationPeople(conversationId).then((p) => { if (alive) setPeople(p); }).catch(() => {});
     fetchChatMessages(conversationId)
-      .then((m) => { if (!alive) return; setMessages(m); markRead.current(); })
+      .then((m) => { if (!alive) return; setMessages(m); if (!oversight) markRead.current(); })
       .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : "Could not load this chat."); });
     const unsubscribe = subscribeChatMessages({ conversationId }, (m) => {
       if (!alive) return;
       setMessages((ms) => (ms ? mergeMessage(ms, m) : ms));
-      // Reading it as it arrives: it never counts as unread.
-      if (m.senderId !== myId) markRead.current();
+      // Reading it as it arrives: it never counts as unread. Reading someone else's chat marks nothing read for them.
+      if (!oversight && m.senderId !== myId) markRead.current();
     });
     return () => { alive = false; unsubscribe(); };
-  }, [conversationId, myId]);
+  }, [conversationId, myId, oversight]);
 
   async function chooseFile(source: FileSource) {
     setAttachOpen(false);
@@ -109,14 +123,14 @@ export function ChatThread({ tint }: { tint: string }) {
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[s.header, { backgroundColor: tint }]}>
-        <BackLink label="All chats" onPress={() => nav.goBack()} />
+        <BackLink label={backLabel ?? "All chats"} onPress={() => nav.goBack()} />
         <View style={[s.row, { gap: 10 }]}>
           <ChatAvatar id={conversationId} name={name} size={36} />
           <View style={{ flex: 1 }}>
             <Text numberOfLines={1} style={s.headerTitle}>{name}</Text>
-            <Text style={s.headerSub}>{chatRoleWord(role)}</Text>
+            <Text style={s.headerSub}>{subtitle ?? (role ? chatRoleWord(role) : "")}</Text>
           </View>
-          {canReply && !!otherId && <CallButtons otherId={otherId} name={name} />}
+          {!oversight && canReply && !!otherId && <CallButtons otherId={otherId} name={name} />}
         </View>
       </View>
 
@@ -137,16 +151,17 @@ export function ChatThread({ tint }: { tint: string }) {
           keyboardShouldPersistTaps="handled"
         >
           {messages.length === 0 ? (
-            <Text style={[s.small, { textAlign: "center", marginTop: 40 }]}>No messages yet. Say hello.</Text>
+            <Text style={[s.small, { textAlign: "center", marginTop: 40 }]}>{oversight ? "No messages in this chat." : "No messages yet. Say hello."}</Text>
           ) : (
             groupMessagesByDay(messages).map((g) => (
               <View key={g.day}>
                 <Text style={[s.eyebrow, { textAlign: "center", marginVertical: 12 }]}>{chatDayLabel(g.day).toUpperCase()}</Text>
                 {g.messages.map((m) => {
-                  const mine = m.senderId === myId;
+                  const mine = !oversight && m.senderId === myId;
                   return (
                     <View key={m.id} style={{ marginBottom: 8, flexDirection: "row", justifyContent: mine ? "flex-end" : "flex-start" }}>
                       <View style={{ maxWidth: "82%", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: mine ? tint : t.appSurface.lineSoft }}>
+                        {oversight && <Text style={{ marginBottom: 2, fontSize: 11, fontWeight: "700", color: t.appSurface.inkMuted }}>{people.find((p) => p.profileId === m.senderId)?.name ?? "Former member"}</Text>}
                         {!!m.filePath && <ChatFile message={m} mine={mine} />}
                         {!!m.body && <Text selectable style={{ fontSize: 14.5, lineHeight: 21, color: mine ? "#fff" : t.appSurface.ink }}>{m.body}</Text>}
                         <Text style={{ marginTop: 2, fontSize: 10.5, textAlign: "right", color: mine ? "rgba(255,255,255,0.7)" : t.appSurface.inkFaint }}>{time(m.createdAt)}</Text>
@@ -160,7 +175,11 @@ export function ChatThread({ tint }: { tint: string }) {
         </ScrollView>
       )}
 
-      {canReply ? (
+      {oversight ? (
+        <Text style={[s.small, { borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card, padding: 14 }]}>
+          You are reading this chat as the school's administrator. You can't reply to it.
+        </Text>
+      ) : canReply ? (
         <View style={{ borderTopWidth: 1, borderTopColor: t.appSurface.line, backgroundColor: t.appSurface.card, padding: 10 }}>
           {!!sendError && <Text style={{ fontSize: 12, color: t.status.warnInk, marginBottom: 6 }}>{sendError}</Text>}
           {file && (

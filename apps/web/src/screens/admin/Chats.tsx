@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { callDuration, chatRoleWord, fetchSchoolCallLog, fetchSchoolConversations, isRingExpired, supabase, type Call, type SchoolConversation } from "@figbloom/shared";
+import { callDuration, callOutcome, chatRoleWord, fetchSchoolCallLog, fetchSchoolConversations, filterCallsByName, filterSchoolConversations, schoolChatTitle, supabase, type Call, type SchoolConversation } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { ChatThread } from "../../components/chat/ChatThread";
 import { ChatWorkspace } from "../../components/chat/ChatWorkspace";
-import { Badge, type Tone } from "../../components/ui/Badge";
+import { Badge } from "../../components/ui/Badge";
 import { DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
@@ -52,24 +52,13 @@ export function AdminChats() {
   );
 }
 
-const OUTCOME: Record<Call["status"], [string, Tone]> = {
-  ended: ["Answered", "ok"],
-  accepted: ["In progress", "info"],
-  ringing: ["Ringing", "info"],
-  missed: ["Missed", "warn"],
-  declined: ["Declined", "muted"],
-};
-
 /** The school's call log: who called whom, when, and for how long. Never what was said. */
 function SchoolCalls() {
   const { tenant } = useTenantSession();
   const [nameFilter, setNameFilter] = useState("");
   const { data: calls, loading, error } = useAsync(() => fetchSchoolCallLog(tenant.id), [tenant.id]);
 
-  const shown = useMemo(() => {
-    const q = nameFilter.trim().toLowerCase();
-    return (calls ?? []).filter((c) => !q || c.caller_name.toLowerCase().includes(q) || c.callee_name.toLowerCase().includes(q));
-  }, [calls, nameFilter]);
+  const shown = useMemo(() => filterCallsByName(calls ?? [], nameFilter), [calls, nameFilter]);
 
   return (
     <div className="min-h-0 flex-1 overflow-auto p-6">
@@ -100,8 +89,7 @@ function SchoolCalls() {
             { key: "length", header: "Length", width: "0.6fr", render: (c: Call) => <Mono>{callDuration(c) ?? "—"}</Mono> },
             {
               key: "outcome", header: "", align: "right", width: "0.8fr",
-              // a call nobody closed after it stopped ringing was missed, as set_call_status() would record it
-              render: (c: Call) => { const [label, tone] = OUTCOME[isRingExpired(c) ? "missed" : c.status]; return <Badge tone={tone}>{label}</Badge>; },
+              render: (c: Call) => { const { label, tone } = callOutcome(c); return <Badge tone={tone}>{label}</Badge>; },
             },
           ]}
           rows={shown}
@@ -135,10 +123,7 @@ function SchoolChats() {
 
   const { data: conversations, loading, error } = useAsync(() => fetchSchoolConversations(tenant.id, learnerId), [tenant.id, learnerId]);
 
-  const shown = useMemo(() => {
-    const q = nameFilter.trim().toLowerCase();
-    return (conversations ?? []).filter((c) => !q || c.a.name.toLowerCase().includes(q) || c.b.name.toLowerCase().includes(q));
-  }, [conversations, nameFilter]);
+  const shown = useMemo(() => filterSchoolConversations(conversations ?? [], nameFilter), [conversations, nameFilter]);
 
   const selected = shown.find((c) => c.id === selectedId) ?? shown[0] ?? null;
 
@@ -195,7 +180,7 @@ function SchoolChatRow({ c, active, onOpen }: { c: SchoolConversation; active: b
       style={{ background: active ? "#F1F5F2" : "transparent", borderLeft: `3px solid ${active ? "var(--accent)" : "transparent"}` }}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-[13px] font-medium">{c.a.name} and {c.b.name}</span>
+        <span className="truncate text-[13px] font-medium">{schoolChatTitle(c)}</span>
         <span className="shrink-0 text-[11px] text-ink-faint">{new Date(c.lastMessageAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
       </div>
       <div className="text-[11px] text-ink-faint">

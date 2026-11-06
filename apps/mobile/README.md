@@ -107,6 +107,9 @@ it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`.
 | Home, registers | staff and teachers holding the `attendance` area | Every class's latest register, read only. |
 | A class's register | both of the above | Who was late, absent or excused on that day. Read only (correcting a register stays on the web). |
 | More > Announcements | school admins, and staff or teachers holding `communication` | Compose a notice: who gets it (whole school, parents, students, teachers, staff, a year group, a class) with how many people that reaches, subject and message, how it goes out (app, push, SMS with its cost, email), and a confirmation before it goes because it cannot be unsent. Files, signatures, the writing helper and drafts stay on the web. |
+| More > Chats | same (`communication`) | The office's own chats with parents and staff, with voice and video call buttons, and an unread count. Calls ring on the admin side too (`CallProvider` wraps the admin navigation). |
+| More > All school chats | same | Every chat in the school, read only (`fetchSchoolConversations`): filter by name, open one as an oversight thread (`ChatThread` with `oversight`: both names on the bubbles, no composer, no calls, nothing marked read). |
+| More > Call log | same | Who called whom, when, voice or video, how long, how it ended (`fetchSchoolCallLog`, `callOutcome`). Never what was said. |
 
 The data these read (`fetchSchoolOverview`, `fetchClassRegister`, `fetchLatestRegisters`,
 `remindClassTeacher`) is in `packages/shared/src/adminOverview.ts`, and the announcement composer's
