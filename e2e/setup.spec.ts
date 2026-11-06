@@ -426,24 +426,35 @@ test.describe("a higher-education school", () => {
     expect(k12Courses).toBe(0);
   });
 
-  test("KNOWN QA12-ROUTES FIG-1437 (open): a K-12 screen is not reachable by its address on a higher-education school", async ({ page }) => {
-    test.fail();
+  const homeOf = (slug: string) => new RegExp(`/s/${slug}/admin/?$`);
+
+  test("QA12-ROUTES FIG-1437: a K-12 screen typed or bookmarked as an address sends a higher-education school's admin to their home, and the screens their own kind has still open", async ({ page }) => {
     await signIn(page, UNI_ADMIN);
-    await page.goto(`/s/${UNI_SLUG}/admin/classes`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-    const reachable = (await page.getByRole("button", { name: "Add class" }).count()) > 0; // two buttons match (header and empty state), so count, not isVisible
-    table.push(["Direct address", `/s/${UNI_SLUG}/admin/classes as a higher-ed admin`, "redirected, no Add class", `${page.url().replace(/^https?:\/\/[^/]+/, "")}; Add class ${reachable ? "shown" : "not shown"}`]);
-    expect(reachable, "the K-12 Classes screen opened for a university").toBe(false);
+    const found: string[] = [];
+    for (const screen of ["admin/classes", "admin/subjects", "admin/exams"]) {
+      await page.goto(`/s/${UNI_SLUG}/${screen}`);
+      await page.waitForURL(homeOf(UNI_SLUG), { timeout: 15000 }).catch(() => undefined); // stays on the address when the screen opens
+      found.push(`${screen} -> ${page.url().replace(/^https?:\/\/[^/]+/, "")}`);
+      expect(page.url(), `${screen} opened for a university`).toMatch(homeOf(UNI_SLUG));
+    }
+    table.push(["Direct address", "a higher-ed admin types admin/classes, admin/subjects, admin/exams", "redirected to their home", found.join("; ")]);
+    expect(await page.getByRole("button", { name: "Add class" }).count(), "no Add class on their home").toBe(0);
+    // their own kind of screen is not held back
+    await page.goto(`/s/${UNI_SLUG}/admin/courses`);
+    await expect(page.getByRole("button", { name: "Add semester" }).first()).toBeVisible({ timeout: 30000 });
+    expect(page.url()).toMatch(/\/admin\/courses$/);
   });
 
-  test("KNOWN QA12-ROUTES FIG-1437 (open): a higher-education screen is not reachable by its address on a K-12 school", async ({ page }) => {
-    test.fail();
+  test("QA12-ROUTES FIG-1437: a higher-education screen typed as an address sends a K-12 school's admin to their home, and the screens their own kind has still open", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin/courses");
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-    table.push(["Direct address", "/s/alliance/admin/courses as a K-12 admin", "redirected", `${page.url().replace(/^https?:\/\/[^/]+/, "")}`]);
-    expect(page.url(), "the courses screen opened for a K-12 school").not.toMatch(/\/admin\/courses$/);
+    await page.waitForURL(homeOf("alliance"), { timeout: 15000 }).catch(() => undefined);
+    table.push(["Direct address", "a K-12 admin types admin/courses", "redirected to their home", page.url().replace(/^https?:\/\/[^/]+/, "")]);
+    expect(page.url(), "the courses screen opened for a K-12 school").toMatch(homeOf("alliance"));
+    for (const screen of ["admin/classes", "admin/subjects", "admin/exams"]) {
+      await page.goto(`/s/alliance/${screen}`);
+      await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30000 });
+      expect(page.url(), `${screen} is still open for a K-12 school`).toMatch(new RegExp(`/${screen}$`));
+    }
   });
 });
