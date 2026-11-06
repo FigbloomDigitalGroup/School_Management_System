@@ -1,4 +1,7 @@
-import { supabase, WEEKDAYS, type Weekday } from "@figbloom/shared";
+import { today } from "./attendance";
+import { supabase } from "./supabase";
+import { WEEKDAYS } from "./timetable";
+import type { Weekday } from "./types";
 
 /**
  * Phase 3 of the timetable/HR feature: cross-references approved leave
@@ -16,18 +19,21 @@ import { supabase, WEEKDAYS, type Weekday } from "@figbloom/shared";
 
 export type WeekDates = Record<Weekday, string>;
 
-/** This week's Mon-Fri as YYYY-MM-DD, anchored on today (or the date passed in). */
-export function currentWeekDates(now: Date = new Date()): WeekDates {
-  const dow = now.getDay(); // 0=Sun..6=Sat
+/**
+ * This week's Mon-Fri as YYYY-MM-DD, anchored on today in the school's own time zone (or the moment passed in). It used the
+ * device's clock and then its UTC date, which put the whole week a day early between midnight and 03:00 in Kenya (UTC+3):
+ * Monday's date came out as Sunday's, so the cover list looked at the wrong days. A Saturday or Sunday belongs to the week
+ * that has just ended, as it always did.
+ */
+export function currentWeekDates(now: Date = new Date(), timeZone?: string): WeekDates {
+  const [y, m, d] = today(timeZone, now).split("-").map(Number) as [number, number, number];
+  const todayUtc = Date.UTC(y, m - 1, d);
+  const dow = new Date(todayUtc).getUTCDay(); // 0=Sun..6=Sat
   const mondayOffset = dow === 0 ? -6 : 1 - dow;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + mondayOffset);
 
   const out = {} as WeekDates;
   WEEKDAYS.forEach((day, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    out[day] = d.toISOString().slice(0, 10);
+    out[day] = new Date(todayUtc + (mondayOffset + i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   });
   return out;
 }
@@ -240,8 +246,8 @@ export async function assignCoverage(input: {
  *  ordered by date then time — what the Dashboard's "Needs cover" card and
  *  the Timetable's per-day flag are both built from, so leave requested for
  *  a day later this week shows up now, not only once that day arrives. */
-export async function fetchCoverageThisWeek(tenantId: string): Promise<CoverageItem[]> {
-  const week = currentWeekDates();
+export async function fetchCoverageThisWeek(tenantId: string, timeZone?: string): Promise<CoverageItem[]> {
+  const week = currentWeekDates(new Date(), timeZone);
   const perDay = await Promise.all(WEEKDAYS.map((day) => fetchCoverageForDate(tenantId, day, week[day])));
   return perDay.flat().sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 }

@@ -110,6 +110,8 @@ it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`.
 | More > Chats | same (`communication`) | The office's own chats with parents and staff, with voice and video call buttons, and an unread count. Calls ring on the admin side too (`CallProvider` wraps the admin navigation). |
 | More > All school chats | same | Every chat in the school, read only (`fetchSchoolConversations`): filter by name, open one as an oversight thread (`ChatThread` with `oversight`: both names on the bubbles, no composer, no calls, nothing marked read). |
 | More > Call log | same | Who called whom, when, voice or video, how long, how it ended (`fetchSchoolCallLog`, `callOutcome`). Never what was said. |
+| More > Leave requests | school admins, and staff or teachers holding `leave` | Teachers' leave requests, awaiting review first: note, Approve or Reject (asks first; the teacher is told in the app, `decideLeaveRequest`), and the past ones, marked "Figbloom HR" where HR decided. Leave that HR runs ("Leave to approve") is a separate screen, not here yet. |
+| Home > Needs cover this week | school admins | Periods this week whose teacher is on approved leave (`fetchCoverageThisWeek`): choose a substitute, mark the period free, or change an earlier choice (`assignCoverage`; the substitute is told in the app). |
 
 The data these read (`fetchSchoolOverview`, `fetchClassRegister`, `fetchLatestRegisters`,
 `remindClassTeacher`) is in `packages/shared/src/adminOverview.ts`, and the announcement composer's

@@ -13,10 +13,11 @@ import { AdminHome, webConsoleUrl } from "./Home";
 jest.mock("lucide-react-native", () => new Proxy({}, { get: (_target, name) => (name === "__esModule" ? true : () => null) }));
 // The skeleton pulses with a timer, which a test has no reason to wait on.
 jest.mock("../../components/Skeleton", () => ({ Skeleton: () => null }));
-jest.mock("@figbloom/shared", () => ({ ...jest.requireActual("@figbloom/shared"), fetchSchoolOverview: jest.fn(), fetchLatestRegisters: jest.fn() }));
+jest.mock("@figbloom/shared", () => ({ ...jest.requireActual("@figbloom/shared"), fetchSchoolOverview: jest.fn(), fetchLatestRegisters: jest.fn(), fetchCoverageThisWeek: jest.fn() }));
 
 const fetchSchoolOverview = shared.fetchSchoolOverview as unknown as jest.Mock;
 const fetchLatestRegisters = shared.fetchLatestRegisters as unknown as jest.Mock;
+const fetchCoverageThisWeek = shared.fetchCoverageThisWeek as unknown as jest.Mock;
 
 const base: StaffSession = {
   role: "school_admin", accent: "#7A1F2B", profileId: "grace", tenantId: "school-1", fullName: "Grace Njeri", country: "KE",
@@ -43,6 +44,7 @@ const registers: LatestRegisters = {
 beforeEach(() => {
   fetchSchoolOverview.mockReset().mockResolvedValue(overview);
   fetchLatestRegisters.mockReset().mockResolvedValue(registers);
+  fetchCoverageThisWeek.mockReset().mockResolvedValue([]);
 });
 
 /** The theme shows nothing until it has read the person's saved choice, so every test waits for the school's name first. */
@@ -72,6 +74,23 @@ describe("the admin home", () => {
     expect(screen.queryByText("Your access")).toBeNull();
   });
 
+  it("shows a school admin which periods this week need cover, under what needs them, and nothing when none do", async () => {
+    fetchCoverageThisWeek.mockResolvedValue([{
+      date: "2026-11-04", weekday: "Wed", classId: "c1", className: "Form 1A", time: "10:00", subjectId: "math", subjectName: "Mathematics",
+      absentTeacherId: "t-ann", absentTeacherName: "Ann Wanjiru", substitutes: [], assignment: null,
+    }]);
+    await home(base);
+    expect(await screen.findByText("Needs cover this week · 1")).toBeTruthy();
+    expect(fetchCoverageThisWeek).toHaveBeenCalledWith("school-1");
+  });
+
+  it("does not hold the overview back, or break it, when the cover list cannot be read", async () => {
+    fetchCoverageThisWeek.mockRejectedValue(new Error("Network request failed"));
+    await home(base);
+    expect(await screen.findByText("Needs you")).toBeTruthy();
+    expect(await screen.findByText("Couldn't check who needs cover this week: Network request failed")).toBeTruthy();
+  });
+
   it("hands a class's register to the navigator when its row is tapped", async () => {
     const onOpenRegister = jest.fn();
     await home(base, false, jest.fn(), onOpenRegister);
@@ -99,6 +118,7 @@ describe("the admin home", () => {
     expect(screen.queryByText("Needs you")).toBeNull();
     expect(fetchSchoolOverview).not.toHaveBeenCalled();
     expect(fetchLatestRegisters).not.toHaveBeenCalled();
+    expect(fetchCoverageThisWeek).not.toHaveBeenCalled();
   });
 
   it("shows every class's latest register to someone who holds the attendance area, and not the school's fees", async () => {

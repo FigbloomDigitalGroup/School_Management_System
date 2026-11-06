@@ -1,5 +1,5 @@
 import { Linking, RefreshControl, ScrollView, Text, View } from "react-native";
-import { ADMIN_AREA_INFO, SITE_ORIGIN, fetchLatestRegisters, fetchSchoolOverview, homeRouteFor, phoneConsolesFor } from "@figbloom/shared";
+import { ADMIN_AREA_INFO, SITE_ORIGIN, fetchCoverageThisWeek, fetchLatestRegisters, fetchSchoolOverview, homeRouteFor, phoneConsolesFor } from "@figbloom/shared";
 import { Skeleton } from "../../components/Skeleton";
 import { useConsoleSwitch } from "../../lib/consoleSwitch";
 import type { StaffSession } from "../../lib/staffSession";
@@ -8,6 +8,7 @@ import { accentFor } from "../../theme";
 import { Button } from "../../ui/Button";
 import { ErrorState } from "../../ui/StateView";
 import { useTheme } from "../../ui/ThemeContext";
+import { CoverageSection } from "./CoverageSection";
 import { LatestRegistersSection, OverviewSections, type OpenRegisterHandler } from "./Overview";
 
 /** Where the school's admin console lives on the web: everything the phone does not do yet is there. */
@@ -49,6 +50,8 @@ export function AdminHome({ session, onOpenRegister }: { session: StaffSession; 
   // A full admin reads the whole school's overview. Someone who holds the attendance area reads the registers.
   const overview = useLoad(full ? () => fetchSchoolOverview(session.tenantId) : null, session.tenantId);
   const registers = useLoad(!full && areas.includes("attendance") ? () => fetchLatestRegisters(session.tenantId) : null, session.tenantId);
+  // Periods this week whose teacher is on approved leave (a full admin's, as on the web Dashboard). It never holds the overview back.
+  const coverage = useLoad(full ? () => fetchCoverageThisWeek(session.tenantId) : null, session.tenantId);
 
   return (
     <View style={s.screen}>
@@ -61,8 +64,8 @@ export function AdminHome({ session, onOpenRegister }: { session: StaffSession; 
         contentContainerStyle={{ padding: 16 }}
         refreshControl={
           <RefreshControl
-            refreshing={overview.refreshing || registers.refreshing}
-            onRefresh={() => void Promise.all([overview.refresh(), registers.refresh()])}
+            refreshing={overview.refreshing || registers.refreshing || coverage.refreshing}
+            onRefresh={() => void Promise.all([overview.refresh(), registers.refresh(), coverage.refresh()])}
           />
         }
       >
@@ -70,7 +73,21 @@ export function AdminHome({ session, onOpenRegister }: { session: StaffSession; 
           overview.error ? (
             <ErrorState title="Couldn't load the overview" body={overview.error} onRetry={overview.retry} />
           ) : overview.data ? (
-            <OverviewSections session={session} data={overview.data} onOpen={onOpenRegister} />
+            <OverviewSections
+              session={session}
+              data={overview.data}
+              onOpen={onOpenRegister}
+              afterNeeds={
+                coverage.data ? (
+                  <CoverageSection session={session} items={coverage.data} onChanged={() => void coverage.refresh()} />
+                ) : coverage.error ? (
+                  <View style={[s.card, { marginTop: 14 }]}>
+                    <Text style={s.small}>Couldn't check who needs cover this week: {coverage.error}</Text>
+                    <Button variant="secondary" label="Try again" onPress={coverage.retry} style={{ marginTop: 10 }} />
+                  </View>
+                ) : null
+              }
+            />
           ) : (
             <LoadingSections />
           )

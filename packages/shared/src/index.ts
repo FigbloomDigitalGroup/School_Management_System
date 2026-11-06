@@ -82,6 +82,7 @@ export * from "./otherStaff";
 export * from "./adminAreas";
 export * from "./adminOverview";
 export * from "./adminAnnouncements";
+export * from "./coverage";
 export * from "./hrHandoff";
 export * from "./myHr";
 export * from "./hrLeave";
