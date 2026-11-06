@@ -4,11 +4,13 @@ import { CalendarOff, Users } from "lucide-react-native";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
   fetchHealthFlagsForStudents, healthFlags, type HealthFlags,
-  MARK_LABEL, MARK_SHORT, newRegister, nextMark, submitWarning, tally, toRecords,
+  MARK_LABEL, MARK_SHORT, newRegister, nextMark, signOutTime, submitWarning, tally, toRecords,
   type AttendanceMark, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
 import { accentFor, HIT, perScheme } from "../../theme";
 import { queue } from "../../storage";
+import { useRosterSignOuts } from "../../lib/useRosterSignOuts";
+import { leftEarlyLines } from "../../lib/leftEarlyList";
 import { PillPicker } from "../../components/PillPicker";
 import { QueueNotice } from "../../components/QueueNotice";
 import type { TeacherSession } from "../../navigation";
@@ -65,6 +67,10 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       .catch(() => { if (alive) setHealth(new Map()); });
     return () => { alive = false; };
   }, [roster]);
+  /** Learners signed out early today, for a read-only badge. Its own read: a failure just shows no badge. */
+  const signOuts = useRosterSignOuts(useMemo(() => (roster ?? []).map((r) => r.id), [roster]));
+  /** The same read, as lines for the "register is in" summary. Empty when there are none or the read failed. */
+  const leftEarly = useMemo(() => leftEarlyLines(roster, signOuts), [roster, signOuts]);
   /** The server refused the register (not a connection problem): shown instead of pretending it was saved. */
   const [saveError, setSaveError] = useState<string | null>(null);
   // Registers saved on this phone that haven't gone out yet. Re-read on a timer so it
@@ -224,6 +230,22 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
             <Text style={s.primaryLabel}>Correct a mark</Text>
           </Tap>
 
+          {leftEarly.length > 0 && (
+            <View style={[s.card, { marginTop: 16, padding: 12 }]}>
+              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Left early</Text>
+              {leftEarly.map((l) => (
+                <Text
+                  key={l.studentId}
+                  accessible
+                  accessibilityLabel={l.text}
+                  style={{ color: t.appSurface.ink, fontSize: 14, marginTop: 2 }}
+                >
+                  {l.text}
+                </Text>
+              ))}
+            </View>
+          )}
+
           {classes.length > 1 && (
             <View style={{ marginTop: 20 }}>
               <Text style={[s.small, { fontWeight: "600", marginBottom: 8 }]}>Switch class</Text>
@@ -268,6 +290,17 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Text style={s.faint}>ADM {student.admission_no}</Text>
                   <HealthChip flags={health.get(student.id)} name={student.full_name} />
+                  {signOuts.has(student.id) && (
+                    <View
+                      accessible
+                      accessibilityLabel={`${student.full_name}: left early at ${signOutTime(signOuts.get(student.id)!)}`}
+                      style={{ borderRadius: 999, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1, backgroundColor: t.status.mutedBg, borderColor: t.appSurface.line }}
+                    >
+                      <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: t.status.mutedInk }}>
+                        LEFT EARLY {signOutTime(signOuts.get(student.id)!)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </Tap>
               <View style={{ flexDirection: "row", gap: 6 }}>
