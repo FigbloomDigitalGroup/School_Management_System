@@ -12,6 +12,8 @@ import { LiveClassBanner } from "../../calls/LiveClassBanner";
 import { LinkCard } from "../../components/LinkCard";
 import { PendingSignatures } from "../../components/PendingSignatures";
 import { Skeleton } from "../../components/Skeleton";
+import { leftEarlyLine } from "../../lib/leftEarlyLine";
+import { useChildSignOuts } from "../../lib/useChildSignOuts";
 import { useMedicalUnread } from "../../lib/medicalUnread";
 import { useCbeResults } from "../../lib/useCbeResults";
 import { useParentHomework } from "../../lib/useParentHomework";
@@ -34,6 +36,7 @@ export function ParentHome() {
   const unreadHealth = useMedicalUnread(useParentProfileId());
   // Only needed when there is no exam mean: a CBE learner's results are strand levels, not marks.
   const cbe = useCbeResults(child.mean === null ? child.id : null, country);
+  const signOut = useChildSignOuts().get(child.id);
   const a = accentFor(accent);
   /** First child takes the deep shade, second the accent itself. */
   const tint = index === 0 ? a.deep : a.hex;
@@ -127,6 +130,14 @@ export function ParentHome() {
                   : "Mostly lateness rather than full absence. Worth a word with the class teacher if there is a reason."}
               </Text>
             </View>
+          </View>
+        )}
+
+        {signOut && (
+          <View style={[s.card, { marginTop: 16, padding: 14 }]} accessibilityRole="summary">
+            <Text style={s.eyebrow}>SIGNED OUT EARLY TODAY</Text>
+            <Text style={{ color: t.appSurface.ink, fontSize: 16, fontWeight: "600", marginTop: 6 }}>{leftEarlyLine(signOut)}</Text>
+            {!!signOut.reason && <Text style={[s.small, { marginTop: 4 }]}>Reason: {signOut.reason}</Text>}
           </View>
         )}
 
