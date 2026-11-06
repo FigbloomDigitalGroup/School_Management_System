@@ -1,4 +1,5 @@
-import { invokeEdge } from "./edge";
+import { EdgeError, invokeEdge } from "./edge";
+import { formatShortDate } from "./parentData";
 import { supabase } from "./supabase";
 
 /**
@@ -224,6 +225,43 @@ export function approvalsState(access: HrLeaveAccess | null, result: { loading: 
   if (result.loading || result.data == null) return { kind: "loading" };
   const items = readApprovals(result.data);
   return items.length ? { kind: "list", items } : { kind: "empty" };
+}
+
+/**
+ * "Leave to approve", read from HR for the phone: the applications waiting, nothing, or "this person never opened HR &
+ * Payroll from Schools" (a state with its own message, not a failure). Anything else HR refuses with throws its sentence.
+ */
+export async function loadApprovals(): Promise<Extract<ApprovalsState, { kind: "list" | "empty" | "not_linked" }>> {
+  try {
+    const items = readApprovals(await fetchApprovals());
+    return items.length ? { kind: "list", items } : { kind: "empty" };
+  } catch (err) {
+    if (err instanceof EdgeError && err.code === "approver_not_linked") return { kind: "not_linked" };
+    throw err;
+  }
+}
+
+/** What the screen says once HR has recorded a decision (the web's toast and the phone's banner). */
+export function approvalDecisionMessage(decision: "approve" | "decline", employee: string): string {
+  return decision === "approve"
+    ? `Approved \u2014 ${employee}'s leave goes on in Figbloom HR.`
+    : `Declined \u2014 ${employee} will see your comment in HR.`;
+}
+
+/** HR refuses a decline without a comment, so the button waits for one. */
+export const mayDecline = (comment: string): boolean => comment.trim().length > 0;
+
+/** A date from HR ("2026-11-09", or a full timestamp) as the pages show it. */
+const shortDate = (d: string | null) => (d ? formatShortDate(d.slice(0, 10)) : "\u2014");
+
+/** "9 Nov \u2013 11 Nov", or one date when the leave is a single day. */
+export function leaveRange(from: string | null, to: string | null): string {
+  return from && to && from !== to ? `${shortDate(from)} \u2013 ${shortDate(to)}` : shortDate(from ?? to);
+}
+
+/** "Half a day", "3 days", or null when HR gave no count. */
+export function leaveDaysWords(days: number | null, halfDay: boolean): string | null {
+  return halfDay ? "Half a day" : days === null ? null : `${days} ${days === 1 ? "day" : "days"}`;
 }
 
 /** Why a chosen document can't go (null: it can). */

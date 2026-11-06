@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ADMIN_PAGE_AREA, mayOpenAdminPage } from "./adminAreas";
 import { NAV } from "./auth";
 import { PAGE_ABOUT } from "./guide";
 import { EdgeError } from "./edge";
 import {
-  approvalsState, documentNeeded, documentProblem, leaveMode, leaveProblems, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, readAccess,
-  readApprovals, readLeaveForm, showsLeaveToApprove, showsStaffLeave,
+  approvalDecisionMessage, approvalsState, documentNeeded, documentProblem, HR_CONNECT_ONCE, leaveDaysWords, leaveMode, leaveProblems, leaveRange, linkExpired,
+  loadApprovals, MAX_LEAVE_DOCUMENT_BYTES, mayDecline, readAccess, readApprovals, readLeaveForm, showsLeaveToApprove, showsStaffLeave,
 } from "./hrLeave";
+
+// The calls go to the my-hr function; the answers are what HR's routes send.
+const mockInvoke = vi.hoisted(() => vi.fn());
+vi.mock("./edge", async (importOriginal) => ({ ...(await importOriginal<typeof import("./edge")>()), invokeEdge: mockInvoke }));
 
 describe("hr_leave_access, as the pages read it", () => {
   it("an unknown answer is off: the school's own form stays", () => {
@@ -112,5 +116,58 @@ describe("a leave document", () => {
     expect(documentProblem({ size: MAX_LEAVE_DOCUMENT_BYTES + 1, type: "application/pdf" })).toMatch(/larger than 3 MB/);
     expect(documentProblem({ size: 1000, type: "application/zip" })).toMatch(/PDF/);
     expect(documentProblem({ size: 0, type: "application/pdf" })).toMatch(/empty/);
+  });
+});
+
+describe("loading Leave to approve from HR", () => {
+  const waiting = { approvals: [{ application_id: "a1", employee: { name: "Ann Wanjiru" }, leave_type: "Annual", start_date: "2026-11-09", end_date: "2026-11-11", days: 3 }] };
+
+  it("asks HR's approvals route and returns what waits on this person", async () => {
+    mockInvoke.mockResolvedValue(waiting);
+    const state = await loadApprovals();
+    expect(mockInvoke).toHaveBeenCalledWith("my-hr", { route: "approvals" }, expect.anything());
+    expect(state).toMatchObject({ kind: "list", items: [{ id: "a1", employee: "Ann Wanjiru", type: "Annual", days: 3 }] });
+  });
+
+  it("says nothing is waiting when HR sends none", async () => {
+    mockInvoke.mockResolvedValue({ approvals: [] });
+    expect(await loadApprovals()).toEqual({ kind: "empty" });
+  });
+
+  it("makes someone HR cannot match to one of its users a state of its own, not a failure", async () => {
+    mockInvoke.mockRejectedValue(new EdgeError(HR_CONNECT_ONCE, 409, false, "approver_not_linked"));
+    expect(await loadApprovals()).toEqual({ kind: "not_linked" });
+  });
+
+  it("passes any other refusal on in HR's own words", async () => {
+    mockInvoke.mockRejectedValue(new EdgeError("You can't approve leave for this school.", 403, false, "approver_no_access"));
+    await expect(loadApprovals()).rejects.toThrow("You can't approve leave for this school.");
+    mockInvoke.mockRejectedValue(new Error("Network request failed"));
+    await expect(loadApprovals()).rejects.toThrow("Network request failed");
+  });
+});
+
+describe("deciding, in words", () => {
+  it("says what HR recorded, by the person's name", () => {
+    expect(approvalDecisionMessage("approve", "Ann Wanjiru")).toBe("Approved \u2014 Ann Wanjiru's leave goes on in Figbloom HR.");
+    expect(approvalDecisionMessage("decline", "Ann Wanjiru")).toBe("Declined \u2014 Ann Wanjiru will see your comment in HR.");
+  });
+
+  it("will not decline without a comment, and a comment of spaces is none", () => {
+    expect(mayDecline("")).toBe(false);
+    expect(mayDecline("   \n ")).toBe(false);
+    expect(mayDecline(" No cover for that week ")).toBe(true);
+  });
+
+  it("writes the dates and the length as the pages show them", () => {
+    expect(leaveRange("2026-11-09", "2026-11-11")).toBe("9 Nov \u2013 11 Nov");
+    expect(leaveRange("2026-11-09", "2026-11-09")).toBe("9 Nov");
+    expect(leaveRange("2026-11-09T00:00:00Z", "2026-11-11T00:00:00Z")).toBe("9 Nov \u2013 11 Nov");
+    expect(leaveRange("2026-11-09", null)).toBe("9 Nov");
+    expect(leaveRange(null, null)).toBe("\u2014");
+    expect(leaveDaysWords(3, false)).toBe("3 days");
+    expect(leaveDaysWords(1, false)).toBe("1 day");
+    expect(leaveDaysWords(0.5, true)).toBe("Half a day");
+    expect(leaveDaysWords(null, false)).toBeNull();
   });
 });

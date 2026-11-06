@@ -97,7 +97,10 @@ Staff identities are live data and are never saved (`lib/staffSession.ts`): with
 signal they see the "No connection" page. The admin side has three tabs: Home, More and
 Account. More lists the screens in `adminScreens.ts` that this person's areas open
 (`mayOpenAdminPage`), and has no tab at all when there are none. A screen is added by listing
-it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`.
+it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`. One screen
+follows an answer, not an area: "Leave to approve" is listed when Figbloom HR says this person
+approves leave there (`needs: "hrApprover"`), so a bursar whose areas open nothing else gets a More tab
+once HR has answered.
 
 **What is on the admin screens so far**
 
@@ -110,7 +113,8 @@ it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`.
 | More > Chats | same (`communication`) | The office's own chats with parents and staff, with voice and video call buttons, and an unread count. Calls ring on the admin side too (`CallProvider` wraps the admin navigation). |
 | More > All school chats | same | Every chat in the school, read only (`fetchSchoolConversations`): filter by name, open one as an oversight thread (`ChatThread` with `oversight`: both names on the bubbles, no composer, no calls, nothing marked read). |
 | More > Call log | same | Who called whom, when, voice or video, how long, how it ended (`fetchSchoolCallLog`, `callOutcome`). Never what was said. |
-| More > Leave requests | school admins, and staff or teachers holding `leave` | Teachers' leave requests, awaiting review first: note, Approve or Reject (asks first; the teacher is told in the app, `decideLeaveRequest`), and the past ones, marked "Figbloom HR" where HR decided. Leave that HR runs ("Leave to approve") is a separate screen, not here yet. |
+| More > Leave requests | school admins, and staff or teachers holding `leave` | Teachers' leave requests, awaiting review first: note, Approve or Reject (asks first; the teacher is told in the app, `decideLeaveRequest`), and the past ones, marked "Figbloom HR" where HR decided. Leave that HR runs ("Leave to approve") is the next row. |
+| More > Leave to approve | approvers, at a school whose leave runs in Figbloom HR (`hr_leave_access()`: `available` and `approver`); the row appears once HR has answered (`lib/useHrApprover.ts`), never on a guess | Applications waiting on this person in HR (`loadApprovals`): who, type, dates, length, reason, their step, the chain so far, and the document (HR's link, good for 5 minutes; an old one reloads the list). Approve, or Decline with a comment (HR takes no decline without one), each after a question; the decision is made in HR as the person (`decideApproval`), so HR's own rules, delegation and audit apply, and its refusals show in its own words. Someone HR does not know yet ("approver_not_linked") is asked to open HR & Payroll once, with the button when the database says they may have it (`requestHrLink`, a one-minute link opened in the browser). |
 | Home > Needs cover this week | school admins | Periods this week whose teacher is on approved leave (`fetchCoverageThisWeek`): choose a substitute, mark the period free, or change an earlier choice (`assignCoverage`; the substitute is told in the app). |
 
 The data these read (`fetchSchoolOverview`, `fetchClassRegister`, `fetchLatestRegisters`,
