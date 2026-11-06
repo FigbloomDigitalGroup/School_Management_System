@@ -25,8 +25,9 @@ function initialsOf(name: string): string {
 }
 
 /** Editable name/phone/photo — same fields as web's MyAccountFields, same
- *  RLS (profile_update_self). login_id/email stay read-only. */
-export function TeacherAccount({ session }: { session: TeacherSession }) {
+ *  RLS (profile_update_self). login_id/email stay read-only. Used for anyone on staff: the teacher's
+ *  console shows it under More (with a way back), the admin console as a tab (`back={false}`). */
+export function TeacherAccount({ session, back = true }: { session: TeacherSession; back?: boolean }) {
   const { t, s, accentInk } = useTheme();
   const a = accentFor(session.accent);
   const [profile, setProfile] = useState<MyProfile | null>(null);
@@ -91,7 +92,7 @@ export function TeacherAccount({ session }: { session: TeacherSession }) {
 
   return (
     <View style={s.screen}>
-      <ScreenHeader title="Account" sub={session.fullName} color={a.deep} back />
+      <ScreenHeader title="Account" sub={session.fullName} color={a.deep} back={back} />
 
       <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
         <View style={[s.card, { gap: 12 }]}>

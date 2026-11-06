@@ -130,6 +130,20 @@ export function showsAdminSwitch(role: Role, areas: readonly AdminArea[]): boole
   return false;
 }
 
+/**
+ * Which consoles the phone app opens for this person: a teacher console, an admin console, or both.
+ * A school admin has the admin console. A teacher keeps their own console, and gains the admin one when they
+ * hold areas (the web's "Teacher | Admin" switch). Other staff have no console of their own on the phone, so
+ * they open the admin one for any area they hold, visitors included. Org admins and super admins have none
+ * yet: the web is theirs. `admin` is null when there is nothing to open.
+ */
+export function phoneConsolesFor(role: Role, areas: readonly AdminArea[]): { teacher: boolean; admin: AdminAccess | null } {
+  if (role === "school_admin") return { teacher: false, admin: "all" };
+  if (role !== "teacher" && role !== "staff") return { teacher: false, admin: null };
+  const access = adminAccessFor(role, areas);
+  return { teacher: role === "teacher", admin: hasAdminConsole(access) ? access : null };
+}
+
 /** Where each area's work is in the admin console, for the home page of someone holding only some areas. */
 export const ADMIN_AREA_PAGES: Record<AdminArea, { to: string; label: string }[]> = {
   people: [{ to: "admin/people", label: "Students & staff" }],

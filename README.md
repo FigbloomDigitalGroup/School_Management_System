@@ -9,7 +9,8 @@ codebase, one deployment.
 apps/web/          React + Vite + TS + Tailwind — desktop console for every role
                    (platform, school admin, teacher, parent, student)
 apps/mobile/       React Native (Android + iOS) — the one phone app: the signed-in
-                   role (parent, student, driver or teacher) picks the screens.
+                   role (parent, student, driver, teacher, school admin or staff
+                   with admin areas) picks the screens.
                    apps/web also keeps a phone-mockup preview of the
                    student screens (StudentApp.tsx, wrapped in <PhoneFrame>) for
                    design reference — it isn't routed to; the desktop screens are

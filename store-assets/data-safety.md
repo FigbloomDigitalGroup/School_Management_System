@@ -64,6 +64,13 @@ collected, so these are left undeclared. If you would rather be cautious,
 declare Voice or sound recordings and Videos as collected, optional, for app
 functionality; nothing else on the form changes.
 
+The admin console on the phone (school admins, and teachers or other staff who hold
+admin areas) reads and changes the school's own records, which are the same types
+as above (names, contact details, fees and payments, health records, attendance and
+marks). It adds no data type to the list; it only means more people at a school can
+see those records from a phone. The admin screens are behind a fingerprint lock that
+cannot be turned off.
+
 Teachers add no data type to this list. What they enter or read (staff and
 learner names, marks, attendance) falls under Name and Other personal info, and
 their chat and Bloom chat under Other in-app messages. Precise location is only
