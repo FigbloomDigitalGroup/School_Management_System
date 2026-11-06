@@ -10,6 +10,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AttendanceDetail } from "./AttendanceDetail";
+import { EarlySignOutList } from "../../components/attendance/EarlySignOutList";
 import { CoverageCard } from "./CoverageCard";
 import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
@@ -332,6 +333,7 @@ export function AdminDashboard() {
             </section>
           </div>
         </div>
+        <EarlySignOutList tenantId={tenant.id} />
       </div>
 
       {detailFor && data?.attendanceDate && (

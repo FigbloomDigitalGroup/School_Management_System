@@ -4,12 +4,17 @@ import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
   isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
   supabase, fetchHealthFlagsForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
-  type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type Register,
+  adminAccessFor, fetchEarlySignOutsForStudents, liveSignOutsByStudent, markWithSignOut, mayRecordEarlySignOut, mayVoidEarlySignOut,
+  voidEarlySignOut, leftEarlyText,
+  type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type EarlySignOut, type Register,
 } from "@figbloom/shared";
+import { EarlySignOutModal } from "../../components/attendance/EarlySignOutModal";
+import { collectorLine, leftEarlyLabel, liveSignOutRows } from "../../lib/earlySignOutView";
 import { HealthChip, flagsById } from "../../components/learners/Health";
 import { Badge } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { promptDialog } from "../../components/ui/Confirm";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
 import { queue } from "../../lib/queue";
@@ -79,7 +84,8 @@ const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day
 export function Attendance() {
   const online = useOnline();
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
+  const access = adminAccessFor(profile.role, adminAreas, actingForTenant);
 
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data: term, loading: termLoading } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
@@ -132,6 +138,44 @@ export function Attendance() {
     () => (classId ? fetchClassSickBay(classId).catch(() => new Map()) : Promise.resolve(new Map())),
     [classId],
   );
+
+  // Today's early sign-outs for this class (FIG-1513 stage A), shown beside the mark. A failed read shows none.
+  const [signOutKey, setSignOutKey] = useState(0);
+  // All of today's rows for the class (voided included) and the latest live one per learner, from one fetch.
+  const { data: signOutData } = useAsync<{ rows: EarlySignOut[]; latest: Map<string, EarlySignOut> }>(
+    () => (rosterData?.length
+      ? fetchEarlySignOutsForStudents(rosterData.map((s) => s.id))
+        .then((rows) => ({ rows, latest: liveSignOutsByStudent(rows) }))
+        .catch(() => ({ rows: [], latest: new Map<string, EarlySignOut>() }))
+      : Promise.resolve({ rows: [], latest: new Map<string, EarlySignOut>() })),
+    [rosterData, signOutKey],
+  );
+  const signOuts = signOutData?.latest;
+  const signOutRows = signOutData?.rows;
+  const [signingOut, setSigningOut] = useState<{ id: string; name: string; mark: AttendanceMark } | null>(null);
+  const [voidingId, setVoidingId] = useState<string | null>(null);
+
+  /** Voids a sign-out made by mistake; void_early_sign_out() decides who may and its refusal is shown as it comes. */
+  async function voidSignOut(s: EarlySignOut) {
+    const reason = await promptDialog({
+      title: `Void ${s.student_name}'s sign-out?`,
+      body: "It stays on record, marked void, with your reason. Use it only for a sign-out made by mistake.",
+      label: "Reason",
+      required: true,
+      confirmLabel: "Void sign-out",
+    });
+    if (reason === null) return;
+    setVoidingId(s.id);
+    try {
+      await voidEarlySignOut(s.id, reason);
+      toast("Sign-out voided.");
+      setSignOutKey((k) => k + 1);
+    } catch (err) {
+      toast(`Could not void the sign-out: ${err instanceof Error ? err.message : "something went wrong"}`, "error");
+    } finally {
+      setVoidingId(null);
+    }
+  }
 
   const [reg, setReg] = useState<Register | null>(null);
 
@@ -224,6 +268,10 @@ export function Attendance() {
   }
 
   const cls = classesData.find((c) => c.id === classId);
+  // The class teacher, or a holder of the attendance area, may sign a learner out; record_early_sign_out() enforces the same.
+  const canSignOut = mayRecordEarlySignOut(access, !!cls && cls.class_teacher_id === profile.id);
+  // Every live sign-out of the class today, in the order they left (display only, for the "register is in" screen), so an earlier one can be voided too.
+  const leftEarlyToday = liveSignOutRows(signOutRows ?? []);
 
   // Loaded and empty, as opposed to still loading: a sentence, not a skeleton
   // that never resolves. A register needs both a class and an open term.
@@ -269,6 +317,32 @@ export function Attendance() {
           <Button variant="primary" onClick={() => setSubmitted(false)}>Correct a mark</Button>
           <AccessibilityButton />
         </header>
+
+        {leftEarlyToday.length > 0 && (
+          <section className="mx-6 mt-6 rounded-xl border border-line bg-white p-4" aria-label="Left early today">
+            <div className="mb-2 font-mono text-micro tracking-[0.12em] text-ink-faint">LEFT EARLY TODAY · {cls.name}</div>
+            <ul className="grid gap-1.5">
+              {leftEarlyToday.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{s.student_name}</span>
+                    <span className="text-ink-muted"> · {leftEarlyText(s)} · collected by {collectorLine(s)}</span>
+                  </span>
+                  {mayVoidEarlySignOut(access, s.recorded_by, profile.id) && (
+                    <Button
+                      variant="danger"
+                      disabled={!online || voidingId === s.id}
+                      title={online ? "Void a sign-out made by mistake" : "Voiding needs a connection"}
+                      onClick={() => void voidSignOut(s)}
+                    >
+                      {voidingId === s.id ? "Voiding…" : "Void"}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <div className="px-6 py-6">
           <div className="mb-3 font-mono text-micro tracking-[0.12em] text-ink-faint">YOUR CLASSES TODAY</div>
@@ -376,6 +450,7 @@ export function Attendance() {
           {roster.map((s, i) => {
             const mark = reg.marks[s.id] ?? "present";
             const style = MARK_STYLE[mark];
+            const signOut = signOuts?.get(s.id);
             return (
               <li key={s.id}>
                 <div className="flex items-center gap-3 border-b border-line-soft bg-white px-5" style={{ minHeight: 56 }}>
@@ -386,6 +461,30 @@ export function Attendance() {
                     <div className="font-mono text-[10.5px] text-ink-faint">ADM {s.admission_no}</div>
                   </button>
                   {sickBay?.get(s.id) && <Badge tone="warn">{CLASS_SICK_BAY_LABEL[sickBay.get(s.id)!]}</Badge>}
+                  {signOut && (
+                    <>
+                      <Badge tone="info">{leftEarlyLabel(signOut)}</Badge>
+                      {mayVoidEarlySignOut(access, signOut.recorded_by, profile.id) && (
+                        <Button
+                          variant="danger"
+                          disabled={!online || voidingId === signOut.id}
+                          title={online ? "Void a sign-out made by mistake" : "Voiding needs a connection"}
+                          onClick={() => void voidSignOut(signOut)}
+                        >
+                          {voidingId === signOut.id ? "Voiding…" : "Void"}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {canSignOut && (
+                    <Button
+                      disabled={!online}
+                      title={online ? "Record that this learner left school early" : "Signing out needs a connection"}
+                      onClick={() => setSigningOut({ id: s.id, name: s.full_name, mark })}
+                    >
+                      {signOut ? "Sign out again" : "Sign out early"}
+                    </Button>
+                  )}
                   <HealthChip flags={healthFlags?.get(s.id) ?? null} name={s.full_name} />
                   <div role="group" aria-label={`Mark for ${s.full_name}`} className="flex shrink-0 gap-1.5">
                     {(["present", "absent", "late"] as AttendanceMark[]).map((k) => {
@@ -409,7 +508,7 @@ export function Attendance() {
                       );
                     })}
                   </div>
-                  <span className="hidden w-16 shrink-0 text-right text-[11.5px] sm:block" style={{ color: style.ink }}>
+                  <span className="hidden w-16 shrink-0 text-right text-[11.5px] sm:block" style={{ color: style.ink }} title={markWithSignOut(MARK_LABEL[mark], signOut)}>
                     {MARK_LABEL[mark]}
                   </span>
                 </div>
@@ -443,6 +542,17 @@ export function Attendance() {
           </div>
         )}
       </footer>
+
+      {signingOut && (
+        <EarlySignOutModal
+          studentId={signingOut.id}
+          studentName={signingOut.name}
+          className={cls.name}
+          todayMark={signingOut.mark}
+          onClose={() => setSigningOut(null)}
+          onRecorded={() => setSignOutKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }

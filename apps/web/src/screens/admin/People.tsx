@@ -23,10 +23,11 @@ import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, u
 import { HealthEditor, OptionalHealthSection, type PaperConsent } from "../../components/learners/Health";
 import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
+import { StudentEarlySignOuts } from "../../components/learners/EarlySignOuts";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, setHealthConsent, type StudentHealthInput } from "@figbloom/shared";
 import { CallButton } from "../../components/calls/CallButton";
 import { AdminAccessEditor } from "../../components/AdminAccess";
-import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
+import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, maySeeSignOutList, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
 import { confirmDialog } from "../../components/ui/Confirm";
 
 type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
@@ -111,7 +112,8 @@ export function People() {
   const toast = useToast();
   const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
   // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
-  const fullAdmin = adminAccessFor(profile.role, adminAreas, actingForTenant) === "all";
+  const myAccess = adminAccessFor(profile.role, adminAreas, actingForTenant);
+  const fullAdmin = myAccess === "all";
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
@@ -522,6 +524,7 @@ export function People() {
           {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
           )}
+          {manage.kind === "students" && maySeeSignOutList(myAccess) && <StudentEarlySignOuts studentId={manageRow.id} />}
           {manage.kind === "students" && (
             <section className="mt-5">
               <h3 className="mb-2 text-small font-semibold">Sports & activities</h3>

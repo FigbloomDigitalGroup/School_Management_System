@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ADMIN_AREA_INFO, ADMIN_AREA_PAGES, supabase, type AdminArea, type ClassGroup } from "@figbloom/shared";
+import { ADMIN_AREA_INFO, ADMIN_AREA_PAGES, maySeeSignOutList, supabase, type AdminArea, type ClassGroup } from "@figbloom/shared";
+import { EarlySignOutList } from "../../components/attendance/EarlySignOutList";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -52,6 +53,7 @@ export function AreasHome() {
           ))}
         </div>
         {adminAreas.includes("medical") && <div className="mt-5"><OverdueMedication tenantId={tenant.id} slug={tenant.slug} compact /></div>}
+        {maySeeSignOutList(adminAreas) && <EarlySignOutList tenantId={tenant.id} />}
         {adminAreas.includes("attendance") && <LatestRegisters tenantId={tenant.id} />}
       </div>
     </>
