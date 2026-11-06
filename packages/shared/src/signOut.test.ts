@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
  * (FIG-1340). Every sign-out in the apps ends this device's session only.
  */
 const ROOT = join(__dirname, "..", "..", "..");
-const APPS = ["apps/web/src", "apps/mobile/src", "apps/mobile/App.tsx", "apps/teacher-mobile/src", "apps/teacher-mobile/App.tsx", "packages/shared/src"];
+const APPS = ["apps/web/src", "apps/mobile/src", "apps/mobile/App.tsx", "packages/shared/src"];
 
 function sources(path: string): string[] {
   let st;

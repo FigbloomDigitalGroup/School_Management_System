@@ -20,6 +20,7 @@ jest.mock("./studentData", () => ({ StudentDataProvider: ({ children }: { childr
 jest.mock("./screens/SignIn", () => ({ SignIn: () => <MockText>SIGN-IN SCREEN</MockText> }));
 jest.mock("./screens/ChoosePassword", () => ({ ChoosePassword: () => <MockText>CHOOSE-PASSWORD SCREEN</MockText> }));
 jest.mock("./navigation", () => ({ Navigation: ({ role }: { role: string }) => <MockText>HOME OF THE {role.toUpperCase()}</MockText> }));
+jest.mock("./teacherNavigation", () => ({ TeacherNavigation: () => <MockText>HOME OF THE TEACHER</MockText> }));
 jest.mock("@figbloom/shared", () => ({ ...jest.requireActual("@figbloom/shared"), supabase: jest.fn() }));
 
 const supabase = shared.supabase as unknown as jest.Mock;
@@ -161,9 +162,47 @@ describe("opening the app", () => {
     expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
   });
 
-  it("keeps a staff login (a role this app has no home for) on the sign-in screen", async () => {
+  it("opens a teacher's home when the server answers, but saves nothing for a teacher", async () => {
     await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher", full_name: "Ann Wanjiru", login_id: "TC-0002" };
+    open();
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(await AsyncStorage.getItem(SAVED_KEY)).toBeNull();
+  });
+
+  it("gives a teacher the no-connection page with no signal, not 'sign in': the teacher's screens are all live data", async () => {
+    await storeLogin();
+    server.down = true;
     server.profile = { ...parentProfile, role: "teacher" };
+    open();
+    expect(await screen.findByText(NO_CONNECTION_TITLE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("goes to the teacher's home when Try again finds the server", async () => {
+    await storeLogin();
+    server.down = true;
+    server.profile = { ...parentProfile, role: "teacher" };
+    open();
+    await screen.findByText(NO_CONNECTION_TITLE);
+
+    server.down = false;
+    await act(async () => { fireEvent.press(screen.getByText(TRY_AGAIN)); });
+
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(screen.queryByText(NO_CONNECTION_TITLE)).toBeNull();
+  });
+
+  it("keeps a teacher with no school (a data problem, not a session) on the sign-in screen", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher", tenant_id: null };
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+  });
+
+  it("keeps a login for a role this app has no home for (a school admin) on the sign-in screen", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "school_admin" };
     open();
     expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
   });

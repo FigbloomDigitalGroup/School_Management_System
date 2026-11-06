@@ -30,8 +30,10 @@ describe("saved session", () => {
       JSON.stringify({ ...parent, tenantId: "" }),
       JSON.stringify({ ...parent, accent: undefined }),
       JSON.stringify({ ...parent, country: undefined }),
-      JSON.stringify({ ...parent, role: "teacher" }),
+      JSON.stringify({ ...parent, role: "school_admin" }),
       JSON.stringify({ role: "driver", accent: "#7A1F2B", profileId: "ann", tenantId: "school-1" }), // a driver needs a name
+      JSON.stringify({ ...parent, role: "teacher" }), // a teacher needs a name as well as a country
+      JSON.stringify({ role: "teacher", accent: "#7A1F2B", profileId: "ann", tenantId: "school-1", fullName: "Ann Wanjiru" }), // and a country as well as a name
     ]) {
       await AsyncStorage.setItem(KEY, broken);
       await expect(readSavedSession("ann")).resolves.toBeNull();
@@ -42,5 +44,11 @@ describe("saved session", () => {
     const driver: AppSession = { role: "driver", accent: "#7A1F2B", profileId: "ann", tenantId: "school-1", fullName: "James Kariuki" };
     await saveSession("ann", driver);
     await expect(readSavedSession("ann")).resolves.toEqual(driver);
+  });
+
+  it("accepts a whole teacher identity", async () => {
+    const teacher: AppSession = { role: "teacher", accent: "#7A1F2B", profileId: "ann", tenantId: "school-1", fullName: "Ann Wanjiru", country: "KE" };
+    await saveSession("ann", teacher);
+    await expect(readSavedSession("ann")).resolves.toEqual(teacher);
   });
 });

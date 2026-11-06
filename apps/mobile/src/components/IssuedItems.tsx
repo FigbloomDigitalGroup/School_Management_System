@@ -13,7 +13,6 @@ import { useTheme } from "../ui/ThemeContext";
  * inventory, read-only: out first with anything overdue on top, then what has
  * been handed back. Used by the learner (whose = "you"), by their parent
  * (whose = a first name) and by a teacher (holder = their own profile).
- * The same file is in both phone apps; change both.
  */
 export function IssuedItemsView({ holder, whose, tint }: { holder: IssueHolder; whose: string; tint: string }) {
   const { t, s, accentInk } = useTheme();

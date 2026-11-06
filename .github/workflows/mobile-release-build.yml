@@ -1,7 +1,7 @@
 name: Mobile release build (Android)
 
-# FIG-781: there was no build/release pipeline of any kind for apps/mobile or
-# apps/teacher-mobile before this — every release build was a manual
+# FIG-781: there was no build/release pipeline of any kind for apps/mobile
+# before this — every release build was a manual
 # ./gradlew/Xcode run on someone's laptop. This gives Android a repeatable,
 # auditable CI build that produces a signed, upload-ready AAB.
 #
@@ -17,16 +17,10 @@ name: Mobile release build (Android)
 # supply / upload-google-play step once a Play Console service account
 # exists).
 
+# One app serves every role (parent, student, driver, teacher), so there is
+# nothing to choose between.
 on:
   workflow_dispatch:
-    inputs:
-      app:
-        description: "Which app to build"
-        required: true
-        type: choice
-        options:
-          - mobile
-          - teacher-mobile
 
 # The job reads the repo and uploads an artifact; it needs no other access to GitHub.
 permissions:
@@ -36,7 +30,7 @@ jobs:
   android-release:
     runs-on: ubuntu-latest
     env:
-      APP_DIR: apps/${{ inputs.app }}
+      APP_DIR: apps/mobile
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -61,12 +55,11 @@ jobs:
       - name: Install dependencies (npm workspaces)
         run: npm ci
 
-      # Each app needs its own release keystore (binary, base64-encoded),
+      # The app needs its release keystore (binary, base64-encoded),
       # its android/key.properties (the passwords/alias build.gradle reads —
-      # see FIG-777 and apps/*/android/key.properties.example), and its
-      # .env (the Supabase URL/anon key — see FIG-782 and apps/*/.env.example).
-      # Secret names are namespaced per app since mobile and teacher-mobile
-      # have separate keystores. None of these exist in this repo; add them
+      # see FIG-777 and apps/mobile/android/key.properties.example), and its
+      # .env (the Supabase URL/anon key — see FIG-782 and apps/mobile/.env.example).
+      # None of these exist in this repo; add them
       # in GitHub's Settings > Secrets and variables > Actions before running
       # this workflow. Never commit the real values anywhere.
       - name: Write Android signing config
@@ -79,31 +72,21 @@ jobs:
           MOBILE_KEYSTORE_BASE64: ${{ secrets.MOBILE_KEYSTORE_BASE64 }}
           MOBILE_KEY_PROPERTIES: ${{ secrets.MOBILE_KEY_PROPERTIES }}
           MOBILE_ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
-          TEACHER_KEYSTORE_BASE64: ${{ secrets.TEACHER_KEYSTORE_BASE64 }}
-          TEACHER_KEY_PROPERTIES: ${{ secrets.TEACHER_KEY_PROPERTIES }}
-          TEACHER_ENV_FILE: ${{ secrets.TEACHER_ENV_FILE }}
         run: |
-          if [ "${{ inputs.app }}" = "mobile" ]; then
-            echo "$MOBILE_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-mobile-release.keystore"
-            echo "$MOBILE_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
-            echo "$MOBILE_ENV_FILE" > "$APP_DIR/.env"
-          else
-            echo "$TEACHER_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-teacher-release.keystore"
-            echo "$TEACHER_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
-            echo "$TEACHER_ENV_FILE" > "$APP_DIR/.env"
-          fi
+          echo "$MOBILE_KEYSTORE_BASE64" | base64 -d > "$APP_DIR/android/app/figbloom-mobile-release.keystore"
+          echo "$MOBILE_KEY_PROPERTIES" > "$APP_DIR/android/key.properties"
+          echo "$MOBILE_ENV_FILE" > "$APP_DIR/.env"
 
-      # The parent app's Bus map needs its own "Maps SDK for Android" key
-      # (MAPS.md). Without one the build still succeeds and ships a map with
-      # no tiles, so fail here rather than release that. Add MAPS_API_KEY in
-      # Settings > Secrets and variables > Actions; the teacher app has no map.
-      - name: Write Google Maps key (parent app)
-        if: ${{ inputs.app == 'mobile' }}
+      # The Bus map needs its own "Maps SDK for
+      # Android" key (MAPS.md). Without one the build still succeeds and ships a
+      # map with no tiles, so fail here rather than release that. Add
+      # MAPS_API_KEY in Settings > Secrets and variables > Actions.
+      - name: Write Google Maps key
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: |
           if [ -z "$MAPS_API_KEY" ]; then
-            echo "::error::The MAPS_API_KEY secret is not set, so the parent app's Bus map would have no tiles."
+            echo "::error::The MAPS_API_KEY secret is not set, so the Bus map would have no tiles."
             exit 1
           fi
           printf 'MAPS_API_KEY=%s\n' "$MAPS_API_KEY" >> "$APP_DIR/android/local.properties"
@@ -131,7 +114,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ${{ inputs.app }}-release-${{ github.run_number }}
+          name: mobile-release-${{ github.run_number }}
           path: |
             ${{ env.APP_DIR }}/android/app/build/outputs/bundle/release/*.aab
             ${{ env.APP_DIR }}/android/app/build/outputs/apk/release/*.apk

@@ -15,6 +15,7 @@ import { ChoosePassword } from "./src/screens/ChoosePassword";
 import { stopLocationTracking } from "./src/screens/driver/locationTask";
 import { SignIn } from "./src/screens/SignIn";
 import { StudentDataProvider } from "./src/studentData";
+import { TeacherNavigation } from "./src/teacherNavigation";
 import { accentFor } from "./src/theme";
 import { ThemeProvider, useTheme } from "./src/ui/ThemeContext";
 
@@ -26,8 +27,12 @@ type FreshExtra = { fullName: string; loginId: string | null; mustChoose: boolea
  * mobile has no path to read a tenant slug from, so it is resolved here once
  * at sign-in (and again on every auth state change) and handed down.
  *
+ * One app for every role this phone serves: a parent, a learner, a driver or a teacher gets their own screens from
+ * the role on the profile.
+ *
  * "Cannot reach the server" is not "signed out" (FIG-1487): with no signal the app opens from the identity the
- * phone saved last time (parent and learner, whose figures are cached too), or on a "No connection" page.
+ * phone saved last time (parent and learner, whose figures are cached too), or on a "No connection" page (a driver
+ * or a teacher, whose screens are all live data).
  * Only an answer from the server, or no login stored on the phone, shows the sign-in screen.
  */
 function AppContent() {
@@ -66,10 +71,11 @@ function AppContent() {
           const { data: profile, error } = await supabase()
             .from("profiles").select("role, tenant_id, full_name, login_id, must_change_password").eq("id", userId).maybeSingle();
           if (error) return "no-signal";
-          const isSupportedRole = profile && (profile.role === "parent" || profile.role === "student" || profile.role === "driver");
-          if (!isSupportedRole || (profile.role === "driver" && !profile.tenant_id)) {
-            // Staff and platform roles have no home here — the web console is theirs.
-            // A driver with no tenant is a data problem, not a session this app can serve.
+          const isSupportedRole = profile && (profile.role === "parent" || profile.role === "student" || profile.role === "driver" || profile.role === "teacher");
+          if (!isSupportedRole || ((profile.role === "driver" || profile.role === "teacher") && !profile.tenant_id)) {
+            // School admins, other staff and platform roles have no home here — the web console is theirs.
+            // A driver or teacher with no tenant is a data problem (each belongs to exactly one school),
+            // not a session this app can serve.
             return "unsupported";
           }
 
@@ -91,13 +97,15 @@ function AppContent() {
 
           const fresh: Session = profile.role === "driver"
             ? { role: "driver", accent, profileId: userId, tenantId: profile.tenant_id!, fullName: profile.full_name }
-            : { role: profile.role, accent, profileId: userId, country, tenantId: profile.tenant_id! };
+            : profile.role === "teacher"
+              ? { role: "teacher", accent, profileId: userId, tenantId: profile.tenant_id!, fullName: profile.full_name, country }
+              : { role: profile.role, accent, profileId: userId, country, tenantId: profile.tenant_id! };
           return { session: fresh, extra: { fullName: profile.full_name, loginId: profile.login_id, mustChoose: profile.must_change_password } };
         },
         readSaved: readSavedSession,
-        // A driver's screen is all live data (assignment, trip, riders): with nothing to show offline it gets the
-        // "No connection" page, so nothing is saved for a driver.
-        save: async (userId, saved) => { if (saved.role !== "driver") await saveSession(userId, saved); },
+        // A driver's screen (assignment, trip, riders) and a teacher's (rosters, registers, marks) are all live data:
+        // with nothing to show offline they get the "No connection" page, so nothing is saved for them.
+        save: async (userId, saved) => { if (saved.role === "parent" || saved.role === "student") await saveSession(userId, saved); },
       });
       if (!alive) return;
 
@@ -174,6 +182,8 @@ function AppContent() {
             <StudentDataProvider profileId={session.profileId} accent={session.accent} country={session.country} tenantId={session.tenantId}>
               <Navigation role="student" accent={session.accent} profileId={session.profileId} />
             </StudentDataProvider>
+          ) : session.role === "teacher" ? (
+            <TeacherNavigation session={session} />
           ) : (
             <Navigation
               role="driver"
