@@ -101,6 +101,9 @@ verify_jwt = true              # the gate, reception or office that just recorde
 [functions.medical-notify]
 verify_jwt = true              # the nurse who just set a sick bay visit's outcome; secret FCM_SERVICE_ACCOUNT_JSON_B64
 
+[functions.early-sign-out-notify]
+verify_jwt = true              # the office or class teacher who just recorded an early sign-out; tells the learner's parents; secret FCM_SERVICE_ACCOUNT_JSON_B64
+
 [functions.ai-assist]
 verify_jwt = true              # staff drafting, or a learner asking Bloom; secrets AI_PROVIDER (openai|anthropic), OPENAI_API_KEY or ANTHROPIC_API_KEY, optional AI_MODEL
 
