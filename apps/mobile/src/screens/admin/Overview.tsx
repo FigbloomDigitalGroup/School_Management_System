@@ -162,7 +162,7 @@ function AttendanceByClass({ session, data, onOpen }: { session: StaffSession; d
 }
 
 /** The overview a principal reads first: is the school running today, is anything on fire, and where do the fees stand. */
-export function OverviewSections({ session, data, onOpen }: { session: StaffSession; data: SchoolOverview; onOpen: OpenRegisterHandler }) {
+export function OverviewSections({ session, data, onOpen, afterNeeds }: { session: StaffSession; data: SchoolOverview; onOpen: OpenRegisterHandler; afterNeeds?: ReactNode }) {
   const { t, s } = useTheme();
   const rate = overviewAttendanceRate(data);
   const feePct = feeCollectedPct(data.fees);
@@ -203,6 +203,8 @@ export function OverviewSections({ session, data, onOpen }: { session: StaffSess
           ))
         )}
       </View>
+
+      {afterNeeds}
 
       <AttendanceByClass session={session} data={data} onOpen={onOpen} />
 

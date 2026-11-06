@@ -13,6 +13,7 @@ import { AdminAnnouncements } from "./screens/admin/Announcements";
 import { CallLog } from "./screens/admin/CallLog";
 import { ClassRegister } from "./screens/admin/ClassRegister";
 import { AdminHome } from "./screens/admin/Home";
+import { AdminLeave } from "./screens/admin/Leave";
 import { AdminMore } from "./screens/admin/More";
 import type { OpenRegister } from "./screens/admin/Overview";
 import { SchoolChats } from "./screens/admin/SchoolChats";
@@ -59,6 +60,7 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
         )}
       </Stack.Screen>
       <Stack.Screen name="CallLog">{() => <CallLog session={session} />}</Stack.Screen>
+      <Stack.Screen name="Leave">{() => <AdminLeave session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }

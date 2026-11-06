@@ -22,7 +22,10 @@ describe("which admin screens a person is offered", () => {
   });
   it("is the screens an area covers, and only those: announcements and chats for Communication, none for Fees alone", () => {
     expect(adminScreensFor(["communication"]).map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog"]);
-    expect(adminScreensFor(["fees", "leave"])).toEqual([]);
+    expect(adminScreensFor(["fees"])).toEqual([]);
+  });
+  it("is leave requests for the Leave area", () => {
+    expect(adminScreensFor(["fees", "leave"]).map((s) => s.to)).toEqual(["Leave"]);
   });
   it("is nothing for someone with no admin console", () => {
     expect(adminScreensFor(null)).toEqual([]);
@@ -45,6 +48,8 @@ describe("the admin More list", () => {
     expect(onOpen).toHaveBeenCalledWith("SchoolChats");
     fireEvent.press(screen.getByLabelText("Call log"));
     expect(onOpen).toHaveBeenCalledWith("CallLog");
+    fireEvent.press(screen.getByLabelText("Leave requests"));
+    expect(onOpen).toHaveBeenCalledWith("Leave");
   });
 
   it("says how many chat messages are waiting, on the Chats row only", async () => {

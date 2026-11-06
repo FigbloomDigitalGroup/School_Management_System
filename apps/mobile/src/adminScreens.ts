@@ -1,9 +1,9 @@
-import { Eye, Megaphone, MessageSquare, Phone, type LucideIcon } from "lucide-react-native";
+import { CalendarOff, Eye, Megaphone, MessageSquare, Phone, type LucideIcon } from "lucide-react-native";
 import { mayOpenAdminPage, type AdminAccess } from "@figbloom/shared";
 
 /** The admin screens listed under More. `page` is the web console page it mirrors: its area decides who sees it (mayOpenAdminPage). */
 export interface AdminScreen {
-  to: "Announcements" | "Chats" | "SchoolChats" | "CallLog";
+  to: "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave";
   label: string;
   blurb: string;
   page: string;
@@ -16,6 +16,7 @@ export const ADMIN_SCREENS: readonly AdminScreen[] = [
   { to: "Chats", label: "Chats", blurb: "Your chats with parents and staff, and call them", page: "admin/chats", icon: MessageSquare },
   { to: "SchoolChats", label: "All school chats", blurb: "Read every chat in the school. You can't join them", page: "admin/chats", icon: Eye },
   { to: "CallLog", label: "Call log", blurb: "Who called whom, and for how long", page: "admin/chats", icon: Phone },
+  { to: "Leave", label: "Leave requests", blurb: "Approve or reject teachers' time off", page: "admin/leave", icon: CalendarOff },
 ];
 
 /** The screens this person's admin access opens: a full admin all of them, someone with areas those their areas cover. */
