@@ -94,9 +94,10 @@ settings; a phone with no usable sensor cannot open the admin screens at all (th
 console is the way). The lock's Account switch is replaced by a note saying so.
 
 Staff identities are live data and are never saved (`lib/staffSession.ts`): with no
-signal they see the "No connection" page. Admin screens are added to `adminNavigation.tsx`
-a part at a time, each shown only to the people whose areas open it
-(`mayOpenAdminPage`).
+signal they see the "No connection" page. The admin side has three tabs: Home, More and
+Account. More lists the screens in `adminScreens.ts` that this person's areas open
+(`mayOpenAdminPage`), and has no tab at all when there are none. A screen is added by listing
+it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`.
 
 **What is on the admin screens so far**
 
@@ -105,10 +106,13 @@ a part at a time, each shown only to the people whose areas open it
 | Home, overview | school admins | The web Dashboard's figures: attendance, fees collected, learners, staff, "Needs you", every class's register for the day, fee collection by status. A class that has not taken its register has "Remind teacher" (an in-app note to the class teacher, as on the web). Pull down to refresh. |
 | Home, registers | staff and teachers holding the `attendance` area | Every class's latest register, read only. |
 | A class's register | both of the above | Who was late, absent or excused on that day. Read only (correcting a register stays on the web). |
+| More > Announcements | school admins, and staff or teachers holding `communication` | Compose a notice: who gets it (whole school, parents, students, teachers, staff, a year group, a class) with how many people that reaches, subject and message, how it goes out (app, push, SMS with its cost, email), and a confirmation before it goes because it cannot be unsent. Files, signatures, the writing helper and drafts stay on the web. |
 
 The data these read (`fetchSchoolOverview`, `fetchClassRegister`, `fetchLatestRegisters`,
-`remindClassTeacher`) is in `packages/shared/src/adminOverview.ts`, and the web's Dashboard
-uses the same functions, so the two say the same thing. Each screen loads with
+`remindClassTeacher`) is in `packages/shared/src/adminOverview.ts`, and the announcement composer's
+(`fetchAnnouncementsData`, `insertAnnouncement`, `sendAnnouncementPush`, the reach and audience
+helpers) in `packages/shared/src/adminAnnouncements.ts`. The web's screens use the same functions,
+so the two say the same thing. Each screen loads with
 `lib/useLoad.ts` (skeleton on first load, the reason and "Try again" on failure, pull to refresh).
 
 A teacher's screens are all live data (rosters, registers, marks), so with no
