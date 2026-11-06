@@ -64,7 +64,7 @@ function AppContent() {
   // signed-out branch then signs this phone out and sign-in says why.
   const suspendedFound = useRef(false);
   const [suspendedNotice, setSuspendedNotice] = useState(false);
-  // Signed in with an account this app has no screens for (an org admin, a platform admin, staff with no admin area):
+  // Signed in with an account this app has no screens for (an org admin, a platform admin, staff with no admin area or only the visitor log):
   // it is signed out the same way, and sign-in says why instead of just coming back.
   const unsupportedFound = useRef(false);
   const [unsupportedNotice, setUnsupportedNotice] = useState(false);
@@ -121,7 +121,8 @@ function AppContent() {
               try { adminAreas = await fetchMyAdminAreas(); } catch { if (profile.role === "staff") return "no-signal"; }
             }
             const consoles = phoneConsolesFor(profile.role, adminAreas);
-            // Other staff with no admin area have nothing to open on the phone yet: the web console is theirs.
+            // Other staff with no admin area (or only the visitor log, which the phone has no screen for) have nothing
+            // to open on the phone: the web console is theirs.
             if (!consoles.teacher && !consoles.admin) { unsupportedFound.current = true; return "unsupported"; }
             if (!tenant?.name || !tenant.slug) return "no-signal";
             fresh = {

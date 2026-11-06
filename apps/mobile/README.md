@@ -75,8 +75,8 @@ console uses, `adminAreas.ts`; the database checks every one again with `has_per
 | Role | Opens |
 |---|---|
 | `school_admin` | the admin console, all of it |
-| `teacher` | their own screens; and the admin console, with just their areas, when they hold any (More > Admin screens, and Home > Back to teacher screens) |
-| `staff` | the admin console, with their areas; with none they stay on the web |
+| `teacher` | their own screens; and the admin console, with just their areas, when they hold any besides visitors (More > Admin screens, and Home > Back to teacher screens) |
+| `staff` | the admin console, with their areas; with none, or with only visitors (the phone has no visitor log), they stay on the web |
 | `org_admin`, `super_admin` | nothing here: the web console |
 
 **Signing in.** A school admin has a real email and no school ID (`invite-admin`), so
@@ -84,7 +84,7 @@ the sign-in screen has a link under the form, "School admin? Sign in with your e
 which swaps school + ID for email + password; "Forgot password?" there emails the usual
 reset link, which opens the web's reset page. Teachers and other staff sign in with
 their school ID as before. An account the app has no screens for (an org admin, a
-platform admin, staff with no admin area) is signed out again with a "Not on the phone
+platform admin, staff with no admin area or only visitors) is signed out again with a "Not on the phone
 yet" note, rather than silently bouncing back to the sign-in form.
 
 **The admin screens always ask for the fingerprint** (`FingerprintLock` with
