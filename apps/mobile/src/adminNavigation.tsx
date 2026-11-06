@@ -1,17 +1,23 @@
 import { NavigationContainer } from "@react-navigation/native";
+import { View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Home, Menu, User } from "lucide-react-native";
 import { phoneConsolesFor } from "@figbloom/shared";
 import { adminScreensFor, type AdminScreen } from "./adminScreens";
+import { CallProvider } from "./calls/CallProvider";
 import type { StaffSession } from "./lib/staffSession";
 import { accentFor, fontSize } from "./theme";
 import { NAV_THEME, tabIcon } from "./navShared";
 import { AdminAnnouncements } from "./screens/admin/Announcements";
+import { CallLog } from "./screens/admin/CallLog";
 import { ClassRegister } from "./screens/admin/ClassRegister";
 import { AdminHome } from "./screens/admin/Home";
 import { AdminMore } from "./screens/admin/More";
 import type { OpenRegister } from "./screens/admin/Overview";
+import { SchoolChats } from "./screens/admin/SchoolChats";
+import { ChatList } from "./screens/chat/ChatList";
+import { ChatThread } from "./screens/chat/ChatThread";
 import { TeacherAccount } from "./screens/teacher/Account";
 import { useTheme } from "./ui/ThemeContext";
 
@@ -34,12 +40,25 @@ function HomeStack({ session }: { session: StaffSession }) {
 
 /** The admin screens listed under More, one stack so each opens over the list with a way back. */
 function MoreStack({ session, screens }: { session: StaffSession; screens: readonly AdminScreen[] }) {
+  const tint = accentFor(session.accent).deep;
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MoreMenu">
         {({ navigation }: { navigation: { navigate: (screen: string) => void } }) => <AdminMore session={session} screens={screens} onOpen={(to) => navigation.navigate(to)} />}
       </Stack.Screen>
       <Stack.Screen name="Announcements">{() => <AdminAnnouncements session={session} />}</Stack.Screen>
+      {/* The office's own chats, as the teacher has them; a chat opens in ChatThread, with the call buttons. */}
+      <Stack.Screen name="Chats">
+        {() => <ChatList tint={tint} blurb="With parents and staff at the school." empty="Start a chat with any parent or member of staff at the school." />}
+      </Stack.Screen>
+      <Stack.Screen name="ChatThread">{() => <ChatThread tint={tint} />}</Stack.Screen>
+      {/* Every chat in the school, read only: opens the same thread screen in oversight. */}
+      <Stack.Screen name="SchoolChats">
+        {({ navigation }: { navigation: { navigate: (screen: string, params?: object) => void } }) => (
+          <SchoolChats session={session} onOpen={(chat) => navigation.navigate("ChatThread", chat)} />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="CallLog">{() => <CallLog session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }
@@ -55,6 +74,9 @@ export function AdminNavigation({ session }: { session: StaffSession }) {
   const screens = adminScreensFor(phoneConsolesFor(session.role, session.adminAreas).admin);
 
   return (
+    // Calls ring on the admin side too: the office is rung by parents, and rings them from a chat.
+    <CallProvider profileId={session.profileId}>
+    <View style={{ flex: 1 }}>
     <NavigationContainer theme={NAV_THEME[scheme]}>
       <Tab.Navigator
         screenOptions={{
@@ -83,5 +105,7 @@ export function AdminNavigation({ session }: { session: StaffSession }) {
         </Tab.Screen>
       </Tab.Navigator>
     </NavigationContainer>
+    </View>
+    </CallProvider>
   );
 }
