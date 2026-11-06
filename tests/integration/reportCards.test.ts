@@ -68,6 +68,12 @@ const enter = async (rows: MarkRow[]) => {
   if (error) throw new Error(`could not enter marks: ${error.message}`);
 };
 const publishMarks = async (examId: string, classId: string, subjectId: string) => {
+  // The server publishes a class and subject only when every active learner has an entry (FIG-1375): a missed paper counts as one.
+  const learners = await admin.client.from("students").select("id").eq("class_id", classId).eq("active", true);
+  if (learners.error) throw new Error(learners.error.message);
+  const rest = await admin.client.from("marks").upsert((learners.data ?? []).map((s) => mark(s.id as string, examId, subjectId, null, "missed")),
+    { onConflict: "exam_id,student_id,subject_id", ignoreDuplicates: true });
+  if (rest.error) throw new Error(`could not enter the rest of the class: ${rest.error.message}`);
   const { error } = await admin.client.rpc("publish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
   if (error) throw new Error(`could not publish marks: ${error.message}`);
 };

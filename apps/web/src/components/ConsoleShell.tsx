@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, normalizeSlug, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { NAV, normalizeSlug, pageIsNotForInstitution, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
@@ -89,16 +89,16 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // underlying capability doesn't matter (it's simply not built for course
   // sections yet). Gradebook is the exception: FIG-330 gave it a real
   // higher-ed branch (GpaGradebook), so it stays visible for both.
-  const higherEd = tenant?.institution_type === "higher_ed";
+  // Which screens each kind of institution has is one list in the shared package (institutionPages.ts); the router reads the same list, so a
+  // screen left out of the menu is also closed by its address (App.tsx InstitutionGate, FIG-1437). With no school open, it is read as K-12.
+  const institutionType = tenant?.institution_type ?? "k12";
   // Transport is meaningless for a fully-online tenant (FIG-358) — hidden
   // here, and the underlying routes are gated the same way in App.tsx, since
   // hiding a nav item alone never blocks the route itself.
   const online = tenant?.delivery_mode === "online";
-  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework", "teacher/exams", "admin/papers", "student/exams", "admin/report-cards", "teacher/report-cards", "teacher/materials", "admin/materials", "student/materials", "parent/materials", "admin/performance", "teacher/performance"]);
   const items = NAV[role].filter((item) => {
     if (hiddenNav?.includes(item.to)) return false;
-    if (item.to === "admin/classes" || item.to === "admin/subjects" || item.to === "admin/exams" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
-    if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
+    if (pageIsNotForInstitution(item.to, institutionType)) return false;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
     // Only where the school has turned the study helper on (School settings -> AI).
     if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;

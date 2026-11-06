@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  LEVELS, PATHWAY_LABEL, fetchLearningAreas, isValidYear, levelsForTenant, supabase, yearLabel, yearRangeLabel,
+  LEVELS, PATHWAY_LABEL, fetchLearningAreas, isValidYear, levelsForTenant, supabase, yearLabel, yearRangeLabel, yearsBackwards,
   type ClassLevel, type LearningArea, type Pathway, type Subject,
 } from "@figbloom/shared";
 import { Modal } from "../../components/ui/Modal";
@@ -109,6 +109,11 @@ export function AdminSubjects() {
       toast(`${LEVELS[level].label} runs ${yearLabel(level, min)} to ${yearLabel(level, max)} — pick years in that range.`, "error");
       return;
     }
+    if (yearsBackwards(lo, hi)) {
+      const at = (n: number) => (level ? yearLabel(level, n) : `${unit} ${n}`);
+      toast(`It starts in ${at(lo!)} but ends in ${at(hi!)}. The first can't be after the last: swap them, or leave one blank for no limit.`, "error");
+      return;
+    }
     setCreating(true);
     try {
       const { error: err } = await supabase().from("subjects").insert({
@@ -141,6 +146,7 @@ export function AdminSubjects() {
     };
 
     const toCreate: { name: string; code: string; min: number | null; max: number | null }[] = [];
+    const backwards: string[] = [];
     for (const raw of bulkText.split("\n")) {
       const line = raw.trim();
       if (!line) continue;
@@ -155,7 +161,12 @@ export function AdminSubjects() {
         min = a ?? null;
         max = b ?? a ?? null;
       }
+      if (yearsBackwards(min, max)) { backwards.push(`${subjName} (${unit} ${min} to ${unit} ${max})`); continue; }
       toCreate.push({ name: subjName, code: rawCode ? uniqueCode(rawCode) : uniqueCode(subjName), min, max });
+    }
+    if (backwards.length) {
+      toast(`Nothing was added. These start in a later ${unit.toLowerCase()} than they end in: ${backwards.join(", ")}. Put the first ${unit.toLowerCase()} before the last, then add them again.`, "error");
+      return;
     }
     if (toCreate.length === 0) { toast("Nothing new to add — check the names aren't already on file.", "error"); return; }
 
@@ -428,9 +439,15 @@ function SubjectRow({ subject, unit, onSaved, toast }: {
     setSaving(true);
     try {
       const parse = (raw: string) => { const n = parseInt(raw.trim(), 10); return Number.isFinite(n) ? n : null; };
+      const lo = parse(minForm), hi = parse(maxForm);
+      if (yearsBackwards(lo, hi)) {
+        const at = (n: number) => (subject.level ? yearLabel(subject.level, n) : `${unit} ${n}`);
+        toast(`It starts in ${at(lo!)} but ends in ${at(hi!)}. The first can't be after the last: swap them, or leave one blank for no limit.`, "error");
+        return;
+      }
       const { error: err } = await supabase().from("subjects").update({
         name: name.trim(), code: code.trim().toUpperCase(),
-        min_form_level: parse(minForm), max_form_level: parse(maxForm),
+        min_form_level: lo, max_form_level: hi,
       }).eq("id", subject.id);
       if (err) throw err;
       onSaved();
