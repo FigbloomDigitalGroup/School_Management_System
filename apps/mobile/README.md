@@ -1,10 +1,11 @@
 # Figbloom mobile (Android + iOS)
 
-The one phone app: **parent**, **student**, **driver** and **teacher**. The
-signed-in role decides which screens open (`App.tsx` reads it from the profile).
-School admins, other staff and the platform console use the web console for now.
-Teachers used to have a separate app (`apps/teacher-mobile`); it was merged in
-here so there is one sign-in, one store listing and one release.
+The one phone app: **parent**, **student**, **driver**, **teacher**, and the school's
+**admin console** for school admins and for teachers and other staff who hold admin areas.
+The signed-in role decides which screens open (`App.tsx` reads it from the profile).
+Org admins and the platform console use the web console. Teachers used to have a
+separate app (`apps/teacher-mobile`); it was merged in here so there is one sign-in,
+one store listing and one release.
 
 ## Why React Native, and what is actually shared
 
@@ -55,6 +56,7 @@ src/
   storage.ts          AsyncStorage adapter for the shared WriteQueue
   navigation.tsx      bottom tabs for the parent and the student; the driver is one page
   teacherNavigation.tsx  the teacher's five tabs, with everything else under More
+  adminNavigation.tsx the school's admin console: Home and Account for now, more a part at a time
   navShared.tsx       the navigation colours and tab icon both navigators use
   screens/parent/     Home · Fees · Pay · Results · Inbox · Account
   screens/student/    Today · Timetable · Work · Results · Notices
@@ -62,7 +64,39 @@ src/
   screens/teacher/    Attendance · Gradebook · Messages · Notices · More (Timetable ·
                       Classes · Leave · Homework · Materials · Items · Buses · Visitors ·
                       Performance · Report cards · Bloom · Live class · Account)
+  screens/admin/      Home (who you are, what your areas allow, the way to the web console)
 ```
+
+## The admin console on the phone
+
+Who gets it, from `phoneConsolesFor` in `@figbloom/shared` (the same areas the web
+console uses, `adminAreas.ts`; the database checks every one again with `has_perm`):
+
+| Role | Opens |
+|---|---|
+| `school_admin` | the admin console, all of it |
+| `teacher` | their own screens; and the admin console, with just their areas, when they hold any (More > Admin screens, and Home > Back to teacher screens) |
+| `staff` | the admin console, with their areas; with none they stay on the web |
+| `org_admin`, `super_admin` | nothing here: the web console |
+
+**Signing in.** A school admin has a real email and no school ID (`invite-admin`), so
+the sign-in screen has a link under the form, "School admin? Sign in with your email",
+which swaps school + ID for email + password; "Forgot password?" there emails the usual
+reset link, which opens the web's reset page. Teachers and other staff sign in with
+their school ID as before. An account the app has no screens for (an org admin, a
+platform admin, staff with no admin area) is signed out again with a "Not on the phone
+yet" note, rather than silently bouncing back to the sign-in form.
+
+**The admin screens always ask for the fingerprint** (`FingerprintLock` with
+`required`), whatever the person chose for the rest of the app, and again each time a
+teacher switches to them. A phone with no fingerprint saved is sent to its security
+settings; a phone with no usable sensor cannot open the admin screens at all (the web
+console is the way). The lock's Account switch is replaced by a note saying so.
+
+Staff identities are live data and are never saved (`lib/staffSession.ts`): with no
+signal they see the "No connection" page. Admin screens are added to `adminNavigation.tsx`
+a part at a time, each shown only to the people whose areas open it
+(`mayOpenAdminPage`).
 
 A teacher's screens are all live data (rosters, registers, marks), so with no
 signal a teacher sees the "No connection" page, as a driver does, and nothing is

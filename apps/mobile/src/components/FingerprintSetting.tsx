@@ -11,7 +11,7 @@ import { useTheme } from "../ui/ThemeContext";
  */
 export function FingerprintSetting({ tint }: { tint: string }) {
   const { t, s, accentInk } = useTheme();
-  const { enabled, setEnabled } = useFingerprintLock();
+  const { enabled, required, setEnabled } = useFingerprintLock();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -41,6 +41,18 @@ export function FingerprintSetting({ tint }: { tint: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (required) {
+    return (
+      <>
+        <Text style={[s.h2, { marginTop: 20, marginBottom: 8 }]}>Security</Text>
+        <View style={s.card}>
+          <Text style={{ color: t.appSurface.ink, fontSize: 13.5, fontWeight: "500" }}>Fingerprint lock is always on</Text>
+          <Text style={s.faint}>The admin screens ask for your fingerprint when you open the app, and when you come back to it after a short break. It cannot be turned off.</Text>
+        </View>
+      </>
+    );
   }
 
   return (

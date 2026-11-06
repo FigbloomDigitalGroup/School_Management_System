@@ -1,10 +1,11 @@
 import { ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
-  Bus, CalendarOff, ChevronRight, Clock, DoorOpen, FileText, FolderOpen, MessageSquare, Package, PencilLine, Sparkles, TrendingUp, UserRound, Users, Video,
+  Bus, CalendarOff, ChevronRight, Clock, DoorOpen, FileText, FolderOpen, MessageSquare, Package, PencilLine, ShieldCheck, Sparkles, TrendingUp, UserRound, Users, Video,
   type LucideIcon,
 } from "lucide-react-native";
 import { useChatSession } from "../../lib/chatSession";
+import { useConsoleSwitch } from "../../lib/consoleSwitch";
 import { visitQueue } from "@figbloom/shared";
 import { useChatUnread } from "../../lib/chatUnread";
 import { useDayVisits } from "../../lib/useDayVisits";
@@ -36,6 +37,8 @@ export function TeacherMore({ session }: { session: TeacherSession }) {
   const { t, s } = useTheme();
   const a = accentFor(session.accent);
   const navigation = useNavigation<{ navigate: (screen: string) => void }>();
+  // A teacher who holds admin areas has the school's admin screens too, one tap away.
+  const { canSwitch, switchTo } = useConsoleSwitch();
   const chat = useChatSession();
   const unreadChats = useChatUnread(chat?.tenantId ?? null);
   const { visits } = useDayVisits(session.tenantId);
@@ -51,6 +54,19 @@ export function TeacherMore({ session }: { session: TeacherSession }) {
       </View>
       {/* Twelve rows are taller than a small phone's screen: this has to scroll, or the last ones can't be reached. */}
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {canSwitch && (
+          <Tap
+            accessibilityLabel="Admin screens"
+            onPress={() => switchTo("admin")}
+            style={[s.card, { marginBottom: 8, padding: 12, flexDirection: "row", alignItems: "center", gap: 12 }]}
+          >
+            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: a.deep, alignItems: "center", justifyContent: "center" }}>
+              <ShieldCheck size={19} color="#fff" />
+            </View>
+            <Text style={{ flex: 1, fontSize: 14.5, fontWeight: "500", color: t.appSurface.ink }}>Admin screens</Text>
+            <ChevronRight size={18} color={t.appSurface.inkFaint} />
+          </Tap>
+        )}
         {ITEMS.map((item) => {
           const Icon = item.icon;
           const badge = badgeFor(item.to);
