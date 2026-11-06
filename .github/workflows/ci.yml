@@ -66,3 +66,50 @@ jobs:
       # Supabase client (supabase/functions/_shared/fakeSupabase.ts), so no
       # database or secrets are needed.
       - run: deno test --allow-env --config supabase/functions/deno.json supabase/functions
+
+  database-and-browser:
+    name: RLS checks and browser tests (local Supabase)
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Supabase's own action, pinned to the commit its v3.0.1 tag points at. The CLI version is
+      # the one the team develops with.
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.122.0
+      # Postgres, Auth, Storage and the edge runtime in Docker, with supabase/migrations applied.
+      - run: supabase start
+      # The keys below belong to this throwaway stack, not to any real project.
+      - name: Write .env from the local stack
+        run: |
+          eval "$(supabase status -o env)"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "VITE_SUPABASE_URL=$API_URL"
+            echo "VITE_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } > .env
+      - run: npm run db:seed
+      - run: npm run db:seed-org
+      # One at a time: both write to the same database, and tenant_matrix.sql makes every
+      # other request time out while it runs.
+      - run: sh scripts/run-rls-checks.sh
+      - run: npx playwright install --with-deps chromium
+      # The five critical flows. The longer specs (accessibility walk, usability, reports) take
+      # about an hour together and run by hand: npx playwright test
+      - run: npx playwright test e2e/flows.spec.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results
+          retention-days: 7

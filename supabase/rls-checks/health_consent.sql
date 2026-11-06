@@ -198,8 +198,11 @@ select pg_temp.check('the older learner''s parent is asked',
   pg_temp.sees('other', 'select count(*) from my_health_consent_requests()') = 1);
 select pg_temp.check('mum isn''t asked about a child that isn''t hers',
   pg_temp.sees('mum', 'select count(*) from my_health_consent_requests()') = 0);
-select pg_temp.check('staff still see the details',
-  pg_temp.sees('teacher', format('select count(*) from student_health where student_id = %L and cardinality(allergies) = 2', current_setting('t.older'))) = 1);
+select pg_temp.check('the office still sees the details',
+  pg_temp.sees('admin', format('select count(*) from student_health where student_id = %L and cardinality(allergies) = 2', current_setting('t.older'))) = 1);
+-- (FIG-1303: a teacher no longer reads the record; the register's flags come through teacher_health_flags)
+select pg_temp.check('a teacher does not read the record',
+  pg_temp.sees('teacher', format('select count(*) from student_health where student_id = %L', current_setting('t.older'))) = 0);
 select pg_temp.expect_eq('the office may take an allergy out',
   pg_temp.as_user('admin', format($q$update student_health set allergies = '{Peanuts}' where student_id = %L$q$, current_setting('t.older'))), 'ok');
 select pg_temp.expect_eq('but not put a new one in',

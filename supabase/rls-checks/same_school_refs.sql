@@ -75,6 +75,32 @@ select pg_temp.check('every foreign key between school tables has the same-schoo
             and a.attname = any (string_to_array(rtrim(encode(tg.tgargs, 'escape'), '\000'), '\000')))
   ) m;
 
+-- The check reads the row as it will be written: no other BEFORE row trigger on
+-- the table fires after it (Postgres fires them in name order). 20261105300000.
+select pg_temp.check('the same-school check is the last BEFORE trigger on its table (after it: '
+    || coalesce(string_agg(c.relname || '.' || o.tgname, ', '), 'none') || ')', count(*) = 0)
+  from pg_trigger tg
+  join pg_proc p on p.oid = tg.tgfoid and p.proname = 'enforce_same_school_refs'
+  join pg_class c on c.oid = tg.tgrelid
+  join pg_trigger o on o.tgrelid = tg.tgrelid and o.oid <> tg.oid and not o.tgisinternal
+   and (o.tgtype & 3) = 3 and (o.tgname collate "C") > (tg.tgname collate "C");
+
+-- A chat message sent the way the app sends it, without tenant_id: the stamp
+-- trigger takes the school from the conversation before the check looks.
+do $$
+declare
+  a uuid := current_setting('t.admin')::uuid;
+  b uuid := (select id from profiles where tenant_id = current_setting('t.a')::uuid and id <> current_setting('t.admin')::uuid limit 1);
+  conv uuid;
+begin
+  insert into conversations (tenant_id, pair_key, created_by)
+    values (current_setting('t.a')::uuid, 'fig-same-school-check', a) returning id into conv;
+  insert into conversation_members (conversation_id, profile_id, tenant_id)
+    values (conv, a, current_setting('t.a')::uuid), (conv, b, current_setting('t.a')::uuid);
+  insert into chat_messages (conversation_id, sender_id, body) values (conv, a, 'Hello');
+  raise notice 'PASS a chat message sent without tenant_id is saved in the conversation''s school';
+exception when others then raise notice 'FAIL a chat message sent without tenant_id: % %', sqlstate, sqlerrm; end $$;
+
 -- ---------------------------------------------------------------- the 11 tables QA 03 found open (FIG-1313)
 select pg_temp.cross('announcements', 'author_id', 'profiles');
 select pg_temp.cross('assignments', 'class_id', 'classes');

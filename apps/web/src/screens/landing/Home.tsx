@@ -68,26 +68,6 @@ import './Home.css';
 //   );
 // }
 
-function GraduationCap() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="orbit-cap"
-      viewBox="0 0 100 100"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m10 39 40-22 40 22-40 22L10 39Z" />
-      <path d="m25 48 1 23 24 14 25-14-1-23M78 49v20" />
-      <path d="m46 42 16-9" />
-      <path d="M24 48v15" />
-    </svg>
-  );
-}
-
 // function OrbitVisual() {
 //   return (
 //     <div className="orbit-visual" aria-hidden="true">
@@ -127,11 +107,9 @@ export function SiteHeader() {
   return (
     <div className={`site-header-bar${isScrolled ? ' is-scrolled' : ''}`}>
       <header className="site-header">
-        <a className="brand" href="/" aria-label="BloomEd home">
-          <span className="brand-mark" aria-hidden="true">
-            <GraduationCap />
-          </span>
-          <span>BloomEd</span>
+        <a className="brand" href="/" aria-label="Figbloom School Management home">
+          <img className="brand-logo brand-logo-light" src="/figbloom-logo-light.svg" alt="" width="218" height="64" />
+          <img className="brand-logo brand-logo-dark" src="/figbloom-logo.svg" alt="" width="218" height="64" />
         </a>
 
         <nav className="main-nav" aria-label="Main navigation">
@@ -167,7 +145,7 @@ function Home() {
           <div className="hero-copy">
             <h1>School management system for Kenya</h1>
             <p>
-              BloomEd brings fees, attendance, CBE and 8-4-4 results, bus tracking
+              Figbloom School Management brings fees, attendance, CBE and 8-4-4 results, bus tracking
               and parent communication into one school management system, so your
               team spends less time on admin.
             </p>
@@ -199,7 +177,7 @@ function Home() {
         <div className="screenshot-frame">
           <img
             src="/images/adminn-dashboard.webp"
-            alt="BloomEd school management system dashboard showing attendance by class, fees collected and learner numbers"
+            alt="Figbloom School Management dashboard showing attendance by class, fees collected and learner numbers"
             width={1917}
             height={946}
             decoding="async"

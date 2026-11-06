@@ -135,8 +135,11 @@ reset role;
 -- ---------------------------------------------------------------- teacher / driver
 select pg_temp.act_as(current_setting('t.teacher'));
 set local role authenticated;
-select pg_temp.expect_eq('teacher still sees every private document in the school',
-  (select count(*) from storage.objects where bucket_id = 'private-documents'), 6);
+-- FIG-1303: a teacher reads the homework hand-ins (2 of the 6 files), not learners' documents or payment proofs
+select pg_temp.expect_eq('teacher sees the homework hand-ins of the school, and neither the learners'' documents nor the payment proofs',
+  (select count(*) from storage.objects where bucket_id = 'private-documents'), 2);
+select pg_temp.expect_eq('teacher reads no learner document or payment proof file',
+  (select count(*) from storage.objects where bucket_id = 'private-documents' and (name like '%/students/%' or name like '%/invoices/%')), 0);
 reset role;
 
 select pg_temp.act_as(current_setting('t.driver'));
@@ -169,6 +172,14 @@ grant execute on function pg_temp.expect_empty(text, text) to anon;
 
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
+-- A policy with no TO clause that calls a helper anon cannot run makes every
+-- anonymous request to its table fail with "permission denied for function"
+-- instead of coming back empty (and the query below then aborts this script).
+select pg_temp.expect_eq('no policy reaches anon and depends on a function anon cannot run',
+  (select count(distinct pol.oid) from pg_policy pol
+     join pg_depend d on d.classid = 'pg_policy'::regclass and d.objid = pol.oid and d.refclassid = 'pg_proc'::regclass
+    where (pol.polroles = '{0}' or (select oid from pg_roles where rolname = 'anon') = any (pol.polroles))
+      and not has_function_privilege('anon', d.refobjid, 'execute')), 0);
 select pg_temp.expect_empty('anonymous visitor gets no announcements, not an error', 'select 1 from announcements');
 select pg_temp.expect_empty('anonymous visitor gets no exam papers, not an error', 'select 1 from exam_papers');
 select pg_temp.expect_empty('anonymous visitor gets no marks, not an error', 'select 1 from marks');

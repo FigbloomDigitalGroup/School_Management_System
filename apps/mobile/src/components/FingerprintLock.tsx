@@ -6,6 +6,7 @@ import {
   confirmFingerprint, fingerprintSupport, forgetFingerprintUnlock, readFingerprintUnlock, saveFingerprintUnlock,
 } from "../lib/fingerprintUnlock";
 import { accentFor, HIT } from "../theme";
+import { signOutOfThisPhone } from "../lib/signOut";
 import { RIPPLE_ON_DARK } from "../ui/color";
 import { Tap } from "../ui/Tap";
 import { useTheme } from "../ui/ThemeContext";
@@ -142,7 +143,7 @@ function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onU
     setSigningOut(true);
     try {
       await beforeSignOut?.();
-      await supabase().auth.signOut({ scope: "local" });
+      await signOutOfThisPhone();
     } finally {
       setSigningOut(false);
     }

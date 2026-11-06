@@ -23,7 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { loginIdEmail } from "../_shared/loginId.ts";
 import { maskName } from "../_shared/maskName.ts";
-import { canSignIn } from "../_shared/signInStatuses.ts";
+import { canSignIn, SUSPENDED_SCHOOL_MESSAGE } from "../_shared/signInStatuses.ts";
 import { callerKey, dbLimiter, type Limiter, overallKey, unlimited } from "../_shared/rateLimit.ts";
 
 /** Lookups one caller may make in the window. A person fixing a typo makes a handful. */
@@ -69,6 +69,9 @@ export async function handle(req: Request, { admin, withinLimit, withinSchoolLim
   const loginId = rawLoginId.toUpperCase();
 
   const { data: tenant } = await admin.from("tenants").select("slug, status").eq("id", tenantId).maybeSingle();
+  // Said before the ID is looked at, so it confirms nothing about the ID: the
+  // same answer for anyone who picks this school. Never the reason.
+  if (tenant?.status === "suspended") return json({ error: SUSPENDED_SCHOOL_MESSAGE, code: "school_suspended" }, 403);
   if (!tenant || !canSignIn(tenant.status)) return json({ error: NOT_FOUND_MESSAGE }, 404);
 
   const { data: profile } = await admin.from("profiles")

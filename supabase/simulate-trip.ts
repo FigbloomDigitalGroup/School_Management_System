@@ -20,6 +20,14 @@
  *   ONE=1 npm run db:simulate-trip      # just one lap, then stop
  *   SCHOOL=kijani-ridge PLATE="KDK 482M" npm run db:simulate-trip   # another school's bus
  *
+ * It also does the driver's rider marks: on the way home every child gets on
+ * at school and off at their own stop; on the way to school each child gets
+ * on at their stop and off at school, and now and then one isn't at the
+ * pickup (ABSENT_PCT, default 5). The trip_riders trigger turns each mark into
+ * the family's update ("Amani got on the bus at 15:31"), exactly as the
+ * driver's app does; phone pushes need a driver's session, so the simulator's
+ * marks reach the in-app feed and the admin's live riders, not phones.
+ *
  * Leave it running and open the admin Fleet screen or the parent Bus screen
  * in another tab — the bus marker moves every few seconds. Ctrl+C stops it
  * after the current tick (a second Ctrl+C quits immediately). Uses the
@@ -138,7 +146,7 @@ async function main() {
   if (aErr || !assignment?.route_id) throw new Error(`Could not find an active route assignment for ${vehicle.plate_number}. ${aErr?.message ?? ""}`);
 
   const { data: stopsAsc, error: sErr } = await db
-    .from("route_stops").select("name, lat, lng, sequence").eq("route_id", assignment.route_id).order("sequence");
+    .from("route_stops").select("id, name, lat, lng, sequence").eq("route_id", assignment.route_id).order("sequence");
   if (sErr || !stopsAsc?.length) throw new Error(`Could not load stops for this route. ${sErr?.message ?? ""}`);
 
   if (!mapsKey) console.log("No GOOGLE_MAPS_API_KEY/VITE_GOOGLE_MAPS_API_KEY set — every leg will be a straight line.\n");
@@ -178,6 +186,38 @@ async function main() {
     if (tripErr || !trip) throw new Error(`Could not start a trip. ${tripErr?.message}`);
     console.log(`Trip ${trip.id}: ${stops[0]!.name} -> ${stops[stops.length - 1]!.name}`);
 
+    // The route's children, put on the trip by the trip_seed_riders trigger.
+    const { data: riderRows } = await db.from("trip_riders").select("student_id, stop_id").eq("trip_id", trip.id);
+    const riders = (riderRows ?? []) as { student_id: string; stop_id: string | null }[];
+    const onBus = new Set<string>();
+    const toSchool = reverse;
+    async function mark(ids: string[], status: "boarded" | "alighted" | "absent") {
+      if (!ids.length) return;
+      const { error } = await db.from("trip_riders")
+        .update({ status, ...(status === "boarded" ? { boarded_at: new Date().toISOString() } : status === "alighted" ? { alighted_at: new Date().toISOString() } : {}) })
+        .eq("trip_id", trip!.id).in("student_id", ids);
+      if (error) { console.log(`    !! could not mark ${ids.length} rider(s) ${status}: ${error.message}`); return; }
+      for (const id of ids) { if (status === "boarded") onBus.add(id); else onBus.delete(id); }
+      console.log(`    -> ${ids.length} rider(s) ${status === "boarded" ? "got on" : status === "alighted" ? "got off" : "not at the pickup"}`);
+    }
+    const absentPct = Number(process.env.ABSENT_PCT ?? 5);
+    /** What the driver does at a stop: the school end boards or drops everyone, a home stop its own children. */
+    async function atStop(stop: { id: string }, first: boolean, last: boolean) {
+      if (!toSchool && first) {
+        await mark(riders.map((r) => r.student_id), "boarded");
+      } else if (!toSchool) {
+        await mark(riders.filter((r) => (last || r.stop_id === stop.id) && onBus.has(r.student_id)).map((r) => r.student_id), "alighted");
+      } else if (last) {
+        await mark([...onBus], "alighted");
+      } else {
+        const here = riders.filter((r) => r.stop_id === stop.id || (first && r.stop_id === null));
+        const missing = here.filter(() => Math.random() * 100 < absentPct);
+        await mark(missing.map((r) => r.student_id), "absent");
+        await mark(here.filter((r) => !missing.includes(r)).map((r) => r.student_id), "boarded");
+      }
+    }
+    await atStop(stops[0]!, true, false);
+
     for (let leg = 0; leg < stops.length - 1 && !stopRequested; leg++) {
       const from = stops[leg]!;
       const to = stops[leg + 1]!;
@@ -210,6 +250,11 @@ async function main() {
 
         console.log(`    ${Math.round((step / (waypoints.length - 1)) * 100)}% · ${lat.toFixed(5)}, ${lng.toFixed(5)} · ${speedKmh} km/h`);
         await sleep(TICK_MS);
+      }
+      if (!stopRequested) {
+        await atStop(to, false, leg + 1 === stops.length - 1);
+        // a short wait at the stop while children get on or off
+        await sleep(TICK_MS * 2);
       }
     }
 

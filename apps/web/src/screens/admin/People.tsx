@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, STAFF_TITLE_SUGGESTIONS, supabase } from "@figbloom/shared";
+import { archiveLearners, deleteLearners, fetchAllRows, fetchArchivedLearners, learnerCount, restoreLearners, STAFF_TITLE_SUGGESTIONS, supabase } from "@figbloom/shared";
 import type { ArchivedLearner, ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Avatar, AvatarEditor } from "../../components/Avatar";
@@ -55,14 +55,22 @@ async function fetchPeople(tenantId: string): Promise<PeopleData> {
 
   const results = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
+    // The API answers at most 1,000 rows and says nothing when it stops, so the learners, their invoices and their logins are read
+    // a page at a time (FIG-1416). A stable order (name, then id) keeps the pages from overlapping.
+    fetchAllRows<Omit<StudentRow, "login_id">>((from, to) => sb
+      .from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true)
+      .order("full_name").order("id").range(from, to).returns<Omit<StudentRow, "login_id">[]>()),
     sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at,handles_visitors").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "staff"]).order("full_name").returns<StaffRow[]>(),
     term
-      ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
+      ? fetchAllRows<{ student_id: string; total_cents: number; paid_cents: number }>((from, to) => sb
+        .from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id)
+        .order("id").range(from, to).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>())
       : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[], error: null }),
     sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
     sb.from("teacher_subjects").select("teacher_id, subject_id").eq("tenant_id", tenantId).returns<{ teacher_id: string; subject_id: string }[]>(),
-    sb.from("profiles").select("id,login_id").eq("tenant_id", tenantId).eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
+    fetchAllRows<{ id: string; login_id: string | null }>((from, to) => sb
+      .from("profiles").select("id,login_id").eq("tenant_id", tenantId).eq("role", "student")
+      .order("id").range(from, to).returns<{ id: string; login_id: string | null }[]>()),
   ]);
   // A failed read must say so, not show up as an empty list: a column the
   // database doesn't have yet (a migration not pushed) otherwise looks like

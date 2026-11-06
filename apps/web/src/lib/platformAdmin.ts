@@ -269,10 +269,21 @@ export async function fetchOrganizations(): Promise<Organization[]> {
   return data ?? [];
 }
 
-/** Tenant-to-org assignment is staff-assigned only in v1 — a tenant never picks its own org. */
-export async function assignTenantOrganization(tenantId: string, organizationId: string | null): Promise<void> {
+/**
+ * Tenant-to-org assignment is staff-assigned only in v1 — a tenant never picks its own org.
+ * Every school belongs to an organisation (20261104920000): to take one out of a group,
+ * give it its own (giveSchoolOwnOrganization), never none.
+ */
+export async function assignTenantOrganization(tenantId: string, organizationId: string): Promise<void> {
   const { error } = await supabase().from("tenants").update({ organization_id: organizationId }).eq("id", tenantId);
   if (error) throw error;
+}
+
+/** Moves a school into a new organisation of its own, named after it (Figbloom staff only). Returns its id. */
+export async function giveSchoolOwnOrganization(tenantId: string): Promise<string> {
+  const { data, error } = await supabase().rpc("give_school_own_organization", { p_tenant_id: tenantId });
+  if (error) throw error;
+  return data as string;
 }
 
 export interface OrgAdminInviteInput {

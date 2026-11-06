@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AdminArea, Profile, Tenant } from "@figbloom/shared";
-import { fetchMyAdminAreas, mayHoldAdminAreas, supabase } from "@figbloom/shared";
+import { fetchMyAdminAreas, mayHoldAdminAreas, sessionSchoolSuspended, supabase } from "@figbloom/shared";
 
 export interface Session {
   loading: boolean;
@@ -25,6 +25,11 @@ export interface Session {
    *  own and their school roles'. Empty for everyone else; full admins don't
    *  need any (adminAccessFor). The database checks every one itself. */
   adminAreas: AdminArea[];
+  /** The signed-in person's own school is suspended (my_school_suspended()):
+   *  their session still works for up to an hour after the ban, but
+   *  my_tenant() hides the school, so the console shows the suspended
+   *  message instead of bouncing to sign-in with no reason. */
+  schoolSuspended: boolean;
 }
 
 interface InternalState extends Session {
@@ -41,6 +46,7 @@ interface InternalState extends Session {
 
 const EMPTY: Omit<InternalState, "resolvedFor"> = {
   loading: false, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [],
+  schoolSuspended: false,
 };
 
 /**
@@ -48,7 +54,7 @@ const EMPTY: Omit<InternalState, "resolvedFor"> = {
  * than querying auth directly, so impersonation is honoured in one place.
  */
 export function useSession(slug: string | null): Session {
-  const [state, setState] = useState<InternalState>({ loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [], resolvedFor: null });
+  const [state, setState] = useState<InternalState>({ loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [], schoolSuspended: false, resolvedFor: null });
 
   useEffect(() => {
     let alive = true;
@@ -90,10 +96,13 @@ export function useSession(slug: string | null): Session {
         ? await fetchMyAdminAreas().catch((err: unknown) => { console.error(err); return [] as AdminArea[]; })
         : [];
 
+      // Only asked inside a school's routes, and only when that school couldn't be read.
+      const schoolSuspended = slug ? await sessionSchoolSuspended(profile ?? null, !!tenant) : false;
+
       const raw = sessionStorage.getItem("figbloom.impersonation");
       const impersonating = raw ? (JSON.parse(raw) as Session["impersonating"]) : null;
 
-      if (alive) setState({ loading: false, profile: profile ?? null, tenant, impersonating, actingForTenant, actingOrganization, adminAreas, resolvedFor: slug });
+      if (alive) setState({ loading: false, profile: profile ?? null, tenant, impersonating, actingForTenant, actingOrganization, adminAreas, schoolSuspended, resolvedFor: slug });
     }
 
     load().catch((err) => { if (alive) { console.error(err); setState({ ...EMPTY, resolvedFor: slug }); } });
@@ -102,7 +111,7 @@ export function useSession(slug: string | null): Session {
   }, [slug]);
 
   if (state.resolvedFor !== slug) {
-    return { loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [] };
+    return { loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [], schoolSuspended: false };
   }
   return state;
 }

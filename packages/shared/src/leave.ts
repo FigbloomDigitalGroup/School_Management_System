@@ -13,6 +13,8 @@ export interface LeaveRequest {
   reviewed_at: string | null;
   review_note: string | null;
   created_at: string;
+  /** 'hr': approved (or cancelled) in Figbloom HR and written by its event (20261105800000); 'schools': the office's */
+  source?: "schools" | "hr";
 }
 
 export interface LeaveRequestRow extends LeaveRequest {

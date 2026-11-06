@@ -126,7 +126,7 @@ export function AdminLeave() {
                 { key: "teacher", header: "Teacher", width: "1.2fr", render: (r: LeaveRequestRow) => <Cell sub={r.reason ?? undefined}>{r.teacherName}</Cell> },
                 { key: "dates", header: "Dates", render: (r: LeaveRequestRow) => <span className="text-[13px]">{formatShortDate(r.starts_on)} – {formatShortDate(r.ends_on)}</span> },
                 { key: "note", header: "Note", width: "1.4fr", render: (r: LeaveRequestRow) => <span className="text-[12.5px] text-ink-faint">{r.review_note ?? "—"}</span> },
-                { key: "status", header: "", align: "right", render: (r: LeaveRequestRow) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge> },
+                { key: "status", header: "", align: "right", render: (r: LeaveRequestRow) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}{r.source === "hr" ? " · Figbloom HR" : ""}</Badge> },
               ]}
               rows={decided}
               rowKey={(r) => r.id}

@@ -88,7 +88,7 @@ export function OrgPicker() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-medium">{org.name}</div>
                     <div className="mt-0.5 text-[11.5px] text-ink-faint">
-                      {org.status === "pending" ? "Under review" : org.status === "suspended" ? "Suspended" : "Active"}
+                      {org.status === "pending" ? "Under review" : org.status === "suspended" ? "Suspended" : org.status === "rejected" ? "Not approved" : "Active"}
                     </div>
                   </div>
                   <span aria-hidden className="text-ink-faint">→</span>

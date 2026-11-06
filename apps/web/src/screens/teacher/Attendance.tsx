@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
   isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
-  supabase, fetchHealthForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
+  supabase, fetchHealthFlagsForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
   type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type Register,
 } from "@figbloom/shared";
 import { HealthChip, flagsById } from "../../components/learners/Health";
@@ -123,7 +123,7 @@ export function Attendance() {
   const roster = rosterData ?? [];
   // Allergies and conditions, so a teacher sees them while marking. A failed read just shows no chips.
   const { data: healthFlags } = useAsync(
-    () => (rosterData?.length ? fetchHealthForStudents(rosterData.map((s) => s.id)).then(flagsById).catch(() => new Map()) : Promise.resolve(new Map())),
+    () => (rosterData?.length ? fetchHealthFlagsForStudents(rosterData.map((s) => s.id)).then(flagsById).catch(() => new Map()) : Promise.resolve(new Map())),
     [rosterData],
   );
 

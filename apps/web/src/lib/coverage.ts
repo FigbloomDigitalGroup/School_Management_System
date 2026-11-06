@@ -64,7 +64,8 @@ export interface CoverageItem {
 /** Every period on one weekday/date whose assigned teacher is on approved
  *  leave that day, with substitute candidates drawn from who else
  *  specializes in that subject (teacher_subjects) — never the absent
- *  teacher, never someone also out that day. */
+ *  teacher, never someone also out that day, never someone teaching or
+ *  already covering another class at that time. */
 export async function fetchCoverageForDate(tenantId: string, weekday: Weekday, date: string): Promise<CoverageItem[]> {
   const onLeave = await fetchTeachersOnLeaveForDate(tenantId, date);
   if (onLeave.size === 0) return [];
@@ -111,12 +112,26 @@ export async function fetchCoverageForDate(tenantId: string, weekday: Weekday, d
   }
   const decidedBySlot = new Map((decided ?? []).map((d) => [`${d.class_id}|${d.start_time}`, d]));
 
+  // Who is teaching which classes at each time, from this weekday's timetable: a teacher teaching another class then, or already asked to
+  // cover another class then, cannot be offered this one (FIG-1434).
+  const teachingAt = new Map<string, Map<string, Set<string>>>();
+  for (const s of slots) {
+    const t = teacherByClassSubject.get(`${s.class_id}|${s.subject_id}`);
+    if (!t) continue;
+    const at = teachingAt.get(s.start_time) ?? new Map<string, Set<string>>();
+    at.set(t, (at.get(t) ?? new Set<string>()).add(s.class_id));
+    teachingAt.set(s.start_time, at);
+  }
+  const isBusy = (teacher: string, time: string, classId: string) =>
+    [...(teachingAt.get(time)?.get(teacher) ?? [])].some((c) => c !== classId)
+    || (decided ?? []).some((d) => d.start_time === time && d.class_id !== classId && d.covering_teacher_id === teacher);
+
   const items: CoverageItem[] = [];
   for (const slot of slots) {
     const teacherId = teacherByClassSubject.get(`${slot.class_id}|${slot.subject_id}`);
     if (!teacherId || !onLeave.has(teacherId)) continue;
     const substitutes = (substitutesBySubject.get(slot.subject_id) ?? [])
-      .filter((id) => id !== teacherId && !onLeave.has(id))
+      .filter((id) => id !== teacherId && !onLeave.has(id) && !isBusy(id, slot.start_time, slot.class_id))
       .map((id) => ({ id, name: nameById.get(id) ?? "Unknown teacher" }));
     const decision = decidedBySlot.get(`${slot.class_id}|${slot.start_time}`);
     items.push({
@@ -139,15 +154,49 @@ export async function fetchCoverageForDate(tenantId: string, weekday: Weekday, d
   return items;
 }
 
+/** True if this teacher is teaching a different class at that weekday and time (a subject-linked period of the timetable). */
+async function isTeachingElsewhere(tenantId: string, date: string, time: string, classId: string, teacherId: string): Promise<boolean> {
+  const weekday = WEEKDAYS[(new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7];
+  if (!weekday) return false; // a weekend has no timetable
+  const sb = supabase();
+  const { data: slots, error } = await sb
+    .from("timetable_slots").select("class_id, subject_id")
+    .eq("tenant_id", tenantId).eq("day", weekday).eq("start_time", time).neq("class_id", classId).not("subject_id", "is", null)
+    .returns<{ class_id: string; subject_id: string }[]>();
+  if (error) throw new Error(error.message);
+  if (!slots?.length) return false;
+  const { data: mine, error: taughtErr } = await sb
+    .from("teaching_assignments").select("class_id, subject_id")
+    .eq("tenant_id", tenantId).eq("teacher_id", teacherId).in("class_id", slots.map((s) => s.class_id))
+    .returns<{ class_id: string; subject_id: string }[]>();
+  if (taughtErr) throw new Error(taughtErr.message);
+  return slots.some((s) => (mine ?? []).some((a) => a.class_id === s.class_id && a.subject_id === s.subject_id));
+}
+
 /** Records the principal's decision for one coverage gap — a specific
  *  substitute, or that the period just runs free (covering=null). Notifies
- *  the substitute in-app; a free period has nobody to notify. */
+ *  the new substitute in-app, and tells the one who had it before when it is
+ *  taken away or given to someone else (FIG-1434). A teacher who is teaching
+ *  another class at that time is refused here as well as left out of the list. */
 export async function assignCoverage(input: {
   tenantId: string; assignedBy: string;
   item: Pick<CoverageItem, "date" | "classId" | "className" | "subjectId" | "subjectName" | "time" | "absentTeacherId">;
   coveringTeacherId: string | null;
 }): Promise<void> {
-  const { error } = await supabase().from("coverage_assignments").upsert({
+  const sb = supabase();
+  const { data: before, error: beforeErr } = await sb
+    .from("coverage_assignments").select("covering_teacher_id")
+    .eq("tenant_id", input.tenantId).eq("date", input.item.date).eq("class_id", input.item.classId).eq("start_time", input.item.time)
+    .maybeSingle<{ covering_teacher_id: string | null }>();
+  if (beforeErr) throw new Error(beforeErr.message);
+  const previousId = before?.covering_teacher_id ?? null;
+
+  if (input.coveringTeacherId && input.coveringTeacherId !== previousId
+      && await isTeachingElsewhere(input.tenantId, input.item.date, input.item.time, input.item.classId, input.coveringTeacherId)) {
+    throw new Error("That teacher is teaching another class at that time. Choose someone who is free.");
+  }
+
+  const { error } = await sb.from("coverage_assignments").upsert({
     tenant_id: input.tenantId,
     date: input.item.date,
     class_id: input.item.classId,
@@ -161,7 +210,7 @@ export async function assignCoverage(input: {
   if (error) throw new Error(error.message);
 
   if (input.coveringTeacherId) {
-    const { error: notifyErr } = await supabase().from("announcements").insert({
+    const { error: notifyErr } = await sb.from("announcements").insert({
       tenant_id: input.tenantId,
       author_id: input.assignedBy,
       subject: `Covering ${input.item.subjectName} — ${input.item.className}`,
@@ -171,6 +220,19 @@ export async function assignCoverage(input: {
       published_at: new Date().toISOString(),
     });
     if (notifyErr) throw new Error(notifyErr.message);
+  }
+
+  if (previousId && previousId !== input.coveringTeacherId) {
+    const { error: offErr } = await sb.from("announcements").insert({
+      tenant_id: input.tenantId,
+      author_id: input.assignedBy,
+      subject: `Cover cancelled — ${input.item.subjectName}, ${input.item.className}`,
+      body: `You are no longer covering ${input.item.subjectName} for ${input.item.className} at ${input.item.time} on ${input.item.date}. ${input.coveringTeacherId ? "It has been given to someone else." : "The period will run as a free period."}`,
+      audience: { kind: "user", user_id: previousId },
+      channels: ["in_app"],
+      published_at: new Date().toISOString(),
+    });
+    if (offErr) throw new Error(offErr.message);
   }
 }
 

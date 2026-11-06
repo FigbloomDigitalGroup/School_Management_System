@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { NAV, normalizeSlug, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
+import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type GuideBack, type GuideHost, type GuideOptions } from "./GuidePanel";
 import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -17,6 +18,17 @@ import { useToast } from "./ui/Toast";
 /** Opens the shell's Accessibility dialog from a page header. Null outside a
  *  ConsoleShell, where PageHead then shows no accessibility button. */
 const OpenAccessibility = createContext<(() => void) | null>(null);
+
+/** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
+export interface ShellAction {
+  key: string;
+  label: string;
+  icon: string;
+  title?: string;
+  /** Working on it: the entry is dimmed and says so. */
+  busy?: boolean;
+  onClick: () => void;
+}
 
 interface Props {
   role: Role;
@@ -42,6 +54,10 @@ interface Props {
   /** A teacher or other staff member who also holds admin areas (20261031000000):
    *  a "Teacher | Admin" switch between their own console and the admin one. */
   consoleSwitch?: { current: "own" | "admin"; ownLabel: string; ownTo: string; adminTo: string };
+  /** The Figbloom guide (GuidePanel): a "Guide" button in the sidebar. Absent: no guide here. */
+  guide?: GuideOptions;
+  /** Entries after the pages that open something else (useHrItem). */
+  sideActions?: ShellAction[];
 }
 
 /**
@@ -49,13 +65,16 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch, guide, sideActions = [] }: Props) {
   // Start collapsed when the labelled sidebar would eat too much of a narrow
   // (or heavily zoomed) window; the person can still expand it.
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
   const [changingPw, setChangingPw] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [guideOpen, setGuideOpenState] = useState(() => !!guide && guideWasOpen(user.id));
+  const setGuideOpen = (v: boolean) => { setGuideOpenState(v); rememberGuideOpen(user.id, v); };
+  const location = useLocation();
   const accountBtn = useRef<HTMLButtonElement>(null);
   const { slug, orgSlug } = useParams();
   const tenant = useTenant();
@@ -92,6 +111,21 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // since useParams() on an /org/* route has no `slug` — nav was completely broken.
   const tenantScoped = role !== "super_admin" && role !== "org_admin";
   const orgScoped = role === "org_admin";
+  const hrefFor = (to: string) => tenantScoped
+    ? `/s/${slug}/${to.replace(/^\//, "")}`
+    : orgScoped
+      ? `/org/${orgSlug}/${to.replace(/^\//, "")}`
+      : to;
+  // The page they're on, as a sidebar `to`, for the guide.
+  const prefix = tenantScoped ? `/s/${slug}/` : orgScoped ? `/org/${orgSlug}/` : "/";
+  const here = location.pathname.startsWith(prefix) ? location.pathname.slice(prefix.length).replace(/\/$/, "") : "";
+  const herePage = items.find((i) => i.to === here) ? here : items.filter((i) => here.startsWith(`${i.to}/`)).map((i) => i.to).sort((a, b) => b.length - a.length)[0] ?? "";
+  const guideHost: GuideHost | null = guide ? { role, userId: user.id, items, here: herePage, hrefFor, options: guide } : null;
+  // The School assistant page hosts the chat itself, so the panel stays out of its way there.
+  const guideInPage = herePage === "admin/assistant";
+  // A page opened from the School assistant offers the way back to it.
+  const guideBack = (location.state as { guideBack?: GuideBack } | null)?.guideBack;
+  const backBar = guideBack && guideBack.to !== herePage ? guideBack : null;
   // Only the three roles with a real self-service "My account" screen (FIG-
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
@@ -189,11 +223,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
         {items.map((it) => {
-          const to = tenantScoped
-            ? `/s/${slug}/${it.to.replace(/^\//, "")}`
-            : orgScoped
-              ? `/org/${orgSlug}/${it.to.replace(/^\//, "")}`
-              : it.to;
+          const to = hrefFor(it.to);
           return (
             <NavLink
               key={it.to}
@@ -217,9 +247,38 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </NavLink>
           );
         })}
+        {sideActions.map((a) => (
+          <button
+            key={a.key}
+            type="button"
+            onClick={a.onClick}
+            disabled={a.busy}
+            aria-busy={a.busy || undefined}
+            title={a.title ?? a.label}
+            className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
+            style={{ height: 38 }}
+          >
+            <Icon name={a.icon} />
+            {open && <span className="flex-1 truncate text-body">{a.label}</span>}
+            {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
+          </button>
+        ))}
         </div>
 
         <div className="shrink-0 border-t border-white/10 pt-2">
+          {guide && !guideInPage && (
+            <button
+              type="button"
+              onClick={() => setGuideOpen(!guideOpen)}
+              aria-expanded={guideOpen}
+              title="Ask the guide how to do something"
+              className={`hit mb-1 flex w-full items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 hover:bg-white/10 ${guideOpen ? "bg-white/10 text-white" : "text-white/75"} ${open ? "" : "justify-center"}`}
+              style={{ height: 38 }}
+            >
+              <Icon name="help" />
+              {open && <span className="flex-1 truncate text-left text-body">Guide</span>}
+            </button>
+          )}
           <button
             ref={accountBtn}
             type="button"
@@ -260,7 +319,20 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </button>
           </div>
         )}
-        <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto">
+          {backBar && (
+            <div className="sticky top-0 z-20 border-b border-line bg-white/95 px-5 py-2 backdrop-blur print:hidden">
+              <button
+                type="button"
+                onClick={() => nav(hrefFor(backBar.to))}
+                className="hit rounded-md px-1.5 py-0.5 text-[12.5px] font-semibold text-forest hover:bg-page"
+              >
+                ← Back to {backBar.label}
+              </button>
+            </div>
+          )}
+          <GuideHostContext.Provider value={guideHost}>{children}</GuideHostContext.Provider>
+        </main>
       </div>
 
       {accountOpen && (
@@ -279,6 +351,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           onSignOut={() => void signOut()}
         />
       )}
+      {guideHost && guideOpen && !guideInPage && <GuidePanel host={guideHost} onClose={() => setGuideOpen(false)} />}
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
       {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
     </div>

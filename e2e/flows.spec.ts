@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { confirmDialog } from "./support/confirm";
 import { createClient } from "@supabase/supabase-js";
+import { today as schoolToday } from "../packages/shared/src/attendance";
 
 process.loadEnvFile?.(); // Node 20.6+ built-in
 const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -21,6 +23,16 @@ const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVI
  * reason no longer applies, but the shared-tenant-state reason still does.)
  */
 test.describe.configure({ mode: "serial" });
+
+// Every test signs in from this one machine, and the resolve-login-id edge function allows 30 login-ID lookups
+// per caller per 10 minutes. A second run soon after the first used to hit that ("Signing in as ..." never
+// appeared, and the rest of the serial block showed "did not run"). Clear the lookup log before each run.
+// Local Supabase only: a hosted project is never touched.
+test.beforeAll(async () => {
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(process.env.SUPABASE_URL ?? "")) return;
+  const { error } = await admin.from("login_lookups").delete().gte("looked_up_at", "1970-01-01");
+  if (error) console.warn(`could not clear login_lookups: ${error.message}`);
+});
 
 const LOGINS = {
   platform: { email: "joyce@figbloom.co.ke", password: "figbloom-dev" },
@@ -134,7 +146,13 @@ test.describe("platform", () => {
   async function removeNyeriGirls() {
     const { data: admins } = await admin.from("profiles").select("id").eq("email", "peter.mwangi@nyerigirls.sc.ke");
     for (const row of admins ?? []) await admin.auth.admin.deleteUser(row.id);
+    const { data: school } = await admin.from("tenants").select("organization_id").eq("slug", "nyeri-girls").maybeSingle();
     await admin.from("tenants").delete().eq("slug", "nyeri-girls");
+    // every school has an organisation (20261104920000): a single school's own goes with it
+    if (school?.organization_id) {
+      const { count } = await admin.from("tenants").select("id", { count: "exact", head: true }).eq("organization_id", school.organization_id);
+      if (!count) await admin.from("organizations").delete().eq("id", school.organization_id);
+    }
   }
   test.afterAll(removeNyeriGirls);
 
@@ -169,9 +187,11 @@ test.describe("platform", () => {
     await dialog.getByRole("button", { name: "Create school and send invite" }).click();
 
     // Nothing is actually emailed/texted locally — the success screen hands over
-    // real login credentials instead of claiming an invite was delivered.
+    // real login credentials instead of claiming an invite was delivered. (Since main's sign-in emails
+    // (682143a) the card says "Not emailed: email isn't set up yet. Hand these credentials to ... directly.")
     await expect(dialog).toContainText("is live");
-    await expect(dialog).toContainText("Nothing was emailed or texted");
+    await expect(dialog).toContainText("Not emailed");
+    await expect(dialog).toContainText("Hand these credentials to Peter Mwangi directly");
   });
 
   test("a taken address is refused", async ({ page }) => {
@@ -216,7 +236,8 @@ test.describe("teacher", () => {
   // project) would open straight to "register is in". Reset before EACH test.
   test.describe.configure({ mode: "serial" });
 
-  const todayIso = () => new Date().toISOString().slice(0, 10);
+  // the date the app files a register under: today in the school's time zone (Africa/Nairobi), not the UTC date (FIG-1400)
+  const todayIso = () => schoolToday();
   async function attendanceRowsToday() {
     const { data: tenant } = await admin.from("tenants").select("id").eq("slug", "alliance").single();
     const { count } = await admin.from("attendance").select("id", { count: "exact", head: true }).eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
@@ -228,6 +249,9 @@ test.describe("teacher", () => {
     await admin.from("attendance").delete().eq("tenant_id", tenant!.id).eq("taken_on", todayIso());
     await signInWithId(page, LOGINS.teacher.school, LOGINS.teacher.loginId, LOGINS.teacher.password);
     await page.goto("/s/alliance/teacher/attendance");
+    // Wait for the roster: until it has loaded the page holds an EMPTY register, and a click on Submit then queues rows: [] and
+    // reports "register is in" with nobody saved (QA 10). The tests below meant to submit the class, so they must see its learners first.
+    await expect(page.getByText(/^[1-9]\d* learners$/)).toBeVisible();
   });
 
   test("an all-present register asks for one confirmation", async ({ page }) => {
@@ -373,14 +397,14 @@ test.describe("school admin", () => {
       const manage = page.getByRole("dialog");
 
       // Deleting is refused, in words, because they have records.
-      page.once("dialog", (d) => void d.accept());
       await manage.getByRole("button", { name: "Delete…" }).click();
+      await confirmDialog(page, "Delete");
       await expect(page.getByText(/on file, so they can't be deleted/)).toBeVisible();
       await expect(manage).toBeVisible();
 
       // Archiving takes them off the roll and keeps everything.
-      page.once("dialog", (d) => void d.accept());
       await manage.getByRole("button", { name: "Archive learner" }).click();
+      await confirmDialog(page, "Archive");
       await expect(page.getByText(/archived\. Find them under "Archived"/)).toBeVisible();
       await expect(page.getByText("No learner matches that")).toBeVisible();
       const { data: archived } = await admin.from("students").select("active, archived_at, archived_by").eq("id", kid!.id).single();
@@ -419,8 +443,8 @@ test.describe("school admin", () => {
       await page.goto("/s/alliance/admin/people");
       await page.getByPlaceholder("Name or admission number").fill(name);
       await page.getByText(name).first().click();
-      page.once("dialog", (d) => void d.accept());
       await page.getByRole("dialog").getByRole("button", { name: "Delete…" }).click();
+      await confirmDialog(page, "Delete");
       await expect(page.getByText(`${name} deleted.`)).toBeVisible();
       expect((await admin.from("students").select("id", { count: "exact", head: true }).eq("id", mistake!.id)).count).toBe(0);
     } finally {
@@ -485,11 +509,12 @@ test.describe("parent", () => {
 
     // "Form 2 West" alone also matches an unrelated seeded announcement's text —
     // the admission number makes this the one unambiguous "which child" marker.
-    await expect(page.getByText("ADM 4102")).toBeVisible();
+    // The parent screens take 5 to 9 seconds to show a child even on the seeded school (FIG-1497: the permission checks run once per row), so wait longer than the usual 5.
+    await expect(page.getByText("ADM 4102")).toBeVisible({ timeout: 25_000 });
 
     // ChildSwitcher shows first names only.
     await page.getByRole("button", { name: "Samuel" }).click();
-    await expect(page.getByText("ADM 4103")).toBeVisible();
+    await expect(page.getByText("ADM 4103")).toBeVisible({ timeout: 25_000 });
     await page.close();
   });
 });
@@ -527,7 +552,7 @@ test.describe("student", () => {
 
       await page.goto("/s/alliance/student/results");
       const switcher = page.getByRole("group", { name: "Exam" });
-      await expect(switcher).toBeVisible();
+      await expect(switcher).toBeVisible({ timeout: 25_000 }); // the student screens are slow too (FIG-1497, FIG-1500)
       // Newest first, each pill says how many subjects are out, and the new exam is showing.
       const pills = switcher.getByRole("button");
       await expect(pills.first()).toContainText(`${examName} · 1 subject`);

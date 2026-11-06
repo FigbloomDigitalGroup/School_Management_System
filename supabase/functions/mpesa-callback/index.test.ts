@@ -1,4 +1,4 @@
-import { describe, it } from "jsr:@std/testing/bdd";
+import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "../_shared/fakeSupabase.ts";
 import type { StkOutcome } from "../_shared/daraja.ts";
@@ -215,4 +215,157 @@ describe("two deliveries of the same callback (FIG-1323)", () => {
     assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
     assertEquals(admin.rowsIn("audit_events").length, 0);
   });
+});
+
+// QA 06 (FIG-1239): replays, out-of-order events, payments that are already settled, and Safaricom's retries.
+// The database side (apply_payment credits only on the move into 'success', mpesa_receipt is unique) is checked in
+// supabase/rls-checks/fees.sql; this fake has no triggers, so these tests look at the payment row and the audit log.
+describe("mpesa-callback: replay, order and retries", () => {
+  const warn = console.warn;
+  beforeEach(() => { console.warn = () => {}; }); // the amount-mismatch warning is expected below
+  afterEach(() => { console.warn = warn; });
+
+  const failureCallback = { Body: { stkCallback: { CheckoutRequestID: CHECKOUT_ID, ResultCode: 1032 } } };
+
+  it("settles a replayed success once: Daraja is asked once, one audit event, the first receipt stays", async () => {
+    const admin = makeAdmin();
+    const d = deps(admin);
+    const replay = successCallback({
+      CallbackMetadata: { Item: [{ Name: "MpesaReceiptNumber", Value: "REPLAY999" }, { Name: "Amount", Value: 500 }] },
+    });
+    const first = await handle(request(successCallback()), d);
+    const second = await handle(request(replay), d);
+
+    assertEquals([first.status, second.status], [200, 200]);
+    assertEquals(d.asked.length, 1);
+    assertEquals(admin.rowsIn("audit_events").length, 1);
+    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt, "SFC1234ABC");
+  });
+
+  it("does not let a late failure undo a payment that already succeeded", async () => {
+    const admin = makeAdmin();
+    await handle(request(successCallback()), deps(admin));
+    const late = deps(admin, { done: true, resultCode: 1032 });
+    const res = await handle(request(failureCallback), late);
+
+    assertEquals(res.status, 200);
+    const payment = admin.rowsIn("payments")[0];
+    assertEquals(payment.status, "success");
+    assertEquals(payment.mpesa_receipt, "SFC1234ABC");
+    assertEquals(payment.failure_reason, undefined);
+    assertEquals(late.asked, []);
+  });
+
+  it("does not let a success that arrives after a failure credit the payment", async () => {
+    const admin = makeAdmin();
+    await handle(request(failureCallback), deps(admin, { done: true, resultCode: 1032 }));
+    assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
+
+    const late = deps(admin, { done: true, resultCode: 0 });
+    const res = await handle(request(successCallback()), late);
+
+    assertEquals(res.status, 200);
+    assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
+    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt, undefined);
+    assertEquals(admin.rowsIn("audit_events").length, 0);
+    assertEquals(late.asked, []);
+  });
+
+  for (const status of ["success", "failed", "cancelled", "timeout"]) {
+    it(`ignores a callback for a payment that is already '${status}': no Daraja question, no change, no audit event`, async () => {
+      const admin = makeAdmin({ status, failure_reason: "earlier", completed_at: "2026-10-28T10:00:00.000Z" });
+      const before = JSON.stringify(admin.rowsIn("payments"));
+      const d = deps(admin);
+      const res = await handle(request(successCallback()), d);
+
+      assertEquals(res.status, 200);
+      assertEquals(JSON.stringify(admin.rowsIn("payments")), before);
+      assertEquals(admin.rowsIn("audit_events").length, 0);
+      assertEquals(d.asked, []);
+    });
+  }
+
+  for (const claimed of [1, 0.5, 49999, 99999999, -500, "abc"]) {
+    it(`keeps the prompt's amount when the callback claims ${JSON.stringify(claimed)}`, async () => {
+      const admin = makeAdmin();
+      const forged = successCallback({
+        CallbackMetadata: { Item: [{ Name: "MpesaReceiptNumber", Value: "SFC1" }, { Name: "Amount", Value: claimed }] },
+      });
+      await handle(request(forged), deps(admin));
+      const payment = admin.rowsIn("payments")[0];
+      assertEquals(payment.status, "success");
+      assertEquals(payment.amount_cents, 50000);
+      assertEquals(admin.rowsIn("audit_events")[0].metadata.amount_cents, 50000);
+    });
+  }
+
+  it("keeps the prompt's amount when the callback has no metadata at all", async () => {
+    const admin = makeAdmin();
+    await handle(request({ Body: { stkCallback: { CheckoutRequestID: CHECKOUT_ID, ResultCode: 0 } } }), deps(admin));
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("payments")[0].amount_cents, 50000);
+  });
+
+  it("asks for a retry when the payment can't be read, and changes nothing", async () => {
+    const admin = makeAdmin();
+    admin.failNextRead("payments", "database unavailable");
+    const d = deps(admin);
+    const res = await handle(request(successCallback()), d);
+    assertEquals(res.status, 500);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+    assertEquals(d.asked, []);
+  });
+
+  it("asks for a retry when a failed result can't be saved, and leaves the payment pending", async () => {
+    const admin = makeAdmin();
+    admin.failNextWrite("payments", "database unavailable");
+    const res = await handle(request(failureCallback), deps(admin, { done: true, resultCode: 1032 }));
+    assertEquals(res.status, 500);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+  });
+
+  it("settles the payment when Safaricom redelivers after a 500 (Daraja down, then up)", async () => {
+    const admin = makeAdmin();
+    const down = await handle(request(successCallback()), deps(admin, new Error("Daraja is down")));
+    assertEquals(down.status, 500);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+
+    const up = await handle(request(successCallback()), deps(admin));
+    assertEquals(up.status, 200);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("audit_events").length, 1);
+  });
+
+  it("settles the payment when Safaricom redelivers after a 500 (database down, then up)", async () => {
+    const admin = makeAdmin();
+    admin.failNextWrite("payments", "database unavailable");
+    assertEquals((await handle(request(successCallback()), deps(admin))).status, 500);
+
+    assertEquals((await handle(request(successCallback()), deps(admin))).status, 200);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("audit_events").length, 1);
+  });
+
+  // Both deliveries read the payment while it is pending; each update is guarded with .eq("status", "pending"), so the one
+  // that lands second changes nothing. Without the guard a failure could overwrite a success (or the reverse).
+  for (const [first, second] of [["success", "failure"], ["failure", "success"]] as const) {
+    it(`keeps whichever lands first when a ${first} and a ${second} are delivered together`, async () => {
+      const admin = makeAdmin();
+      const answers = { success: { done: true as const, resultCode: 0 }, failure: { done: true as const, resultCode: 1032 } };
+      const asks = { [first]: deps(admin, answers[first]), [second]: deps(admin, answers[second]) };
+      const bodies = { success: successCallback(), failure: failureCallback };
+      await Promise.all([handle(request(bodies[first]), asks[first]), handle(request(bodies[second]), asks[second])]);
+      assertEquals(admin.rowsIn("payments")[0].status, first === "success" ? "success" : "cancelled");
+    });
+  }
+
+  it("settles a payment once when two deliveries arrive together", async () => {
+    const admin = makeAdmin();
+    const d = deps(admin);
+    const [a, b] = await Promise.all([handle(request(successCallback()), d), handle(request(successCallback()), d)]);
+    assertEquals([a.status, b.status], [200, 200]);
+    assertEquals(admin.rowsIn("payments").length, 1);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+  });
+
 });

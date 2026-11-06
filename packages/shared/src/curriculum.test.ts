@@ -40,6 +40,19 @@ describe("parseStrandCsv", () => {
     ]);
   });
 
+  // QA 13: the message promises "the line number as the spreadsheet shows it", but blank lines are dropped before the lines are
+  // counted (the learner import has the same fault, FIG-1423). Passes while the defect exists; then change it.fails to it.
+  it.fails("QA13-CSV-LINES FIG-1455: an error is reported against the line of the FILE, even with a blank line above it", () => {
+    const csv = [
+      "area_code,grade,strand,sub_strand",
+      "",
+      "JS-ISC,7,Force and Energy,Electrical Energy",
+      "XX-NOPE,7,Something,",
+    ].join("\n");
+    const { errors } = parseStrandCsv(csv, areas);
+    expect(errors).toEqual(['Line 4: no learning area with code "XX-NOPE".']);
+  });
+
   it("doesn't duplicate a sub-strand listed twice", () => {
     const csv = "area_code,grade,strand,sub_strand\nJS-ISC,9,Living Things,Cells\nJS-ISC,9,Living Things,cells";
     expect(parseStrandCsv(csv, areas).strands[0]!.subStrands).toEqual(["Cells"]);

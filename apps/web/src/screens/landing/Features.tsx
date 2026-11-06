@@ -8,7 +8,7 @@ const featureTabs = [
     label: 'Attendance',
     title: 'Student attendance management',
     image: '/images/adminn-dashboard.webp',
-    alt: 'BloomEd dashboard showing attendance by class and which classes still need to submit their register',
+    alt: 'Figbloom School Management dashboard showing attendance by class and which classes still need to submit their register',
     description: 'Make attendance easier to record, review, and follow up.',
     points: [
       'Record class attendance and see submissions at a glance.',
@@ -21,7 +21,7 @@ const featureTabs = [
     label: 'Bus Tracking',
     title: 'School bus tracking',
     image: '/images/Fleet.webp',
-    alt: 'School bus tracking in BloomEd: a live map of a Nairobi bus route with the vehicle, route and driver details',
+    alt: 'School bus tracking in Figbloom School Management: a live map of a Nairobi bus route with the vehicle, route and driver details',
     description: 'Know exactly where the school bus is.',
     points: [
       'Parents see their child\'s bus on a live map, with the child\'s stop marked.',
@@ -34,7 +34,7 @@ const featureTabs = [
     label: 'Kenyan curriculum',
     title: 'CBE and 8-4-4 assessment',
     image: '/images/curriculum.webp',
-    alt: 'BloomEd subjects screen for a Kenyan school, with an Add from KICD button for curriculum subjects',
+    alt: 'Figbloom School Management subjects screen for a Kenyan school, with an Add from KICD button for curriculum subjects',
     description: 'CBE and 8-4-4, in one system. ',
     points: [
       'CBE from PP1 to Grade 12, including senior-school pathways, KICD learning areas, strands and sub-strands, and 4- or 8-level rubrics (EE, ME, AE, BE).',
@@ -47,7 +47,7 @@ const featureTabs = [
     label: 'Fees Payment',
     title: 'School fees management',
     image: '/images/Fees.webp',
-    alt: 'BloomEd fees dashboard showing fees collected this term and how many learners have paid in full, part paid or not paid',
+    alt: 'Figbloom School Management fees dashboard showing fees collected this term and how many learners have paid in full, part paid or not paid',
     description: 'Every parent knows what they owe and how to pay.',
     points: [
       'Fee structures set by year group and by boarding or day.',
@@ -60,7 +60,7 @@ const featureTabs = [
     label: 'Communication',
     title: 'Parent and school communication',
     image: '/images/communication.webp',
-    alt: 'BloomEd announcement screen for sending a notice to the whole school, all parents, one year group or one class',
+    alt: 'Figbloom School Management announcement screen for sending a notice to the whole school, all parents, one year group or one class',
     description: 'Reach the right parents in one tap.',
     points: [
       'Announcements go to the whole school, all parents, one year group or one class.',
@@ -73,7 +73,7 @@ const featureTabs = [
     label: 'Less admin work',
     title: 'School administration and reports',
     image: '/images/admin-work.webp',
-    alt: 'BloomEd school settings screen with a guided checklist for term dates, classes, subjects and grading, and class teachers',
+    alt: 'Figbloom School Management school settings screen with a guided checklist for term dates, classes, subjects and grading, and class teachers',
     description: 'Set up a whole school in an afternoon',
     points: [
       'Import all learners from a spreadsheet, with errors flagged before anything is saved.',
@@ -87,7 +87,7 @@ const featureTabs = [
     label: 'One home screen for parents',
     title: 'One home screen for parents',
     image: '/images/Parent.webp',
-    alt: 'BloomEd parent home screen showing a child\'s fee balance, attendance, learning area results and school notices',
+    alt: 'Figbloom School Management parent home screen showing a child\'s fee balance, attendance, learning area results and school notices',
     description: 'Everything about your child, in one place.',
     points: [
       'One screen per child, with a switcher for families with several children.',

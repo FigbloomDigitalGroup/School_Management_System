@@ -138,7 +138,10 @@ export function Gradebook() {
     });
   }
 
-  const entered = roster.filter((s) => value(s.id).trim() !== "").length;
+  // A box the screen has refused (a mark out of range, or text that is not a number) is not an entry. Counting it made a column with one
+  // such box "complete", turned Publish on, and published the class with that learner missing (FIG-1374).
+  const refused = roster.filter((s) => { const v = value(s.id).trim(); return v !== "" && !parseScoreInput(v).ok; }).length;
+  const entered = roster.filter((s) => { const v = value(s.id).trim(); return v !== "" && parseScoreInput(v).ok; }).length;
   const summary = summarise(roster.map((s) => {
     const v = parseScoreInput(value(s.id));
     return { subject: s.id, score: v.ok ? v.score : null };
@@ -192,15 +195,16 @@ export function Gradebook() {
   // draft" must not lose them.
   async function publish() {
     if (!examId || !subject || !exam || !classId) return;
+    const rows = buildMarkRows();
     try {
-      await saveExamMarks(buildMarkRows());
+      await saveExamMarks(rows);
       await publishMarks(examId, classId, subject.id);
     } catch (err) {
       toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`, "error");
       return;
     }
     setMarksVersion((v) => v + 1);
-    toast(`${subject.name} ${exam.name} is now visible to ${roster.length} learners and their parents in ${selectedClass?.name ?? "this class"}`);
+    toast(`${subject.name} ${exam.name} is now visible to ${rows.length} learners and their parents in ${selectedClass?.name ?? "this class"}`);
   }
 
   async function withdraw() {
@@ -255,7 +259,7 @@ export function Gradebook() {
                 disabled={!marksReady || entered < roster.length}
                 onClick={() => { void publish(); }}
               >
-                {marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish marks"}
+                {marksReady && refused > 0 ? `Fix ${refused} mark${refused === 1 ? "" : "s"}` : marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish marks"}
               </Button>
             )}
           </>

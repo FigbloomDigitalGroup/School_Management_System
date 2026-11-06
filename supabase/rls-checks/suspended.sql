@@ -18,6 +18,8 @@ select set_config('t.super',   (select id::text from profiles where role = 'supe
 select set_config('t.student', (select id::text from profiles where role = 'student' and tenant_id = current_setting('t.a')::uuid limit 1), true);
 update auth.users set banned_until = now() + interval '10 years' where id = current_setting('t.student')::uuid;
 select set_config('t.n_students', (select count(*)::text from students where tenant_id = current_setting('t.a')::uuid), true);
+-- every school's learners, which is what the platform super admin sees (more than Alliance's once db:seed-org has run)
+select set_config('t.n_students_all', (select count(*)::text from students), true);
 
 -- an organization with one admin, and Alliance as a member school
 insert into auth.users (id) values ('00000000-0000-4000-8000-0000000000a1');
@@ -96,6 +98,24 @@ select pg_temp.check('suspended school: a user at another school is not banned',
   (select count(*) = 0 from auth.users u join profiles p on p.id = u.id
     where p.tenant_id <> current_setting('t.a')::uuid and u.banned_until is not null));
 
+-- my_school_suspended() (20261104700000): an open session can tell why the school went blank
+select pg_temp.act_as(current_setting('t.teacher')); set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is true for its teacher', my_school_suspended());
+reset role;
+select pg_temp.act_as(current_setting('t.parent')); set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is true for its parent', my_school_suspended());
+reset role;
+select pg_temp.act_as((select id::text from profiles where tenant_id <> current_setting('t.a')::uuid and role = 'teacher' limit 1));
+set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is false for a teacher at another school', not my_school_suspended());
+reset role;
+select pg_temp.act_as(current_setting('t.super')); set local role authenticated;
+select pg_temp.check('suspended school: my_school_suspended() is false for the super admin (no school)', not my_school_suspended());
+reset role;
+select pg_temp.check('my_school_suspended() is for signed-in users only',
+  not has_function_privilege('anon', 'my_school_suspended()', 'execute')
+  and has_function_privilege('authenticated', 'my_school_suspended()', 'execute'));
+
 select pg_temp.act_as(current_setting('t.super')); set local role authenticated;
 -- Alliance's learners only: other seeded schools (db:seed-org) are visible to the super admin too
 select pg_temp.expect_eq('suspended school: the super admin still sees the learners',
@@ -106,6 +126,7 @@ reset role;
 update tenants set status = 'active' where id = current_setting('t.a')::uuid;
 select pg_temp.act_as(current_setting('t.teacher')); set local role authenticated;
 select pg_temp.expect_eq('reactivated: a teacher sees the learners again', pg_temp.visible('students'), current_setting('t.n_students')::bigint);
+select pg_temp.check('reactivated: my_school_suspended() is false again', not my_school_suspended());
 reset role;
 select pg_temp.check('reactivated: the teacher, school admin and parent can sign in again',
   (select count(*) = 3 from auth.users where banned_until is null
@@ -135,9 +156,12 @@ select pg_temp.expect_eq('suspended organization: its admin sees no learners at 
 select pg_temp.expect_eq('suspended organization: its admin can still read their own organization (to see why)', (select count(*) from organizations where id = '00000000-0000-4000-8000-0000000000b1'), 1);
 reset role;
 
--- and the member school itself carries on: suspending the organization is not suspending the school
+-- and since 20261104910000 the member school is suspended with it (organization_suspension.sql checks the details)
 select pg_temp.act_as(current_setting('t.admin')); set local role authenticated;
-select pg_temp.expect_eq('suspended organization: the member school''s own admin is unaffected', pg_temp.visible('students'), current_setting('t.n_students')::bigint);
+select pg_temp.expect_eq('suspended organization: the member school is suspended with it, so its own admin sees no learners', pg_temp.visible('students'), 0);
 reset role;
+select pg_temp.check('suspended organization: the member school''s status is suspended, held by the organization',
+  (select status = 'suspended' from tenants where id = current_setting('t.a')::uuid)
+  and exists (select 1 from organization_suspended_schools where tenant_id = current_setting('t.a')::uuid and organization_id = '00000000-0000-4000-8000-0000000000b1'));
 
 rollback;

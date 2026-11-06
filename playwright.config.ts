@@ -9,6 +9,10 @@ export default defineConfig({
   // wall-clock time for that being a non-issue instead of a flake to chase.
   fullyParallel: false,
   workers: 1,
+  // The first test after a cold Vite start can time out on its first click, and the serial
+  // desktop block then reports the rest as "did not run". One retry on CI runs the block again
+  // with Vite warm.
+  retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: "http://localhost:5173",

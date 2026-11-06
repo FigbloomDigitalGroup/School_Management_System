@@ -57,7 +57,12 @@ export function submitWarning(r: Register): string | null {
   return null;
 }
 
-export function toRecords(r: Register, tenantId: string, takenBy: string): Omit<AttendanceRecord, "id">[] {
+/**
+ * The rows to save for a register. `markedAt` is when the teacher took it (now, unless a caller says otherwise): the database
+ * keeps the NEWEST register for a learner and day by this time, not by which one arrives last, so a register held on a phone
+ * with no signal cannot overwrite a correction made meanwhile (FIG-1410).
+ */
+export function toRecords(r: Register, tenantId: string, takenBy: string, markedAt: string = new Date().toISOString()): Omit<AttendanceRecord, "id">[] {
   return Object.entries(r.marks).map(([student_id, mark]) => ({
     tenant_id: tenantId,
     student_id,
@@ -67,11 +72,28 @@ export function toRecords(r: Register, tenantId: string, takenBy: string): Omit<
     taken_on: r.date,
     mark,
     note: r.notes[student_id] ?? null,
+    marked_at: markedAt,
   }));
 }
 
-export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+/** The time zone of a school unless it says otherwise (tenants.timezone has the same default): every school so far is in Kenya. */
+export const DEFAULT_SCHOOL_TIME_ZONE = "Africa/Nairobi";
+/** Nairobi has no daylight saving: UTC+3 all year. Used when the device cannot name a time zone. */
+const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Today's date in the school's own time zone, as YYYY-MM-DD (FIG-1400). It used to be the UTC date of the phone's clock, so from
+ * 00:00 to 02:59 in Nairobi a register was filed under yesterday, over the top of yesterday's real one. A device that cannot
+ * format a date in a named time zone falls back to Nairobi's fixed UTC+3; the database also refuses a date in the future.
+ */
+export function today(timeZone: string = DEFAULT_SCHOOL_TIME_ZONE, now: Date = new Date()): string {
+  try {
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+  } catch {
+    // This device has no time-zone support (or does not know the name): use the fixed offset below.
+  }
+  return new Date(now.getTime() + NAIROBI_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 export function attendanceRate(records: Pick<AttendanceRecord, "mark">[]): number | null {

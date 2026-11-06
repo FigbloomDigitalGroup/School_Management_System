@@ -127,3 +127,24 @@ describe("rider-update handle", () => {
     assertEquals(admin.rowsIn("bus_updates")[0]!.pushed_at, null);
   });
 });
+
+// QA 08 (FIG-1241): the other caller checks. Only "someone else's trip" was tested.
+describe("rider-update: who may call it", () => {
+  it("refuses a request with no Authorization header", async () => {
+    const { admin, asUser } = setup();
+    const noAuth = new Request("https://example.com/rider-update", { method: "POST", body: JSON.stringify({ trip_id: TRIP_ID }) });
+    assertEquals((await handle(noAuth, { admin, asUser, account: ACCOUNT }, fakeFetch([]), NOW)).status, 401);
+  });
+
+  it("refuses a token that does not resolve to a user", async () => {
+    const { admin, asUser } = setup();
+    asUser.authUser = null;
+    assertEquals((await handle(request(), { admin, asUser, account: ACCOUNT }, fakeFetch([]), NOW)).status, 401);
+  });
+
+  it("asks for a trip, and says when there is no such trip", async () => {
+    const { admin, asUser } = setup();
+    assertEquals((await handle(request({}), { admin, asUser, account: ACCOUNT }, fakeFetch([]), NOW)).status, 400);
+    assertEquals((await handle(request({ trip_id: "nope" }), { admin, asUser, account: ACCOUNT }, fakeFetch([]), NOW)).status, 404);
+  });
+});
