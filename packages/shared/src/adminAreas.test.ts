@@ -164,12 +164,19 @@ describe("the consoles the phone app opens", () => {
   it("adds the admin console, with exactly their areas, when a teacher holds some", () => {
     expect(phoneConsolesFor("teacher", ["leave", "fees"])).toEqual({ teacher: true, admin: ["fees", "leave"] });
   });
-  it("is the admin console alone for other staff who hold areas, the visitor log included", () => {
+  it("is the admin console alone for other staff who hold areas", () => {
     expect(phoneConsolesFor("staff", ["fees"])).toEqual({ teacher: false, admin: ["fees"] });
-    expect(phoneConsolesFor("staff", ["visitors"])).toEqual({ teacher: false, admin: ["visitors"] });
   });
-  it("is nothing for other staff with no areas", () => {
+  it("keeps the visitors area in the list when it comes with another one", () => {
+    expect(phoneConsolesFor("staff", ["visitors", "fees"])).toEqual({ teacher: false, admin: ["fees", "visitors"] });
+    expect(phoneConsolesFor("teacher", ["visitors", "leave"])).toEqual({ teacher: true, admin: ["visitors", "leave"] });
+  });
+  it("is nothing for other staff with no areas, or with the visitors area alone: the phone has no visitor log", () => {
     expect(phoneConsolesFor("staff", [])).toEqual({ teacher: false, admin: null });
+    expect(phoneConsolesFor("staff", ["visitors"])).toEqual({ teacher: false, admin: null });
+  });
+  it("leaves a teacher with only the visitors area on their own console, with no admin one to switch to", () => {
+    expect(phoneConsolesFor("teacher", ["visitors"])).toEqual({ teacher: true, admin: null });
   });
   it("is nothing for families, drivers, org admins and super admins: the web is theirs, or another app", () => {
     for (const role of ["parent", "student", "driver", "org_admin", "super_admin"] as const) {

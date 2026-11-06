@@ -256,6 +256,25 @@ describe("opening the app", () => {
     expect(screen.getByText("NOT ON THE PHONE NOTICE")).toBeTruthy();
   });
 
+  it("does not open an empty admin console for staff whose only area is the visitor log, which the phone has no screen for", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "staff", full_name: "Rose Atieno" };
+    fetchMyAdminAreas.mockResolvedValue(["visitors"]);
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+    expect(screen.getByText("NOT ON THE PHONE NOTICE")).toBeTruthy();
+    expect(screen.queryByText("ADMIN CONSOLE")).toBeNull();
+  });
+
+  it("keeps a teacher whose only area is the visitor log on their own screens, with no way to an empty admin console", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher" };
+    fetchMyAdminAreas.mockResolvedValue(["visitors"]);
+    open();
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(screen.queryByText("Admin screens")).toBeNull();
+  });
+
   it("says there is no connection, not 'sign in', when the areas of other staff cannot be read", async () => {
     await storeLogin();
     server.profile = { ...parentProfile, role: "staff" };
