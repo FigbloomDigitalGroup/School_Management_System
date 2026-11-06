@@ -1,7 +1,10 @@
 # Figbloom mobile (Android + iOS)
 
-The **parent**, **student** and **driver** apps. Teachers and admins use the
-web console; these roles are phone-first, so they are native.
+The one phone app: **parent**, **student**, **driver** and **teacher**. The
+signed-in role decides which screens open (`App.tsx` reads it from the profile).
+School admins, other staff and the platform console use the web console for now.
+Teachers used to have a separate app (`apps/teacher-mobile`); it was merged in
+here so there is one sign-in, one store listing and one release.
 
 ## Why React Native, and what is actually shared
 
@@ -50,11 +53,21 @@ builds it should pick a minimum iOS version at that point.
 src/
   theme.ts            tokens from @figbloom/shared, as RN StyleSheet values
   storage.ts          AsyncStorage adapter for the shared WriteQueue
-  navigation.tsx      bottom tabs per role
+  navigation.tsx      bottom tabs for the parent and the student; the driver is one page
+  teacherNavigation.tsx  the teacher's five tabs, with everything else under More
+  navShared.tsx       the navigation colours and tab icon both navigators use
   screens/parent/     Home · Fees · Pay · Results · Inbox · Account
   screens/student/    Today · Timetable · Work · Results · Notices
   screens/driver/     Trip — start/end a trip, background GPS while it runs
+  screens/teacher/    Attendance · Gradebook · Messages · Notices · More (Timetable ·
+                      Classes · Leave · Homework · Materials · Items · Buses · Visitors ·
+                      Performance · Report cards · Bloom · Live class · Account)
 ```
+
+A teacher's screens are all live data (rosters, registers, marks), so with no
+signal a teacher sees the "No connection" page, as a driver does, and nothing is
+saved for them beyond the write queue (`lib/useQueueSync.ts` sends held
+registers and marks as soon as the app opens).
 
 ## Things that differ from web on purpose
 
@@ -71,7 +84,7 @@ src/
   underneath. Built on `react-native-biometrics` (strong biometrics only, no
   phone-PIN fallback; "Sign out" on the lock screen is the way out). The app
   cannot enrol a fingerprint, so with none on the phone it opens the phone's
-  security settings. `apps/teacher-mobile` has the same files — keep them in step.
+  security settings.
 
 ## Calls and live classes (FIG-1291)
 

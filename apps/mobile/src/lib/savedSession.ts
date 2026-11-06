@@ -8,7 +8,8 @@ import { SAVED_SESSION_KEY } from "@figbloom/shared";
 export type AppSession =
   | { role: "parent"; accent: string; profileId: string; country: string; tenantId: string }
   | { role: "student"; accent: string; profileId: string; country: string; tenantId: string }
-  | { role: "driver"; accent: string; profileId: string; tenantId: string; fullName: string };
+  | { role: "driver"; accent: string; profileId: string; tenantId: string; fullName: string }
+  | { role: "teacher"; accent: string; profileId: string; tenantId: string; fullName: string; country: string };
 
 const filled = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
@@ -18,6 +19,7 @@ function isAppSession(value: unknown, userId: string): value is AppSession {
   if (!o || typeof o !== "object") return false;
   if (o.profileId !== userId || !filled(o.accent) || !filled(o.tenantId)) return false;
   if (o.role === "driver") return filled(o.fullName);
+  if (o.role === "teacher") return filled(o.fullName) && filled(o.country);
   return (o.role === "parent" || o.role === "student") && filled(o.country);
 }
 

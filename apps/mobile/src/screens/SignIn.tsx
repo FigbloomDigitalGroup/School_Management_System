@@ -166,7 +166,7 @@ export function SignIn({ suspendedAtStart = false }: {
     >
       <Text style={{ fontSize: fontSize.header, fontWeight: "700", textAlign: "center", color: t.appSurface.ink }}>Figbloom</Text>
       <Text style={[s.small, { textAlign: "center", marginTop: 4, marginBottom: 24 }]}>
-        Sign in to see fees, results and messages.
+        Sign in with the login your school gave you.
       </Text>
 
       {suspended && <SuspendedNotice style={{ marginBottom: 16 }} />}

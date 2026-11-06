@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { fetchMyConversations, type PushTarget } from "@figbloom/shared";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet, type LucideIcon } from "lucide-react-native";
-import { accentFor, fontSize, themes } from "./theme";
+import { BarChart3, Bell, Bus, Calendar, ClipboardList, Home, Mail, User, Wallet } from "lucide-react-native";
+import { accentFor, fontSize } from "./theme";
+import { NAV_THEME, tabIcon } from "./navShared";
 import { useChild, useMessages } from "./data";
 import { useStudentData } from "./studentData";
 
@@ -49,26 +50,6 @@ const Stack = createNativeStackNavigator();
 /** Lets a tapped push, which arrives from outside the navigator, open a screen inside it. */
 const navRef = createNavigationContainerRef<Record<string, object | undefined>>();
 
-/**
- * React Navigation's own colours: the page behind a transition, the tab bar's card and its edge. Light is the
- * library's default with the app's page colour; dark is the app's dark surfaces, so a screen sliding in never
- * flashes a light page.
- */
-const NAV_THEME = {
-  light: { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: themes.light.t.appSurface.page } },
-  dark: {
-    ...DarkTheme,
-    colors: {
-      ...DarkTheme.colors,
-      primary: themes.dark.t.appSurface.ink,
-      background: themes.dark.t.appSurface.page,
-      card: themes.dark.t.appSurface.card,
-      text: themes.dark.t.appSurface.ink,
-      border: themes.dark.t.appSurface.line,
-    },
-  },
-};
-
 /** What to do once the navigator exists: a tap that opened the app from nothing arrives before it is ready. */
 let afterReady: (() => void) | null = null;
 const whenReady = (run: () => void) => { if (navRef.isReady()) run(); else afterReady = run; };
@@ -90,10 +71,6 @@ async function openPushTarget(target: PushTarget, isParent: boolean) {
     whenReady(() => navRef.navigate("Health", { studentId: target.studentId }));
   }
 }
-
-const tabIcon = (Icon: LucideIcon) => ({
-  tabBarIcon: ({ color, size }: { color: string; size: number }) => <Icon color={color} size={size} />,
-});
 
 interface NavigationProps {
   role: "parent" | "student" | "driver";

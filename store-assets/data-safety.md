@@ -5,8 +5,10 @@ declarations) and App Store Connect (App Privacy) so the listings match
 `apps/web/public/privacy.html` and what the apps do. Worked out from the code
 on 2026-10-29; re-check it whenever a feature that collects data is added.
 
-Two apps: **Figbloom Schools** (`apps/mobile`: parent, student, driver) and
-**Figbloom Teacher** (`apps/teacher-mobile`).
+One app: **Figbloom Schools** (`apps/mobile`), for parents, students, drivers and
+teachers. Teachers had a separate app (`apps/teacher-mobile`) until it was merged
+in on 2026-11-06; it was never published, so there is one store listing and one
+set of answers.
 
 ## URLs and contact
 
@@ -18,7 +20,7 @@ Two apps: **Figbloom Schools** (`apps/mobile`: parent, student, driver) and
 | Developer contact on the listing | Figbloom Digital Group, Enterprise Road, SMK Business Centre, Nairobi, Kenya; sales@figbloom.org; +254 796 286 676 |
 
 Both pages are static files in `apps/web/public`, so they go live with the
-web app's next deploy. Both apps link to them from Account ("Your data").
+web app's next deploy. The app links to them from Account ("Your data").
 
 ## Play Console: Data safety
 
@@ -62,43 +64,41 @@ collected, so these are left undeclared. If you would rather be cautious,
 declare Voice or sound recordings and Videos as collected, optional, for app
 functionality; nothing else on the form changes.
 
-### Figbloom Teacher
-
-Same as Figbloom Schools **except**: no precise location, no health info, no
-phone/address/financial rows. Declare: Name, Email address, User IDs, Other
-personal info (staff and learner names, marks and attendance entered), Photos,
-Files and docs, Other in-app messages (chat and Bloom chat), Device or other IDs
-(push token). Same call note as above.
+Teachers add no data type to this list. What they enter or read (staff and
+learner names, marks, attendance) falls under Name and Other personal info, and
+their chat and Bloom chat under Other in-app messages. Precise location is only
+ever asked of a driver, when a trip starts, but there is one app, so the answers
+above apply to every install.
 
 ## Play Console: App content
 
 - **Target audience.** This needs a decision from you before submitting. The
-  student app is used by schoolchildren, some under 13, on accounts a school
+  app's learner screens are used by schoolchildren, some under 13, on accounts a school
   creates. If you declare children in the target age range, Google's Families
   Policy applies (no advertising, only certified SDKs, a privacy policy that
-  covers children, no collecting more than needed). The apps have no ads or
+  covers children, no collecting more than needed). The app has no ads or
   analytics, but check each SDK (Firebase Messaging, Google Maps, LiveKit,
   react-native-blob-util) against the Families list before choosing. If you
   declare 13+ or adults only, say that the child accounts are created and run
   by schools.
 - **Ads:** No.
-- **Health apps declaration:** the apps are not health apps; they show a
+- **Health apps declaration:** the app is not a health app; they show a
   school's own sick-bay records. Answer "No health features" for the health
   apps form unless the reviewer asks.
-- **Government / financial features:** the apps let a parent start an M-Pesa
+- **Government / financial features:** the app lets a parent start an M-Pesa
   payment of school fees. Declare it under financial features as "payments to
   schools, via M-Pesa".
 
 ## Play Console: permission declarations
 
-| Permission | App | Declaration |
+| Permission | Used by | Declaration |
 |---|---|---|
-| `ACCESS_BACKGROUND_LOCATION` | Schools | **Needs a declaration form and a demo video, or remove it** (see below). Core purpose: during an active school-bus trip the driver's phone reports the bus's position so parents and staff can follow the bus, including with the screen off. |
-| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, `FOREGROUND_SERVICE` | Schools | Foreground service of type location, shown as a persistent notification while a trip is active. |
-| `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT` | both | Photos to send, and voice and video calls and live classes (Bluetooth headsets). Camera and microphone hardware are optional. |
-| `POST_NOTIFICATIONS` | both | Announcements, messages, trip updates, visitor arrivals. |
-| `USE_BIOMETRIC` | both | Optional fingerprint app lock. |
-| `READ_MEDIA_IMAGES` | Teacher | **Removed** (this change): photos come from the system photo picker, which needs no permission. |
+| `ACCESS_BACKGROUND_LOCATION` | Drivers (trips) | **Needs a declaration form and a demo video, or remove it** (see below). Core purpose: during an active school-bus trip the driver's phone reports the bus's position so parents and staff can follow the bus, including with the screen off. |
+| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, `FOREGROUND_SERVICE` | Drivers (trips) | Foreground service of type location, shown as a persistent notification while a trip is active. |
+| `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_CONNECT` | Everyone | Photos to send, and voice and video calls and live classes (Bluetooth headsets). Camera and microphone hardware are optional. |
+| `POST_NOTIFICATIONS` | Everyone | Announcements, messages, trip updates, visitor arrivals. |
+| `USE_BIOMETRIC` | Everyone | Optional fingerprint app lock. |
+| `READ_MEDIA_IMAGES` | Everyone | **Removed** (this change): photos come from the system photo picker, which needs no permission. |
 
 **Background location: the decision that is yours.** The driver app currently
 requires the phone's "Allow all the time" location setting before a trip can
@@ -110,6 +110,10 @@ trip was started from the open app; it makes the review much simpler, but it
 changes how the driver app behaves and has to be tried on a real phone through
 a locked-screen trip. Nothing about it is changed in this PR.
 
+With one app, whichever way this goes, the declaration is made for the app every
+parent, learner and teacher installs, not only drivers. The prompt itself is still
+only shown to a driver starting a trip (`locationTask.ts`).
+
 ## App Store Connect: App Privacy (iOS, when FIG-463 unblocks)
 
 Data linked to the user, none used for tracking: Contact info (name, email,
@@ -117,7 +121,7 @@ phone, address), Health & fitness (health), Financial info (other financial
 info), Precise location (drivers), User content (photos, files, messages),
 Identifiers (user ID, device ID), Other data. Matches
 `apps/mobile/ios/Figbloom/PrivacyInfo.xcprivacy`. App Review will also ask why
-the driver app wants "Always" location: same wording as the Play declaration.
+the app wants "Always" location: same wording as the Play declaration.
 Add a "Delete account" path in the review notes (the page above plus the
 school route).
 
