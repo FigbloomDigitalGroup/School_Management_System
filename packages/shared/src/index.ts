@@ -12,6 +12,7 @@ export * from "./queueSend";
 export * from "./signOut";
 export * from "./openSession";
 export * from "./levels";
+export * from "./institutionPages";
 export * from "./csv";
 export * from "./curriculum";
 export * from "./cbeData";

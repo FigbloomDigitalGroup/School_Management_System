@@ -159,8 +159,20 @@ select pg_temp.info('two subjects may carry the same name under different codes:
   || pg_temp.subject_as(current_setting('t.admin')::uuid, 'Chemistry', 'QX9'));
 select pg_temp.check('a first form outside the subject''s level is refused (Form 5 of the 8-4-4 levels)',
   pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 range', 'QX2', 'secondary', 5, null) = 'refused 23514');
+-- FIG-1436: the first form must not be after the last (a range no form can fall in is offered nowhere)
 select pg_temp.check('a subject that starts in a later form than it ends in is refused (from Form 4 to Form 1 is offered nowhere)',
-  pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 backwards', 'QX3', 'secondary', 4, 1) like 'refused%', 'QA12-RANGE FIG-1436');
+  pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 backwards', 'QX3', 'secondary', 4, 1) = 'refused 23514');
+select pg_temp.check('the same with no level named (from 6 to 2) is refused too',
+  pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 backwards any level', 'QX6', null, 6, 2) = 'refused 23514');
+select pg_temp.check('from Form 1 to Form 4, Form 2 only, from Form 3 on and up to Form 2 are all accepted',
+  pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 range a', 'QXA', 'secondary', 1, 4) = 'allowed'
+  and pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 range b', 'QXB', 'secondary', 2, 2) = 'allowed'
+  and pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 range c', 'QXC', 'secondary', 3, null) = 'allowed'
+  and pg_temp.subject_as(current_setting('t.admin')::uuid, 'QA12 range d', 'QXD', 'secondary', null, 2) = 'allowed');
+select pg_temp.check('editing a saved subject so it runs backwards is refused too (Form 1 to 4 changed to Form 4 to 1)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update subjects set min_form_level = 4, max_form_level = 1 where tenant_id = %L and code = %L', current_setting('t.a'), 'QXA')) = 'refused 23514');
+select pg_temp.check('and changing one end into the other (Form 3 and up, then up to Form 2) is refused',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update subjects set max_form_level = 2 where tenant_id = %L and code = %L', current_setting('t.a'), 'QXC')) = 'refused 23514');
 select pg_temp.check('a teacher cannot create a subject (42501)',
   pg_temp.as_user(current_setting('t.teacher')::uuid, format('insert into subjects (tenant_id, name, code) values (%L, %L, %L)', current_setting('t.a'), 'QA12 by teacher', 'QX4')) = 'refused 42501');
 
