@@ -240,6 +240,50 @@ test.describe("Classes", () => {
 });
 
 // ================================================================ the curriculum type decides the screens
+test.describe("Subjects", () => {
+  test("QA12-RANGE FIG-1436: a subject that starts in a later form than it ends in is refused in words (add form, saved subject, bulk add) and nothing is saved", async ({ page }) => {
+    const codes = ["QE2B", "QE2K"];
+    const subjectCount = async () => (await db.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)).count ?? 0;
+    const chemistry = async () => (await db.from("subjects").select("min_form_level, max_form_level").eq("tenant_id", tenantId).eq("code", "CHE").single()).data;
+    try {
+      await db.from("subjects").delete().eq("tenant_id", tenantId).in("code", codes);
+      await signIn(page, "principal@alliance.sc.ke");
+      await page.goto("/s/alliance/admin/subjects");
+      const heading = page.getByRole("heading", { name: "New subject" });
+      await expect(heading).toBeVisible({ timeout: 30000 });
+      const before = { n: await subjectCount(), chemistry: await chemistry() };
+      const told = (from: string, to: string) => page.getByText(new RegExp(`starts in ${from} but ends in ${to}`));
+
+      // the add form
+      const form = heading.locator("xpath=..");
+      await form.getByPlaceholder("e.g. Computer Studies").fill("QA12 E2E Backwards");
+      await form.getByPlaceholder("COMP", { exact: true }).fill("QE2B");
+      await form.getByLabel("From form").fill("4");
+      await form.getByLabel("To form").fill("1");
+      await form.getByRole("button", { name: "Add subject" }).click();
+      await expect(told("Form 4", "Form 1")).toBeVisible({ timeout: 10000 });
+      expect(await subjectCount(), "nothing was saved by the add form").toBe(before.n);
+
+      // a saved subject (Chemistry) edited the same way
+      const chem = page.locator("li").filter({ has: page.locator('input[aria-label="Subject code"][value="CHE"]') });
+      await chem.getByLabel("From form").fill("4");
+      await chem.getByLabel("To form").fill("1");
+      await chem.getByRole("button", { name: "Save" }).click();
+      await expect(told("Form 4", "Form 1")).toBeVisible({ timeout: 10000 });
+      expect(await chemistry(), "Chemistry's years are as they were").toEqual(before.chemistry);
+
+      // bulk add: one backwards line stops the whole batch, and the message names it
+      await page.getByRole("button", { name: "Bulk add multiple subjects" }).click();
+      await page.getByPlaceholder(/Computer Studies,COMP,1-2/).fill("QA12 E2E Fine,QE2K,1-2\nQA12 E2E Bulk,QE2B,4-1");
+      await page.getByRole("button", { name: "Add these subjects" }).click();
+      await expect(page.getByText(/Nothing was added\. These start in a later form than they end in: QA12 E2E Bulk \(Form 4 to Form 1\)/)).toBeVisible({ timeout: 10000 });
+      expect(await subjectCount(), "the whole batch was held back, including the line that was fine").toBe(before.n);
+    } finally {
+      await db.from("subjects").delete().eq("tenant_id", tenantId).in("code", codes);
+    }
+  });
+});
+
 test.describe("what a school's levels change on screen", () => {
   test("a one-level school (Alliance) lists classes by Form with no Level column; a school with PP, Grade and senior classes (Kijani Ridge) shows Level and Grade labels", async ({ page }) => {
     await openClasses(page);
