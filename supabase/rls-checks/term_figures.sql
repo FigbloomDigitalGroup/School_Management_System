@@ -59,7 +59,9 @@ create function pg_temp.expected(p_t uuid, p_term uuid, p_exam uuid) returns jso
     'mark_sum', (select coalesce(sum(k.score), 0) from marks k join students s on s.id = k.student_id and s.active
                   where p_exam is not null and k.tenant_id = p_t and k.exam_id = p_exam and s.class_id = c.id),
     'mark_count', (select count(k.score) from marks k join students s on s.id = k.student_id and s.active
-                    where p_exam is not null and k.tenant_id = p_t and k.exam_id = p_exam and s.class_id = c.id)
+                    where p_exam is not null and k.tenant_id = p_t and k.exam_id = p_exam and s.class_id = c.id),
+    'learners_marked', (select count(distinct k.student_id) from marks k join students s on s.id = k.student_id and s.active
+                         where p_exam is not null and k.tenant_id = p_t and k.exam_id = p_exam and s.class_id = c.id and k.score is not null)
   ) order by c.id), '[]'::jsonb) from classes c where c.tenant_id = p_t;
 $$;
 
@@ -97,8 +99,33 @@ select pg_temp.check('Alliance: the same, including the latest published exam''s
     = pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)
   and (select sum((x->>'mark_count')::int) from jsonb_array_elements(pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x) > 0);
 select pg_temp.check('without an exam the mark columns are zero',
-  (select bool_and((x->>'mark_sum')::int = 0 and (x->>'mark_count')::int = 0)
+  (select bool_and((x->>'mark_sum')::int = 0 and (x->>'mark_count')::int = 0 and (x->>'learners_marked')::int = 0)
      from jsonb_array_elements(pg_temp.figures(current_setting('t.super')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, null)) x));
+-- "Learners marked" (FIG-1440). Reports showed "387 of 43": the number of marks (a learner has one per subject) against the number of learners.
+-- Each learner is counted once however many subjects they have a score in; a learner with no mark, or only an absence, is not counted.
+select pg_temp.check('Alliance: learners marked is never more than the roster, or than the marks, and the marks outnumber the learners (the case that read "387 of 43")',
+  (select bool_and((x->>'learners_marked')::int <= (x->>'roster')::int and (x->>'learners_marked')::int <= (x->>'mark_count')::int)
+     from jsonb_array_elements(pg_temp.figures(current_setting('t.super')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
+  and (select sum((x->>'mark_count')::int) > sum((x->>'learners_marked')::int)
+         from jsonb_array_elements(pg_temp.figures(current_setting('t.super')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x));
+select set_config('request.jwt.claims', '', true);
+select set_config('t.west', (select id::text from classes where tenant_id = current_setting('t.a')::uuid and name = 'Form 2 West'), true);
+create temp table qa_lm_before as
+  select (x->>'roster')::int as roster, (x->>'learners_marked')::int as marked, (x->>'mark_count')::int as marks
+    from jsonb_array_elements(pg_temp.figures(current_setting('t.super')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x
+   where x->>'class_id' = current_setting('t.west');
+insert into students (tenant_id, admission_no, full_name, class_id, boarding, active, gender) values
+  (current_setting('t.a')::uuid, 'QA13-LM1', 'QA13 No Marks', current_setting('t.west')::uuid, false, true, 'female'),
+  (current_setting('t.a')::uuid, 'QA13-LM2', 'QA13 Absent Only', current_setting('t.west')::uuid, false, true, 'male');
+insert into marks (tenant_id, exam_id, student_id, subject_id, score, absence, entered_by)
+  select current_setting('t.a')::uuid, current_setting('t.exam')::uuid, s.id, (select id from subjects where tenant_id = current_setting('t.a')::uuid order by id limit 1),
+         null, 'missed', current_setting('t.admin')::uuid
+    from students s where s.tenant_id = current_setting('t.a')::uuid and s.admission_no = 'QA13-LM2';
+select pg_temp.check('two more learners in Form 2 West, one with no mark and one only absent: the roster grows by two, learners marked and marks entered do not move',
+  (select (x->>'roster')::int = b.roster + 2 and (x->>'learners_marked')::int = b.marked and (x->>'mark_count')::int = b.marks
+     from jsonb_array_elements(pg_temp.figures(current_setting('t.super')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x, qa_lm_before b
+    where x->>'class_id' = current_setting('t.west'))
+  and (select marked from qa_lm_before) > 0);
 select pg_temp.check('the whole-term fee totals (every invoice of the term) and the counts of unpaid, part paid, paid and owing invoices equal the raw figures',
   pg_temp.fees_as(current_setting('t.super')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid)
     = (select jsonb_build_object('billed', coalesce(sum(total_cents), 0), 'paid', coalesce(sum(paid_cents), 0), 'invoices', count(*),
@@ -133,14 +160,14 @@ select pg_temp.check('a teacher with no area, a parent and a student get no rows
 -- A member of staff with one area gets that part only.
 insert into staff_permissions (tenant_id, profile_id, area) values (current_setting('t.a')::uuid, current_setting('t.teacher')::uuid, 'fees');
 select pg_temp.check('a teacher given only the fees area gets the fee figures and nothing from attendance or marks',
-  (select bool_and((x->>'att_total')::int = 0 and (x->>'mark_count')::int = 0)
+  (select bool_and((x->>'att_total')::int = 0 and (x->>'mark_count')::int = 0 and (x->>'learners_marked')::int = 0)
      from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
   and (select sum((x->>'billed')::bigint) from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
     = (select sum((x->>'billed')::bigint) from jsonb_array_elements(pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, null)) x)
   and (pg_temp.fees_as(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid)->>'billed')::bigint > 0);
 update staff_permissions set area = 'attendance' where profile_id = current_setting('t.teacher')::uuid and tenant_id = current_setting('t.a')::uuid;
 select pg_temp.check('given only the attendance area, the same teacher gets the register counts and no fees or marks',
-  (select bool_and((x->>'billed')::bigint = 0 and (x->>'paid')::bigint = 0 and (x->>'mark_count')::int = 0)
+  (select bool_and((x->>'billed')::bigint = 0 and (x->>'paid')::bigint = 0 and (x->>'mark_count')::int = 0 and (x->>'learners_marked')::int = 0)
      from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
   and (select sum((x->>'att_total')::int) from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
     = (select sum((x->>'att_total')::int) from jsonb_array_elements(pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, null)) x)
@@ -150,7 +177,9 @@ select pg_temp.check('given only the academics area, the same teacher gets the m
   (select bool_and((x->>'billed')::bigint = 0 and (x->>'att_total')::int = 0)
      from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
   and (select sum((x->>'mark_count')::int) from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
-    = (select sum((x->>'mark_count')::int) from jsonb_array_elements(pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x));
+    = (select sum((x->>'mark_count')::int) from jsonb_array_elements(pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
+  and (select sum((x->>'learners_marked')::int) from jsonb_array_elements(pg_temp.figures(current_setting('t.teacher')::uuid, current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x)
+    = (select sum((x->>'learners_marked')::int) from jsonb_array_elements(pg_temp.expected(current_setting('t.a')::uuid, current_setting('t.aterm')::uuid, current_setting('t.exam')::uuid)) x));
 
 -- ---------------------------------------------------------------- nobody anonymous
 select pg_temp.check('anon cannot execute either function; a signed-in user can',

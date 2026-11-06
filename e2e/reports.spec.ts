@@ -100,17 +100,29 @@ test.describe("Reports: Academic performance", () => {
     }
   });
 
-  test("KNOWN QA13-MARKS-UNITS FIG-1440 (open): 'marks entered' is never more than the number it is out of", async ({ page }) => {
-    test.fail();
+  test("QA13-MARKS-UNITS FIG-1440: each class's 'Learners marked' counts learners, not marks: N of M learners, N the learners with a score in the latest published exam, M the class's learners", async ({ page }) => {
+    const exam = (await db.from("exams").select("id, name").eq("tenant_id", alliance).eq("term_id", term3).not("published_at", "is", null).order("published_at", { ascending: false }).limit(1).single()).data!;
+    const students = await all<{ id: string; class_id: string; active: boolean }>((f, t) => db.from("students").select("id, class_id, active").eq("tenant_id", alliance).range(f, t));
+    const marks = await all<{ student_id: string; score: number | null }>((f, t) => db.from("marks").select("student_id, score").eq("exam_id", exam.id).order("id").range(f, t));
+    const classes = (await db.from("classes").select("id, name").eq("tenant_id", alliance)).data ?? [];
     await signIn(page, "principal@alliance.sc.ke");
     const ls = await lines(page, "/s/alliance/admin/reports");
     const start = ls.findIndex((l) => l.toLowerCase().startsWith("academic performance"));
-    const [, entered] = after(ls, "Form 2 West", 2, start);
-    const m = /^([\d,]+) of ([\d,]+)$/.exec(entered!);
-    expect(m, `the entered column reads "N of M": ${entered}`).not.toBeNull();
-    const roster = (await db.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", alliance).eq("active", true).eq("class_id", (await db.from("classes").select("id").eq("tenant_id", alliance).eq("name", "Form 2 West").single()).data!.id as string)).count;
-    table.push(["Reports", "Form 2 West 'marks entered N of M'", `N marks of ${roster} learners x 9 subjects = ${(roster ?? 0) * 9}`, entered!, num(m![1]!) <= num(m![2]!) ? "yes" : "NO"]);
-    expect(num(m![1]!), `${m![1]} marks entered of ${m![2]}`).toBeLessThanOrEqual(num(m![2]!));
+    expect(start, "the Academic performance table is on the screen").toBeGreaterThanOrEqual(0);
+    expect(ls.some((l, i) => i > start && l.toLowerCase() === "learners marked"), "the column is called Learners marked").toBe(true);
+    let marksOutnumberLearners = 0;
+    for (const c of classes) {
+      const roster = students.filter((s) => s.active && s.class_id === c.id);
+      const rosterIds = new Set(roster.map((s) => s.id));
+      const scored = marks.filter((m) => m.score !== null && rosterIds.has(m.student_id));
+      const marked = new Set(scored.map((m) => m.student_id)).size;
+      if (scored.length > roster.length) marksOutnumberLearners++;
+      const [, shown] = after(ls, c.name as string, 2, start);
+      const expected = marked > 0 ? `${marked} of ${roster.length} learners` : "—";
+      record("Reports", `${c.name} learners marked, ${exam.name}`, `${expected} (${scored.length} marks)`, shown!);
+      expect(shown, `${c.name}: ${scored.length} marks, ${marked} learners marked, ${roster.length} learners`).toBe(expected);
+    }
+    expect(marksOutnumberLearners, "at least one class has more marks than learners (the case that read 387 of 43)").toBeGreaterThan(0);
   });
 });
 
