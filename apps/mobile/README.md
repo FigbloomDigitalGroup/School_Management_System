@@ -98,6 +98,19 @@ signal they see the "No connection" page. Admin screens are added to `adminNavig
 a part at a time, each shown only to the people whose areas open it
 (`mayOpenAdminPage`).
 
+**What is on the admin screens so far**
+
+| Screen | Who | What it does |
+|---|---|---|
+| Home, overview | school admins | The web Dashboard's figures: attendance, fees collected, learners, staff, "Needs you", every class's register for the day, fee collection by status. A class that has not taken its register has "Remind teacher" (an in-app note to the class teacher, as on the web). Pull down to refresh. |
+| Home, registers | staff and teachers holding the `attendance` area | Every class's latest register, read only. |
+| A class's register | both of the above | Who was late, absent or excused on that day. Read only (correcting a register stays on the web). |
+
+The data these read (`fetchSchoolOverview`, `fetchClassRegister`, `fetchLatestRegisters`,
+`remindClassTeacher`) is in `packages/shared/src/adminOverview.ts`, and the web's Dashboard
+uses the same functions, so the two say the same thing. Each screen loads with
+`lib/useLoad.ts` (skeleton on first load, the reason and "Try again" on failure, pull to refresh).
+
 A teacher's screens are all live data (rosters, registers, marks), so with no
 signal a teacher sees the "No connection" page, as a driver does, and nothing is
 saved for them beyond the write queue (`lib/useQueueSync.ts` sends held

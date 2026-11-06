@@ -7,7 +7,8 @@ import {
   MARK_LABEL, MARK_SHORT, newRegister, nextMark, submitWarning, tally, toRecords,
   type AttendanceMark, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
-import { accentFor, HIT, perScheme } from "../../theme";
+import { accentFor, HIT } from "../../theme";
+import { MARK_TONE } from "../../components/markTone";
 import { queue } from "../../storage";
 import { PillPicker } from "../../components/PillPicker";
 import { QueueNotice } from "../../components/QueueNotice";
@@ -15,14 +16,6 @@ import type { TeacherSession } from "../../teacherNavigation";
 import { EmptyState, ErrorState } from "../../ui/StateView";
 import { Tap } from "../../ui/Tap";
 import { useTheme } from "../../ui/ThemeContext";
-
-/** The register's mark colours: shared MARK_STYLE's own values in light (they are these status tokens), dark washes in dark. */
-const MARK_TONE = perScheme((t): Record<AttendanceMark, { bg: string; ink: string }> => ({
-  present: { bg: t.status.okBg, ink: t.status.okInk },
-  absent: { bg: t.status.warnBg, ink: t.status.warnInk },
-  late: { bg: t.brand.orangeSoft, ink: t.brand.orangeInk },
-  excused: { bg: t.status.mutedBg, ink: t.status.mutedInk },
-}));
 
 const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 

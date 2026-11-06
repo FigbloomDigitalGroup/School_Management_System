@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ADMIN_AREA_INFO, ADMIN_AREA_PAGES, supabase, type AdminArea, type ClassGroup } from "@figbloom/shared";
+import { ADMIN_AREA_INFO, ADMIN_AREA_PAGES, fetchLatestRegisters, type AdminArea } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -56,41 +56,6 @@ export function AreasHome() {
       </div>
     </>
   );
-}
-
-interface Registers {
-  date: string | null;
-  classes: Pick<ClassGroup, "id" | "name">[];
-  learners: Map<string, number>;
-  present: Map<string, number>;
-  taken: Set<string>;
-}
-
-async function fetchLatestRegisters(tenantId: string): Promise<Registers> {
-  const sb = supabase();
-  const [{ data: classes, error: e1 }, { data: students, error: e2 }, { data: latest, error: e3 }] = await Promise.all([
-    sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ class_id: string }[]>(),
-    sb.from("attendance").select("taken_on").eq("tenant_id", tenantId).order("taken_on", { ascending: false }).limit(1).returns<{ taken_on: string }[]>(),
-  ]);
-  for (const e of [e1, e2, e3]) if (e) throw new Error(e.message);
-
-  const learners = new Map<string, number>();
-  for (const s of students ?? []) learners.set(s.class_id, (learners.get(s.class_id) ?? 0) + 1);
-  const date = latest?.[0]?.taken_on ?? null;
-  const present = new Map<string, number>();
-  const taken = new Set<string>();
-  if (date) {
-    const { data: rows, error } = await sb.from("attendance").select("class_id,mark").eq("tenant_id", tenantId).eq("taken_on", date)
-      .returns<{ class_id: string; mark: string }[]>();
-    if (error) throw new Error(error.message);
-    for (const r of rows ?? []) {
-      taken.add(r.class_id);
-      // a late arrival still attended
-      if (r.mark === "present" || r.mark === "late") present.set(r.class_id, (present.get(r.class_id) ?? 0) + 1);
-    }
-  }
-  return { date, classes: classes ?? [], learners, present, taken };
 }
 
 /** Every class's most recent register, each one open to see who was missing and correct it. */
