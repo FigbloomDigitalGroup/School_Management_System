@@ -234,4 +234,62 @@ select pg_temp.check('staff still see every class''s homework',
   (select count(*) from assignments where title = 'RLS other class') = 1);
 reset role;
 
+-- ---------------------------------------------------------------- "entered by" is whoever saved the mark (FIG-1376)
+-- The row policy checks the school and whether the caller may teach the subject, not the entered_by column the app sends. A trigger
+-- sets it to the signed-in caller; with no caller (service role, seed, console) the value stays as given.
+insert into exams (tenant_id, term_id, name, out_of)
+  values (current_setting('t.a')::uuid, (select id from terms where tenant_id = current_setting('t.a')::uuid and is_current), 'RLS Check Exam Entered By', 100);
+select set_config('t.exam_eb', (select id::text from exams where name = 'RLS Check Exam Entered By'), true);
+
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by)
+  values (current_setting('t.a')::uuid, current_setting('t.exam_eb')::uuid, current_setting('t.child')::uuid, current_setting('t.chem')::uuid, 61, current_setting('t.admin')::uuid);
+reset role;
+select pg_temp.check('a mark the teacher saves with the school admin''s id in "entered by" is stored under the teacher',
+  (select entered_by from marks where exam_id = current_setting('t.exam_eb')::uuid and student_id = current_setting('t.child')::uuid and subject_id = current_setting('t.chem')::uuid) = current_setting('t.teacher')::uuid);
+
+-- the gradebook's upsert replaces the row: the edit is the teacher's too, whatever id is sent
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by)
+  values (current_setting('t.a')::uuid, current_setting('t.exam_eb')::uuid, current_setting('t.child')::uuid, current_setting('t.chem')::uuid, 62, current_setting('t.admin')::uuid)
+  on conflict (exam_id, student_id, subject_id) do update set score = excluded.score, entered_by = excluded.entered_by;
+reset role;
+select pg_temp.check('an edit by upsert is stored under the teacher too, with the new score',
+  (select entered_by = current_setting('t.teacher')::uuid and score = 62 from marks where exam_id = current_setting('t.exam_eb')::uuid and student_id = current_setting('t.child')::uuid and subject_id = current_setting('t.chem')::uuid));
+
+-- "entered by" is who saved the row last: the school admin correcting the mark is the one on it afterwards, even when the request names the teacher
+select pg_temp.act_as(current_setting('t.admin'));
+set local role authenticated;
+update marks set score = 63, entered_by = current_setting('t.teacher')::uuid
+ where exam_id = current_setting('t.exam_eb')::uuid and student_id = current_setting('t.child')::uuid and subject_id = current_setting('t.chem')::uuid;
+reset role;
+select pg_temp.check('the school admin correcting the mark is the one on it afterwards, even if the request names the teacher',
+  (select entered_by = current_setting('t.admin')::uuid and score = 63 from marks where exam_id = current_setting('t.exam_eb')::uuid and student_id = current_setting('t.child')::uuid and subject_id = current_setting('t.chem')::uuid));
+
+-- no signed-in caller (service role, seed scripts, the console): the value is left as given
+select set_config('request.jwt.claims', '', true);
+update marks set entered_by = current_setting('t.teacher')::uuid
+ where exam_id = current_setting('t.exam_eb')::uuid and student_id = current_setting('t.child')::uuid and subject_id = current_setting('t.chem')::uuid;
+select pg_temp.check('with no signed-in caller the value is left as given (the seed and the service role keep working)',
+  (select entered_by from marks where exam_id = current_setting('t.exam_eb')::uuid and student_id = current_setting('t.child')::uuid and subject_id = current_setting('t.chem')::uuid) = current_setting('t.teacher')::uuid);
+
+-- the CBE rubric results carry the same column (the trigger does not depend on the role, only on who is signed in)
+-- (the seeded rubric results belong to a CBE school, so the teacher and the admin are that school's own)
+select set_config('t.cbe', coalesce((select id::text from cbe_results order by id limit 1), ''), true);
+select set_config('t.cbe_teacher', coalesce((select id::text from profiles where role = 'teacher' and tenant_id = (select tenant_id from cbe_results where id::text = current_setting('t.cbe')) order by id limit 1), ''), true);
+select set_config('t.cbe_admin',   coalesce((select id::text from profiles where role = 'school_admin' and tenant_id = (select tenant_id from cbe_results where id::text = current_setting('t.cbe')) order by id limit 1), ''), true);
+select pg_temp.act_as(case when current_setting('t.cbe_teacher') = '' then current_setting('t.teacher') else current_setting('t.cbe_teacher') end);
+update cbe_results set entered_by = nullif(current_setting('t.cbe_admin'), '')::uuid where id::text = current_setting('t.cbe');
+select pg_temp.check('a CBE rubric result saved with the school admin''s id is stored under the signed-in teacher (needs the CBE seed)',
+  current_setting('t.cbe') = '' or current_setting('t.cbe_teacher') = '' or current_setting('t.cbe_admin') = ''
+  or (select entered_by from cbe_results where id::text = current_setting('t.cbe')) = current_setting('t.cbe_teacher')::uuid);
+
+-- course_marks (higher education) has no rows to try it on here: the same trigger must be on all three tables
+select pg_temp.check('marks, course_marks and cbe_results all carry the "entered by is the caller" trigger',
+  (select count(distinct tgrelid) from pg_trigger
+    where tgname = 'entered_by_is_the_caller' and not tgisinternal
+      and tgrelid in ('marks'::regclass, 'course_marks'::regclass, 'cbe_results'::regclass)) = 3);
+
 rollback;
