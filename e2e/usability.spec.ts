@@ -423,11 +423,13 @@ test("QA16-USE 6 the accessibility preferences apply, last, and leave the screen
 });
 
 // ================================================================ what the tests found
-const DIALOG_FIT = ["dialog wider than the window", "dialog button off screen", "dialog clipped control", "dialog text hidden", "dialog content scrolls sideways", "dialog overflow", "dialog broken image", "dialog blank"];
-
 const KNOWN: Known[] = [
-  { tag: "QA16-DIALOG-WIDTH", fig: "FIG-1471", what: "every dialog fits a 390 px window",
-    match: (f) => DIALOG_FIT.includes(f.kind) && f.width === 390 },
+  // FIG-1471 (every dialog fits a 390 px window, its Close and Save buttons on screen) is fixed in Modal.tsx: "dialog wider than the window" and
+  // "dialog button off screen" are no longer listed here, so either coming back fails QA16-USE-NEW. What is left at 390 px is a field or a text cut
+  // by 20 to 40 px inside a dialog's own two-column form (Add a learner, Manage a learner, Import from CSV, New invoice, Declare incident, Add an
+  // organization): it was counted under the same tag before the dialog itself was narrowed.
+  { tag: "QA16-DIALOG-FIELDS", fig: "FIG-1471 (follow-up)", what: "no field or text inside a dialog is cut off at 390 px (the dialog itself now fits)",
+    match: (f) => (f.kind === "dialog clipped control" || f.kind === "dialog text hidden") && f.width === 390 },
   { tag: "QA16-MODAL-FOCUS", fig: "FIG-1480", what: "a dialog keeps Tab inside it and returns focus to the button that opened it",
     match: (f) => f.kind === "focus leaves the dialog" || f.kind === "focus is not returned to the opener" },
   { tag: "QA16-SIGNIN-FORM", fig: "FIG-1479", what: "Enter signs in, and focus moves on when the sign-in view changes",
