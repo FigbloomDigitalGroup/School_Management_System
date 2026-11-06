@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ADMIN_AREA_INFO, ADMIN_AREA_PAGES, fetchLatestRegisters, type AdminArea } from "@figbloom/shared";
+import { ADMIN_AREA_INFO, ADMIN_AREA_PAGES, fetchLatestRegisters, pageIsNotForInstitution, type AdminArea } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -8,9 +8,6 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AttendanceDetail } from "./AttendanceDetail";
 import { OverdueMedication } from "../../components/medical/common";
-
-// Pages that only exist for one kind of school (ConsoleShell hides the same ones from the nav).
-const K12_ONLY = new Set(["admin/classes", "admin/subjects", "admin/exams", "admin/papers", "admin/report-cards", "admin/performance", "admin/materials"]);
 
 /**
  * The admin console's home for a teacher or other staff member holding some
@@ -22,10 +19,9 @@ const K12_ONLY = new Set(["admin/classes", "admin/subjects", "admin/exams", "adm
  */
 export function AreasHome() {
   const { profile, tenant, adminAreas } = useTenantSession();
-  const higherEd = tenant.institution_type === "higher_ed";
   const online = tenant.delivery_mode === "online";
   const pagesFor = (area: AdminArea) => ADMIN_AREA_PAGES[area].filter((p) =>
-    (higherEd ? !K12_ONLY.has(p.to) : p.to !== "admin/courses") && !(online && p.to === "admin/fleet"));
+    !pageIsNotForInstitution(p.to, tenant.institution_type) && !(online && p.to === "admin/fleet"));
 
   return (
     <>
