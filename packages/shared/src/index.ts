@@ -70,6 +70,7 @@ export * from "./performanceData";
 export * from "./chartMath";
 export * from "./activities";
 export * from "./visitors";
+export * from "./earlySignOut";
 export * from "./signatures";
 export * from "./aiChat";
 export * from "./bloomAttachments";
