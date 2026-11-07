@@ -35,7 +35,7 @@ const ROLES: Role[] = [
     routes: ["", "/fees", "/results", "/homework", "/materials", "/bus", "/inbox", "/chats", "/items", "/settings", "/activities"].map((x) => `${S}/parent${x}`) },
   { key: "student",
     routes: ["", "/timetable", "/work", "/materials", "/exams", "/results", "/study-helper", "/fees", "/chats", "/notices", "/activities", "/items"].map((x) => `${S}/student${x}`) },
-  { key: "driver", routes: [`${S}/driver`, `${S}/driver/profile`] },
+  { key: "driver", routes: [`${S}/driver`] },
   { key: "group admin",
     routes: ["dashboard", "schools", "admins", "audit"].map((x) => `/org/kijani-ridge-group/${x}`) },
   // the gate and reception screens (GD-0001, RC-0001) are not here: this branch still has the guard and receptionist roles, and the

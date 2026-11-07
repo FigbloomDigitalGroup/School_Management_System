@@ -9,6 +9,7 @@ import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type Gui
 import { SlugAvailabilityNote } from "./SlugAvailabilityNote";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { MyAccountModal } from "./MyAccountModal";
 import { useTenant } from "./TenantTheme";
 import { Button } from "./ui/Button";
 import { SelectField, TextField } from "./ui/Field";
@@ -72,6 +73,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const [changingPw, setChangingPw] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [guideOpen, setGuideOpenState] = useState(() => !!guide && guideWasOpen(user.id));
   const setGuideOpen = (v: boolean) => { setGuideOpenState(v); rememberGuideOpen(user.id, v); };
   const location = useLocation();
@@ -126,9 +128,10 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // A page opened from the School assistant offers the way back to it.
   const guideBack = (location.state as { guideBack?: GuideBack } | null)?.guideBack;
   const backBar = guideBack && guideBack.to !== herePage ? guideBack : null;
-  // Only the three roles with a real self-service "My account" screen (FIG-
-  // 403) get a clickable avatar — org_admin/super_admin/student have none to
-  // send them to yet.
+  // Only the roles with a real self-service "My account" screen (FIG-403) get
+  // a clickable avatar — org_admin/super_admin/student have none yet. It opens
+  // as a pop-up card; teacher and parent also have more on their account page
+  // (calls, their children), so the card links there.
   const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings", staff: "staff/account" };
   const accountTo = ACCOUNT_ROUTE[role];
   const accountHref = accountTo
@@ -343,7 +346,8 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         <AccountMenu
           left={(open ? 224 : 68) + 8}
           user={user}
-          accountHref={accountHref}
+          hasAccount={!!accountHref}
+          onAccount={() => setProfileOpen(true)}
           anchor={accountBtn}
           onClose={() => setAccountOpen(false)}
           onAccessibility={() => setA11yOpen(true)}
@@ -353,6 +357,13 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
       )}
       {guideHost && guideOpen && !guideInPage && <GuidePanel host={guideHost} onClose={() => setGuideOpen(false)} />}
       {changingPw && <ChangePasswordModal onClose={() => setChangingPw(false)} />}
+      {profileOpen && accountHref && (
+        <MyAccountModal
+          onClose={() => setProfileOpen(false)}
+          moreHref={role === "teacher" || role === "parent" ? accountHref : undefined}
+          moreLabel={role === "parent" ? "Children & more" : "Calls & more"}
+        />
+      )}
       {a11yOpen && <AccessibilityModal onClose={() => setA11yOpen(false)} />}
     </div>
     </OpenAccessibility.Provider>
@@ -361,10 +372,11 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
 
 /** The avatar/name in the sidebar footer opens this — everything about "me"
  *  in one place, instead of three always-visible rows eating sidebar height. */
-function AccountMenu({ left, user, accountHref, anchor, onClose, onAccessibility, onChangePassword, onSignOut }: {
+function AccountMenu({ left, user, hasAccount, onAccount, anchor, onClose, onAccessibility, onChangePassword, onSignOut }: {
   left: number;
   user: Props["user"];
-  accountHref: string | null;
+  hasAccount: boolean;
+  onAccount: () => void;
   anchor: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onAccessibility: () => void;
@@ -372,7 +384,6 @@ function AccountMenu({ left, user, accountHref, anchor, onClose, onAccessibility
   onSignOut: () => void;
 }) {
   const menu = useRef<HTMLDivElement>(null);
-  const nav = useNavigate();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -414,8 +425,8 @@ function AccountMenu({ left, user, accountHref, anchor, onClose, onAccessibility
           <div className="font-mono text-[9.5px] tracking-[0.08em] text-ink-faint">{user.roleLabel.toUpperCase()}</div>
         </div>
       </div>
-      {accountHref && (
-        <button type="button" role="menuitem" className={itemCls} onClick={pick(() => nav(accountHref))}>
+      {hasAccount && (
+        <button type="button" role="menuitem" className={itemCls} onClick={pick(onAccount)}>
           <Icon name="people" size={13} /> My account
         </button>
       )}

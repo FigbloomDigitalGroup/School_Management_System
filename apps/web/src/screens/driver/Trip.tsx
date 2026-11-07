@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { supabase, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
@@ -10,6 +10,7 @@ import {
   type AssignmentRow, type BusOnRoute,
 } from "@figbloom/shared";
 import { Avatar } from "../../components/Avatar";
+import { MyAccountModal } from "../../components/MyAccountModal";
 import { Eta, LiveRouteMap, MapSheet, busPosition, fmtEta, useLiveBuses, type LatLng } from "../../components/fleet/LiveRouteMap";
 import { TripRiders } from "../../components/fleet/TripRiders";
 
@@ -41,6 +42,8 @@ function formatElapsed(startedAt: string, nowMs: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+const DRIVER_PROFILE_BLURB = "Parents see your photo and name on their bus page so they know who's collecting their child. Use a clear photo of your face.";
+
 const DIRECTION_LABEL: Record<TripDirection, string> = {
   to_school: "To school",
   from_school: "From school",
@@ -63,6 +66,7 @@ export function DriverTrip() {
 
   const [trip, setTrip] = useState<Trip | null>(null);
   const [direction, setDirection] = useState<TripDirection>("to_school");
+  const [profileOpen, setProfileOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -222,7 +226,7 @@ export function DriverTrip() {
           <p className="mt-2 text-body text-ink-muted">Contact the school office to be assigned to a bus and route.</p>
         </div>
         <div className="flex gap-2">
-          <Link to="profile" className="hit rounded-lg border border-line px-5 py-2.5 text-small font-semibold text-ink-muted">My profile</Link>
+          <button onClick={() => setProfileOpen(true)} className="hit rounded-lg border border-line px-5 py-2.5 text-small font-semibold text-ink-muted">My profile</button>
           <button
             onClick={() => void handleSignOut()}
             className="hit rounded-lg border border-line px-5 py-2.5 text-small font-semibold text-ink-muted"
@@ -230,6 +234,7 @@ export function DriverTrip() {
             Sign out
           </button>
         </div>
+        {profileOpen && <MyAccountModal nameLocked withPassword blurb={DRIVER_PROFILE_BLURB} onClose={() => setProfileOpen(false)} onSignOut={() => void handleSignOut()} />}
       </div>
     );
   }
@@ -243,14 +248,15 @@ export function DriverTrip() {
           <div className="truncate text-lead font-semibold tracking-tight">{profile.full_name}</div>
           <div className="font-mono text-micro tracking-[0.12em] text-white/70">{tenant.name.toUpperCase()} · DRIVER</div>
         </div>
-        <Link
-          to="profile"
+        <button
+          type="button"
+          onClick={() => setProfileOpen(true)}
           className="hit flex shrink-0 items-center gap-2 rounded-full border border-white/30 py-1 pl-1 pr-3 text-small font-semibold text-white"
           aria-label="My profile"
         >
           <Avatar id={profile.id} name={profile.full_name} url={profile.avatar_url} size={30} />
           Profile
-        </Link>
+        </button>
       </header>
 
       <DriverMap tenantId={tenant.id} bus={data.bus} selfPos={trip ? selfPos : null} direction={trip?.direction ?? direction}>
@@ -346,6 +352,7 @@ export function DriverTrip() {
           </MapSheet>
         )}
       </DriverMap>
+      {profileOpen && <MyAccountModal nameLocked withPassword blurb={DRIVER_PROFILE_BLURB} onClose={() => setProfileOpen(false)} onSignOut={() => void handleSignOut()} />}
     </div>
   );
 }

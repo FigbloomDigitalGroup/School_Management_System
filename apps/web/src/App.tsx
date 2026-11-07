@@ -104,7 +104,6 @@ import { StudentActivities } from "./screens/student/Activities";
 import { StudentItems } from "./screens/student/Items";
 
 import { DriverTrip } from "./screens/driver/Trip";
-import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { StaffLoans } from "./screens/staff/Loans";
 import { MyHr } from "./screens/myhr/MyHr";
@@ -333,7 +332,8 @@ function TenantRoutes() {
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />
-          <Route path="driver/profile" element={<RoleGate allow={["driver"]}><DriverProfile /></RoleGate>} />
+          {/* The profile is a pop-up on the trip screen now; an old bookmark to the page lands there. */}
+          <Route path="driver/profile" element={<Navigate to=".." relative="path" replace />} />
 
           <Route path="staff" element={<RoleGate allow={["staff"]}><StaffHome /></RoleGate>} />
           <Route path="staff/visitors" element={<StaffShell><StaffVisitors /></StaffShell>} />

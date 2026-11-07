@@ -17,9 +17,11 @@ import { useTenantSession } from "../lib/sessionContext";
  * of role — login_id/email/role stay read-only here since those are the
  * sign-in credential, not descriptive info.
  */
-export function MyAccountFields({ nameLocked = false }: {
+export function MyAccountFields({ nameLocked = false, bare = false }: {
   /** Drivers: the school set the name parents know them by, so it isn't theirs to change. */
   nameLocked?: boolean;
+  /** Inside a dialog that already is the card: no border, padding or width cap of its own. */
+  bare?: boolean;
 } = {}) {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
@@ -70,7 +72,7 @@ export function MyAccountFields({ nameLocked = false }: {
   if (!data) return <TableSkeleton rows={4} />;
 
   return (
-    <div className="grid max-w-[480px] gap-3.5 rounded-lg border border-line bg-white p-4">
+    <div className={bare ? "grid gap-3.5" : "grid max-w-[480px] gap-3.5 rounded-lg border border-line bg-white p-4"}>
       <AvatarEditor
         id={profile.id}
         name={fullName}
