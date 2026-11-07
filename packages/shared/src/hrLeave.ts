@@ -264,6 +264,61 @@ export function leaveDaysWords(days: number | null, halfDay: boolean): string | 
   return halfDay ? "Half a day" : days === null ? null : `${days} ${days === 1 ? "day" : "days"}`;
 }
 
+/** A date typed as YYYY-MM-DD that is a real day ("2026-02-30" is not). */
+export function isDateOnly(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const day = new Date(Date.UTC(y, mo - 1, d));
+  return day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 && day.getUTCDate() === d;
+}
+
+/** Calendar days from one date to the other, both counted (HR counts its own way; this only decides what to ask for). */
+export function leaveSpanDays(from: string, to: string): number | null {
+  return isDateOnly(from) && isDateOnly(to) && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : null;
+}
+
+/** What HR says about a leave type, on one line: days left, limits, notice, the document it wants, half days. */
+export function leaveTypeRules(type: LeaveTypeRule): string {
+  return [
+    type.available !== null && `${type.available} ${type.available === 1 ? "day" : "days"} left`,
+    type.maxDays !== null && `up to ${type.maxDays} days at a time`,
+    type.noticeDays ? `${type.noticeDays} days' notice${type.earliestStart ? ` (from ${shortDate(type.earliestStart)})` : ""}` : null,
+    type.availableFrom && `can be used from ${shortDate(type.availableFrom)}`,
+    type.onePerMonth && "once a month",
+    type.document && (type.document.withApplication
+      ? `${type.document.name} needed${type.document.longerThan !== null ? ` for more than ${type.document.longerThan} days` : ""}`
+      : `${type.document.name} to follow`),
+    type.halfDays && "half days allowed",
+  ].filter(Boolean).join(" \u00b7 ");
+}
+
+/** What the application form holds (the web and the phone keep the same fields). */
+export interface LeaveApplicationDraft {
+  typeId: string;
+  startDate: string;
+  endDate: string;
+  halfDay: boolean;
+  reason: string;
+  documentName: string | null;
+}
+
+/**
+ * The leave type chosen, whether HR wants its document with this application, and whether the form can be sent.
+ * Ready only decides when the button works; HR still applies its own rules and answers with them (422 leave_rules).
+ */
+export function applicationReadiness(form: LeaveForm, v: LeaveApplicationDraft): { type: LeaveTypeRule | null; needsDocument: boolean; ready: boolean } {
+  const type = form.types.find((t) => t.id === v.typeId) ?? null;
+  const needsDocument = documentNeeded(type, v.halfDay ? 0.5 : leaveSpanDays(v.startDate, v.endDate));
+  const ready = !!type && isDateOnly(v.startDate) && isDateOnly(v.endDate) && v.endDate >= v.startDate
+    && v.reason.trim().length >= form.reasonMin && (!needsDocument || !!v.documentName);
+  return { type, needsDocument, ready };
+}
+
+/** What the screen says once HR has taken an application, or cancelled one (the web's toast and the phone's banner). */
+export const HR_LEAVE_SENT = "Sent to Figbloom HR for approval.";
+export const HR_LEAVE_CANCELLED = "Cancelled in Figbloom HR.";
+
 /** Why a chosen document can't go (null: it can). */
 export function documentProblem(file: { size: number; type: string }): string | null {
   if (file.size > MAX_LEAVE_DOCUMENT_BYTES) return "The document is larger than 3 MB. Choose a smaller file.";

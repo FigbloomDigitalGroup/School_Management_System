@@ -6,6 +6,7 @@ import {
 } from "@figbloom/shared";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
+import { hrStatusTone } from "../../lib/hrTone";
 import { useLoad } from "../../lib/useLoad";
 import type { StaffSession } from "../../lib/staffSession";
 import { accentFor, fontSize } from "../../theme";
@@ -16,14 +17,6 @@ import { useTheme } from "../../ui/ThemeContext";
 
 /** What the last decision did, said at the top until the next one. */
 type Outcome = { kind: "done" | "failed"; text: string };
-
-/** The colour of a step in the approval so far, from HR's own word for it. */
-function stepTone(status: string): "ok" | "warn" | "muted" {
-  const word = status.toLowerCase();
-  if (word === "approved" || word === "done" || word === "completed") return "ok";
-  if (word === "pending" || word === "current" || word === "waiting") return "warn";
-  return "muted";
-}
 
 /**
  * A person HR cannot match to one of its users yet (they never opened HR & Payroll from Schools) is asked to do that
@@ -182,8 +175,8 @@ export function LeaveToApprove({ session }: { session: StaffSession }) {
                   {item.steps.length > 0 && (
                     <View accessibilityLabel="Approval so far" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
                       {item.steps.map((step, i) => (
-                        <View key={i} style={[s.pill, { backgroundColor: tone[stepTone(step.status)].bg }]}>
-                          <Text style={[s.pillLabel, { color: tone[stepTone(step.status)].ink }]}>{step.label}: {hrStatusLabel(step.status)}{step.who ? ` (${step.who})` : ""}</Text>
+                        <View key={i} style={[s.pill, { backgroundColor: tone[hrStatusTone(step.status)].bg }]}>
+                          <Text style={[s.pillLabel, { color: tone[hrStatusTone(step.status)].ink }]}>{step.label}: {hrStatusLabel(step.status)}{step.who ? ` (${step.who})` : ""}</Text>
                         </View>
                       ))}
                     </View>

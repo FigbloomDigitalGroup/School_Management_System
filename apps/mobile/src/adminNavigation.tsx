@@ -4,10 +4,10 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Home, Menu, User } from "lucide-react-native";
 import { phoneConsolesFor } from "@figbloom/shared";
-import { adminScreensFor, type AdminScreen } from "./adminScreens";
+import { adminScreensFor, hrScreensFor, type AdminScreen } from "./adminScreens";
 import { CallProvider } from "./calls/CallProvider";
 import type { StaffSession } from "./lib/staffSession";
-import { useHrApprover } from "./lib/useHrApprover";
+import { useHrLeaveAccess } from "./lib/useHrLeaveAccess";
 import { accentFor, fontSize } from "./theme";
 import { NAV_THEME, tabIcon } from "./navShared";
 import { AdminAnnouncements } from "./screens/admin/Announcements";
@@ -17,6 +17,7 @@ import { AdminHome } from "./screens/admin/Home";
 import { AdminLeave } from "./screens/admin/Leave";
 import { LeaveToApprove } from "./screens/admin/LeaveToApprove";
 import { AdminMore } from "./screens/admin/More";
+import { MyLeave } from "./screens/admin/MyLeave";
 import type { OpenRegister } from "./screens/admin/Overview";
 import { SchoolChats } from "./screens/admin/SchoolChats";
 import { ChatList } from "./screens/chat/ChatList";
@@ -65,6 +66,8 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
       <Stack.Screen name="Leave">{() => <AdminLeave session={session} />}</Stack.Screen>
       {/* Leave waiting on this person in Figbloom HR; listed only for an approver at a school whose leave runs there. */}
       <Stack.Screen name="LeaveToApprove">{() => <LeaveToApprove session={session} />}</Stack.Screen>
+      {/* Other staff's own leave, applied for through Figbloom HR where the school's leave runs there. */}
+      <Stack.Screen name="MyLeave">{() => <MyLeave session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }
@@ -77,9 +80,9 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
 export function AdminNavigation({ session }: { session: StaffSession }) {
   const { t, scheme, accentInk } = useTheme();
   const a = accentFor(session.accent);
-  // Asked of HR once, so the More list never waits on it: the "Leave to approve" row appears when the answer is yes.
-  const hrApprover = useHrApprover(session.profileId);
-  const screens = adminScreensFor(phoneConsolesFor(session.role, session.adminAreas).admin, hrApprover);
+  // Asked of HR once, so the More list never waits on it: "Leave to approve" and "My leave" appear when the answer says so.
+  const hr = useHrLeaveAccess(session.profileId);
+  const screens = adminScreensFor(phoneConsolesFor(session.role, session.adminAreas).admin, hrScreensFor(session.role, hr));
 
   return (
     // Calls ring on the admin side too: the office is rung by parents, and rings them from a chat.
