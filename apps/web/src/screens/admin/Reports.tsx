@@ -17,7 +17,7 @@ interface ReportsData {
   feeByClass: Map<string, { billed: number; paid: number }>;
   feeOverall: { billed: number; paid: number };
   latestExam: Exam | null;
-  meanByClass: Map<string, { mean: number; entered: number; total: number; scheme: GradingSchemeId }>;
+  meanByClass: Map<string, { mean: number; marked: number; roster: number; scheme: GradingSchemeId }>;
 }
 
 /** One row of term_class_figures(): a class's term, added up in the database (supabase/migrations/20261105500000). */
@@ -30,6 +30,8 @@ interface ClassFigures {
   paid: number;
   mark_sum: number;
   mark_count: number;
+  /** Learners with at least one score in the exam, each counted once (mark_count is one per learner per subject). */
+  learners_marked: number;
 }
 
 async function fetchReports(tenantId: string, country: string): Promise<ReportsData> {
@@ -47,7 +49,7 @@ async function fetchReports(tenantId: string, country: string): Promise<ReportsD
   const feeByClass = new Map<string, { billed: number; paid: number }>();
   const feeOverall = { billed: 0, paid: 0 };
   let latestExam: Exam | null = null;
-  const meanByClass = new Map<string, { mean: number; entered: number; total: number; scheme: GradingSchemeId }>();
+  const meanByClass = new Map<string, { mean: number; marked: number; roster: number; scheme: GradingSchemeId }>();
 
   if (termId) {
     const { data: examRows } = await sb
@@ -79,8 +81,8 @@ async function fetchReports(tenantId: string, country: string): Promise<ReportsD
       if (f && f.mark_count > 0) {
         meanByClass.set(c.id, {
           mean: Math.round(f.mark_sum / f.mark_count),
-          entered: f.mark_count,
-          total: f.roster,
+          marked: f.learners_marked,
+          roster: f.roster,
           scheme: gradingSchemeFor(country, c.level),
         });
       }
@@ -225,10 +227,10 @@ export function AdminReports() {
                     },
                   },
                   {
-                    key: "entered", header: "Marks entered", align: "right",
+                    key: "entered", header: "Learners marked", align: "right",
                     render: (c: ReportsData["classes"][number]) => {
                       const m = data?.meanByClass.get(c.id);
-                      return <span className="text-[12.5px] text-ink-muted">{m ? `${m.entered} of ${m.total || "—"}` : "—"}</span>;
+                      return <span className="text-[12.5px] text-ink-muted">{m ? `${m.marked} of ${m.roster} learners` : "—"}</span>;
                     },
                   },
                 ]}
