@@ -7,6 +7,7 @@ import { phoneConsolesFor } from "@figbloom/shared";
 import { adminScreensFor, type AdminScreen } from "./adminScreens";
 import { CallProvider } from "./calls/CallProvider";
 import type { StaffSession } from "./lib/staffSession";
+import { useHrApprover } from "./lib/useHrApprover";
 import { accentFor, fontSize } from "./theme";
 import { NAV_THEME, tabIcon } from "./navShared";
 import { AdminAnnouncements } from "./screens/admin/Announcements";
@@ -14,6 +15,7 @@ import { CallLog } from "./screens/admin/CallLog";
 import { ClassRegister } from "./screens/admin/ClassRegister";
 import { AdminHome } from "./screens/admin/Home";
 import { AdminLeave } from "./screens/admin/Leave";
+import { LeaveToApprove } from "./screens/admin/LeaveToApprove";
 import { AdminMore } from "./screens/admin/More";
 import type { OpenRegister } from "./screens/admin/Overview";
 import { SchoolChats } from "./screens/admin/SchoolChats";
@@ -61,6 +63,8 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
       </Stack.Screen>
       <Stack.Screen name="CallLog">{() => <CallLog session={session} />}</Stack.Screen>
       <Stack.Screen name="Leave">{() => <AdminLeave session={session} />}</Stack.Screen>
+      {/* Leave waiting on this person in Figbloom HR; listed only for an approver at a school whose leave runs there. */}
+      <Stack.Screen name="LeaveToApprove">{() => <LeaveToApprove session={session} />}</Stack.Screen>
     </Stack.Navigator>
   );
 }
@@ -73,7 +77,9 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
 export function AdminNavigation({ session }: { session: StaffSession }) {
   const { t, scheme, accentInk } = useTheme();
   const a = accentFor(session.accent);
-  const screens = adminScreensFor(phoneConsolesFor(session.role, session.adminAreas).admin);
+  // Asked of HR once, so the More list never waits on it: the "Leave to approve" row appears when the answer is yes.
+  const hrApprover = useHrApprover(session.profileId);
+  const screens = adminScreensFor(phoneConsolesFor(session.role, session.adminAreas).admin, hrApprover);
 
   return (
     // Calls ring on the admin side too: the office is rung by parents, and rings them from a chat.

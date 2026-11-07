@@ -1,13 +1,15 @@
-import { CalendarOff, Eye, Megaphone, MessageSquare, Phone, type LucideIcon } from "lucide-react-native";
+import { CalendarOff, ClipboardCheck, Eye, Megaphone, MessageSquare, Phone, type LucideIcon } from "lucide-react-native";
 import { mayOpenAdminPage, type AdminAccess } from "@figbloom/shared";
 
 /** The admin screens listed under More. `page` is the web console page it mirrors: its area decides who sees it (mayOpenAdminPage). */
 export interface AdminScreen {
-  to: "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave";
+  to: "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave" | "LeaveToApprove";
   label: string;
   blurb: string;
   page: string;
   icon: LucideIcon;
+  /** Listed only when Figbloom HR says this person approves leave there (hr_leave_access): their areas alone do not decide it. */
+  needs?: "hrApprover";
 }
 
 /** Each admin screen the phone has, in the order they are listed. A screen is added here, and to the stack in adminNavigation.tsx, as it lands. */
@@ -17,9 +19,13 @@ export const ADMIN_SCREENS: readonly AdminScreen[] = [
   { to: "SchoolChats", label: "All school chats", blurb: "Read every chat in the school. You can't join them", page: "admin/chats", icon: Eye },
   { to: "CallLog", label: "Call log", blurb: "Who called whom, and for how long", page: "admin/chats", icon: Phone },
   { to: "Leave", label: "Leave requests", blurb: "Approve or reject teachers' time off", page: "admin/leave", icon: CalendarOff },
+  { to: "LeaveToApprove", label: "Leave to approve", blurb: "Staff leave waiting on you in Figbloom HR", page: "admin/leave-to-approve", icon: ClipboardCheck, needs: "hrApprover" },
 ];
 
-/** The screens this person's admin access opens: a full admin all of them, someone with areas those their areas cover. */
-export function adminScreensFor(access: AdminAccess | null): AdminScreen[] {
-  return access ? ADMIN_SCREENS.filter((screen) => mayOpenAdminPage(access, screen.page)) : [];
+/**
+ * The screens this person's admin access opens: a full admin all of them, someone with areas those their areas cover.
+ * "Leave to approve" is the exception: it follows HR's answer (`hrApprover`, from useHrApprover), at the schools whose leave runs there.
+ */
+export function adminScreensFor(access: AdminAccess | null, hrApprover = false): AdminScreen[] {
+  return access ? ADMIN_SCREENS.filter((screen) => mayOpenAdminPage(access, screen.page) && (screen.needs !== "hrApprover" || hrApprover)) : [];
 }

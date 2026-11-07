@@ -17,8 +17,17 @@ const session: StaffSession = {
 };
 
 describe("which admin screens a person is offered", () => {
-  it("is every screen for a full admin", () => {
-    expect(adminScreensFor("all")).toEqual([...ADMIN_SCREENS]);
+  it("is every screen for a full admin, once HR says they approve leave there", () => {
+    expect(adminScreensFor("all", true)).toEqual([...ADMIN_SCREENS]);
+  });
+  it("leaves out Leave to approve until HR says so, whatever the areas", () => {
+    expect(adminScreensFor("all").map((s) => s.to)).not.toContain("LeaveToApprove");
+    expect(adminScreensFor("all", false).map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog", "Leave"]);
+  });
+  it("lists Leave to approve for an approver whose areas open nothing else, such as the bursar", () => {
+    expect(adminScreensFor(["fees"], true).map((s) => s.to)).toEqual(["LeaveToApprove"]);
+    expect(adminScreensFor(["fees"], false)).toEqual([]);
+    expect(adminScreensFor(["leave"], true).map((s) => s.to)).toEqual(["Leave", "LeaveToApprove"]);
   });
   it("is the screens an area covers, and only those: announcements and chats for Communication, none for Fees alone", () => {
     expect(adminScreensFor(["communication"]).map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog"]);
@@ -29,6 +38,7 @@ describe("which admin screens a person is offered", () => {
   });
   it("is nothing for someone with no admin console", () => {
     expect(adminScreensFor(null)).toEqual([]);
+    expect(adminScreensFor(null, true)).toEqual([]);
   });
 });
 
@@ -37,7 +47,7 @@ describe("the admin More list", () => {
 
   it("shows a row for each screen, with what it is for, and opens the one tapped", async () => {
     const onOpen = jest.fn();
-    render(<ThemeProvider><AdminMore session={session} screens={adminScreensFor("all")} onOpen={onOpen} /></ThemeProvider>);
+    render(<ThemeProvider><AdminMore session={session} screens={adminScreensFor("all", true)} onOpen={onOpen} /></ThemeProvider>);
     expect(await screen.findByText("Kijani Ridge")).toBeTruthy();
     expect(screen.getByText("Send a notice to the school, a year group or a class")).toBeTruthy();
     fireEvent.press(screen.getByLabelText("Announcements"));
@@ -50,6 +60,8 @@ describe("the admin More list", () => {
     expect(onOpen).toHaveBeenCalledWith("CallLog");
     fireEvent.press(screen.getByLabelText("Leave requests"));
     expect(onOpen).toHaveBeenCalledWith("Leave");
+    fireEvent.press(screen.getByLabelText("Leave to approve"));
+    expect(onOpen).toHaveBeenCalledWith("LeaveToApprove");
   });
 
   it("says how many chat messages are waiting, on the Chats row only", async () => {

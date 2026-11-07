@@ -1,5 +1,6 @@
 import {
-  documentNeeded, formatShortDate, HR_CONNECT_ONCE, hrStatusLabel, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, type ApprovalItem,
+  documentNeeded, formatShortDate, HR_CONNECT_ONCE, hrStatusLabel, leaveDaysWords, leaveRange, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, mayDecline,
+  type ApprovalItem,
   type ApprovalsState, type LeaveForm, type MyLeave,
 } from "@figbloom/shared";
 import type { ReactNode } from "react";
@@ -16,9 +17,6 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
  */
 
 const date = (d: string | null) => (d ? formatShortDate(d.slice(0, 10)) : "—");
-const range = (from: string | null, to: string | null) => (from && to && from !== to ? `${date(from)} – ${date(to)}` : date(from ?? to));
-const daysWords = (days: number | null, halfDay: boolean) =>
-  halfDay ? "Half a day" : days === null ? null : `${days} ${days === 1 ? "day" : "days"}`;
 /** Calendar days from one date to the other, both counted (HR counts its own way; this only decides what to ask for). */
 const spanDays = (from: string, to: string) =>
   from && to && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : null;
@@ -101,7 +99,7 @@ export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hr
                 <div className="min-w-0">
                   <div className="text-[14px] font-semibold">{a.employee}</div>
                   <div className="mt-0.5 text-[13px]">
-                    {a.type} · {range(a.from, a.to)}{daysWords(a.days, a.halfDay) ? ` · ${daysWords(a.days, a.halfDay)}` : ""}
+                    {a.type} · {leaveRange(a.from, a.to)}{leaveDaysWords(a.days, a.halfDay) ? ` · ${leaveDaysWords(a.days, a.halfDay)}` : ""}
                   </div>
                   {a.reason && <p className="mt-1 text-[12.5px] text-ink-muted">{a.reason}</p>}
                   {a.step && <p className="mt-1 text-[12px] text-ink-faint">Your step: {a.step}</p>}
@@ -138,7 +136,7 @@ export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hr
                     onChange={(e) => onComment(a.id, e.target.value)} maxLength={1000}
                   />
                 </div>
-                <Button disabled={busyId === a.id || !(comments[a.id] ?? "").trim()} title="Say why in the comment first" onClick={() => onDecide(a, "decline")}>Decline</Button>
+                <Button disabled={busyId === a.id || !mayDecline(comments[a.id] ?? "")} title="Say why in the comment first" onClick={() => onDecide(a, "decline")}>Decline</Button>
                 <Button variant="accent" disabled={busyId === a.id} onClick={() => onDecide(a, "approve")}>
                   {busyId === a.id ? "Saving…" : "Approve"}
                 </Button>
@@ -260,7 +258,7 @@ export function HrApplications({ leave, loading, error, onCancel, cancellingId }
         <div key={a.id} className="border-b border-line-soft px-1 py-3 last:border-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[13px] font-medium">{a.type} · {range(a.from, a.to)}{a.days !== null ? ` · ${a.days} ${a.days === 1 ? "day" : "days"}` : ""}</div>
+              <div className="text-[13px] font-medium">{a.type} · {leaveRange(a.from, a.to)}{a.days !== null ? ` · ${a.days} ${a.days === 1 ? "day" : "days"}` : ""}</div>
               {a.reason && <p className="mt-0.5 text-[12px] text-ink-faint">{a.reason}</p>}
               {a.steps.length > 0 && (
                 <p className="mt-1 text-[12px] text-ink-muted">
