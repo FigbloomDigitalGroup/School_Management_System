@@ -5,8 +5,8 @@ declarations) and App Store Connect (App Privacy) so the listings match
 `apps/web/public/privacy.html` and what the apps do. Worked out from the code
 on 2026-10-29; re-check it whenever a feature that collects data is added.
 
-One app: **Figbloom Schools** (`apps/mobile`), for parents, students, drivers and
-teachers. Teachers had a separate app (`apps/teacher-mobile`) until it was merged
+One app: **Figbloom Schools** (`apps/mobile`), for parents, students, drivers,
+teachers, and the school's admins and office staff. Teachers had a separate app (`apps/teacher-mobile`) until it was merged
 in on 2026-11-06; it was never published, so there is one store listing and one
 set of answers.
 
