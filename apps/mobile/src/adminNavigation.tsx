@@ -12,6 +12,7 @@ import { useHrLeaveAccess } from "./lib/useHrLeaveAccess";
 import { accentFor, fontSize } from "./theme";
 import { NAV_THEME, tabIcon } from "./navShared";
 import { AdminAnnouncements } from "./screens/admin/Announcements";
+import { Buses } from "./screens/admin/Buses";
 import { CallLog } from "./screens/admin/CallLog";
 import { ClassRegister } from "./screens/admin/ClassRegister";
 import { Fees, type RecordPaymentParams } from "./screens/admin/Fees";
@@ -85,6 +86,7 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
           <SickBay session={session} onOpenLearner={(learner) => navigation.navigate("Learner", learner)} />
         )}
       </Stack.Screen>
+      <Stack.Screen name="Buses">{() => <Buses session={session} />}</Stack.Screen>
       <Stack.Screen name="Announcements">{() => <AdminAnnouncements session={session} />}</Stack.Screen>
       {/* The office's own chats, as the teacher has them; a chat opens in ChatThread, with the call buttons. */}
       <Stack.Screen name="Chats">

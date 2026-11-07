@@ -17,7 +17,7 @@ const session: StaffSession = {
 };
 
 /** Every screen a full admin has before HR says anything about leave. */
-const WITHOUT_HR = ["Fees", "People", "SickBay", "Announcements", "Chats", "SchoolChats", "CallLog", "Leave"];
+const WITHOUT_HR = ["Fees", "People", "SickBay", "Buses", "Announcements", "Chats", "SchoolChats", "CallLog", "Leave"];
 
 describe("which admin screens a person is offered", () => {
   it("is every screen for a full admin, once HR says they approve leave and they apply through it", () => {
@@ -51,6 +51,7 @@ describe("which admin screens a person is offered", () => {
     expect(adminScreensFor(["fees"]).map((s) => s.to)).toEqual(["Fees"]);
     expect(adminScreensFor(["people"]).map((s) => s.to)).toEqual(["People"]);
     expect(adminScreensFor(["medical"]).map((s) => s.to)).toEqual(["SickBay"]);
+    expect(adminScreensFor(["transport"]).map((s) => s.to)).toEqual(["Buses"]);
     expect(adminScreensFor(["people", "medical"]).map((s) => s.to)).toEqual(["People", "SickBay"]);
   });
   it("gives the areas with nothing on the phone yet no More tab: attendance, transport, inventory and the rest", () => {
@@ -80,6 +81,8 @@ describe("the admin More list", () => {
     expect(onOpen).toHaveBeenCalledWith("People");
     fireEvent.press(screen.getByLabelText("Sick bay"));
     expect(onOpen).toHaveBeenCalledWith("SickBay");
+    fireEvent.press(screen.getByLabelText("Buses"));
+    expect(onOpen).toHaveBeenCalledWith("Buses");
     fireEvent.press(screen.getByLabelText("Announcements"));
     expect(onOpen).toHaveBeenCalledWith("Announcements");
     fireEvent.press(screen.getByLabelText("Chats"));
