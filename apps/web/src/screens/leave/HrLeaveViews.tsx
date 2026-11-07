@@ -1,5 +1,5 @@
 import {
-  documentNeeded, formatShortDate, HR_CONNECT_ONCE, hrStatusLabel, leaveDaysWords, leaveRange, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, mayDecline,
+  applicationReadiness, HR_CONNECT_ONCE, hrStatusLabel, leaveDaysWords, leaveRange, leaveTypeRules, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, mayDecline,
   type ApprovalItem,
   type ApprovalsState, type LeaveForm, type MyLeave,
 } from "@figbloom/shared";
@@ -16,10 +16,6 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
  * approval progress.
  */
 
-const date = (d: string | null) => (d ? formatShortDate(d.slice(0, 10)) : "—");
-/** Calendar days from one date to the other, both counted (HR counts its own way; this only decides what to ask for). */
-const spanDays = (from: string, to: string) =>
-  from && to && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : null;
 
 function tone(status: string): Tone {
   const s = status.toLowerCase();
@@ -182,21 +178,8 @@ export function HrLeaveForm({ form, loading, error, values, onChange, onDocument
       </div>
     );
   }
-  const type = form.types.find((t) => t.id === values.typeId) ?? null;
-  const needsDocument = documentNeeded(type, values.halfDay ? 0.5 : spanDays(values.startDate, values.endDate));
-  const rules = type ? [
-    type.available !== null && `${type.available} ${type.available === 1 ? "day" : "days"} left`,
-    type.maxDays !== null && `up to ${type.maxDays} days at a time`,
-    type.noticeDays ? `${type.noticeDays} days' notice${type.earliestStart ? ` (from ${date(type.earliestStart)})` : ""}` : null,
-    type.availableFrom && `can be used from ${date(type.availableFrom)}`,
-    type.onePerMonth && "once a month",
-    type.document && (type.document.withApplication
-      ? `${type.document.name} needed${type.document.longerThan !== null ? ` for more than ${type.document.longerThan} days` : ""}`
-      : `${type.document.name} to follow`),
-    type.halfDays && "half days allowed",
-  ].filter(Boolean).join(" · ") : "";
-  const reason = values.reason.trim();
-  const ready = !!type && !!values.startDate && !!values.endDate && reason.length >= form.reasonMin && (!needsDocument || !!values.documentName);
+  const { type, needsDocument, ready } = applicationReadiness(form, values);
+  const rules = type ? leaveTypeRules(type) : "";
   return (
     <form
       className="grid content-start gap-3.5 rounded-lg border border-line bg-white p-4"

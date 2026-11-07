@@ -4,8 +4,9 @@ import { NAV } from "./auth";
 import { PAGE_ABOUT } from "./guide";
 import { EdgeError } from "./edge";
 import {
-  approvalDecisionMessage, approvalsState, documentNeeded, documentProblem, HR_CONNECT_ONCE, leaveDaysWords, leaveMode, leaveProblems, leaveRange, linkExpired,
-  loadApprovals, MAX_LEAVE_DOCUMENT_BYTES, mayDecline, readAccess, readApprovals, readLeaveForm, showsLeaveToApprove, showsStaffLeave,
+  applicationReadiness, approvalDecisionMessage, approvalsState, documentNeeded, documentProblem, HR_CONNECT_ONCE, HR_LEAVE_CANCELLED, HR_LEAVE_SENT, isDateOnly,
+  leaveDaysWords, leaveMode, leaveProblems, leaveRange, leaveSpanDays, leaveTypeRules, linkExpired, loadApprovals, MAX_LEAVE_DOCUMENT_BYTES, mayDecline,
+  readAccess, readApprovals, readLeaveForm, showsLeaveToApprove, showsStaffLeave, type LeaveApplicationDraft,
 } from "./hrLeave";
 
 // The calls go to the my-hr function; the answers are what HR's routes send.
@@ -169,5 +170,64 @@ describe("deciding, in words", () => {
     expect(leaveDaysWords(1, false)).toBe("1 day");
     expect(leaveDaysWords(0.5, true)).toBe("Half a day");
     expect(leaveDaysWords(null, false)).toBeNull();
+  });
+});
+
+describe("the application form, as the web and the phone both read it", () => {
+  const form = readLeaveForm({
+    leave_types: [
+      { id: "annual", name: "Annual", half_days: true, max_days_per_request: 21, min_notice_days: 2, earliest_start: "2026-11-11", one_per_month: false, available_from: "2027-01-01", document: null, balance: { available_days: 18.5 } },
+      { id: "sick", name: "Sick", half_days: false, document: { name: "Doctor's note", when: "with_application", required_if_longer_than: 2 }, balance: { available_days: 1 } },
+      { id: "study", name: "Study", half_days: false, document: { name: "Letter", when: "after" }, balance: null },
+    ],
+    approval_chain: [],
+    reason_min_length: 10,
+  });
+  const draft = (over: Partial<LeaveApplicationDraft> = {}): LeaveApplicationDraft => ({
+    typeId: "annual", startDate: "2026-11-16", endDate: "2026-11-18", halfDay: false, reason: "Family wedding in Kisumu", documentName: null, ...over,
+  });
+
+  it("knows a real day from a half-typed or impossible one", () => {
+    expect(isDateOnly("2026-11-09")).toBe(true);
+    expect(isDateOnly("2028-02-29")).toBe(true);
+    for (const bad of ["", "2026-11-0", "2026-1-09", "20261109", "2026-02-30", "2027-02-29", "2026-13-01", "2026-11-09 "]) expect(isDateOnly(bad)).toBe(false);
+  });
+
+  it("counts calendar days, both ends included, and nothing for a backwards or unfinished range", () => {
+    expect(leaveSpanDays("2026-11-09", "2026-11-11")).toBe(3);
+    expect(leaveSpanDays("2026-11-09", "2026-11-09")).toBe(1);
+    expect(leaveSpanDays("2026-11-11", "2026-11-09")).toBeNull();
+    expect(leaveSpanDays("2026-11-09", "2026-11-1")).toBeNull();
+  });
+
+  it("says what HR says about a type on one line, and nothing for a type with no rules", () => {
+    expect(leaveTypeRules(form.types[0]!)).toBe("18.5 days left \u00b7 up to 21 days at a time \u00b7 2 days' notice (from 11 Nov) \u00b7 can be used from 1 Jan \u00b7 half days allowed");
+    expect(leaveTypeRules(form.types[1]!)).toBe("1 day left \u00b7 Doctor's note needed for more than 2 days");
+    expect(leaveTypeRules(form.types[2]!)).toBe("Letter to follow");
+    expect(leaveTypeRules({ id: "x", name: "X", halfDays: false, document: null, maxDays: null, noticeDays: null, earliestStart: null, availableFrom: null, onePerMonth: false, available: null })).toBe("");
+  });
+
+  it("is ready with a type, two real days in order, and a reason of HR's least length", () => {
+    expect(applicationReadiness(form, draft())).toMatchObject({ ready: true, needsDocument: false, type: { id: "annual" } });
+    expect(applicationReadiness(form, draft({ typeId: "" })).ready).toBe(false);
+    expect(applicationReadiness(form, draft({ reason: "  too short " })).ready).toBe(false);
+    expect(applicationReadiness(form, draft({ startDate: "2026-11-1" })).ready).toBe(false);
+    expect(applicationReadiness(form, draft({ endDate: "2026-11-15" })).ready).toBe(false);
+  });
+
+  it("waits for the document when HR wants it with the application: always, or past its day limit", () => {
+    // 2 days is not more than the 2 the note is waived for; 3 days is
+    expect(applicationReadiness(form, draft({ typeId: "sick", endDate: "2026-11-17" }))).toMatchObject({ needsDocument: false, ready: true });
+    expect(applicationReadiness(form, draft({ typeId: "sick" }))).toMatchObject({ needsDocument: true, ready: false });
+    expect(applicationReadiness(form, draft({ typeId: "sick", documentName: "note.pdf" }))).toMatchObject({ needsDocument: true, ready: true });
+    // a half day is half a day, whatever the dates say
+    expect(applicationReadiness(form, draft({ typeId: "sick", halfDay: true, endDate: "2026-11-16" }))).toMatchObject({ needsDocument: false, ready: true });
+    // a document that is to follow is not asked for now
+    expect(applicationReadiness(form, draft({ typeId: "study" })).needsDocument).toBe(false);
+  });
+
+  it("says in one place what happens once HR has taken or cancelled an application", () => {
+    expect(HR_LEAVE_SENT).toBe("Sent to Figbloom HR for approval.");
+    expect(HR_LEAVE_CANCELLED).toBe("Cancelled in Figbloom HR.");
   });
 });
