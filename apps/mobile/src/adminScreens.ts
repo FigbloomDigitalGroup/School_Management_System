@@ -1,4 +1,4 @@
-import { CalendarOff, CalendarPlus, ClipboardCheck, Eye, Megaphone, MessageSquare, Phone, type LucideIcon } from "lucide-react-native";
+import { CalendarOff, CalendarPlus, ClipboardCheck, Eye, Megaphone, MessageSquare, Phone, Wallet, type LucideIcon } from "lucide-react-native";
 import { mayOpenAdminPage, showsLeaveToApprove, showsStaffLeave, type AdminAccess, type HrLeaveAccess } from "@figbloom/shared";
 import type { StaffSession } from "./lib/staffSession";
 
@@ -20,7 +20,7 @@ export function hrScreensFor(role: StaffSession["role"], hr: HrLeaveAccess | nul
 
 /** The admin screens listed under More. `page` is the web console page it mirrors: its area decides who sees it (mayOpenAdminPage). */
 export interface AdminScreen {
-  to: "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave" | "LeaveToApprove" | "MyLeave";
+  to: "Fees" | "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave" | "LeaveToApprove" | "MyLeave";
   label: string;
   blurb: string;
   page: string;
@@ -31,6 +31,7 @@ export interface AdminScreen {
 
 /** Each admin screen the phone has, in the order they are listed. A screen is added here, and to the stack in adminNavigation.tsx, as it lands. */
 export const ADMIN_SCREENS: readonly AdminScreen[] = [
+  { to: "Fees", label: "Fees", blurb: "How the term is going, record a payment, review proofs", page: "admin/fees", icon: Wallet },
   { to: "Announcements", label: "Announcements", blurb: "Send a notice to the school, a year group or a class", page: "admin/announcements", icon: Megaphone },
   { to: "Chats", label: "Chats", blurb: "Your chats with parents and staff, and call them", page: "admin/chats", icon: MessageSquare },
   { to: "SchoolChats", label: "All school chats", blurb: "Read every chat in the school. You can't join them", page: "admin/chats", icon: Eye },

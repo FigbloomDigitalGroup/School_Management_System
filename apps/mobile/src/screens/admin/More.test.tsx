@@ -16,17 +16,19 @@ const session: StaffSession = {
   adminAreas: [], school: { name: "Kijani Ridge", slug: "kijani" }, title: null,
 };
 
+/** Every screen a full admin has before HR says anything about leave. */
+const WITHOUT_HR = ["Fees", "Announcements", "Chats", "SchoolChats", "CallLog", "Leave"];
+
 describe("which admin screens a person is offered", () => {
   it("is every screen for a full admin, once HR says they approve leave and they apply through it", () => {
     expect(adminScreensFor("all", { approver: true, staffLeave: true })).toEqual([...ADMIN_SCREENS]);
   });
   it("leaves out the two HR screens until HR says so, whatever the areas", () => {
-    expect(adminScreensFor("all").map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog", "Leave"]);
-    expect(adminScreensFor("all", { approver: false, staffLeave: false }).map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog", "Leave"]);
+    expect(adminScreensFor("all").map((s) => s.to)).toEqual(WITHOUT_HR);
+    expect(adminScreensFor("all", { approver: false, staffLeave: false }).map((s) => s.to)).toEqual(WITHOUT_HR);
   });
-  it("lists Leave to approve for an approver whose areas open nothing else, such as the bursar", () => {
-    expect(adminScreensFor(["fees"], { approver: true }).map((s) => s.to)).toEqual(["LeaveToApprove"]);
-    expect(adminScreensFor(["fees"], { approver: false })).toEqual([]);
+  it("lists Leave to approve for an approver whose areas open nothing else of leave, such as the bursar", () => {
+    expect(adminScreensFor(["fees"], { approver: true }).map((s) => s.to)).toEqual(["Fees", "LeaveToApprove"]);
     expect(adminScreensFor(["leave"], { approver: true }).map((s) => s.to)).toEqual(["Leave", "LeaveToApprove"]);
   });
   it("lists My leave for staff whose leave runs in HR, on its own and not with the approvals", () => {
@@ -44,12 +46,13 @@ describe("which admin screens a person is offered", () => {
     expect(hrScreensFor("staff", { status: "off", approver: true })).toEqual({ approver: false, staffLeave: false });
     expect(hrScreensFor("staff", null)).toEqual({ approver: false, staffLeave: false });
   });
-  it("is the screens an area covers, and only those: announcements and chats for Communication, none for Fees alone", () => {
+  it("is the screens an area covers, and only those: announcements and chats for Communication, fees for Fees", () => {
     expect(adminScreensFor(["communication"]).map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog"]);
-    expect(adminScreensFor(["fees"])).toEqual([]);
+    expect(adminScreensFor(["fees"]).map((s) => s.to)).toEqual(["Fees"]);
   });
-  it("is leave requests for the Leave area", () => {
-    expect(adminScreensFor(["fees", "leave"]).map((s) => s.to)).toEqual(["Leave"]);
+  it("is leave requests for the Leave area, beside the fees for a bursar who also has it", () => {
+    expect(adminScreensFor(["leave"]).map((s) => s.to)).toEqual(["Leave"]);
+    expect(adminScreensFor(["fees", "leave"]).map((s) => s.to)).toEqual(["Fees", "Leave"]);
   });
   it("is nothing for someone with no admin console", () => {
     expect(adminScreensFor(null)).toEqual([]);
@@ -65,6 +68,8 @@ describe("the admin More list", () => {
     render(<ThemeProvider><AdminMore session={session} screens={adminScreensFor("all", { approver: true, staffLeave: true })} onOpen={onOpen} /></ThemeProvider>);
     expect(await screen.findByText("Kijani Ridge")).toBeTruthy();
     expect(screen.getByText("Send a notice to the school, a year group or a class")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Fees"));
+    expect(onOpen).toHaveBeenCalledWith("Fees");
     fireEvent.press(screen.getByLabelText("Announcements"));
     expect(onOpen).toHaveBeenCalledWith("Announcements");
     fireEvent.press(screen.getByLabelText("Chats"));
