@@ -17,12 +17,15 @@ import { ClassRegister } from "./screens/admin/ClassRegister";
 import { Fees, type RecordPaymentParams } from "./screens/admin/Fees";
 import { AdminHome } from "./screens/admin/Home";
 import { AdminLeave } from "./screens/admin/Leave";
+import { LearnerCard } from "./screens/admin/LearnerCard";
 import { LeaveToApprove } from "./screens/admin/LeaveToApprove";
 import { AdminMore } from "./screens/admin/More";
 import { MyLeave } from "./screens/admin/MyLeave";
+import { People, type OpenLearner } from "./screens/admin/People";
 import type { OpenRegister } from "./screens/admin/Overview";
 import { RecordPayment } from "./screens/admin/RecordPayment";
 import { SchoolChats } from "./screens/admin/SchoolChats";
+import { SickBay } from "./screens/admin/SickBay";
 import { ChatList } from "./screens/chat/ChatList";
 import { ChatThread } from "./screens/chat/ChatThread";
 import { TeacherAccount } from "./screens/teacher/Account";
@@ -66,6 +69,20 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
             params={(route as { params: RecordPaymentParams }).params}
             onRecorded={(text) => { noteRecordedPayment(text); navigation.goBack(); }}
           />
+        )}
+      </Stack.Screen>
+      {/* Look a person up: a learner opens their card (allergies, and who to call); the sick bay's rows open the same card. */}
+      <Stack.Screen name="People">
+        {({ navigation }: { navigation: { navigate: (screen: string, params?: object) => void } }) => (
+          <People session={session} onOpenLearner={(learner) => navigation.navigate("Learner", learner)} />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="Learner">
+        {({ route }: { route: unknown }) => <LearnerCard session={session} learner={(route as { params: OpenLearner }).params} />}
+      </Stack.Screen>
+      <Stack.Screen name="SickBay">
+        {({ navigation }: { navigation: { navigate: (screen: string, params?: object) => void } }) => (
+          <SickBay session={session} onOpenLearner={(learner) => navigation.navigate("Learner", learner)} />
         )}
       </Stack.Screen>
       <Stack.Screen name="Announcements">{() => <AdminAnnouncements session={session} />}</Stack.Screen>
