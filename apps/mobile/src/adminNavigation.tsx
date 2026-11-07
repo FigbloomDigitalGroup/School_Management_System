@@ -6,6 +6,7 @@ import { Home, Menu, User } from "lucide-react-native";
 import { phoneConsolesFor } from "@figbloom/shared";
 import { adminScreensFor, hrScreensFor, type AdminScreen } from "./adminScreens";
 import { CallProvider } from "./calls/CallProvider";
+import { noteRecordedPayment } from "./lib/recordedPayment";
 import type { StaffSession } from "./lib/staffSession";
 import { useHrLeaveAccess } from "./lib/useHrLeaveAccess";
 import { accentFor, fontSize } from "./theme";
@@ -13,12 +14,14 @@ import { NAV_THEME, tabIcon } from "./navShared";
 import { AdminAnnouncements } from "./screens/admin/Announcements";
 import { CallLog } from "./screens/admin/CallLog";
 import { ClassRegister } from "./screens/admin/ClassRegister";
+import { Fees, type RecordPaymentParams } from "./screens/admin/Fees";
 import { AdminHome } from "./screens/admin/Home";
 import { AdminLeave } from "./screens/admin/Leave";
 import { LeaveToApprove } from "./screens/admin/LeaveToApprove";
 import { AdminMore } from "./screens/admin/More";
 import { MyLeave } from "./screens/admin/MyLeave";
 import type { OpenRegister } from "./screens/admin/Overview";
+import { RecordPayment } from "./screens/admin/RecordPayment";
 import { SchoolChats } from "./screens/admin/SchoolChats";
 import { ChatList } from "./screens/chat/ChatList";
 import { ChatThread } from "./screens/chat/ChatThread";
@@ -49,6 +52,21 @@ function MoreStack({ session, screens }: { session: StaffSession; screens: reado
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MoreMenu">
         {({ navigation }: { navigation: { navigate: (screen: string) => void } }) => <AdminMore session={session} screens={screens} onOpen={(to) => navigation.navigate(to)} />}
+      </Stack.Screen>
+      {/* The term's fees; recording a payment (or confirming a family's proof) opens a form over it, which closes itself and leaves a note. */}
+      <Stack.Screen name="Fees">
+        {({ navigation }: { navigation: { navigate: (screen: string, params?: object) => void } }) => (
+          <Fees session={session} onRecord={(params) => navigation.navigate("RecordPayment", params)} />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="RecordPayment">
+        {({ navigation, route }: { navigation: { goBack: () => void }; route: unknown }) => (
+          <RecordPayment
+            session={session}
+            params={(route as { params: RecordPaymentParams }).params}
+            onRecorded={(text) => { noteRecordedPayment(text); navigation.goBack(); }}
+          />
+        )}
       </Stack.Screen>
       <Stack.Screen name="Announcements">{() => <AdminAnnouncements session={session} />}</Stack.Screen>
       {/* The office's own chats, as the teacher has them; a chat opens in ChatThread, with the call buttons. */}

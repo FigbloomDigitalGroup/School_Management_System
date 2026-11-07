@@ -7,6 +7,7 @@ import {
 } from "@figbloom/shared";
 import type { StaffSession } from "../../lib/staffSession";
 import { fontSize } from "../../theme";
+import { Section, Stat } from "../../components/AdminCards";
 import { Button } from "../../ui/Button";
 import { Tap } from "../../ui/Tap";
 import { useTheme } from "../../ui/ThemeContext";
@@ -14,29 +15,6 @@ import { useTheme } from "../../ui/ThemeContext";
 /** A class's register, opened from a row: who was late, absent or excused. */
 export interface OpenRegister { classId: string; className: string; date: string }
 export type OpenRegisterHandler = (register: OpenRegister) => void;
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  const { t, s } = useTheme();
-  return (
-    <View style={[s.card, { padding: 0, overflow: "hidden", marginTop: 14 }]}>
-      <View style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.appSurface.lineSoft }}>
-        <Text style={s.h2}>{title}</Text>
-      </View>
-      {children}
-    </View>
-  );
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
-  const { t, s } = useTheme();
-  return (
-    <View accessible accessibilityLabel={`${label}: ${value}. ${sub}`} style={[s.card, { flexBasis: "47%", flexGrow: 1, padding: 14 }]}>
-      <Text style={s.faint}>{label}</Text>
-      <Text style={{ fontSize: fontSize.header + 3, fontWeight: "700", color: t.appSurface.ink, marginTop: 4 }}>{value}</Text>
-      <Text style={[s.faint, { marginTop: 2 }]}>{sub}</Text>
-    </View>
-  );
-}
 
 /** A thin bar for a share of a whole; the fill is a status colour, never the school's accent. */
 function Bar({ share, fill }: { share: number; fill: string }) {
