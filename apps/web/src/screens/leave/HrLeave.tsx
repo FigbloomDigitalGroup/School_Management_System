@@ -1,7 +1,8 @@
 // Leave run by Figbloom HR (SCHOOLS_HR_LEAVE_CONTRACT.md section 3): the staff leave page at a school whose leave is HR's.
 import { useState } from "react";
 import {
-  applyForLeave, cancelHrLeave, documentProblem, EdgeError, fetchHrLeaveApplications, fetchLeaveForm, leaveProblems, readLeave, readLeaveForm,
+  applyForLeave, cancelHrLeave, documentProblem, EdgeError, fetchHrLeaveApplications, fetchLeaveForm, HR_LEAVE_CANCELLED, HR_LEAVE_SENT, leaveProblems, readLeave,
+  readLeaveForm,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { confirmDialog } from "../../components/ui/Confirm";
@@ -54,7 +55,7 @@ export function HrLeave() {
     try {
       const document = file ? { name: file.name, contentType: file.type, base64: await readBase64(file) } : null;
       await applyForLeave({ typeId: values.typeId, startDate: values.startDate, endDate: values.endDate, halfDay: values.halfDay, reason: values.reason, document });
-      toast("Sent to Figbloom HR for approval.");
+      toast(HR_LEAVE_SENT);
       setValues(EMPTY);
       setFile(null);
       setReloadKey((k) => k + 1);
@@ -71,7 +72,7 @@ export function HrLeave() {
     setCancellingId(id);
     try {
       await cancelHrLeave(id);
-      toast("Cancelled in Figbloom HR.");
+      toast(HR_LEAVE_CANCELLED);
       setReloadKey((k) => k + 1);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not cancel.", "error");

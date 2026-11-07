@@ -298,6 +298,17 @@ export async function pushChatMessage(messageId: string): Promise<void> {
   await supabase().functions.invoke("chat-push", { body: { message_id: messageId } }).catch(() => {});
 }
 
+/** "Amani Wanjiku and Mary Otieno": who a chat in the office's oversight list is between. */
+export function schoolChatTitle(c: Pick<SchoolConversation, "a" | "b">): string {
+  return `${c.a.name} and ${c.b.name}`;
+}
+
+/** The chats with someone whose name contains this text (any case); all of them when it is blank. */
+export function filterSchoolConversations<T extends Pick<SchoolConversation, "a" | "b">>(list: readonly T[], text: string): T[] {
+  const q = text.trim().toLowerCase();
+  return list.filter((c) => !q || c.a.name.toLowerCase().includes(q) || c.b.name.toLowerCase().includes(q));
+}
+
 export async function fetchSchoolConversations(tenantId: string, studentId?: string | null): Promise<SchoolConversation[]> {
   const { data, error } = await supabase().rpc("school_conversations", { p_tenant_id: tenantId, p_student_id: studentId ?? null });
   if (error) throw new Error(error.message);

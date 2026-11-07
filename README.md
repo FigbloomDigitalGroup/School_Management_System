@@ -8,15 +8,14 @@ codebase, one deployment.
 ```
 apps/web/          React + Vite + TS + Tailwind — desktop console for every role
                    (platform, school admin, teacher, parent, student)
-apps/mobile/       React Native (Android + iOS) — the parent, student and driver
-                   mobile apps. apps/web also keeps a phone-mockup preview of the
+apps/mobile/       React Native (Android + iOS) — the one phone app: the signed-in
+                   role (parent, student, driver, teacher, school admin or staff
+                   with admin areas) picks the screens.
+                   apps/web also keeps a phone-mockup preview of the
                    student screens (StudentApp.tsx, wrapped in <PhoneFrame>) for
                    design reference — it isn't routed to; the desktop screens are
                    the real web app
-apps/teacher-mobile/  React Native (Android only — iOS deferred, see its own
-                   README) — the teacher app, a separate binary from apps/mobile
-                   since a teacher's workflow doesn't fit that app's role union
-packages/shared/   Domain logic used by all three apps: types, grading scale, fee
+packages/shared/   Domain logic used by both apps: types, grading scale, fee
                    maths, attendance register, M-Pesa helpers, offline write queue
 supabase/          Schema, row-level security, seed script, M-Pesa edge functions
 e2e/               Playwright tests over the five critical flows
@@ -89,7 +88,7 @@ log looks stuck, so check Docker before cancelling.
 |---|---|---|
 | `npm run test:unit` | Vitest on `packages/shared` (pure logic, including every mark from 0 to 100 against the KCSE, CBC and GPA grade tables typed out by hand in `gradeTables.test.ts`, and a seven-learner report card worked out on paper in `reportCardFigures.test.ts`, down to the text the PDF prints, the date a register is filed under at the Nairobi midnight boundary in `attendanceDates.test.ts`, and the CSV helpers and the learner import's every rule in `csv.test.ts` and `apps/web/src/lib/studentImport.test.ts`; also `tests/security`: what the code and configuration say about HTML sinks, secrets shipped to a browser or phone, the five public edge functions, the web host's headers and the two GitHub workflows, and `scripts/security-scan.sh` run in throwaway git repositories against every attack it promises to catch, then six it does not; needs `sh`, `git` and `node`, otherwise those tests are skipped; and `tests/integrity`: what the migration files say about themselves) | nothing |
 | `npm run test:edge` | Deno tests for `supabase/functions` (including that `provision-student`, `provision-guardian` and `invite-admin` roll back a half-made account at every step, and that they should say so when the audit entry fails) | Deno |
-| `npm test` inside `apps/mobile` or `apps/teacher-mobile` | Jest and React Native Testing Library: the child and exam switchers (parent app), and the "could not be sent" notice the queue-sync hook and the Homework due-date box (teacher app); each test asserts what the person sees, not just that it renders | Jest, nothing else running (no phone, no database) |
+| `npm test` inside `apps/mobile` | Jest and React Native Testing Library: the child and exam switchers (parent screens), and the "could not be sent" notice the queue-sync hook and the Homework due-date box (teacher screens); each test asserts what the person sees, not just that it renders | Jest, nothing else running (no phone, no database) |
 | `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, the fee billing run and its audit trail, what a parent's Fees screen is built from, how the M-Pesa functions answer as deployed, what the server (not the screens) enforces for sign-in, tokens and sessions, the three public endpoints, entering and publishing marks per exam, class and subject (what a parent and a learner see, class means, withdrawing), and report cards from the marks to the card a family downloads (preparing, comments, who may read or change one, sending, withdrawing, the audit entries), and attendance (one row per learner and day, corrections, a register held on a phone and sent for real, the parent's and the report card's figure), and school setup (which schools can sign in by status, what a timetable save that is refused part-way leaves, what a cover assignment tells the substitute, why a grade changes with the class's level), and uploads (a name that climbs out of a school's folder, what the public bucket serves and to whom, who may overwrite a logo or a photo); one file at a time, because they share one database | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
 | `npm test` | Playwright over `e2e/` (`flows.spec.ts`; `reconciliation.spec.ts`, which reads every money figure on the admin, parent, student and group screens and compares it with the database; `signin.spec.ts`, wrong passwords, wrong portal and the emailed reset link, which uses the local mail catcher; `gradebook.spec.ts`, the grade, the means and the Publish button on the teacher gradebook as marks are typed, saving nothing; and `reportCards.spec.ts`, which prepares Form 2 West's 43 report cards, compares every row on the screen and every page of the PDF with the marks in the database, then sends one card to the parent and removes it again, desktop only; and `attendance.spec.ts`, which reads the admin Dashboard and Reports and the parent's Home against the attendance rows, submits and corrects a register, and holds one on a phone while someone else signs in; and `learners.spec.ts`, desktop only, which adds, imports (a real file through the file chooser), archives, restores and promotes learners on the People and Classes screens and checks a school of more than 1,100 learners; and `setup.spec.ts`, desktop only, which starts a new term, deletes a class and books a teacher into two classes through the Settings and Classes screens, and compares a one-level school with a mixed one; and `reports.spec.ts`, desktop only, which re-derives every figure on Reports, Performance, the CBE report, every platform page (Tenants, Organizations, Curriculum, Usage, Subscriptions, Invoices, System health, Incidents, Impersonation log, Audit trail) and the group dashboard from the database, drives the billing and payment dialogs, then archives learners, opens an empty school, adds 1,200 learners to pass 1,000 rows and signs in as each role to see who may open each screen; and `xss.spec.ts`, desktop only, which puts a hostile string into a learner, teacher, parent, school, class, subject, fee item, announcement, homework, incident, organization and a CSV cell, opens every screen that shows it as each role and checks nothing ran and nothing was injected; and `a11y.spec.ts`, desktop only, which opens every screen of all seven roles and the public pages at 1280, 768 and 390 px wide, runs axe-core (WCAG 2.0 and 2.1, A and AA) at 1280 and 390, and records anything cut off, scrolling sideways or logging a console error; and `usability.spec.ts`, desktop only, the keyboard (sign-in, focus rings, dialogs), every dialog and sign-in view at two widths, failed and slow requests, a double click on Pay, Submit register, Bill learners and Record payment, very long names (it renames a few rows and puts them back) and the accessibility settings. Both list each known bug as a test that is expected to fail, tagged `QA16-...` and its FIG id, and fail on any finding that no known bug accounts for), desktop then phone, one worker | the local stack, seeded, and the edge functions running |
 
@@ -178,7 +177,7 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   "Figbloom (via Figbloom console)"). The Figbloom staff member's email is
   never on the school's side: it is kept only in an audit event with no
   school, which only Figbloom staff (super admins) can read.
-- **What the school's people see.** Sign-in on the web and both phone apps
+- **What the school's people see.** Sign-in on the web and in the phone app
   says "Your school's account is suspended. Please contact your school's
   administrator or Figbloom support." (with `FIGBLOOM_SUPPORT_EMAIL` from
   `packages/shared/src/legalLinks.ts`), never the reason: for a login ID at a
@@ -410,7 +409,7 @@ and applications with their approval steps, attendance (by month) and KPIs from 
 (SCHOOLS_HR_PHASE2_CONTRACT.md, section 3; `20261105710000_my_hr`, the `my-hr` function).
 
 - **Where:** `teacher/my-hr`, `staff/my-hr`, and `admin/my-hr` (only for a `school_admin`, as staff; not for an org
-  admin acting for the school). Drivers have no console yet; `my-hr` already accepts them for the teacher app later.
+  admin acting for the school). Drivers have no console yet; `my-hr` already accepts them for the phone app later.
 - **Who and when:** the database's `my_hr_status()` (about the signed-in person only, no arguments) is the rule for the
   sidebar and for `my-hr`: an active, non-archived staff profile (teacher, driver, staff, school admin) of a school that
   isn't suspended; `MY_HR_ENABLED` on; the school known to the platform (`platform_links`); and no

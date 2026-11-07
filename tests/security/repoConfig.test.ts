@@ -32,7 +32,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 /** The code lines of a file: comment-only lines dropped, so a comment that names a danger is not read as using it. */
 const codeLines = (rel: string) => read(rel).split(/\r?\n/).map((text, i) => ({ n: i + 1, text })).filter(({ text }) => !/^\s*(\/\/|\/\*|\*)/.test(text));
 
-const CLIENT_SRC = ["apps/web/src", "apps/mobile/src", "apps/teacher-mobile/src", "packages/shared/src"];
+const CLIENT_SRC = ["apps/web/src", "apps/mobile/src", "packages/shared/src"];
 const clientFiles = () => CLIENT_SRC.flatMap((d) => sourceFiles(d));
 
 describe("HTML and code sinks", () => {
@@ -48,7 +48,7 @@ describe("HTML and code sinks", () => {
   });
 
   it("the phone apps load no web page inside the app (no WebView)", () => {
-    for (const f of sourceFiles("apps/mobile/src").concat(sourceFiles("apps/teacher-mobile/src"))) {
+    for (const f of sourceFiles("apps/mobile/src")) {
       expect(read(f), f).not.toMatch(/react-native-webview|WebView/);
     }
   });
@@ -215,7 +215,7 @@ describe("the GitHub workflows", () => {
 
 describe("the phone apps' dependencies", () => {
   const major = (v: string) => Number(/(\d+)/.exec(v)?.[1]);
-  for (const app of ["apps/mobile", "apps/teacher-mobile"]) {
+  for (const app of ["apps/mobile"]) {
     // native-stack 5 is a React Navigation 5 package; navigation itself is on 7 (npm ls shows 5.0.5 beside native 7.3.18).
     it.fails(`QA14-NAV-PIN FIG-1463: ${app} uses the same major version of @react-navigation/native-stack as of @react-navigation/native`, () => {
       const deps = (JSON.parse(read(`${app}/package.json`)) as { dependencies: Record<string, string> }).dependencies;

@@ -30,8 +30,10 @@ describe("saved session", () => {
       JSON.stringify({ ...parent, tenantId: "" }),
       JSON.stringify({ ...parent, accent: undefined }),
       JSON.stringify({ ...parent, country: undefined }),
-      JSON.stringify({ ...parent, role: "teacher" }),
+      JSON.stringify({ ...parent, role: "school_admin" }),
       JSON.stringify({ role: "driver", accent: "#7A1F2B", profileId: "ann", tenantId: "school-1" }), // a driver needs a name
+      JSON.stringify({ ...parent, role: "teacher" }), // staff are never saved: their screens are live data (lib/staffSession.ts)
+      JSON.stringify({ role: "teacher", accent: "#7A1F2B", profileId: "ann", tenantId: "school-1", fullName: "Ann Wanjiru", country: "KE" }),
     ]) {
       await AsyncStorage.setItem(KEY, broken);
       await expect(readSavedSession("ann")).resolves.toBeNull();

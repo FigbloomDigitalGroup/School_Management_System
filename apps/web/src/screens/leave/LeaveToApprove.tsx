@@ -1,6 +1,6 @@
 // "Leave to approve" (SCHOOLS_HR_LEAVE_CONTRACT.md section 3): leave applications waiting on this person in Figbloom HR.
 import { useState } from "react";
-import { approvalsState, decideApproval, EdgeError, fetchApprovals, LEAVE_TO_APPROVE_LABEL, showsLeaveToApprove, type ApprovalItem } from "@figbloom/shared";
+import { approvalDecisionMessage, approvalsState, decideApproval, EdgeError, fetchApprovals, LEAVE_TO_APPROVE_LABEL, showsLeaveToApprove, type ApprovalItem } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { useToast } from "../../components/ui/Toast";
@@ -34,7 +34,7 @@ export function LeaveToApprove() {
     setBusyId(item.id);
     try {
       await decideApproval(item.id, decision, comments[item.id] ?? "");
-      toast(decision === "approve" ? `Approved — ${item.employee}'s leave goes on in Figbloom HR.` : `Declined — ${item.employee} will see your comment in HR.`);
+      toast(approvalDecisionMessage(decision, item.employee));
       setComments((c) => { const next = { ...c }; delete next[item.id]; return next; });
       setReloadKey((k) => k + 1);
     } catch (err) {

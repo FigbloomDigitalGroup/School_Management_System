@@ -1,4 +1,5 @@
-import { invokeEdge } from "./edge";
+import { EdgeError, invokeEdge } from "./edge";
+import { formatShortDate } from "./parentData";
 import { supabase } from "./supabase";
 
 /**
@@ -225,6 +226,98 @@ export function approvalsState(access: HrLeaveAccess | null, result: { loading: 
   const items = readApprovals(result.data);
   return items.length ? { kind: "list", items } : { kind: "empty" };
 }
+
+/**
+ * "Leave to approve", read from HR for the phone: the applications waiting, nothing, or "this person never opened HR &
+ * Payroll from Schools" (a state with its own message, not a failure). Anything else HR refuses with throws its sentence.
+ */
+export async function loadApprovals(): Promise<Extract<ApprovalsState, { kind: "list" | "empty" | "not_linked" }>> {
+  try {
+    const items = readApprovals(await fetchApprovals());
+    return items.length ? { kind: "list", items } : { kind: "empty" };
+  } catch (err) {
+    if (err instanceof EdgeError && err.code === "approver_not_linked") return { kind: "not_linked" };
+    throw err;
+  }
+}
+
+/** What the screen says once HR has recorded a decision (the web's toast and the phone's banner). */
+export function approvalDecisionMessage(decision: "approve" | "decline", employee: string): string {
+  return decision === "approve"
+    ? `Approved \u2014 ${employee}'s leave goes on in Figbloom HR.`
+    : `Declined \u2014 ${employee} will see your comment in HR.`;
+}
+
+/** HR refuses a decline without a comment, so the button waits for one. */
+export const mayDecline = (comment: string): boolean => comment.trim().length > 0;
+
+/** A date from HR ("2026-11-09", or a full timestamp) as the pages show it. */
+const shortDate = (d: string | null) => (d ? formatShortDate(d.slice(0, 10)) : "\u2014");
+
+/** "9 Nov \u2013 11 Nov", or one date when the leave is a single day. */
+export function leaveRange(from: string | null, to: string | null): string {
+  return from && to && from !== to ? `${shortDate(from)} \u2013 ${shortDate(to)}` : shortDate(from ?? to);
+}
+
+/** "Half a day", "3 days", or null when HR gave no count. */
+export function leaveDaysWords(days: number | null, halfDay: boolean): string | null {
+  return halfDay ? "Half a day" : days === null ? null : `${days} ${days === 1 ? "day" : "days"}`;
+}
+
+/** A date typed as YYYY-MM-DD that is a real day ("2026-02-30" is not). */
+export function isDateOnly(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const day = new Date(Date.UTC(y, mo - 1, d));
+  return day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 && day.getUTCDate() === d;
+}
+
+/** Calendar days from one date to the other, both counted (HR counts its own way; this only decides what to ask for). */
+export function leaveSpanDays(from: string, to: string): number | null {
+  return isDateOnly(from) && isDateOnly(to) && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : null;
+}
+
+/** What HR says about a leave type, on one line: days left, limits, notice, the document it wants, half days. */
+export function leaveTypeRules(type: LeaveTypeRule): string {
+  return [
+    type.available !== null && `${type.available} ${type.available === 1 ? "day" : "days"} left`,
+    type.maxDays !== null && `up to ${type.maxDays} days at a time`,
+    type.noticeDays ? `${type.noticeDays} days' notice${type.earliestStart ? ` (from ${shortDate(type.earliestStart)})` : ""}` : null,
+    type.availableFrom && `can be used from ${shortDate(type.availableFrom)}`,
+    type.onePerMonth && "once a month",
+    type.document && (type.document.withApplication
+      ? `${type.document.name} needed${type.document.longerThan !== null ? ` for more than ${type.document.longerThan} days` : ""}`
+      : `${type.document.name} to follow`),
+    type.halfDays && "half days allowed",
+  ].filter(Boolean).join(" \u00b7 ");
+}
+
+/** What the application form holds (the web and the phone keep the same fields). */
+export interface LeaveApplicationDraft {
+  typeId: string;
+  startDate: string;
+  endDate: string;
+  halfDay: boolean;
+  reason: string;
+  documentName: string | null;
+}
+
+/**
+ * The leave type chosen, whether HR wants its document with this application, and whether the form can be sent.
+ * Ready only decides when the button works; HR still applies its own rules and answers with them (422 leave_rules).
+ */
+export function applicationReadiness(form: LeaveForm, v: LeaveApplicationDraft): { type: LeaveTypeRule | null; needsDocument: boolean; ready: boolean } {
+  const type = form.types.find((t) => t.id === v.typeId) ?? null;
+  const needsDocument = documentNeeded(type, v.halfDay ? 0.5 : leaveSpanDays(v.startDate, v.endDate));
+  const ready = !!type && isDateOnly(v.startDate) && isDateOnly(v.endDate) && v.endDate >= v.startDate
+    && v.reason.trim().length >= form.reasonMin && (!needsDocument || !!v.documentName);
+  return { type, needsDocument, ready };
+}
+
+/** What the screen says once HR has taken an application, or cancelled one (the web's toast and the phone's banner). */
+export const HR_LEAVE_SENT = "Sent to Figbloom HR for approval.";
+export const HR_LEAVE_CANCELLED = "Cancelled in Figbloom HR.";
 
 /** Why a chosen document can't go (null: it can). */
 export function documentProblem(file: { size: number; type: string }): string | null {

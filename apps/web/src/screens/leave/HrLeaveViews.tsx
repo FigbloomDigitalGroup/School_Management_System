@@ -1,5 +1,6 @@
 import {
-  documentNeeded, formatShortDate, HR_CONNECT_ONCE, hrStatusLabel, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, type ApprovalItem,
+  applicationReadiness, HR_CONNECT_ONCE, hrStatusLabel, leaveDaysWords, leaveRange, leaveTypeRules, linkExpired, MAX_LEAVE_DOCUMENT_BYTES, mayDecline,
+  type ApprovalItem,
   type ApprovalsState, type LeaveForm, type MyLeave,
 } from "@figbloom/shared";
 import type { ReactNode } from "react";
@@ -15,13 +16,6 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
  * approval progress.
  */
 
-const date = (d: string | null) => (d ? formatShortDate(d.slice(0, 10)) : "—");
-const range = (from: string | null, to: string | null) => (from && to && from !== to ? `${date(from)} – ${date(to)}` : date(from ?? to));
-const daysWords = (days: number | null, halfDay: boolean) =>
-  halfDay ? "Half a day" : days === null ? null : `${days} ${days === 1 ? "day" : "days"}`;
-/** Calendar days from one date to the other, both counted (HR counts its own way; this only decides what to ask for). */
-const spanDays = (from: string, to: string) =>
-  from && to && to >= from ? Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1 : null;
 
 function tone(status: string): Tone {
   const s = status.toLowerCase();
@@ -101,7 +95,7 @@ export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hr
                 <div className="min-w-0">
                   <div className="text-[14px] font-semibold">{a.employee}</div>
                   <div className="mt-0.5 text-[13px]">
-                    {a.type} · {range(a.from, a.to)}{daysWords(a.days, a.halfDay) ? ` · ${daysWords(a.days, a.halfDay)}` : ""}
+                    {a.type} · {leaveRange(a.from, a.to)}{leaveDaysWords(a.days, a.halfDay) ? ` · ${leaveDaysWords(a.days, a.halfDay)}` : ""}
                   </div>
                   {a.reason && <p className="mt-1 text-[12.5px] text-ink-muted">{a.reason}</p>}
                   {a.step && <p className="mt-1 text-[12px] text-ink-faint">Your step: {a.step}</p>}
@@ -138,7 +132,7 @@ export function ApprovalsView({ state, comments, onComment, onDecide, busyId, hr
                     onChange={(e) => onComment(a.id, e.target.value)} maxLength={1000}
                   />
                 </div>
-                <Button disabled={busyId === a.id || !(comments[a.id] ?? "").trim()} title="Say why in the comment first" onClick={() => onDecide(a, "decline")}>Decline</Button>
+                <Button disabled={busyId === a.id || !mayDecline(comments[a.id] ?? "")} title="Say why in the comment first" onClick={() => onDecide(a, "decline")}>Decline</Button>
                 <Button variant="accent" disabled={busyId === a.id} onClick={() => onDecide(a, "approve")}>
                   {busyId === a.id ? "Saving…" : "Approve"}
                 </Button>
@@ -184,21 +178,8 @@ export function HrLeaveForm({ form, loading, error, values, onChange, onDocument
       </div>
     );
   }
-  const type = form.types.find((t) => t.id === values.typeId) ?? null;
-  const needsDocument = documentNeeded(type, values.halfDay ? 0.5 : spanDays(values.startDate, values.endDate));
-  const rules = type ? [
-    type.available !== null && `${type.available} ${type.available === 1 ? "day" : "days"} left`,
-    type.maxDays !== null && `up to ${type.maxDays} days at a time`,
-    type.noticeDays ? `${type.noticeDays} days' notice${type.earliestStart ? ` (from ${date(type.earliestStart)})` : ""}` : null,
-    type.availableFrom && `can be used from ${date(type.availableFrom)}`,
-    type.onePerMonth && "once a month",
-    type.document && (type.document.withApplication
-      ? `${type.document.name} needed${type.document.longerThan !== null ? ` for more than ${type.document.longerThan} days` : ""}`
-      : `${type.document.name} to follow`),
-    type.halfDays && "half days allowed",
-  ].filter(Boolean).join(" · ") : "";
-  const reason = values.reason.trim();
-  const ready = !!type && !!values.startDate && !!values.endDate && reason.length >= form.reasonMin && (!needsDocument || !!values.documentName);
+  const { type, needsDocument, ready } = applicationReadiness(form, values);
+  const rules = type ? leaveTypeRules(type) : "";
   return (
     <form
       className="grid content-start gap-3.5 rounded-lg border border-line bg-white p-4"
@@ -260,7 +241,7 @@ export function HrApplications({ leave, loading, error, onCancel, cancellingId }
         <div key={a.id} className="border-b border-line-soft px-1 py-3 last:border-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[13px] font-medium">{a.type} · {range(a.from, a.to)}{a.days !== null ? ` · ${a.days} ${a.days === 1 ? "day" : "days"}` : ""}</div>
+              <div className="text-[13px] font-medium">{a.type} · {leaveRange(a.from, a.to)}{a.days !== null ? ` · ${a.days} ${a.days === 1 ? "day" : "days"}` : ""}</div>
               {a.reason && <p className="mt-0.5 text-[12px] text-ink-faint">{a.reason}</p>}
               {a.steps.length > 0 && (
                 <p className="mt-1 text-[12px] text-ink-muted">
