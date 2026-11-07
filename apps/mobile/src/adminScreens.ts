@@ -1,4 +1,4 @@
-import { CalendarOff, CalendarPlus, ClipboardCheck, Eye, HeartPulse, Megaphone, MessageSquare, Phone, Users, Wallet, type LucideIcon } from "lucide-react-native";
+import { Bus, CalendarOff, CalendarPlus, ClipboardCheck, Eye, HeartPulse, Megaphone, MessageSquare, Phone, Users, Wallet, type LucideIcon } from "lucide-react-native";
 import { mayOpenAdminPage, showsLeaveToApprove, showsStaffLeave, type AdminAccess, type HrLeaveAccess } from "@figbloom/shared";
 import type { StaffSession } from "./lib/staffSession";
 
@@ -20,7 +20,7 @@ export function hrScreensFor(role: StaffSession["role"], hr: HrLeaveAccess | nul
 
 /** The admin screens listed under More. `page` is the web console page it mirrors: its area decides who sees it (mayOpenAdminPage). */
 export interface AdminScreen {
-  to: "Fees" | "People" | "SickBay" | "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave" | "LeaveToApprove" | "MyLeave";
+  to: "Fees" | "People" | "SickBay" | "Buses" | "Announcements" | "Chats" | "SchoolChats" | "CallLog" | "Leave" | "LeaveToApprove" | "MyLeave";
   label: string;
   blurb: string;
   page: string;
@@ -34,6 +34,7 @@ export const ADMIN_SCREENS: readonly AdminScreen[] = [
   { to: "Fees", label: "Fees", blurb: "How the term is going, record a payment, review proofs", page: "admin/fees", icon: Wallet },
   { to: "People", label: "People", blurb: "Look up a learner, their allergies, and who to call", page: "admin/people", icon: Users },
   { to: "SickBay", label: "Sick bay", blurb: "Who is in, doses overdue, today's visits", page: "admin/medical", icon: HeartPulse },
+  { to: "Buses", label: "Buses", blurb: "Which are on the road, alerts, recent trips", page: "admin/fleet", icon: Bus },
   { to: "Announcements", label: "Announcements", blurb: "Send a notice to the school, a year group or a class", page: "admin/announcements", icon: Megaphone },
   { to: "Chats", label: "Chats", blurb: "Your chats with parents and staff, and call them", page: "admin/chats", icon: MessageSquare },
   { to: "SchoolChats", label: "All school chats", blurb: "Read every chat in the school. You can't join them", page: "admin/chats", icon: Eye },

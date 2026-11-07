@@ -3,6 +3,7 @@ import type { Route, Vehicle } from "@figbloom/shared";
 import {
   acknowledgeAlert,
   assignDriver,
+  FLEET_ALERT_LABEL,
   createRoute,
   createVehicle,
   listAlerts,
@@ -61,9 +62,6 @@ function fmtLastSeen(iso: string | null): string {
   return `Last seen ${new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`;
 }
 
-/** How each alert kind reads. Alerts sit under the live map, so a busy morning never pushes the map down the page. */
-const ALERT_LABEL: Record<string, string> = { speed: "Speeding", geofence: "Off route", rider: "Children still on the bus", breakdown: "Bus broken down" };
-
 function fmtAlertTime(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
@@ -91,7 +89,7 @@ export function Fleet() {
 
   useEffect(() => {
     return subscribeVehicleAlerts(tenant.id, (alert) => {
-      toast(`${ALERT_LABEL[alert.kind] ?? "Alert"}: ${alert.detail}`);
+      toast(`${FLEET_ALERT_LABEL[alert.kind] ?? "Alert"}: ${alert.detail}`);
       refresh();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,7 +173,7 @@ export function Fleet() {
                     >
                       <div className="min-w-0">
                         <div className="text-[13px] font-semibold text-warn-ink">
-                          <Mono>{a.vehicle?.plate_number ?? "Vehicle"}</Mono> · {ALERT_LABEL[a.kind] ?? "Alert"}
+                          <Mono>{a.vehicle?.plate_number ?? "Vehicle"}</Mono> · {FLEET_ALERT_LABEL[a.kind] ?? "Alert"}
                         </div>
                         <div className="mt-0.5 text-[12.5px] text-warn-ink/90">{a.detail}</div>
                         <div className="mt-0.5 text-[11px] text-ink-faint">{fmtAlertTime(a.created_at)}</div>
