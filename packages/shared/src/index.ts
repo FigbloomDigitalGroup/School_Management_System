@@ -83,6 +83,8 @@ export * from "./adminAreas";
 export * from "./adminOverview";
 export * from "./adminAnnouncements";
 export * from "./adminFees";
+export * from "./adminPeople";
+export * from "./adminSickBay";
 export * from "./coverage";
 export * from "./hrHandoff";
 export * from "./myHr";

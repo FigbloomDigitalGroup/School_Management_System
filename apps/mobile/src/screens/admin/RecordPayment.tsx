@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Alert, ScrollView, Text, View } from "react-native";
 import {
   PAYMENT_METHODS, PAYMENT_METHOD_SHORT, formatMoney, learnerNameOf, paymentFormStart, readPaymentEntry, recordPayment, searchPayableInvoices,
@@ -7,6 +7,7 @@ import {
 import { PillPicker } from "../../components/PillPicker";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import type { StaffSession } from "../../lib/staffSession";
+import { useSearch } from "../../lib/useSearch";
 import { accentFor, fontSize } from "../../theme";
 import { Button } from "../../ui/Button";
 import { Field } from "../../ui/Field";
@@ -27,9 +28,6 @@ export function RecordPayment({ session, params, onRecorded }: { session: StaffS
   const country = session.country;
   const [invoice, setInvoice] = useState<PayableInvoice | undefined>(preset);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PayableInvoice[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchFailed, setSearchFailed] = useState<string | null>(null);
   // A pasted SMS fills the form in; never more than the balance, which record_payment would refuse anyway.
   const start = paymentFormStart(proof, preset?.balanceCents);
   const [amount, setAmount] = useState(start.amount);
@@ -38,21 +36,8 @@ export function RecordPayment({ session, params, onRecorded }: { session: StaffS
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Look the learner up as they are typed (after a short pause, so a name being typed is not a search for each letter).
-  useEffect(() => {
-    if (invoice) return;
-    const q = query.trim();
-    if (q.length < 2) { setResults([]); setSearchFailed(null); return; }
-    setSearching(true);
-    let alive = true;
-    const timer = setTimeout(() => {
-      searchPayableInvoices(termId, q)
-        .then((found) => { if (alive) { setResults(found); setSearchFailed(null); } })
-        .catch((err: unknown) => { if (alive) { setResults([]); setSearchFailed(err instanceof Error ? err.message : "Could not search."); } })
-        .finally(() => { if (alive) setSearching(false); });
-    }, 250);
-    return () => { alive = false; clearTimeout(timer); };
-  }, [query, invoice, termId]);
+  // Look the learner up as they are typed (until one is chosen).
+  const { results, searching, error: searchFailed, enough } = useSearch(query, (q) => searchPayableInvoices(termId, q), { paused: !!invoice });
 
   const chosen = PAYMENT_METHODS.find((m) => m.value === method)!;
 
@@ -113,7 +98,7 @@ export function RecordPayment({ session, params, onRecorded }: { session: StaffS
           <View>
             <Field
               label="Learner" placeholder="Name or admission number" value={query} onChangeText={setQuery} autoCapitalize="words" autoCorrect={false}
-              hint={searching ? "Searching…" : searchFailed ?? (query.trim().length >= 2 && results.length === 0 ? "No invoice this term matches." : undefined)}
+              hint={searching ? "Searching…" : searchFailed ?? (enough && results.length === 0 ? "No invoice this term matches." : undefined)}
             />
             {results.length > 0 && (
               <View style={[s.card, { padding: 0, overflow: "hidden", marginTop: 8 }]}>

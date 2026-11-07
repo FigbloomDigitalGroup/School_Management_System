@@ -17,7 +17,7 @@ const session: StaffSession = {
 };
 
 /** Every screen a full admin has before HR says anything about leave. */
-const WITHOUT_HR = ["Fees", "Announcements", "Chats", "SchoolChats", "CallLog", "Leave"];
+const WITHOUT_HR = ["Fees", "People", "SickBay", "Announcements", "Chats", "SchoolChats", "CallLog", "Leave"];
 
 describe("which admin screens a person is offered", () => {
   it("is every screen for a full admin, once HR says they approve leave and they apply through it", () => {
@@ -49,6 +49,12 @@ describe("which admin screens a person is offered", () => {
   it("is the screens an area covers, and only those: announcements and chats for Communication, fees for Fees", () => {
     expect(adminScreensFor(["communication"]).map((s) => s.to)).toEqual(["Announcements", "Chats", "SchoolChats", "CallLog"]);
     expect(adminScreensFor(["fees"]).map((s) => s.to)).toEqual(["Fees"]);
+    expect(adminScreensFor(["people"]).map((s) => s.to)).toEqual(["People"]);
+    expect(adminScreensFor(["medical"]).map((s) => s.to)).toEqual(["SickBay"]);
+    expect(adminScreensFor(["people", "medical"]).map((s) => s.to)).toEqual(["People", "SickBay"]);
+  });
+  it("gives the areas with nothing on the phone yet no More tab: attendance, transport, inventory and the rest", () => {
+    for (const area of ["attendance", "inventory", "activities", "visitors", "audit"] as const) expect(adminScreensFor([area])).toEqual([]);
   });
   it("is leave requests for the Leave area, beside the fees for a bursar who also has it", () => {
     expect(adminScreensFor(["leave"]).map((s) => s.to)).toEqual(["Leave"]);
@@ -70,6 +76,10 @@ describe("the admin More list", () => {
     expect(screen.getByText("Send a notice to the school, a year group or a class")).toBeTruthy();
     fireEvent.press(screen.getByLabelText("Fees"));
     expect(onOpen).toHaveBeenCalledWith("Fees");
+    fireEvent.press(screen.getByLabelText("People"));
+    expect(onOpen).toHaveBeenCalledWith("People");
+    fireEvent.press(screen.getByLabelText("Sick bay"));
+    expect(onOpen).toHaveBeenCalledWith("SickBay");
     fireEvent.press(screen.getByLabelText("Announcements"));
     expect(onOpen).toHaveBeenCalledWith("Announcements");
     fireEvent.press(screen.getByLabelText("Chats"));
