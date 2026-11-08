@@ -206,8 +206,10 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     expect(card[1]).toBe(`0 of ${d.classes.length} classes submitted`);
   });
 
-  test("KNOWN QA10-ARCHIVE FIG-1409 (open): a learner archived after the register is not counted on one side of 'here / on roll' and not the other", async ({ page }) => {
-    test.fail();
+  // FIG-1409 (QA10-ARCHIVE) was a known bug: "here" came from the day's register rows and "on roll" from active learners, so archiving a
+  // learner who was present moved only the second number. Fixed by FIG-1514 decision J: both numbers are now the day's counted register
+  // entries, so the archived learner still counts on both sides, as the register was taken. Normal assertion from here on.
+  test("QA10-ARCHIVE FIG-1409 (fixed by FIG-1514): a learner archived after the register still counts on both sides of 'here / on roll'", async ({ page }) => {
     const d = await school("kijani-ridge");
     const date = latestDate(d);
     const exp = dashboardFor(d, date);
@@ -223,10 +225,10 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
       const h = lines.findIndex((l) => l.toLowerCase().startsWith("attendance by class ·"));
       const start = lines.indexOf(target.c.name, h + 1);
       const shown = lines.slice(start + 1, start + 6).find((l) => /^\d+ \/ \d+$/.test(l));
-      // Either count the archived learner on both sides (here / on roll as it was) or on neither.
-      const asItWas = `${target.e.here} / ${target.e.total}`, withoutThem = `${target.e.here - 1} / ${target.e.total - 1}`;
-      table.push(["Dashboard kijani-ridge", `${target.c.name}: after archiving one learner who was present`, `${asItWas} or ${withoutThem}`, shown ?? "(missing)"]);
-      expect([asItWas, withoutThem]).toContain(shown);
+      // Decision J: the figure is the register as it was taken, so the archived learner counts on both sides.
+      const asItWas = `${target.e.here} / ${target.e.total}`;
+      table.push(["Dashboard kijani-ridge", `${target.c.name}: after archiving one learner who was present`, asItWas, shown ?? "(missing)"]);
+      expect(shown).toBe(asItWas);
     } finally {
       await db.from("students").update({ active: true }).eq("id", present.student_id);
     }
