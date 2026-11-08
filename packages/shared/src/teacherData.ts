@@ -3,6 +3,7 @@ import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
 import { today, toRecords, type Register } from "./attendance";
+import { REGISTER_TABLE, type AttendanceSession } from "./attendanceSession";
 import { writeErrorFrom } from "./queue";
 import type { Announcement, Audience, AttendanceMark, ClassGroup, Exam, Student, Subject, Term, Weekday } from "./types";
 
@@ -167,9 +168,11 @@ export async function fetchClassRoster(classId: string): Promise<Student[]> {
 
 /** Marks already taken today for a class, so re-opening the register (or opening it on a
  *  second device) shows what was submitted rather than a blank "everyone present" state. */
-export async function fetchTodayAttendanceMarks(classId: string): Promise<{ student_id: string; mark: AttendanceMark }[]> {
+export async function fetchTodayAttendanceMarks(
+  classId: string, session: AttendanceSession = "morning", timeZone?: string,
+): Promise<{ student_id: string; mark: AttendanceMark }[]> {
   const { data, error } = await supabase()
-    .from("attendance").select("student_id, mark").eq("class_id", classId).eq("taken_on", today());
+    .from(REGISTER_TABLE[session]).select("student_id, mark").eq("class_id", classId).eq("taken_on", today(timeZone));
   if (error) throw new Error(error.message);
   return (data ?? []) as { student_id: string; mark: AttendanceMark }[];
 }
@@ -303,7 +306,8 @@ export async function sendClassMessage(
  *  correcting a mark after submit is just another call, not a separate edit path.
  *  Throws a WriteError: `retryable` says whether holding the register and sending
  *  it later can help (no signal, server trouble) or the server refused it. */
-export async function writeAttendance(reg: Register, tenantId: string, takenBy: string): Promise<void> {
-  const { error, status } = await supabase().from("attendance").upsert(toRecords(reg, tenantId, takenBy), { onConflict: "student_id,taken_on" });
+export async function writeAttendance(reg: Register, tenantId: string, takenBy: string, session: AttendanceSession = "morning"): Promise<void> {
+  // FIG-1514: the morning register is `attendance` (what every installed build writes); the afternoon one is `attendance_afternoon`.
+  const { error, status } = await supabase().from(REGISTER_TABLE[session]).upsert(toRecords(reg, tenantId, takenBy), { onConflict: "student_id,taken_on" });
   if (error) throw writeErrorFrom(error, status);
 }

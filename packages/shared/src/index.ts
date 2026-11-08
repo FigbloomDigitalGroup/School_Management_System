@@ -7,6 +7,7 @@ export * from "./countries";
 export * from "./phone";
 export * from "./fees";
 export * from "./attendance";
+export * from "./attendanceSession";
 export * from "./queue";
 export * from "./queueSend";
 export * from "./signOut";
