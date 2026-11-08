@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { formatMoney, gradeFor, gradingSchemeFor, supabase, type GradingSchemeId } from "@figbloom/shared";
+import { fetchAttendanceSettings, formatMoney, gradeFor, gradingSchemeFor, supabase, type GradingSchemeId, type PercentageMode } from "@figbloom/shared";
 import type { ClassGroup, Exam, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -11,6 +11,8 @@ import { CbeReport } from "./CbeReport";
 
 interface ReportsData {
   term: Term | null;
+  /** How the school counts attendance: one unit per register entry ("session") or per learner-day ("day"). term_class_figures() uses the same mode. */
+  percentageMode: PercentageMode;
   classes: Pick<ClassGroup, "id" | "name" | "form_level" | "level">[];
   attendanceByClass: Map<string, { present: number; total: number }>;
   attendanceOverall: { present: number; total: number };
@@ -87,7 +89,8 @@ async function fetchReports(tenantId: string, country: string): Promise<ReportsD
     }
   }
 
-  return { term: term ?? null, classes, attendanceByClass, attendanceOverall, feeByClass, feeOverall, latestExam, meanByClass };
+  const { percentage_mode: percentageMode } = await fetchAttendanceSettings(tenantId);
+  return { term: term ?? null, percentageMode, classes, attendanceByClass, attendanceOverall, feeByClass, feeOverall, latestExam, meanByClass };
 }
 
 /**
@@ -134,7 +137,7 @@ export function AdminReports() {
             stats={[
               {
                 label: "Attendance", value: overallAttendance !== null ? `${overallAttendance}%` : "—",
-                sub: `${data.attendanceOverall.total.toLocaleString()} register entries this term`,
+                sub: `${data.attendanceOverall.total.toLocaleString()} ${data.percentageMode === "day" ? "learner-days" : "register entries"} this term`,
               },
               {
                 label: "Fees collected", value: overallFeePct !== null ? `${overallFeePct}%` : "—",
@@ -174,7 +177,7 @@ export function AdminReports() {
                     },
                   },
                   {
-                    key: "entries", header: "Entries", align: "right",
+                    key: "entries", header: data?.percentageMode === "day" ? "Learner-days" : "Entries", align: "right",
                     render: (c: ReportsData["classes"][number]) => <Mono>{data?.attendanceByClass.get(c.id)?.total ?? 0}</Mono>,
                   },
                 ]}

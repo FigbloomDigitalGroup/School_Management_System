@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { fetchAllPages, fetchAllRows, formatMoney, supabase } from "@figbloom/shared";
+import {
+  fetchAllRows, formatMoney, supabase, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays, REGISTER_TABLE,
+} from "@figbloom/shared";
+import { classRegisterFigures, figureText, latestDate, type ClassRegisterFigures } from "../../lib/classRegisters";
 import type { ClassGroup, Term } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -11,6 +14,8 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AttendanceDetail } from "./AttendanceDetail";
 import { EarlySignOutList } from "../../components/attendance/EarlySignOutList";
+import { AttendanceSettingsPanel } from "../../components/attendance/AttendanceSettingsPanel";
+import { PmMissingReport } from "../../components/attendance/PmMissingReport";
 import { CoverageCard } from "./CoverageCard";
 import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
@@ -34,10 +39,13 @@ interface DashboardData {
   staffCount: number;
   fees: FeeTotals;
   attendanceDate: string | null;
-  presentByClass: Map<string, number>;
-  lateByClass: Map<string, number>;
-  absentByClass: Map<string, number>;
+  /** Counted in the school's percentage mode, from both registers (FIG-1514). */
+  figures: Map<string, ClassRegisterFigures>;
+  /** Classes whose morning / afternoon register is in on that date. */
   submittedClasses: Set<string>;
+  submittedPm: Set<string>;
+  /** The afternoon column shows while the school takes an afternoon register. */
+  afternoonOn: boolean;
 }
 
 async function fetchDashboard(tenantId: string): Promise<DashboardData> {
@@ -63,29 +71,33 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
   for (const s of studentRows ?? []) studentsByClass.set(s.class_id, (studentsByClass.get(s.class_id) ?? 0) + 1);
 
   let attendanceDate: string | null = null;
-  const presentByClass = new Map<string, number>();
-  const lateByClass = new Map<string, number>();
-  const absentByClass = new Map<string, number>();
+  let figures = new Map<string, ClassRegisterFigures>();
   const submittedClasses = new Set<string>();
+  const submittedPm = new Set<string>();
+  const settings = await fetchAttendanceSettings(tenantId);
 
   if (termId) {
-    const { data: latest } = await sb
-      .from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
-      .order("taken_on", { ascending: false }).limit(1)
-      .returns<{ taken_on: string }[]>();
-    attendanceDate = latest?.[0]?.taken_on ?? null;
+    const [{ data: latest }, latestPm] = await Promise.all([
+      sb.from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
+        .order("taken_on", { ascending: false }).limit(1)
+        .returns<{ taken_on: string }[]>(),
+      // An afternoon read that fails (older database) must not hide the morning figures.
+      sb.from(REGISTER_TABLE.afternoon).select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
+        .order("taken_on", { ascending: false }).limit(1)
+        .returns<{ taken_on: string }[]>().then((r) => (r.error ? null : r.data?.[0]?.taken_on ?? null)),
+    ]);
+    attendanceDate = latestDate(latest?.[0]?.taken_on, latestPm);
 
     if (attendanceDate) {
-      const rows = await fetchAllPages<{ class_id: string; mark: string }>((from, to) => sb
-        .from("attendance").select("class_id,mark")
-        .eq("tenant_id", tenantId).eq("term_id", termId).eq("taken_on", attendanceDate)
-        .order("id").range(from, to).returns<{ class_id: string; mark: string }[]>());
-      for (const r of rows) {
-        submittedClasses.add(r.class_id);
-        // A late arrival still attended — only "absent"/"excused" should read as not-here.
-        if (r.mark === "present" || r.mark === "late") presentByClass.set(r.class_id, (presentByClass.get(r.class_id) ?? 0) + 1);
-        if (r.mark === "late") lateByClass.set(r.class_id, (lateByClass.get(r.class_id) ?? 0) + 1);
-        if (r.mark === "absent") absentByClass.set(r.class_id, (absentByClass.get(r.class_id) ?? 0) + 1);
+      // A late arrival still attended: only "absent"/"excused" read as not-here. Both registers count, in the school's mode.
+      const [entries, signOuts] = await Promise.all([
+        fetchSessionEntries({ tenantId, termId, from: attendanceDate, to: attendanceDate }),
+        fetchSignOutDays({ tenantId, from: attendanceDate, to: attendanceDate }),
+      ]);
+      figures = classRegisterFigures(entries, settings.percentage_mode, signOuts);
+      for (const [id, f] of figures) {
+        if (f.amIn) submittedClasses.add(id);
+        if (f.pmIn) submittedPm.add(id);
       }
     }
   }
@@ -98,10 +110,10 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
     staffCount: staffRows?.length ?? 0,
     fees: ((feesRes.data ?? []) as FeeTotals[])[0] ?? NO_FEES,
     attendanceDate,
-    presentByClass,
-    lateByClass,
-    absentByClass,
+    figures,
     submittedClasses,
+    submittedPm,
+    afternoonOn: settings.afternoon_enabled,
   };
 }
 
@@ -112,7 +124,9 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
 export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
   const toast = useToast();
-  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id]);
+  // Bumped when the attendance settings are saved, so the badges and figures follow the new setting at once.
+  const [settingsVersion, setSettingsVersion] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id, settingsVersion]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 
@@ -206,10 +220,14 @@ export function AdminDashboard() {
             stats={[
               {
                 label: "Attendance today",
-                value: data.submittedClasses.size > 0
-                  ? `${Math.round(([...data.presentByClass.values()].reduce((a, b) => a + b, 0) / Math.max([...data.submittedClasses].reduce((a, id) => a + (data.studentsByClass.get(id) ?? 0), 0), 1)) * 100)}%`
-                  : "—",
-                sub: `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
+                value: (() => {
+                  const all = [...data.figures.values()];
+                  const total = all.reduce((a, f) => a + f.total, 0);
+                  return total > 0 ? `${Math.round((all.reduce((a, f) => a + f.here, 0) / total) * 100)}%` : "—";
+                })(),
+                sub: data.afternoonOn
+                  ? `${data.submittedClasses.size} morning, ${data.submittedPm.size} afternoon of ${data.classes.length} classes`
+                  : `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
               },
               { label: "Fees collected", value: `${feePct}%`, sub: `${formatMoney(totalPaid, tenant.country)} of ${formatMoney(totalBilled, tenant.country)}` },
               { label: "Learners", value: data.activeStudents.toLocaleString(), sub: `across ${data.classes.length} classes` },
@@ -235,14 +253,20 @@ export function AdminDashboard() {
                 ))
               ) : (
                 data.classes.map((c) => {
-                  const total = data.studentsByClass.get(c.id) ?? 0;
-                  const present = data.presentByClass.get(c.id) ?? 0;
-                  const late = data.lateByClass.get(c.id) ?? 0;
-                  const absent = data.absentByClass.get(c.id) ?? 0;
+                  const fig = data.figures.get(c.id);
+                  const total = fig?.total ?? 0;
+                  const present = fig?.here ?? 0;
+                  const late = fig?.late ?? 0;
+                  const absent = fig?.absent ?? 0;
                   const submitted = data.submittedClasses.has(c.id);
                   return (
                     <div key={c.id} className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
                       <span className="min-w-0 flex-1 truncate text-[13px]">{c.name}</span>
+                      {data.afternoonOn && (
+                        data.submittedPm.has(c.id)
+                          ? <Badge tone="ok">Afternoon in</Badge>
+                          : <Badge tone="warn">Afternoon not taken</Badge>
+                      )}
                       {!submitted ? (
                         <>
                           <Badge tone="warn">Not taken</Badge>
@@ -263,7 +287,7 @@ export function AdminDashboard() {
                             className="font-mono text-[12.5px] text-ink-muted underline decoration-dotted underline-offset-2"
                             title="See who was late, absent or excused"
                           >
-                            {present} / {total}
+                            {figureText({ here: present, total })}
                           </button>
                           <div className="h-1.5 w-20 overflow-hidden rounded bg-sunken">
                             <div className="h-1.5 rounded bg-ok-dot" style={{ width: `${total > 0 ? (present / total) * 100 : 0}%` }} />
@@ -334,6 +358,9 @@ export function AdminDashboard() {
           </div>
         </div>
         <EarlySignOutList tenantId={tenant.id} />
+        {/* FIG-1514: the afternoon report and the attendance settings, for full admins (area holders have them on AreasHome). */}
+        <PmMissingReport tenantId={tenant.id} />
+        <AttendanceSettingsPanel tenantId={tenant.id} onSaved={() => setSettingsVersion((v) => v + 1)} />
       </div>
 
       {detailFor && data?.attendanceDate && (

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   adminAccessFor, fetchCollectorDetails, fetchEarlySignOutsForStudents, liveSignOutsByStudent, mayRecordEarlySignOut, mayVoidEarlySignOut, signOutList, signOutTime,
-  supabase, today, voidEarlySignOut, MARK_LABEL, MARK_STYLE,
+  supabase, today, voidEarlySignOut, MARK_LABEL, MARK_STYLE, fetchAttendanceSettings, REGISTER_TABLE,
   type AttendanceMark, type EarlySignOut, type EarlySignOutCollector,
 } from "@figbloom/shared";
 import { EarlySignOutModal } from "../../components/attendance/EarlySignOutModal";
@@ -15,39 +15,51 @@ import { useToast } from "../../components/ui/Toast";
 import { authorisedByText, collectorContactText, collectorLine, leftEarlyLabel, noteText, signOutPickerLabel, voidReasonText } from "../../lib/earlySignOutView";
 import { useTenantSession } from "../../lib/sessionContext";
 
-interface RosterMark { id: string; name: string; admissionNo: string; mark: AttendanceMark }
+/** `mark` is the morning register; `pmMark` the afternoon one (null when no afternoon register is shown or none was taken). */
+interface RosterMark { id: string; name: string; admissionNo: string; mark: AttendanceMark; pmMark: AttendanceMark | null }
 
 interface Loaded {
   rows: RosterMark[];
+  /** The afternoon column is shown while the school takes an afternoon register, or the class has one for this date (it stays visible once turned off). */
+  showPm: boolean;
+  pmTaken: boolean;
   classTeacherId: string | null;
   signOuts: EarlySignOut[];
   details: Map<string, EarlySignOutCollector>;
 }
 
-async function fetchClassAttendance(classId: string, date: string): Promise<Loaded> {
+async function fetchClassAttendance(classId: string, date: string, tenantId: string): Promise<Loaded> {
   const sb = supabase();
-  const [{ data: students, error: e1 }, { data: marks, error: e2 }, { data: cls, error: e3 }] = await Promise.all([
+  const [{ data: students, error: e1 }, { data: marks, error: e2 }, { data: cls, error: e3 }, settings, pm] = await Promise.all([
     sb.from("students").select("id, full_name, admission_no").eq("class_id", classId).eq("active", true).order("full_name")
       .returns<{ id: string; full_name: string; admission_no: string }[]>(),
     sb.from("attendance").select("student_id, mark").eq("class_id", classId).eq("taken_on", date)
       .returns<{ student_id: string; mark: AttendanceMark }[]>(),
     sb.from("classes").select("class_teacher_id").eq("id", classId).maybeSingle<{ class_teacher_id: string | null }>(),
+    fetchAttendanceSettings(tenantId),
+    // A failed afternoon read must not hide the morning register.
+    sb.from(REGISTER_TABLE.afternoon).select("student_id, mark").eq("class_id", classId).eq("taken_on", date)
+      .returns<{ student_id: string; mark: AttendanceMark }[]>().then((r) => (r.error ? [] : r.data ?? [])),
   ]);
   if (e1) throw new Error(e1.message);
   if (e2) throw new Error(e2.message);
   if (e3) throw new Error(e3.message);
 
   const markByStudent = new Map((marks ?? []).map((m) => [m.student_id, m.mark]));
-  const rows = (students ?? []).map((s) => ({
+  const pmByStudent = new Map(pm.map((m) => [m.student_id, m.mark]));
+  const pmTaken = pm.length > 0;
+  const showPm = settings.afternoon_enabled || pmTaken;
+  const rows: RosterMark[] = (students ?? []).map((s) => ({
     id: s.id,
     name: s.full_name,
     admissionNo: s.admission_no,
     mark: markByStudent.get(s.id) ?? "present",
+    pmMark: showPm && pmTaken ? pmByStudent.get(s.id) ?? "present" : null,
   }));
   // A failed read of the sign-outs must not hide the register: the register is what this window is for.
   const signOuts = signOutList(await fetchEarlySignOutsForStudents(rows.map((r) => r.id), date).catch(() => [] as EarlySignOut[]));
   const details = await fetchCollectorDetails(signOuts.map((s) => s.id)).catch(() => new Map<string, EarlySignOutCollector>());
-  return { rows, classTeacherId: cls?.class_teacher_id ?? null, signOuts, details };
+  return { rows, showPm, pmTaken, classTeacherId: cls?.class_teacher_id ?? null, signOuts, details };
 }
 
 /**
@@ -62,7 +74,7 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
   classId: string; className: string; date: string; onClose: () => void;
 }) {
   const toast = useToast();
-  const { profile, adminAreas, actingForTenant } = useTenantSession();
+  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
   const access = adminAccessFor(profile.role, adminAreas, actingForTenant);
   const [data, setData] = useState<Loaded | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -72,7 +84,7 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
 
   useEffect(() => {
     let alive = true;
-    fetchClassAttendance(classId, date)
+    fetchClassAttendance(classId, date, tenant.id)
       .then((r) => { if (alive) setData(r); })
       .catch((err: Error) => { if (alive) toast(`Could not load attendance: ${err.message}`, "error"); });
     return () => { alive = false; };
@@ -80,7 +92,7 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
   }, [classId, date, reloadKey]);
 
   const rows = data?.rows ?? null;
-  const away = (rows ?? []).filter((r) => r.mark !== "present");
+  const away = (rows ?? []).filter((r) => r.mark !== "present" || (r.pmMark !== null && r.pmMark !== "present"));
   // The latest live sign-out of each learner: a learner may leave, return and leave again.
   const liveByStudent = useMemo(() => liveSignOutsByStudent(data?.signOuts ?? []), [data]);
   const canRecord = mayRecordEarlySignOut(access, !!data?.classTeacherId && data.classTeacherId === profile.id) && date === today();
@@ -123,7 +135,7 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
       ) : (
         <>
           {away.length === 0 ? (
-            <p className="text-[13px] text-ink-muted">Everyone in {className} was present and on time.</p>
+            <p className="text-[13px] text-ink-muted">Everyone in {className} was present and on time{data!.showPm && !data!.pmTaken ? " (no afternoon register taken)" : ""}.</p>
           ) : (
             <ul className="grid gap-2">
               {away.map((r) => {
@@ -136,12 +148,28 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
                       {so && <Badge tone="info">{leftEarlyLabel(so)}</Badge>}
+                      {data!.showPm && <span className="text-[11px] text-ink-faint">Morning</span>}
                       <span
                         className="rounded-full px-2.5 py-1 text-[11.5px] font-semibold"
                         style={{ background: MARK_STYLE[r.mark].bg, color: MARK_STYLE[r.mark].ink }}
                       >
                         {MARK_LABEL[r.mark]}
                       </span>
+                      {data!.showPm && (
+                        <>
+                          <span className="text-[11px] text-ink-faint">Afternoon</span>
+                          {r.pmMark ? (
+                            <span
+                              className="rounded-full px-2.5 py-1 text-[11.5px] font-semibold"
+                              style={{ background: MARK_STYLE[r.pmMark].bg, color: MARK_STYLE[r.pmMark].ink }}
+                            >
+                              {MARK_LABEL[r.pmMark]}
+                            </span>
+                          ) : (
+                            <span className="text-[11.5px] text-ink-faint">Not taken</span>
+                          )}
+                        </>
+                      )}
                     </span>
                   </li>
                 );
