@@ -30,7 +30,7 @@ const api = {
   createHomework: mocked(shared.createHomework),
   notifyHomeworkParents: mocked(shared.notifyHomeworkParents),
 };
-const session: TeacherSession = { profileId: "t-1", tenantId: "s-1", fullName: "Teacher Two", accent: "forest", country: "KE" };
+const session: TeacherSession = { profileId: "t-1", tenantId: "s-1", fullName: "Teacher Two", accent: "forest", country: "KE", timezone: "Africa/Nairobi" };
 
 beforeEach(() => {
   // Phones in Nairobi are three hours ahead of UTC; the screen reads "today" from the clock, so pin it.

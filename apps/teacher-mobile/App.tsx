@@ -65,8 +65,9 @@ function AppContent() {
           let accent = "#7A1F2B";
           let country = "KE";
           const { data: tenant } = await supabase()
-            .from("tenants").select("accent, country").eq("id", profile.tenant_id).maybeSingle();
+            .from("tenants").select("accent, country, timezone").eq("id", profile.tenant_id).maybeSingle();
           if (tenant?.accent) accent = tenant.accent;
+          const timezone = tenant?.timezone || "Africa/Nairobi";
           if (tenant?.country) country = tenant.country;
           // The school row can't be read: if that is because the school was just suspended (my_tenant()
           // hides it until the Auth ban ends the session), this phone is signed out and sign-in says so.
@@ -75,7 +76,7 @@ function AppContent() {
             return "unsupported";
           }
 
-          const next: TeacherSession = { profileId: userId, tenantId: profile.tenant_id, fullName: profile.full_name, accent, country };
+          const next: TeacherSession = { profileId: userId, tenantId: profile.tenant_id, fullName: profile.full_name, accent, country, timezone };
           return { session: next, extra: { loginId: profile.login_id, mustChoose: profile.must_change_password } };
         },
         // Every screen of this app is live data (rosters, registers, marks): nothing is saved to open with no signal.
