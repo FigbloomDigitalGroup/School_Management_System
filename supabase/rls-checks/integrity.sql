@@ -118,6 +118,7 @@ select pg_temp.check('A7 ' || x.tbl || '(' || array_to_string(x.cols, ', ') || '
     ('fee_invoices', array['student_id', 'term_id'], ': one invoice per learner per term'),
     ('marks', array['exam_id', 'student_id', 'subject_id'], ': one mark per learner, exam and subject'),
     ('attendance', array['student_id', 'taken_on'], ': one register entry per learner per day'),
+    ('attendance_afternoon', array['student_id', 'taken_on'], ': one afternoon register entry per learner per day (FIG-1514; the offline queue upserts on it)'),
     ('guardians', array['profile_id', 'student_id'], ''),
     ('exams', array['term_id', 'name'], ''),
     ('teaching_assignments', array['class_id', 'subject_id'], ': one teacher per class and subject'),
