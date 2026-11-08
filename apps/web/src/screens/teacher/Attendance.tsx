@@ -6,9 +6,11 @@ import {
   supabase, fetchHealthFlagsForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
   adminAccessFor, fetchEarlySignOutsForStudents, liveSignOutsByStudent, markWithSignOut, mayRecordEarlySignOut, mayVoidEarlySignOut,
   voidEarlySignOut, leftEarlyText,
-  type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type EarlySignOut, type Register,
+  fetchAttendanceSettings, sessionAt, sessionsOffered, REGISTER_TABLE, SESSION_LABEL,
+  type AttendanceSession, type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type EarlySignOut, type Register,
 } from "@figbloom/shared";
 import { EarlySignOutModal } from "../../components/attendance/EarlySignOutModal";
+import { SessionSwitch } from "../../components/attendance/SessionSwitch";
 import { collectorLine, leftEarlyLabel, liveSignOutRows } from "../../lib/earlySignOutView";
 import { HealthChip, flagsById } from "../../components/learners/Health";
 import { Badge } from "../../components/ui/Badge";
@@ -34,7 +36,9 @@ interface ClassProgress {
 /** Today's state across every class this teacher has, not just the one
  *  they're looking at — what the "your classes today" cards on the
  *  confirmation screen are built from. */
-async function fetchClassProgress(classes: Pick<ClassGroup, "id" | "name">[]): Promise<Map<string, ClassProgress>> {
+async function fetchClassProgress(
+  classes: Pick<ClassGroup, "id" | "name">[], session: AttendanceSession, timeZone?: string,
+): Promise<Map<string, ClassProgress>> {
   const classIds = classes.map((c) => c.id);
   const out = new Map<string, ClassProgress>();
   if (classIds.length === 0) return out;
@@ -42,8 +46,8 @@ async function fetchClassProgress(classes: Pick<ClassGroup, "id" | "name">[]): P
   const [{ data: studentRows, error: e1 }, { data: attRows, error: e2 }] = await Promise.all([
     supabase().from("students").select("id, class_id").eq("active", true).in("class_id", classIds)
       .returns<{ id: string; class_id: string }[]>(),
-    supabase().from("attendance").select("class_id, mark, note, created_at, students(full_name)")
-      .in("class_id", classIds).eq("taken_on", today())
+    supabase().from(REGISTER_TABLE[session]).select("class_id, mark, note, created_at, students(full_name)")
+      .in("class_id", classIds).eq("taken_on", today(timeZone))
       .returns<{ class_id: string; mark: AttendanceMark; note: string | null; created_at: string; students: { full_name: string } | null }[]>(),
   ]);
   if (e1) throw new Error(e1.message);
@@ -92,6 +96,18 @@ export function Attendance() {
   const classesData = useMemo(() => classListData ?? [], [classListData]);
   const [params] = useSearchParams();
 
+  // FIG-1514: the school's settings decide whether there is an afternoon register. A failed read gives the defaults (morning only).
+  const { data: settings } = useAsync(() => fetchAttendanceSettings(tenant.id), [tenant.id]);
+  const [chosenSession, setChosenSession] = useState<AttendanceSession | null>(null);
+  // The default is fixed when the screen opens: re-reading the clock on every render would flip a register being marked at 11:59 to
+  // the afternoon at 12:00 and drop the unsaved marks. The teacher switches by hand.
+  const [openedAt] = useState(() => new Date());
+  // null until the settings are known, so the marks below are not read for the wrong register.
+  const offered = settings ? sessionsOffered(settings) : null;
+  const session: AttendanceSession | null = !settings || !offered ? null
+    : chosenSession && offered.includes(chosenSession) ? chosenSession
+    : sessionAt(settings.afternoon_enabled, tenant.timezone, openedAt);
+
   const [classId, setClassId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   // null = "don't know yet" — switching classes waits here instead of
@@ -123,8 +139,8 @@ export function Attendance() {
     [classId],
   );
   const { data: todayMarks, loading: marksLoading } = useAsync(
-    () => (classId ? fetchTodayAttendanceMarks(classId) : Promise.resolve([])),
-    [classId],
+    () => (classId && session ? fetchTodayAttendanceMarks(classId, session, tenant.timezone) : Promise.resolve([])),
+    [classId, session, tenant.timezone],
   );
   const roster = rosterData ?? [];
   // Allergies and conditions, so a teacher sees them while marking. A failed read just shows no chips.
@@ -180,25 +196,34 @@ export function Attendance() {
   const [reg, setReg] = useState<Register | null>(null);
 
   useEffect(() => {
-    if (!classId || !term?.id || !rosterData || !todayMarks) return;
-    const base = newRegister(classId, term.id, rosterData.map((s) => s.id));
+    if (!classId || !session || !term?.id || !rosterData || !todayMarks) return;
+    const base = newRegister(classId, term.id, rosterData.map((s) => s.id), today(tenant.timezone));
     for (const row of todayMarks) {
       if (row.student_id in base.marks) base.marks[row.student_id] = row.mark;
     }
     setReg(base);
-  }, [classId, term?.id, rosterData, todayMarks]);
+  }, [classId, session, term?.id, rosterData, todayMarks, tenant.timezone]);
 
   // A register already taken today (by this teacher, earlier, or from another
   // device) should open straight to the "already in" screen, not the roster.
   // marksLoading guards against judging by the outgoing class's stale marks
   // before the new class's have actually loaded.
   useEffect(() => {
-    if (!classId || marksLoading || !todayMarks) return;
+    if (!classId || !session || marksLoading || !todayMarks) return;
     setSubmitted(todayMarks.length > 0);
-  }, [classId, marksLoading, todayMarks]);
+  }, [classId, session, marksLoading, todayMarks]);
 
   function switchClass(id: string) {
     setClassId(id);
+    setSubmitted(null);
+    setReg(null);
+  }
+
+  /** Another register of the same day: what was in progress for this one is dropped, and the other's state is read afresh. */
+  function switchSession(next: AttendanceSession) {
+    if (next === session) return;
+    setChosenSession(next);
+    setConfirming(null);
     setSubmitted(null);
     setReg(null);
   }
@@ -208,8 +233,8 @@ export function Attendance() {
   // waiting for a remount.
   const [progressReloadKey, setProgressReloadKey] = useState(0);
   const { data: classProgress } = useAsync(
-    () => fetchClassProgress(classesData),
-    [classesData, progressReloadKey],
+    () => (session ? fetchClassProgress(classesData, session, tenant.timezone) : Promise.resolve(new Map<string, ClassProgress>())),
+    [classesData, progressReloadKey, session, tenant.timezone],
   );
 
   const counts = useMemo(
@@ -226,32 +251,33 @@ export function Attendance() {
   }
 
   /** Keeps the register on this device and says so. It sends itself once there is signal. */
-  async function holdOnDevice(r: Register) {
-    await queue.enqueue("attendance", toRecords(r, tenant.id, profile.id));
+  async function holdOnDevice(r: Register, s: AttendanceSession) {
+    // The morning register is still queued as "attendance", exactly as before; the afternoon one as "attendance_afternoon".
+    await queue.enqueue(REGISTER_TABLE[s], toRecords(r, tenant.id, profile.id));
     setHeld((await queue.pending()).length);
     setSubmitted(true);
     toast("Saved on this phone. It will send itself when you have signal.");
   }
 
   async function submit() {
-    if (!reg || saving) return;
+    if (!reg || !session || saving) return;
     const warning = submitWarning(reg);
     if (warning && !confirming) { setConfirming(warning); return; }
     setConfirming(null);
     setSaving(true);
     try {
       if (!online) {
-        await holdOnDevice(reg);
+        await holdOnDevice(reg, session);
         return;
       }
       // "Online" only means the browser has a network, not that the school's server
       // answered, so say the register is in only once it really is.
       try {
-        await writeAttendance(reg, tenant.id, profile.id);
+        await writeAttendance(reg, tenant.id, profile.id, session);
       } catch (err) {
         if (!isRetryable(err)) throw err;
         // No answer or a server in trouble: don't lose the register, hold it.
-        await holdOnDevice(reg);
+        await holdOnDevice(reg, session);
         return;
       }
       setSubmitted(true);
@@ -290,7 +316,7 @@ export function Attendance() {
     );
   }
 
-  if (classesLoading || !cls || submitted === null) {
+  if (classesLoading || !cls || !session || !offered || submitted === null) {
     return (
       <div className="min-h-screen bg-page p-6">
         <TableSkeleton rows={8} />
@@ -304,7 +330,9 @@ export function Attendance() {
         <header className="flex flex-wrap items-center gap-3 border-b border-line bg-white px-6 py-4">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ok-bg text-lg text-ok-ink">✓</span>
           <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold">{cls.name} register is in</div>
+            <div className="text-[15px] font-semibold">
+              {cls.name} {offered.length > 1 ? `${SESSION_LABEL[session].toLowerCase()} ` : ""}register is in
+            </div>
             <div className="mt-0.5 truncate text-[12px] text-ink-muted">
               {/* The register (term + roster) can still be loading behind an
                   already-submitted day — don't report it as 0/0/0. */}
@@ -314,6 +342,7 @@ export function Attendance() {
                 : "parents of absent learners get an SMS at 09:00, not immediately"}
             </div>
           </div>
+          {offered.length > 1 && <SessionSwitch value={session} options={offered} onChange={switchSession} />}
           <Button variant="primary" onClick={() => setSubmitted(false)}>Correct a mark</Button>
           <AccessibilityButton />
         </header>
@@ -421,6 +450,7 @@ export function Attendance() {
                 {classesData.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               {rosterLoading ? <Skeleton className="h-3 w-20" /> : <span className="text-[13px] text-ink-muted">{roster.length} learners</span>}
+              {offered.length > 1 && <SessionSwitch value={session} options={offered} onChange={switchSession} />}
             </div>
           </div>
           <div className="flex items-center gap-2">

@@ -5,6 +5,7 @@ import { Button } from "./ui/Button";
 
 const WHAT: Record<string, string> = {
   attendance: "A register",
+  attendance_afternoon: "An afternoon register",
   marks: "Marks",
   announcements: "A message",
   cbe_results: "CBE results",
