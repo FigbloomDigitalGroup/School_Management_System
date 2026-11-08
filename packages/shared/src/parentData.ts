@@ -5,6 +5,7 @@ import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharg
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
 import { audienceIncludes, type AudienceViewer } from "./audience";
 import { fetchPaidPayments } from "./paidPayments";
+import { countAttendance, fetchMyAttendanceSettings, fetchSessionEntries, fetchSignOutDays, type AttendanceUnit } from "./attendanceSession";
 
 /**
  * One real query for everything a signed-in parent's screens need — mobile
@@ -182,16 +183,15 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
 
   const studentIds = kids.map((k) => k.id);
 
-  const [{ data: term }, { data: invoiceRows }, { data: attendanceRows }, examsByStudent] = await Promise.all([
+  const [{ data: term }, { data: invoiceRows }, [attendanceRows, signOutDays, attendanceSettings], examsByStudent] = await Promise.all([
     supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle(),
     studentIds.length
       // The current term's invoice only: invoices are keyed by child below, so
       // once a second term is billed any term's balance could otherwise win.
       ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on, terms!inner(is_current)").in("student_id", studentIds).eq("terms.is_current", true)
       : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
-    studentIds.length
-      ? supabase().from("attendance").select("student_id, mark, taken_on").in("student_id", studentIds)
-      : Promise.resolve({ data: [] as { student_id: string; mark: string; taken_on: string }[] }),
+    // Both registers (FIG-1514); the counting below follows the school's mode and leaves out an afternoon absence of a child signed out early.
+    Promise.all([fetchSessionEntries({ studentIds }), fetchSignOutDays({ studentIds }), fetchMyAttendanceSettings()]),
     // Each child's own list: an exam only one class's teachers have published must not stand in for this child's results.
     fetchPublishedExams(studentIds),
   ]);
@@ -214,11 +214,20 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   const invoices = new Map((invoiceRows ?? []).map((i) => [i.student_id, i]));
   // Only the lines; the balance comes from the invoice, so a failed read here costs the statement its detail, not its total.
   const charges = standingCharges(await fetchInvoiceCharges([...invoices.values()].map((i) => i.id)).catch(() => []));
-  const attendanceByStudent = new Map<string, { student_id: string; mark: string; taken_on: string }[]>();
-  for (const a of (attendanceRows ?? []) as { student_id: string; mark: string; taken_on: string }[]) {
-    const arr = attendanceByStudent.get(a.student_id) ?? [];
-    arr.push(a);
-    attendanceByStudent.set(a.student_id, arr);
+  const attendanceByStudent = new Map<string, AttendanceUnit[]>();
+  for (const u of countAttendance(attendanceRows, attendanceSettings.percentage_mode, signOutDays)) {
+    const arr = attendanceByStudent.get(u.student_id) ?? [];
+    arr.push(u);
+    attendanceByStudent.set(u.student_id, arr);
+  }
+  // A date a child was marked absent in either register (an afternoon absence after an early sign-out is not one).
+  const signedOut = new Set(signOutDays.filter((s) => !s.voided_at).map((s) => `${s.student_id}|${s.taken_on}`));
+  const absentDatesByStudent = new Map<string, Set<string>>();
+  for (const e of attendanceRows) {
+    if (e.mark !== "absent" || (e.session === "afternoon" && signedOut.has(`${e.student_id}|${e.taken_on}`))) continue;
+    const set = absentDatesByStudent.get(e.student_id) ?? new Set<string>();
+    set.add(e.taken_on);
+    absentDatesByStudent.set(e.student_id, set);
   }
   const paymentsByStudent = new Map<string, Receipt[]>();
   for (const p of (paymentRows ?? []) as { id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; msisdn: string | null; completed_at: string | null; created_at: string; fee_invoices: { student_id: string } | null }[]) {
@@ -236,8 +245,8 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
   const children: ChildInfo[] = kids.map((k) => {
     const inv = invoices.get(k.id);
     const rows = attendanceByStudent.get(k.id) ?? [];
-    const present = rows.filter((r) => r.mark === "present" || r.mark === "late").length;
-    const absentDates = rows.filter((r) => r.mark === "absent").sort((a, b) => a.taken_on.localeCompare(b.taken_on)).map((r) => r.taken_on);
+    const present = rows.filter((r) => r.here).length;
+    const absentDates = [...(absentDatesByStudent.get(k.id) ?? [])].sort();
     const exams = examsByStudent.get(k.id) ?? [];
     const subjects = subjectsByStudent.get(k.id) ?? [];
 
