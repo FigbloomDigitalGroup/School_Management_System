@@ -124,7 +124,9 @@ set local role authenticated;
 select archive_learners(array[current_setting('t.learner')::uuid]);
 reset role;
 select pg_temp.check('archiving a learner is the function''s own line only, with no generic Students line',
-  (select count(*) from audit_events where event = '1 learner archived' and actor_id = current_setting('t.admin')::uuid) = 1
+  -- this run's event only (created_at = now(), like pg_temp.events): a browser run may have left an earlier one by the same admin
+  (select count(*) from audit_events where event = '1 learner archived' and actor_id = current_setting('t.admin')::uuid
+     and created_at = now()) = 1
   and (select count(*) from pg_temp.events('students')) = 0);
 
 select pg_temp.check('every definer function that writes its own audit event and an audited table sets the flag (missing: '
