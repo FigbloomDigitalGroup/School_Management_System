@@ -15,15 +15,19 @@ const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVI
  */
 test.describe.configure({ mode: "serial" });
 
+// Each run tags its records with a run id and counts only those. Sign-outs are never deleted (they carry audit events written by the
+// functions that made them), so voided ones from earlier runs stay in the local database and must not count. The authoriser and the void
+// reason carry the run id too, so what the admin list shows is this run's record, not an earlier one.
+const RUN = Date.now().toString(36);
 const SECRET = {
   idNumber: "E2E-ID-884213",
   phone: "+254700555123",
-  authorisedBy: "Authoriser Zed",
+  authorisedBy: `Authoriser Zed ${RUN}`,
   note: "e2e private note",
-  voidReason: "e2e void reason private",
+  voidReason: `e2e void reason private ${RUN}`,
 };
 const COLLECTOR = "Wanjiru E2E Kamau";
-const REASON = "e2e doctor appointment";
+const REASON = `e2e doctor appointment ${RUN}`;
 
 const schoolClock = () => new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", hour12: false });
 /** HH:MM on the school's clock, `minutesAgo` before now. */
@@ -81,8 +85,15 @@ async function faithId() {
   if (error) throw new Error(error.message);
   return data.id as string;
 }
+/** This run's sign-outs for Faith, voided or not (the name is historical: filter on voided_at for the live ones). */
 async function liveRows() {
-  const { data, error } = await admin.from("early_sign_outs").select("id, voided_at, reason").eq("student_id", await faithId()).like("reason", "e2e%").order("signed_out_at");
+  const { data, error } = await admin.from("early_sign_outs").select("id, voided_at, reason").eq("student_id", await faithId()).eq("reason", REASON).order("signed_out_at");
+  if (error) throw new Error(error.message);
+  return data!;
+}
+/** Faith's sign-outs today that are still live, from any run: a live one changes what the register and the five-minute rule do. */
+async function liveToday() {
+  const { data, error } = await admin.from("early_sign_outs").select("id, reason").eq("student_id", await faithId()).eq("taken_on", schoolToday()).is("voided_at", null);
   if (error) throw new Error(error.message);
   return data!;
 }
@@ -90,7 +101,8 @@ async function liveRows() {
 test.beforeAll(async () => {
   if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(process.env.SUPABASE_URL ?? "")) throw new Error("local Supabase only");
   await admin.from("login_lookups").delete().gte("looked_up_at", "1970-01-01");
-  expect(await liveRows(), "no e2e sign-outs left from an earlier run (clear them in the local database first)").toHaveLength(0);
+  // Voided records from earlier runs are left alone. A live one would be "already signed out" for the five-minute rule: stop and say so.
+  expect(await liveToday(), "Faith has no live early sign-out today (void it in the app first)").toHaveLength(0);
 });
 
 test("the class teacher records a sign-out; a second within five minutes is refused in words; a separate earlier departure is accepted", async ({ page }) => {
