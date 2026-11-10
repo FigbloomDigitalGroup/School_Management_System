@@ -190,7 +190,9 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
       ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on, terms!inner(is_current)").in("student_id", studentIds).eq("terms.is_current", true)
       : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
     studentIds.length
-      ? supabase().from("attendance").select("student_id, mark, taken_on").in("student_id", studentIds)
+      // The current term's rows only: the screens call the figure "this term", and from the second term on every earlier term's rows would
+      // count in the percentage, the days missed and the below-90% alert (FIG-1404). The same filter as the invoice above.
+      ? supabase().from("attendance").select("student_id, mark, taken_on, terms!inner(is_current)").in("student_id", studentIds).eq("terms.is_current", true)
       : Promise.resolve({ data: [] as { student_id: string; mark: string; taken_on: string }[] }),
     // Each child's own list: an exam only one class's teachers have published must not stand in for this child's results.
     fetchPublishedExams(studentIds),

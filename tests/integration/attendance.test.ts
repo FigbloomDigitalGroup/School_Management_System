@@ -269,7 +269,7 @@ describe("a child's attendance figure, for this term", () => {
     return (data ?? []) as { mark: AttendanceMark }[];
   };
 
-  it.fails("QA10-PARENT FIG-1404 (open): ten absences in another term do not change the parent's 'this term' percentage or the days missed", async () => {
+  it("QA10-PARENT FIG-1404: ten absences in another term do not change the parent's 'this term' percentage or the days missed", async () => {
     await actAsRole("parent");
     const before = (await loadParentData(parent.userId)).children.find((c) => c.id === faith)!;
     expect(before.attendancePct, "the seed gives Faith attendance rows in the current term").not.toBeNull();
