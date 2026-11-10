@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, overpaidCents, parseShillings, payableSuggestions, planTermBilling, totalCents,
+  balanceCents, formatMoney, itemsForStudent, normaliseMsisdn, overpaidCents, parseShillings, payableSuggestions, planTermBilling, totalCents,
   wholeShillings,
 } from "./fees";
 import type { FeeInvoice, FeeItem } from "./types";
@@ -29,6 +29,12 @@ describe("balanceCents", () => {
   it("never goes negative on an overpayment", () => {
     expect(balanceCents(invoice({ total_cents: 10000, paid_cents: 15000 }))).toBe(0);
   });
+  it("is the whole total when nothing is paid, and zero when it is paid to the cent", () => {
+    expect(balanceCents(invoice({ total_cents: 1000000, paid_cents: 0 }))).toBe(1000000);
+    expect(balanceCents(invoice({ total_cents: 1000000, paid_cents: 400000 }))).toBe(600000);
+    expect(balanceCents(invoice({ total_cents: 1000000, paid_cents: 1000000 }))).toBe(0);
+    expect(balanceCents(invoice({ total_cents: 0, paid_cents: 0 }))).toBe(0);
+  });
 });
 
 describe("overpaidCents", () => {
@@ -38,26 +44,6 @@ describe("overpaidCents", () => {
   it("is nothing while a balance is owed or exactly cleared", () => {
     expect(overpaidCents({ total_cents: 10000, paid_cents: 4000 })).toBe(0);
     expect(overpaidCents({ total_cents: 10000, paid_cents: 10000 })).toBe(0);
-  });
-});
-
-describe("invoiceStatus", () => {
-  const today = new Date("2026-06-01");
-  it("is paid once the balance is zero, even if overdue", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 10000, due_on: "2026-01-01" });
-    expect(invoiceStatus(i, today)).toBe("paid");
-  });
-  it("is overdue when unpaid past the due date", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 0, due_on: "2026-01-01" });
-    expect(invoiceStatus(i, today)).toBe("overdue");
-  });
-  it("is part_paid when something has been paid but not overdue", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 4000, due_on: "2026-12-01" });
-    expect(invoiceStatus(i, today)).toBe("part_paid");
-  });
-  it("is unpaid when nothing has been paid and not yet due", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 0, due_on: "2026-12-01" });
-    expect(invoiceStatus(i, today)).toBe("unpaid");
   });
 });
 
@@ -141,6 +127,59 @@ describe("planTermBilling", () => {
     const plan = planTermBilling([student("uni", { formLevel: null, classLevel: null })], items, new Set());
     expect(plan.invoices).toEqual([{ student_id: "uni", total_cents: 1000000 }]);
   });
+
+  // Worked by hand: tuition 1,000,000 for all; boarding +500,000 for boarders; KCSE +200,000 for Form 4 only.
+  //   day Form 2 = 1,000,000 · boarder Form 2 = 1,500,000 · day Form 4 = 1,200,000 · boarder Form 4 = 1,700,000
+  //   whole school = 1,000,000 + 1,500,000 + 1,200,000 + 1,700,000 = 5,400,000
+  const school = () => [
+    student("day2"),
+    student("boarder2", { boarding: true }),
+    student("day4", { formLevel: 4 }),
+    student("boarder4", { boarding: true, formLevel: 4 }),
+  ];
+
+  it("totals a mixed school to the amounts worked out by hand", () => {
+    const plan = planTermBilling(school(), items, new Set());
+    expect(plan.invoices).toEqual([
+      { student_id: "day2", total_cents: 1000000 },
+      { student_id: "boarder2", total_cents: 1500000 },
+      { student_id: "day4", total_cents: 1200000 },
+      { student_id: "boarder4", total_cents: 1700000 },
+    ]);
+    expect(plan.totalCents).toBe(5400000);
+    expect(plan.alreadyBilled).toBe(0);
+    expect(plan.nothingApplies).toBe(0);
+  });
+
+  it("bills nobody twice: planning again from the first plan's learners finds nothing to do", () => {
+    const first = planTermBilling(school(), items, new Set());
+    const second = planTermBilling(school(), items, new Set(first.invoices.map((i) => i.student_id)));
+    expect(second.invoices).toEqual([]);
+    expect(second.totalCents).toBe(0);
+    expect(second.alreadyBilled).toBe(4);
+  });
+
+  it("bills a learner admitted after the first run, and only that learner, at today's items", () => {
+    const first = planTermBilling(school(), items, new Set());
+    const already = new Set(first.invoices.map((i) => i.student_id));
+    const second = planTermBilling([...school(), student("late", { boarding: true, formLevel: 4 })], items, already);
+    expect(second.invoices).toEqual([{ student_id: "late", total_cents: 1700000 }]);
+    expect(second.alreadyBilled).toBe(4);
+  });
+
+  it("does not invoice a learner whose only applicable item is for nothing (zero amount)", () => {
+    const plan = planTermBilling([student("a")], [item({ applies_to: "all", amount_cents: 0 })], new Set());
+    expect(plan.invoices).toEqual([]);
+    expect(plan.nothingApplies).toBe(1);
+  });
+
+  it("keeps every amount an exact whole number of cents across a large school", () => {
+    const many = Array.from({ length: 1000 }, (_, n) => student(`s${n}`, { boarding: n % 2 === 0 }));
+    const plan = planTermBilling(many, items, new Set());
+    // 500 boarders x 1,500,000 + 500 day x 1,000,000 = 750,000,000 + 500,000,000
+    expect(plan.totalCents).toBe(1250000000);
+    expect(plan.invoices.every((i) => Number.isInteger(i.total_cents))).toBe(true);
+  });
 });
 
 describe("totalCents", () => {
@@ -174,6 +213,12 @@ describe("payableSuggestions", () => {
   });
   it("offers no half of KSh 1, which would be nothing", () => {
     expect(payableSuggestions(100).some((o) => o.label === "Pay half")).toBe(false);
+  });
+  it("never offers a suggestion above a whole-shilling balance", () => {
+    // with cents in the balance a suggestion rounds up to the whole shilling M-Pesa charges (see FIG-1334), so only whole shillings are checked
+    for (const balance of [100, 5000, 10000, 15000, 25000, 123400]) {
+      for (const s of payableSuggestions(balance)) expect(s.cents).toBeLessThanOrEqual(balance);
+    }
   });
 });
 

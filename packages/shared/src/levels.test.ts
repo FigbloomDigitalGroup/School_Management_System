@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidYear, levelsForTenant, nextYear, subjectOffered, yearLabel, yearMatches, yearRangeLabel, yearSortKey, yearsFor } from "./levels";
+import { isValidYear, levelsForTenant, nextYear, subjectOffered, yearLabel, yearMatches, yearRangeLabel, yearSortKey, yearsBackwards, yearsFor } from "./levels";
 
 describe("yearLabel", () => {
   it("names a year the way the school does", () => {
@@ -26,6 +26,19 @@ describe("yearsFor / isValidYear", () => {
     expect(isValidYear("junior_secondary", 6)).toBe(false);
     expect(isValidYear("secondary", 5)).toBe(false);
     expect(isValidYear("primary", 1.5)).toBe(false);
+  });
+});
+
+describe("yearsBackwards", () => {
+  it("is true only when both ends are set and the first is after the last (subjects_years_in_order in the migration)", () => {
+    expect(yearsBackwards(4, 1)).toBe(true);
+    expect(yearsBackwards(3, 2)).toBe(true);
+    expect(yearsBackwards(1, 4)).toBe(false);
+    expect(yearsBackwards(2, 2)).toBe(false);
+    expect(yearsBackwards(3, null)).toBe(false);
+    expect(yearsBackwards(null, 2)).toBe(false);
+    expect(yearsBackwards(null, null)).toBe(false);
+    expect(yearsBackwards(undefined, 1)).toBe(false);
   });
 });
 

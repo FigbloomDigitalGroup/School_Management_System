@@ -28,7 +28,10 @@ function ilikeToRegExp(pattern: string): RegExp {
   return new RegExp(`^${out}$`, "i");
 }
 
-type OpKind = "select" | "insert" | "update" | "delete";
+/** What supabase-js answers to .single() / .maybeSingle() when the query matched more than one row. */
+const MULTIPLE_ROWS = "JSON object requested, multiple (or no) rows returned";
+
+type OpKind = "select" | "insert" | "upsert" | "update" | "delete";
 
 type UniqueIndex = { cols: string[]; where?: (row: Row) => boolean };
 type FakeError = { message: string; code?: string };
@@ -118,6 +121,18 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.payload = payload;
     return this;
   }
+  /**
+   * A row that matches an existing one on `onConflict` (comma-separated columns) replaces its
+   * fields; anything else is inserted. Without `onConflict` every row is inserted, since the
+   * fake does not know a table's primary key.
+   */
+  upsert(payload: Row | Row[], opts?: { onConflict?: string }) {
+    this.op = "upsert";
+    this.payload = payload;
+    this.conflictCols = opts?.onConflict ? opts.onConflict.split(",").map((c) => c.trim()) : [];
+    return this;
+  }
+  private conflictCols: string[] = [];
   update(payload: Row) {
     this.op = "update";
     this.payload = payload;
@@ -177,6 +192,19 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   private run(): { rows: Row[]; error: FakeError | null } {
     const err = this.table.consumeError(this.op ?? "select");
     if (err) return { rows: [], error: { message: err } };
+    if (this.op === "upsert") {
+      const payloads = Array.isArray(this.payload) ? this.payload : [this.payload!];
+      const written = payloads.map((p) => {
+        const hit = this.conflictCols.length ? this.table.rows.find((r) => this.conflictCols.every((c) => r[c] === p[c])) : undefined;
+        if (!hit) return this.table.insert(p);
+        Object.assign(hit, p);
+        return { ...hit };
+      });
+      if (written.some((r) => r === null)) {
+        return { rows: [], error: { code: "23505", message: "duplicate key value violates unique constraint" } };
+      }
+      return { rows: written as Row[], error: null };
+    }
     if (this.op === "insert") {
       const payloads = Array.isArray(this.payload) ? this.payload : [this.payload!];
       const inserted = payloads.map((p) => this.table.insert(p));
@@ -210,6 +238,7 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     const { rows, error } = this.run();
     if (error) return { data: null, error };
     if (!rows[0]) return { data: null, error: { message: "Row not found" } };
+    if (rows.length > 1) return { data: null, error: { message: MULTIPLE_ROWS } };
     return { data: rows[0], error: null };
   }
 
@@ -415,6 +444,130 @@ export class FakeSupabaseClient {
   // ------------------------------------------------------------ platform registration (20261104900000)
   /** platform_settings 'PLATFORM_DECISIONS_ENABLED'. */
   platformDecisionsEnabled = false;
+  /** platform_settings 'PLATFORM_EVENTS_ENABLED' (20261105600000). */
+  platformEventsEnabled = false;
+  /** platform_settings 'PLATFORM_STAFF_EVENTS_ENABLED' (20261105600000): sending staff events. */
+  platformStaffEventsEnabled = false;
+  /** platform_settings 'HR_LEAVE_ENABLED' (20261105800000). */
+  hrLeaveEnabled = false;
+
+  /**
+   * platform_hr_leave_event() (20261105800000), for the fake: each delivery once, each application in order (an
+   * older event is stale; a cancel naming dates the row no longer has is stale), the row written as the office's
+   * approval writes it, the person's waiting Schools requests for those days withdrawn, the usual notices, and on a
+   * cancel the cover ahead removed with its substitutes told.
+   */
+  private hrLeaveEvent(a: Row): Row {
+    if (!["hr.leave.approved", "hr.leave.cancelled"].includes(a.p_event_type)) throw new Error(`platform_hr_leave_event: unknown event type ${a.p_event_type}`);
+    if (!a.p_application_id || String(a.p_application_id).length > 100) throw new Error("platform_hr_leave_event: an application id is needed");
+    if (!a.p_start || !a.p_end || a.p_end < a.p_start) throw new Error("platform_hr_leave_event: the dates are needed, start on or before end");
+    const deliveries = this.table("platform_event_deliveries");
+    if (deliveries.rows.some((d) => d.delivery_id === a.p_delivery_id)) return { outcome: "duplicate" };
+    const halfDay = a.p_half_day === true;
+    const type = typeof a.p_leave_type === "string" && a.p_leave_type.trim() ? a.p_leave_type.trim().slice(0, 100) : null;
+    const detail = { application_id: a.p_application_id, employee_number: a.p_employee_number ?? null, leave_type: type,
+      start_date: a.p_start, end_date: a.p_end, half_day: halfDay, days: a.p_days ?? null, occurred_at: a.p_occurred_at ?? null };
+    if (!(a.p_apply !== false && this.hrLeaveEnabled)) {
+      if (!this.rowsIn("tenants").some((t) => t.id === a.p_tenant_id)) return { outcome: "not_enabled", recorded: false };
+      const mine = this.rowsIn("profiles").some((p) => p.id === a.p_profile_id && p.tenant_id === a.p_tenant_id);
+      deliveries.rows.push({ delivery_id: a.p_delivery_id, event_type: a.p_event_type, event_id: a.p_event_id, tenant_id: a.p_tenant_id,
+        profile_id: mine ? a.p_profile_id : null, outcome: "not_enabled", detail });
+      return { outcome: "not_enabled" };
+    }
+    const p = this.rowsIn("profiles").find((x) => x.id === a.p_profile_id);
+    if (!p) return { outcome: "not_found" };
+    if (p.tenant_id !== a.p_tenant_id) return { outcome: "tenant_mismatch" };
+    if (!["teacher", "driver", "staff", "school_admin"].includes(p.role)) return { outcome: "not_staff" };
+
+    const delivery: Row = { delivery_id: a.p_delivery_id, event_type: a.p_event_type, event_id: a.p_event_id, tenant_id: a.p_tenant_id,
+      profile_id: p.id, outcome: "received", detail };
+    deliveries.rows.push(delivery);
+    const forget = () => { deliveries.rows = deliveries.rows.filter((d) => d !== delivery); };
+
+    const leave = this.table("leave_requests");
+    let r = leave.rows.find((l) => l.tenant_id === a.p_tenant_id && l.hr_application_id === a.p_application_id);
+    if (r && r.teacher_id !== p.id) { forget(); return { outcome: "person_mismatch" }; }
+    const at = a.p_occurred_at ?? this.iso();
+    const later = (x: string | null) => (x && Date.parse(x) > Date.parse(at) ? x : at);
+    const today = this.iso().slice(0, 10);
+    const short = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+    const notice = (to: string, subject: string, body: string) => {
+      const author = this.rowsIn("profiles")
+        .filter((x) => x.tenant_id === a.p_tenant_id && x.role === "school_admin" && !x.archived_at)
+        .sort((x, y) => String(x.created_at ?? "").localeCompare(String(y.created_at ?? "")) || String(x.id).localeCompare(String(y.id)))[0];
+      if (!author) return;
+      this.table("announcements").insert({ tenant_id: a.p_tenant_id, author_id: author.id, subject, body,
+        audience: { kind: "user", user_id: to }, channels: ["in_app"], published_at: this.iso() });
+    };
+    let outcome: string;
+    let cover = 0;
+
+    if (r && r.hr_event_at && Date.parse(at) < Date.parse(r.hr_event_at)) {
+      outcome = "stale";
+    } else if (a.p_event_type === "hr.leave.approved") {
+      if (r && r.status === "approved" && r.starts_on === a.p_start && r.ends_on === a.p_end && r.half_day === halfDay && (r.days ?? null) === (a.p_days ?? null)) {
+        r.hr_event_at = later(r.hr_event_at);
+        outcome = "already_approved";
+      } else {
+        const o = leave.rows
+          .filter((l) => l.teacher_id === p.id && l.status === "approved" && l !== r && l.starts_on <= a.p_end && l.ends_on >= a.p_start)
+          .sort((x, y) => String(x.starts_on).localeCompare(String(y.starts_on)))[0];
+        if (o) { forget(); return { outcome: "overlaps", starts_on: o.starts_on, ends_on: o.ends_on, source: o.source ?? "schools" }; }
+        for (const l of leave.rows) {
+          if (l.teacher_id === p.id && (l.source ?? "schools") === "schools" && l.status === "pending" && l.starts_on <= a.p_end && l.ends_on >= a.p_start) {
+            Object.assign(l, { status: "cancelled", review_note: "Replaced by leave approved in Figbloom HR", reviewed_at: this.iso() });
+          }
+        }
+        const fields = { starts_on: a.p_start, ends_on: a.p_end, status: "approved", half_day: halfDay, days: a.p_days ?? null,
+          hr_leave_type: type, hr_employee_number: a.p_employee_number ?? null, reviewed_by: null, reviewed_at: this.iso(),
+          review_note: "Approved in Figbloom HR", hr_event_at: at };
+        if (r) { Object.assign(r, fields, { reason: type ?? r.reason }); outcome = "updated"; }
+        else {
+          r = leave.insert({ tenant_id: a.p_tenant_id, teacher_id: p.id, reason: type, source: "hr", hr_application_id: a.p_application_id, hr_exported_at: null, ...fields })!;
+          outcome = "approved";
+        }
+        notice(p.id, "Your leave request was approved", `Your leave from ${short(a.p_start)} to ${short(a.p_end)} has been approved.`);
+      }
+    } else if (!r) {
+      r = leave.insert({ tenant_id: a.p_tenant_id, teacher_id: p.id, starts_on: a.p_start, ends_on: a.p_end, reason: type, status: "cancelled",
+        reviewed_by: null, reviewed_at: this.iso(), review_note: "Cancelled in Figbloom HR", source: "hr", hr_application_id: a.p_application_id,
+        hr_employee_number: a.p_employee_number ?? null, hr_leave_type: type, half_day: halfDay, days: a.p_days ?? null, hr_event_at: at, hr_exported_at: null })!;
+      outcome = "cancelled_unseen";
+    } else if (r.status === "cancelled") {
+      r.hr_event_at = later(r.hr_event_at);
+      outcome = "already_cancelled";
+    } else if (r.starts_on !== a.p_start || r.ends_on !== a.p_end) {
+      outcome = "stale";
+    } else {
+      Object.assign(r, { status: "cancelled", reviewed_at: this.iso(), review_note: "Cancelled in Figbloom HR", hr_event_at: at });
+      const from = a.p_start > today ? a.p_start : today;
+      const covers = this.table("coverage_assignments");
+      for (const c of covers.rows.filter((x) => x.tenant_id === a.p_tenant_id && x.absent_teacher_id === p.id && x.date >= from && x.date <= a.p_end)) {
+        const cls = this.rowsIn("classes").find((x) => x.id === c.class_id)?.name ?? "the class";
+        const subj = this.rowsIn("subjects").find((x) => x.id === c.subject_id)?.name ?? "the lesson";
+        if (c.covering_teacher_id) {
+          notice(c.covering_teacher_id, `Cover cancelled — ${subj}, ${cls}`,
+            `You are no longer covering ${subj} for ${cls} at ${c.start_time} on ${c.date}. The usual teacher's leave was cancelled.`);
+        }
+        covers.rows = covers.rows.filter((x) => x !== c);
+        cover++;
+      }
+      notice(p.id, "Your leave was cancelled", `Your leave from ${short(a.p_start)} to ${short(a.p_end)} has been cancelled in Figbloom HR.`);
+      outcome = "cancelled";
+    }
+
+    if (["approved", "updated", "cancelled"].includes(outcome)) {
+      this.table("audit_events").insert({ tenant_id: a.p_tenant_id, actor_id: null, actor_label: "Figbloom HR (via Figbloom platform)",
+        event: `Leave for ${p.full_name} ${outcome === "cancelled" ? "cancelled" : outcome === "updated" ? "changed" : "approved"}: ${a.p_start} to ${a.p_end} (Figbloom HR)`,
+        category: "operations", metadata: { table: "leave_requests", leave_request_id: r!.id, application_id: a.p_application_id, cover_removed: cover, delivery_id: a.p_delivery_id } });
+    }
+    delivery.outcome = outcome;
+    delivery.detail = { ...detail, leave_request_id: r?.id ?? null };
+    return { outcome, leave_request_id: r?.id ?? null, cover_removed: cover };
+  }
+  private schoolLinked(tenantId: unknown) {
+    return this.rowsIn("platform_links").some((l) => l.kind === "tenant" && l.local_id === tenantId);
+  }
   /** The database's clock, for the queue's due times and leases. */
   clock: () => number = () => Date.now();
   private queueSeq = 0;
@@ -480,11 +633,16 @@ export class FakeSupabaseClient {
       return null;
     },
 
-    platform_sync_claim: ({ p_limit }) => {
+    platform_sync_claim: ({ p_limit }) => this.platformRpcs.platform_sync_claim_kinds({ p_limit, p_kinds: ["organization", "tenant"] }),
+
+    // 20261105600000: organisations, then schools, then staff events
+    platform_sync_claim_kinds: ({ p_limit, p_kinds }) => {
       const now = this.clock();
+      const rank = (k: string) => (k === "organization" ? 0 : k === "tenant" ? 1 : 2);
+      const kinds: string[] = p_kinds ?? ["organization", "tenant", "staff"];
       const due = this.rowsIn("platform_sync_queue")
-        .filter((r) => !r.done_at && Date.parse(r.next_attempt_at) <= now && (!r.locked_until || Date.parse(r.locked_until) < now))
-        .sort((a, b) => Number(b.kind === "organization") - Number(a.kind === "organization") || a.id - b.id)
+        .filter((r) => !r.done_at && kinds.includes(r.kind) && Date.parse(r.next_attempt_at) <= now && (!r.locked_until || Date.parse(r.locked_until) < now))
+        .sort((a, b) => rank(a.kind) - rank(b.kind) || a.id - b.id)
         .slice(0, Math.max(0, Number(p_limit ?? 50)));
       for (const r of due) { r.locked_until = this.iso(now + 5 * 60_000); r.attempts += 1; }
       return due.map((r) => ({ ...r }));
@@ -493,10 +651,137 @@ export class FakeSupabaseClient {
     platform_sync_done: ({ p_id, p_version, p_platform_id }) => {
       const r = this.rowsIn("platform_sync_queue").find((x) => x.id === p_id && !x.done_at);
       if (!r) return false;
-      this.platformLink(r.kind, r.local_id, p_platform_id ?? null);
-      if (r.version !== p_version) { Object.assign(r, { locked_until: null, next_attempt_at: this.iso() }); return false; }
+      if (r.kind !== "staff") this.platformLink(r.kind, r.local_id, p_platform_id ?? null);
+      if (r.version !== p_version) {
+        Object.assign(r, { locked_until: null, next_attempt_at: this.iso() });
+        if (r.kind === "staff" && r.event === "created") r.event = "updated";
+        return false;
+      }
       Object.assign(r, { done_at: this.iso(), locked_until: null, last_error: null });
       return true;
+    },
+
+    // ---------------------------------------------------------- staff events (20261105600000)
+    /** What the profiles triggers call; tests call it in their place. */
+    platform_staff_enqueue: ({ p_profile_id, p_event, p_tenant_id, p_left_on }) => {
+      if (!this.platformStaffEventsEnabled || !this.schoolLinked(p_tenant_id)) return null;   // the two gates
+      const q = this.table("platform_sync_queue");
+      const existing = q.rows.find((r) => r.kind === "staff" && r.local_id === p_profile_id && !r.done_at);
+      if (existing) {
+        existing.version += 1;
+        existing.event_id = crypto.randomUUID();
+        existing.event = p_event === "left" ? "left" : existing.event === "created" || existing.event === "left" ? "created" : p_event;
+        Object.assign(existing, { tenant_id: p_tenant_id, occurred_at: this.iso(), left_on: p_event === "left" ? p_left_on ?? null : null });
+        if (Date.parse(existing.next_attempt_at) > this.clock()) existing.next_attempt_at = this.iso();
+        return null;
+      }
+      q.rows.push({ id: ++this.queueSeq, kind: "staff", local_id: p_profile_id, enqueued_at: this.iso(), attempts: 0,
+        next_attempt_at: this.iso(), locked_until: null, last_error: null, version: 1, done_at: null,
+        event: p_event, event_id: crypto.randomUUID(), tenant_id: p_tenant_id, occurred_at: this.iso(),
+        left_on: p_event === "left" ? p_left_on ?? null : null });
+      return null;
+    },
+
+    platform_staff_event_data: ({ p_profile_id }) => {
+      const p = this.rowsIn("profiles").find((x) => x.id === p_profile_id);
+      if (!p) return null;
+      const real = (e: unknown) => {
+        const a = typeof e === "string" ? e.trim().toLowerCase() : "";
+        return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a) && !/\.(internal|invalid)$/.test(a) ? a : null;
+      };
+      const labels: Record<string, string> = { teacher: "Teacher", driver: "Driver", staff: "Staff", school_admin: "School administrator" };
+      return {
+        tenant_id: p.tenant_id,
+        current: p.role in labels && !p.archived_at,
+        data: {
+          person_id: p.id, full_name: p.full_name, phone: (p.phone ?? "").trim() || null,
+          email: real(p.email) ?? real(p.auth_email), role: p.role,
+          job_title: (p.staff_title ?? "").trim() || labels[p.role] || p.role,
+        },
+      };
+    },
+
+    platform_staff_backfill: ({ p_tenant_id, p_dry_run }) => {
+      if (!this.rowsIn("tenants").some((t) => t.id === p_tenant_id)) throw new Error(`no school ${p_tenant_id}`);
+      const staff = this.rowsIn("profiles")
+        .filter((p) => p.tenant_id === p_tenant_id && ["teacher", "driver", "staff", "school_admin"].includes(p.role) && !p.archived_at);
+      if (!p_dry_run && !this.platformStaffEventsEnabled) throw new Error("staff_events_disabled: sending staff events is switched off");
+      if (!p_dry_run && !this.schoolLinked(p_tenant_id)) throw new Error("school_not_linked: the platform does not know this school yet");
+      if (!p_dry_run) for (const p of staff) this.platformRpcs.platform_staff_enqueue({ p_profile_id: p.id, p_event: "created", p_tenant_id });
+      const data = staff.map((p) => (this.platformRpcs.platform_staff_event_data({ p_profile_id: p.id }) as Row).data);
+      return { school_id: p_tenant_id, dry_run: p_dry_run, count: data.length, staff: data,
+        sending_enabled: this.platformStaffEventsEnabled, school_linked: this.schoolLinked(p_tenant_id) };
+    },
+
+    platform_events_enabled: () => this.platformEventsEnabled,
+    platform_staff_events_enabled: () => this.platformStaffEventsEnabled,
+
+    platform_sync_skipped: ({ p_id, p_reason }) => {
+      const r = this.rowsIn("platform_sync_queue").find((x) => x.id === p_id && !x.done_at && x.kind === "staff");
+      if (r) Object.assign(r, { done_at: this.iso(), locked_until: null, skipped: String(p_reason).slice(0, 100), last_error: null });
+      return null;
+    },
+
+    platform_staff_left: (a) => {
+      const deliveries = this.table("platform_event_deliveries");
+      if (deliveries.rows.some((d) => d.delivery_id === a.p_delivery_id)) return { outcome: "duplicate" };
+      const record = (outcome: string) => deliveries.rows.push({ delivery_id: a.p_delivery_id, event_type: "hr.employee.left", event_id: a.p_event_id,
+        tenant_id: a.p_tenant_id, profile_id: a.p_profile_id, outcome, detail: { employee_number: a.p_employee_number ?? null, left_on: a.p_left_on ?? null } });
+      if (a.p_apply === false) { record("not_enabled"); return { outcome: "not_enabled" }; }
+      const p = this.rowsIn("profiles").find((x) => x.id === a.p_profile_id);
+      if (!p) return { outcome: "not_found" };
+      if (p.tenant_id !== a.p_tenant_id) return { outcome: "tenant_mismatch" };
+      if (!["teacher", "driver", "staff", "school_admin"].includes(p.role)) return { outcome: "not_staff" };
+      if (p.archived_at) { record("already_archived"); return { outcome: "already_archived" }; }
+      Object.assign(p, { archived_at: this.iso(), archived_by: null, left_on: a.p_left_on ?? this.iso().slice(0, 10), login_banned: true });
+      this.table("audit_events").insert({ tenant_id: p.tenant_id, actor_id: null, actor_label: "Figbloom HR (via Figbloom platform)",
+        event: `Staff member ${p.full_name} archived: left on ${a.p_left_on} (recorded in Figbloom HR)`, category: "provisioning",
+        metadata: { table: "profiles", op: "update", via: "Figbloom platform", profile_ids: [p.id], employee_number: a.p_employee_number ?? null, delivery_id: a.p_delivery_id } });
+      record("archived");
+      return { outcome: "archived" };
+    },
+
+    // ---------------------------------------------------------- leave run by HR (20261105800000)
+    platform_hr_leave_event: (a) => this.hrLeaveEvent(a),
+
+    platform_leave_history: ({ p_tenant_id }) => {
+      if (!this.rowsIn("tenants").some((t) => t.id === p_tenant_id)) throw new Error(`no school ${p_tenant_id}`);
+      const linked = (person: string) => this.rowsIn("platform_sync_queue")
+        .some((q) => q.kind === "staff" && q.local_id === person && q.tenant_id === p_tenant_id && q.done_at && !q.skipped);
+      const weekdays = (from: string, to: string) => {
+        let n = 0;
+        for (let d = Date.parse(`${from}T00:00:00Z`); d <= Date.parse(`${to}T00:00:00Z`); d += 86_400_000) {
+          const dow = new Date(d).getUTCDay();
+          if (dow !== 0 && dow !== 6) n++;
+        }
+        return n;
+      };
+      const mine = this.rowsIn("leave_requests")
+        .filter((l) => l.tenant_id === p_tenant_id && (l.source ?? "schools") === "schools" && l.status === "approved" && !l.hr_exported_at)
+        .map((l): Row => ({ ...l, full_name: this.rowsIn("profiles").find((p) => p.id === l.teacher_id)?.full_name ?? null }))
+        .sort((x, y) => String(x.starts_on).localeCompare(String(y.starts_on)) || String(x.id).localeCompare(String(y.id)));
+      return {
+        school_id: p_tenant_id,
+        school_linked: this.schoolLinked(p_tenant_id),
+        records: mine.filter((m) => linked(m.teacher_id)).map((m) => ({
+          source_id: m.id, external_id: m.teacher_id, full_name: m.full_name, leave_type_name: "Imported from Schools",
+          start_date: m.starts_on, end_date: m.ends_on, days: weekdays(m.starts_on, m.ends_on), status: "approved", reason: m.reason ?? null,
+        })),
+        not_linked: mine.filter((m) => !linked(m.teacher_id)).map((m) => ({ external_id: m.teacher_id, full_name: m.full_name, source_id: m.id })),
+      };
+    },
+
+    platform_leave_history_mark: ({ p_tenant_id, p_ids }) => {
+      let n = 0;
+      for (const l of this.rowsIn("leave_requests")) {
+        if (l.tenant_id === p_tenant_id && (p_ids ?? []).includes(l.id) && (l.source ?? "schools") === "schools" && !l.hr_exported_at) {
+          l.hr_exported_at = this.iso();
+          n++;
+        }
+      }
+      if (n) this.table("audit_events").insert({ tenant_id: p_tenant_id, actor_id: null, actor_label: "Figbloom (via Figbloom platform)",
+        event: `${n} leave record${n === 1 ? "" : "s"} sent to Figbloom HR`, category: "operations", metadata: { table: "leave_requests", count: n } });
+      return n;
     },
 
     platform_record_link: ({ p_kind, p_local_id, p_platform_id }) => {
@@ -630,11 +915,23 @@ export class FakeSupabaseClient {
           .map((p) => (String(p.email ?? "").trim() || this.authUsers.get(p.id)?.email) as string | undefined)
           .find((e) => e && !e.endsWith(".figbloom.internal"));
         const org = this.rowsIn("organizations").find((o) => o.id === t.organization_id);
+        // 20261105610000: every current school admin with a real email (platform_real_email), oldest first, at most 20
+        const real = (e: unknown) => {
+          const a = typeof e === "string" ? e.trim().toLowerCase() : "";
+          return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a) && !/\.(internal|invalid)$/.test(a) ? a : null;
+        };
+        const admins = people
+          .filter((p) => p.role === "school_admin" && !p.archived_at)
+          .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || String(a.id).localeCompare(String(b.id)))
+          .map((p) => ({ email: real(p.email) ?? real(this.authUsers.get(p.id)?.email), name: p.full_name, role: "school_admin" }))
+          .filter((a) => a.email)
+          .slice(0, 20);
         return {
           id: t.id, name: t.name, slug: t.slug, status: t.status, status_reason: t.status_reason ?? null,
           organization: org ? { id: org.id, name: org.name } : null,
           created_at: iso(t.created_at),
           admin_email: admin ?? null,
+          admins,
           students: this.rowsIn("students").filter((s) => s.tenant_id === t.id && s.active !== false).length,
           teachers: people.filter((p) => p.role === "teacher").length,
           parents: people.filter((p) => p.role === "parent").length,

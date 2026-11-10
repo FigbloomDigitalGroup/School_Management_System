@@ -1,8 +1,8 @@
 import { describe, it } from "jsr:@std/testing/bdd";
-import { assert, assertEquals } from "jsr:@std/assert";
+import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
 import { FakeSupabaseClient } from "./fakeSupabase.ts";
 import { FakePlatform } from "./fakePlatform.ts";
-import { backfill, decisionWebhookUrl, platformStatusOf, processQueue, reconcile } from "./platformSync.ts";
+import { backfill, decisionWebhookUrl, eventWebhookUrl, platformStatusOf, processQueue, reconcile, staffBackfill } from "./platformSync.ts";
 
 const HILLSIDE = "11111111-1111-4111-8111-111111111111";   // an organisation with two schools
 const PENDING_ORG = "22222222-2222-4222-8222-222222222222";
@@ -340,5 +340,193 @@ describe("helpers", () => {
     assertEquals(decisionWebhookUrl(env({}), "https://given.example/x"), "https://given.example/x");
     assertEquals(decisionWebhookUrl(env({ SUPABASE_URL: "http://kong:8000" })), null);
     assertEquals(decisionWebhookUrl(env({})), null);
+  });
+});
+
+// ---------------------------------------------------------------- staff events (20261105600000)
+describe("staff events", () => {
+  const TEACHER = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
+  const DRIVER = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2";
+
+  function staffDb() {
+    const db = makeDb();
+    db.seed("profiles", [
+      { id: TEACHER, tenant_id: PRIMARY, role: "teacher", full_name: "Jane Wanjiru", phone: "+254711000001", staff_title: null,
+        email: "tc-0001@login.hillside-primary.figbloom.internal", auth_email: "tc-0001@login.hillside-primary.figbloom.internal", archived_at: null },
+      { id: DRIVER, tenant_id: PRIMARY, role: "driver", full_name: "Sam Kiptoo", phone: null, staff_title: "Bus driver",
+        email: "Sam@Hillside.ac.ke", archived_at: null },
+    ]);
+    db.platformStaffEventsEnabled = true;                                    // PLATFORM_STAFF_EVENTS_ENABLED on
+    db.platformRpcs.platform_record_link({ p_kind: "tenant", p_local_id: PRIMARY, p_platform_id: "pt-1" });   // registered
+    return db;
+  }
+  /** The school registered already, as it is on staging. */
+  function platformWithSchool() {
+    const platform = new FakePlatform();
+    platform.tenants.set(PRIMARY, { tenant_id: "pt-1", name: "Hillside Primary", local_slug: "hillside-primary", organization_local_id: HILLSIDE });
+    return platform;
+  }
+  const staffEnqueue = (db: FakeSupabaseClient, id: string, event: string, leftOn: string | null = null) =>
+    db.platformRpcs.platform_staff_enqueue({ p_profile_id: id, p_event: event, p_tenant_id: PRIMARY, p_left_on: leftOn });
+
+  it("sends a staff row as POST /events: the type, the row's event id, the school as tenant_local_id, the person as now", async () => {
+    const db = staffDb();
+    const platform = platformWithSchool();
+    staffEnqueue(db, DRIVER, "created");
+    const eventId = pending(db)[0].event_id;
+    const report = await processQueue(db, platform.client());
+    assertEquals([report.sent, report.events, report.failed.length], [1, 1, 0]);
+    assertEquals(platform.calls.map((c) => `${c.method} ${c.path}`), ["POST /events"]);
+    const e = platform.events[0];
+    assertEquals([e.type, e.id, e.tenant_local_id], ["schools.staff.created", eventId, PRIMARY]);
+    assert(!Number.isNaN(Date.parse(e.occurred_at)));
+    assertEquals(e.data, { person_id: DRIVER, full_name: "Sam Kiptoo", phone: null, email: "sam@hillside.ac.ke", role: "driver", job_title: "Bus driver" });
+    assertEquals(pending(db).length, 0);
+    assertEquals(db.rowsIn("platform_links").map((l) => l.kind), ["tenant"], "a staff event registers nothing (only the school's own link)");
+  });
+
+  it("a synthetic login address is sent as email null; no title: the role's name", async () => {
+    const db = staffDb();
+    const platform = platformWithSchool();
+    staffEnqueue(db, TEACHER, "created");
+    await processQueue(db, platform.client());
+    assertEquals(platform.events[0].data.email, null);
+    assertEquals(platform.events[0].data.job_title, "Teacher");
+  });
+
+  it("left carries only person_id and left_on", async () => {
+    const db = staffDb();
+    const platform = platformWithSchool();
+    staffEnqueue(db, TEACHER, "left", "2026-11-30");
+    await processQueue(db, platform.client());
+    assertEquals(platform.events.map((e) => [e.type, e.data]), [["schools.staff.left", { person_id: TEACHER, left_on: "2026-11-30" }]]);
+  });
+
+  it("goes after organisations and schools in the same batch", async () => {
+    const db = staffDb();
+    const platform = new FakePlatform();
+    staffEnqueue(db, DRIVER, "created");
+    enqueue(db, "tenant", PRIMARY);
+    enqueue(db, "organization", HILLSIDE);
+    const report = await processQueue(db, platform.client());
+    assertEquals(report.sent, 3);
+    assertEquals(platform.calls.map((c) => c.path === "/events" ? "events" : c.path.split("/")[3]), ["organizations", "tenants", "events"]);
+  });
+
+  it("a change while on its way goes again, as an update with a new event id, never swallowed as a repeat", async () => {
+    const db = staffDb();
+    const platform = platformWithSchool();
+    staffEnqueue(db, DRIVER, "created");
+    platform.onCall = () => {
+      platform.onCall = null;
+      db.rowsIn("profiles").find((p) => p.id === DRIVER)!.full_name = "Samuel Kiptoo";
+      staffEnqueue(db, DRIVER, "updated");   // the rename's trigger
+    };
+    await processQueue(db, platform.client());
+    assertEquals(pending(db).map((r) => r.event), ["updated"]);
+    await processQueue(db, platform.client());
+    assertEquals(platform.events.map((e) => e.type), ["schools.staff.created", "schools.staff.updated"]);
+    assert(platform.events[0].id !== platform.events[1].id);
+    assertEquals(platform.events[1].data.full_name, "Samuel Kiptoo");
+  });
+
+  it("a 404 from the platform (the school isn't linked there) ends the row as skipped_unlinked, not retried", async () => {
+    const db = staffDb();
+    const platform = new FakePlatform();   // doesn't know PRIMARY
+    staffEnqueue(db, DRIVER, "created");
+    const report = await processQueue(db, platform.client());
+    assertEquals([report.sent, report.failed.length], [0, 0]);
+    assertEquals(report.skipped, [{ local_id: DRIVER, tenant_local_id: PRIMARY, reason: "skipped_unlinked" }]);
+    assertEquals(pending(db).length, 0);
+    const row = db.rowsIn("platform_sync_queue").find((r) => r.local_id === DRIVER)!;
+    assertEquals([Boolean(row.done_at), row.skipped], [true, "skipped_unlinked"]);
+    assertEquals((await processQueue(db, platform.client())).claimed, 0, "never tried again");
+  });
+
+  it("other refusals still retry with the queue's backoff", async () => {
+    const db = staffDb();
+    const platform = platformWithSchool();
+    platform.down = 503;
+    let now = Date.parse("2026-11-05T08:00:00Z");
+    db.clock = () => now;
+    staffEnqueue(db, DRIVER, "created");
+    assertEquals((await processQueue(db, platform.client())).failed.length, 1);
+    assertEquals((Date.parse(pending(db)[0].next_attempt_at) - now) / 60_000, 1);
+    platform.down = null;
+    now += 61_000;
+    assertEquals((await processQueue(db, platform.client())).events, 1);
+  });
+
+  it("nothing is queued while sending is switched off (PLATFORM_STAFF_EVENTS_ENABLED), or for a school the platform doesn't know", () => {
+    const db = staffDb();
+    db.platformStaffEventsEnabled = false;
+    staffEnqueue(db, DRIVER, "created");
+    assertEquals(pending(db).length, 0);
+    db.platformStaffEventsEnabled = true;
+    db.platformRpcs.platform_staff_enqueue({ p_profile_id: DRIVER, p_event: "created", p_tenant_id: SECONDARY, p_left_on: null });
+    assertEquals(pending(db).length, 0, "SECONDARY isn't registered");
+  });
+
+  it("a person no longer current (archived by HR, so not echoed) is not sent as an update", async () => {
+    const db = staffDb();
+    const platform = platformWithSchool();
+    staffEnqueue(db, DRIVER, "updated");
+    db.rowsIn("profiles").find((p) => p.id === DRIVER)!.archived_at = "2026-11-05T07:00:00Z";
+    const report = await processQueue(db, platform.client());
+    assertEquals([report.sent, platform.calls.length, pending(db).length], [0, 0, 0]);
+  });
+
+  it("merging while pending: left wins, a pending created stays created, a restore after left is created", () => {
+    const db = staffDb();
+    staffEnqueue(db, DRIVER, "created");
+    const firstId = pending(db)[0].event_id;
+    staffEnqueue(db, DRIVER, "updated");
+    assertEquals(pending(db).map((r) => [r.event, r.version]), [["created", 2]]);
+    assert(pending(db)[0].event_id !== firstId, "new content, new event id");
+    staffEnqueue(db, DRIVER, "left", "2026-11-30");
+    assertEquals(pending(db).map((r) => [r.event, r.left_on]), [["left", "2026-11-30"]]);
+    staffEnqueue(db, DRIVER, "created");
+    assertEquals(pending(db).map((r) => [r.event, r.left_on]), [["created", null]]);
+  });
+});
+
+describe("staffBackfill", () => {
+  it("a dry run lists the school's current staff and queues nothing; for real, queues created for each", async () => {
+    const db = makeDb();
+    db.seed("profiles", [
+      { id: "s-1", tenant_id: PRIMARY, role: "teacher", full_name: "A Teacher", archived_at: null },
+      { id: "s-2", tenant_id: PRIMARY, role: "school_admin", full_name: "A Head", email: "head@hillside.ac.ke", archived_at: null },
+      { id: "s-3", tenant_id: PRIMARY, role: "teacher", full_name: "Archived Teacher", archived_at: "2026-10-01T00:00:00Z" },
+      { id: "s-4", tenant_id: PRIMARY, role: "parent", full_name: "A Parent", archived_at: null },
+      { id: "s-5", tenant_id: SECONDARY, role: "teacher", full_name: "Other School", archived_at: null },
+    ]);
+    db.platformStaffEventsEnabled = true;
+    db.platformRpcs.platform_record_link({ p_kind: "tenant", p_local_id: PRIMARY, p_platform_id: "pt-1" });
+    const dry = await staffBackfill(db, { schoolId: PRIMARY });
+    assertEquals([dry.dry_run, dry.count, dry.staff.map((s) => s.person_id)], [true, 2, ["s-1", "s-2"]]);
+    assertEquals(pending(db).length, 0);
+    const real = await staffBackfill(db, { schoolId: PRIMARY, dryRun: false });
+    assertEquals([real.queued, pending(db).map((r) => [r.kind, r.local_id, r.event])], [2, [["staff", "s-1", "created"], ["staff", "s-2", "created"]]]);
+  });
+
+  it("for real is refused while sending is off, or for a school the platform doesn't know; the dry run still lists", async () => {
+    const db = makeDb();
+    db.seed("profiles", [{ id: "s-1", tenant_id: PRIMARY, role: "teacher", full_name: "A Teacher", archived_at: null }]);
+    const dry = await staffBackfill(db, { schoolId: PRIMARY });
+    assertEquals([dry.count, dry.sending_enabled, dry.school_linked], [1, false, false]);
+    await assertRejects(() => staffBackfill(db, { schoolId: PRIMARY, dryRun: false }), Error, "staff_events_disabled");
+    db.platformStaffEventsEnabled = true;
+    await assertRejects(() => staffBackfill(db, { schoolId: PRIMARY, dryRun: false }), Error, "school_not_linked");
+    assertEquals(pending(db).length, 0);
+  });
+});
+
+describe("eventWebhookUrl", () => {
+  it("given, PLATFORM_EVENTS_URL, or this project's platform-events; https only", () => {
+    const env = (vars: Record<string, string>) => ({ get: (k: string) => vars[k] });
+    assertEquals(eventWebhookUrl(env({ SUPABASE_URL: "https://abc.supabase.co/" })), "https://abc.supabase.co/functions/v1/platform-events");
+    assertEquals(eventWebhookUrl(env({ PLATFORM_EVENTS_URL: "https://schools.example/events", SUPABASE_URL: "https://abc.supabase.co" })), "https://schools.example/events");
+    assertEquals(eventWebhookUrl(env({}), "https://given.example/x"), "https://given.example/x");
+    assertEquals(eventWebhookUrl(env({ PLATFORM_EVENTS_URL: "http://insecure.example/x" })), null);
   });
 });

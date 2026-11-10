@@ -19,7 +19,7 @@
  * Deploy: supabase functions deploy resolve-login-id --no-verify-jwt
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { loginIdEmail } from "../_shared/loginId.ts";
 import { maskName } from "../_shared/maskName.ts";

@@ -1,7 +1,7 @@
-import { PermissionsAndroid, Platform } from "react-native";
+import { Alert, PermissionsAndroid, Platform } from "react-native";
 import BackgroundService from "react-native-background-actions";
 import Geolocation from "react-native-geolocation-service";
-import { PERMISSIONS, RESULTS, request } from "react-native-permissions";
+import { PERMISSIONS, RESULTS, check, request } from "react-native-permissions";
 
 /**
  * Free background GPS, no paid plugin. On Android, a foreground service with
@@ -28,6 +28,48 @@ export interface PermissionResult {
   message?: string;
 }
 
+/** Android's "Allow all the time" is not a pop-up: the system sends the driver to a Settings page. Say so first (FIG-1491). */
+const ALL_THE_TIME_EXPLAINED = "On the next screen choose \"Allow all the time\". Without it the bus stops being tracked as soon as the screen locks.";
+
+function explainFirst(message: string): Promise<void> {
+  return new Promise((resolve) => {
+    Alert.alert("One more step", message, [{ text: "Continue", onPress: () => resolve() }], { cancelable: true, onDismiss: () => resolve() });
+  });
+}
+
+export type LocationSwitch = "on" | "off" | "unknown";
+
+/**
+ * react-native-geolocation-service's error codes (its README): 2, POSITION_UNAVAILABLE, and 5, SETTINGS_NOT_SATISFIED. Asked
+ * without its "turn on Location" box, its Android code answers 2 when the phone's Location switch is OFF and 5 when the
+ * switch is on but the mode cannot do the job (FusedLocationProvider.java: `locationEnabled ? SETTINGS_NOT_SATISFIED :
+ * POSITION_UNAVAILABLE`). Seen on a Galaxy A14 with Location off: 2.
+ */
+const POSITION_UNAVAILABLE = 2;
+const SETTINGS_NOT_SATISFIED = 5;
+
+/** What a failed position request says about the phone's Location switch. A timeout (no sky indoors) or a refused permission says nothing about it. */
+export function locationSwitchFromError(code: number | undefined): LocationSwitch {
+  return code === POSITION_UNAVAILABLE || code === SETTINGS_NOT_SATISFIED ? "off" : "unknown";
+}
+
+/**
+ * Is the phone's Location switch on? Asks for one position quietly (without the system's "turn on Location" box):
+ * with the switch off the library answers at once that no position is available. A timeout proves nothing about
+ * the switch, so it is "unknown" and the trip may still start; the screen says so if no fix ever arrives. Android only:
+ * on iOS the permission step already covers it. A trip that starts with the switch off goes live and never moves (FIG-1491).
+ */
+export function checkLocationSwitch(): Promise<LocationSwitch> {
+  if (Platform.OS !== "android") return Promise.resolve("unknown");
+  return new Promise((resolve) => {
+    Geolocation.getCurrentPosition(
+      () => resolve("on"),
+      (error) => resolve(locationSwitchFromError(error.code)),
+      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 60_000, showLocationDialog: false, forceRequestLocation: false },
+    );
+  });
+}
+
 /** Foreground location must be granted before background can even be asked for. */
 export async function ensureLocationPermissions(): Promise<PermissionResult> {
   if (Platform.OS === "ios") {
@@ -52,6 +94,8 @@ export async function ensureLocationPermissions(): Promise<PermissionResult> {
     return { ok: false, message: "Location permission was denied. Allow location access to track this trip." };
   }
 
+  const backgroundNow = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
+  if (backgroundNow !== RESULTS.GRANTED && backgroundNow !== RESULTS.UNAVAILABLE) await explainFirst(ALL_THE_TIME_EXPLAINED);
   const background = await request(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION);
   if (background !== RESULTS.GRANTED) {
     return {

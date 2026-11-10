@@ -64,21 +64,18 @@ export function currentPeriodIndex(rows: TimetableRow[], now: Date = new Date())
   return idx;
 }
 
-/** Replaces every slot for this class — simplest correct model for a short weekly grid (same pattern as fleet's replaceRouteStops). */
+/**
+ * Replaces every slot for this class in one database call (save_class_timetable), so a save the database refuses leaves the old timetable
+ * as it was. It used to delete the periods and insert the new ones as two requests, and a refusal in between lost the whole week (FIG-1431).
+ */
 export async function saveClassTimetable(
   tenantId: string,
   classId: string,
   slots: { day: Weekday; start_time: string; label: string; room: string | null; subject_id?: string | null }[],
 ): Promise<void> {
-  const { error: delErr } = await supabase().from("timetable_slots").delete().eq("class_id", classId);
-  if (delErr) throw delErr;
-  const rows = slots.filter((s) => s.label.trim().length > 0);
-  if (!rows.length) return;
-  const { error } = await supabase().from("timetable_slots").insert(
-    rows.map((s) => ({
-      tenant_id: tenantId, class_id: classId, day: s.day, start_time: s.start_time,
-      label: s.label.trim(), room: s.room?.trim() || null, subject_id: s.subject_id ?? null,
-    })),
-  );
+  const rows = slots
+    .filter((s) => s.label.trim().length > 0)
+    .map((s) => ({ day: s.day, start_time: s.start_time, label: s.label.trim(), room: s.room?.trim() || null, subject_id: s.subject_id ?? null }));
+  const { error } = await supabase().rpc("save_class_timetable", { p_tenant_id: tenantId, p_class_id: classId, p_slots: rows });
   if (error) throw error;
 }

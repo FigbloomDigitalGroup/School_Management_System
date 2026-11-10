@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { archiveLearners, deleteLearners, fetchArchivedLearners, learnerCount, restoreLearners, STAFF_TITLE_SUGGESTIONS, supabase } from "@figbloom/shared";
-import type { ArchivedLearner, ClassGroup, Profile, Student, Subject } from "@figbloom/shared";
+import {
+  addLearner, archiveLearners, deleteLearners, fetchArchivedLearners, fetchPeopleRoster, learnerCount, restoreLearners, reviewStaffPhoto, setTeacherQualified,
+  STAFF_TITLE_SUGGESTIONS, updateLearnerDetails, updateStaffDetails, type RosterLearner, type RosterStaff,
+} from "@figbloom/shared";
+import type { ArchivedLearner, ClassGroup, Subject } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Avatar, AvatarEditor } from "../../components/Avatar";
 import { Badge, RoleBadge } from "../../components/ui/Badge";
@@ -29,8 +32,8 @@ import { AdminAccessEditor } from "../../components/AdminAccess";
 import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
 import { confirmDialog } from "../../components/ui/Confirm";
 
-type StudentRow = Pick<Student, "id" | "admission_no" | "full_name" | "class_id" | "boarding" | "gender"> & { avatar_url: string | null; profile_id: string | null; login_id: string | null; archived_at?: string | null };
-type StaffRow = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & { avatar_url: string | null };
+type StudentRow = RosterLearner;
+type StaffRow = RosterStaff;
 
 const DOC_TYPES: { value: string; label: string }[] = [
   { value: "birth_certificate", label: "Birth certificate" },
@@ -39,60 +42,6 @@ const DOC_TYPES: { value: string; label: string }[] = [
   { value: "transfer_letter", label: "Transfer letter" },
   { value: "other", label: "Other" },
 ];
-
-interface PeopleData {
-  classes: Pick<ClassGroup, "id" | "name">[];
-  students: StudentRow[];
-  staff: StaffRow[];
-  feeByStudent: Map<string, { total: number; paid: number }>;
-  subjects: Subject[];
-  subjectIdsByTeacher: Map<string, string[]>;
-}
-
-async function fetchPeople(tenantId: string): Promise<PeopleData> {
-  const sb = supabase();
-  const { data: term } = await sb.from("terms").select("id").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<{ id: string }>();
-
-  const results = await Promise.all([
-    sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("students").select("id,admission_no,full_name,gender,class_id,boarding,avatar_url,profile_id").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<Omit<StudentRow, "login_id">[]>(),
-    sb.from("profiles").select("id,full_name,role,staff_title,email,phone,login_id,avatar_url,photo_changed_at,handles_visitors").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher", "driver", "staff"]).order("full_name").returns<StaffRow[]>(),
-    term
-      ? sb.from("fee_invoices").select("student_id,total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", term.id).returns<{ student_id: string; total_cents: number; paid_cents: number }[]>()
-      : Promise.resolve({ data: [] as { student_id: string; total_cents: number; paid_cents: number }[], error: null }),
-    sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
-    sb.from("teacher_subjects").select("teacher_id, subject_id").eq("tenant_id", tenantId).returns<{ teacher_id: string; subject_id: string }[]>(),
-    sb.from("profiles").select("id,login_id").eq("tenant_id", tenantId).eq("role", "student").returns<{ id: string; login_id: string | null }[]>(),
-  ]);
-  // A failed read must say so, not show up as an empty list: a column the
-  // database doesn't have yet (a migration not pushed) otherwise looks like
-  // "no staff".
-  const failed = results.find((r) => r.error);
-  if (failed?.error) throw new Error(failed.error.message);
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes, { data: subjectRows }, { data: teacherSubjectRows }, { data: studentProfileRows }] = results;
-
-  const feeByStudent = new Map<string, { total: number; paid: number }>();
-  for (const inv of invoicesRes.data ?? []) feeByStudent.set(inv.student_id, { total: inv.total_cents, paid: inv.paid_cents });
-
-  const loginIdByProfile = new Map<string, string | null>();
-  for (const p of studentProfileRows ?? []) loginIdByProfile.set(p.id, p.login_id);
-
-  const subjectIdsByTeacher = new Map<string, string[]>();
-  for (const row of teacherSubjectRows ?? []) {
-    const ids = subjectIdsByTeacher.get(row.teacher_id) ?? [];
-    ids.push(row.subject_id);
-    subjectIdsByTeacher.set(row.teacher_id, ids);
-  }
-
-  return {
-    classes: classRows ?? [],
-    students: (studentRows ?? []).map((s) => ({ ...s, login_id: s.profile_id ? loginIdByProfile.get(s.profile_id) ?? null : null })),
-    staff: staffRows ?? [],
-    feeByStudent,
-    subjects: subjectRows ?? [],
-    subjectIdsByTeacher,
-  };
-}
 
 /**
  * Bulk actions matter more than search here — an admin's real job is moving
@@ -127,7 +76,7 @@ export function People() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  const { data, loading, error } = useAsync(() => fetchPeople(tenant.id), [tenant.id, reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchPeopleRoster(tenant.id), [tenant.id, reloadKey]);
   const { data: archivedData, loading: archivedLoading } = useAsync(
     () => (view === "archived" ? fetchArchivedLearners(tenant.id) : Promise.resolve([] as ArchivedLearner[])),
     [tenant.id, view, reloadKey],
@@ -640,21 +589,23 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
     }
     setSaving(true);
     try {
-      const { data: created, error } = await supabase().from("students").insert({
-        tenant_id: tenantId,
-        admission_no: admissionNo.trim(),
-        full_name: fullName.trim(),
-        gender,
-        class_id: classId,
-        boarding,
-        date_of_birth: dob || null,
-        active: true,
-        home_address: homeBus.address.trim() || null,
-        home_landmark: homeBus.landmark.trim() || null,
-        home_lat: homeBus.pin?.lat ?? null,
-        home_lng: homeBus.pin?.lng ?? null,
-      }).select("id").single<{ id: string }>();
-      if (error) throw error;
+      const created = {
+        id: await addLearner({
+          tenantId,
+          admissionNo: admissionNo.trim(),
+          fullName: fullName.trim(),
+          gender,
+          classId,
+          boarding,
+          dateOfBirth: dob || null,
+          home: {
+            address: homeBus.address.trim() || null,
+            landmark: homeBus.landmark.trim() || null,
+            lat: homeBus.pin?.lat ?? null,
+            lng: homeBus.pin?.lng ?? null,
+          },
+        }),
+      };
       // The learner exists now; a bus or health hiccup shouldn't read as "not added".
       const later: string[] = [];
       if (!boarding && routes) {
@@ -886,10 +837,7 @@ function PhotoReview({ staff, onDone, toast }: { staff: StaffRow; onDone: (remov
   async function review(remove: boolean) {
     setBusy(true);
     try {
-      // Removing the photo clears the flag too (guard_profile_self_edit).
-      const { error } = await supabase().from("profiles")
-        .update(remove ? { avatar_url: null } : { photo_changed_at: null }).eq("id", staff.id);
-      if (error) throw error;
+      await reviewStaffPhoto(staff.id, remove);
       toast(remove ? `Removed ${staff.full_name}'s photo` : "Photo kept");
       onDone(remove);
     } catch (err) {
@@ -1173,14 +1121,13 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
     if (!fullName.trim() || !admissionNo.trim()) { toast("Name and admission number are required.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("students").update({
-        full_name: fullName.trim(),
-        admission_no: admissionNo.trim(),
+      await updateLearnerDetails(student.id, {
+        fullName: fullName.trim(),
+        admissionNo: admissionNo.trim(),
         gender: gender || null,
-        class_id: classId || null,
+        classId: classId || null,
         boarding,
-      }).eq("id", student.id);
-      if (error) throw error;
+      });
       toast("Details saved.");
       onSaved();
     } catch (err) {
@@ -1252,12 +1199,11 @@ function StaffProfileEditor({ staff, onSaved, toast }: {
     if (other && !staffTitle.trim()) { toast("Give them a title, e.g. Librarian.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("profiles").update({
-        full_name: fullName.trim(),
-        staff_title: staffTitle.trim() || null,
+      await updateStaffDetails(staff.id, {
+        fullName: fullName.trim(),
+        staffTitle: staffTitle.trim() || null,
         phone: phone.trim() || null,
-      }).eq("id", staff.id);
-      if (error) throw error;
+      });
       toast("Details saved.");
       onSaved();
     } catch (err) {
@@ -1400,15 +1346,7 @@ function TeacherSubjectsEditor({ teacherId, tenantId, subjects, selectedIds, onC
   async function toggle(subjectId: string, checked: boolean) {
     setBusyId(subjectId);
     try {
-      if (checked) {
-        const { error } = await supabase().from("teacher_subjects")
-          .insert({ tenant_id: tenantId, teacher_id: teacherId, subject_id: subjectId });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase().from("teacher_subjects")
-          .delete().eq("teacher_id", teacherId).eq("subject_id", subjectId);
-        if (error) throw error;
-      }
+      await setTeacherQualified({ tenantId, teacherId, subjectId, qualified: checked });
       onChange();
     } catch (err) {
       toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.", "error");

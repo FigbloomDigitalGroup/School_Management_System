@@ -45,6 +45,8 @@ export interface MarkerProps {
   title?: string;
   description?: string;
   anchor?: { x: number; y: number };
+  /** Markers with a higher zIndex draw over those with a lower one (Android and Google-provider iOS). */
+  zIndex?: number;
   children?: ReactNode;
 }
 export class Marker extends Component<MarkerProps> {

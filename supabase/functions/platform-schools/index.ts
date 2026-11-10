@@ -13,8 +13,12 @@
  * Actions (POST, JSON body):
  *
  * - {"action": "list"} -> {generated_at, schools: [row]}. A row is counts,
- *   statuses and one support contact (the first school admin's email): no
- *   names of learners or staff, no records.
+ *   statuses, one support contact (admin_email: the first school admin's
+ *   email) and the school's admins (admins: [{email, name, role:
+ *   "school_admin"}], every school admin who is not archived and has a real
+ *   email, synthetic login addresses dropped, oldest first, at most 20), so
+ *   the console can invite them to Figbloom HR (20261105610000): no other
+ *   names of staff, none of learners, no records.
  * - {"action": "set_status", school_id, status: "suspended" | "active",
  *   reason, actor_email} -> {school: row}. Suspends through Schools' own
  *   mechanism (tenants.status, see 20261104600000_platform_console_schools.sql);
@@ -36,7 +40,7 @@
  *   supabase functions deploy platform-schools --no-verify-jwt
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { secretsMatch } from "../_shared/daraja.ts";
 
 export const MIN_SECRET_LENGTH = 32;
@@ -56,11 +60,21 @@ export interface SchoolRow {
   organization: { id: string; name: string } | null;
   created_at: string;
   admin_email: string | null;
+  /** The school's admins with a real email, for the console's HR invitations (at most MAX_ADMINS). */
+  admins: SchoolAdmin[];
   students: number;
   teachers: number;
   parents: number;
   last_activity_at: string | null;
 }
+
+export interface SchoolAdmin {
+  email: string;
+  name: string;
+  role: "school_admin";
+}
+
+export const MAX_ADMINS = 20;
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
@@ -160,7 +174,7 @@ async function setStatus(admin: any, body: Record<string, unknown>): Promise<Res
   }
 }
 
-/** Only the contract's fields, whatever the database sends: nothing personal beyond admin_email. */
+/** Only the contract's fields, whatever the database sends: nothing personal beyond admin_email and admins. */
 // deno-lint-ignore no-explicit-any
 export function toRow(r: any): SchoolRow {
   return {
@@ -172,11 +186,25 @@ export function toRow(r: any): SchoolRow {
     organization: r.organization ? { id: String(r.organization.id), name: String(r.organization.name) } : null,
     created_at: String(r.created_at),
     admin_email: r.admin_email ?? null,
+    admins: toAdmins(r.admins),
     students: Number(r.students ?? 0),
     teachers: Number(r.teachers ?? 0),
     parents: Number(r.parents ?? 0),
     last_activity_at: r.last_activity_at ?? null,
   };
+}
+
+/** Each admin as {email, name, role}; a synthetic login address (or no address) is dropped, here too. */
+function toAdmins(list: unknown): SchoolAdmin[] {
+  if (!Array.isArray(list)) return [];
+  const out: SchoolAdmin[] = [];
+  for (const a of list) {
+    const email = typeof a?.email === "string" ? a.email.trim().toLowerCase() : "";
+    if (!EMAIL.test(email) || /\.(internal|invalid)$/.test(email)) continue;
+    out.push({ email, name: typeof a?.name === "string" ? a.name : "", role: "school_admin" });
+    if (out.length === MAX_ADMINS) break;
+  }
+  return out;
 }
 
 const isoSeconds = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");

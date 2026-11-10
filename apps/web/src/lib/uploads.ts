@@ -1,4 +1,4 @@
-import { examPaperFilePath, paperImportPath, supabase, type ParsedPaymentSms } from "@figbloom/shared";
+import { examPaperFilePath, paperImportPath, privateDocumentUrl, supabase, type ParsedPaymentSms } from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -30,11 +30,7 @@ export function publicAssetUrl(path: string): string {
 }
 
 /** A signed, time-limited URL — private-documents has no public read. */
-export async function privateDocUrl(path: string, expiresInSeconds = 3600): Promise<string> {
-  const { data, error } = await supabase().storage.from("private-documents").createSignedUrl(path, expiresInSeconds);
-  if (error) throw error;
-  return data.signedUrl;
-}
+export const privateDocUrl = privateDocumentUrl;
 
 /** A staff/student photo. Staff write any; anyone may write their own staff-{id}
  *  photo (public_assets_own_avatar). Versioned so a replaced photo at the same

@@ -45,6 +45,43 @@ export interface HomeworkInput {
 const TITLE_MAX = 120;
 const BODY_MAX = 2000;
 
+/** What validateHomework says about a due date that is missing or not a date, and about one before today: exported so a screen can show them beside the date box. */
+export const PICK_A_DUE_DATE = "Pick a due date.";
+export const DUE_IN_THE_PAST = "The due date can't be in the past.";
+
+const DATE_EXAMPLE = "31/10/2026";
+
+/**
+ * Reads a due date the way a person here writes it (day, month, year: 31/10/2026, 31-10-2026, 31.10.2026, 1/2/2026) and
+ * also the year-month-day the database keeps (2026-10-31). Gives back that stored form, or says in words what is wrong
+ * and how to type it. The teacher app has a plain text box for the date (no calendar), so this is where its rule lives.
+ */
+export function parseDueDate(text: string): { ok: true; iso: string } | { ok: false; message: string } {
+  const typed = text.trim();
+  const how = `Type the date as day/month/year, for example ${DATE_EXAMPLE}.`;
+  if (!typed) return { ok: false, message: `Enter the due date. ${how}` };
+
+  let day: number, month: number, year: number;
+  const stored = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(typed);
+  const written = /^(\d{1,2})[/.\- ]\s*(\d{1,2})[/.\- ]\s*(\d{4})$/.exec(typed);
+  if (stored) [year, month, day] = [Number(stored[1]), Number(stored[2]), Number(stored[3])];
+  else if (written) [day, month, year] = [Number(written[1]), Number(written[2]), Number(written[3])];
+  else if (/^\d{1,2}[/.\- ]\s*\d{1,2}[/.\- ]\s*\d{2}$/.test(typed)) return { ok: false, message: `Write the year in full. ${how}` };
+  else return { ok: false, message: `"${typed}" is not a date. ${how}` };
+
+  if (month < 1 || month > 12) return { ok: false, message: `${month} is not a month (1 to 12). ${how}` };
+  const real = new Date(Date.UTC(year, month - 1, day));
+  if (day < 1 || real.getUTCMonth() !== month - 1) return { ok: false, message: `There is no ${day}/${month}/${year}: check the day and the month.` };
+  const two = (n: number) => String(n).padStart(2, "0");
+  return { ok: true, iso: `${year}-${two(month)}-${two(day)}` };
+}
+
+/** A stored YYYY-MM-DD date written the way the due-date box asks for it (2026-10-31 becomes 31/10/2026). Anything else comes back as it is. */
+export function dueDateToText(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
 /**
  * Checks what a teacher typed for homework. `today` (YYYY-MM-DD) is passed in
  * so a due date can't be in the past when setting new work; editing existing
@@ -63,9 +100,9 @@ export function validateHomework(
   if (title.length > TITLE_MAX) return { ok: false, message: `Keep the title to ${TITLE_MAX} characters or fewer.` };
   if (body.length > BODY_MAX) return { ok: false, message: `Keep the instructions to ${BODY_MAX} characters or fewer.` };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueOn) || Number.isNaN(Date.parse(input.dueOn))) {
-    return { ok: false, message: "Pick a due date." };
+    return { ok: false, message: PICK_A_DUE_DATE };
   }
-  if (!allowPast && input.dueOn < today) return { ok: false, message: "The due date can't be in the past." };
+  if (!allowPast && input.dueOn < today) return { ok: false, message: DUE_IN_THE_PAST };
   if (!HAND_IN_OPTIONS.some((o) => o.value === input.handIn)) return { ok: false, message: "Pick how learners hand it in." };
   if (input.guide && input.guide.minutes !== null && cleanMinutes(input.guide.minutes) === null) {
     return { ok: false, message: `Give the time in whole minutes, from 1 to ${MAX_MINUTES}.` };

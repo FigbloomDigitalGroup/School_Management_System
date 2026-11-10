@@ -8,18 +8,20 @@ codebase, one deployment.
 ```
 apps/web/          React + Vite + TS + Tailwind — desktop console for every role
                    (platform, school admin, teacher, parent, student)
-apps/mobile/       React Native (Android + iOS) — the parent, student and driver
-                   mobile apps. apps/web also keeps a phone-mockup preview of the
+apps/mobile/       React Native (Android + iOS) — the one phone app: the signed-in
+                   role (parent, student, driver, teacher, school admin or staff
+                   with admin areas) picks the screens.
+                   apps/web also keeps a phone-mockup preview of the
                    student screens (StudentApp.tsx, wrapped in <PhoneFrame>) for
                    design reference — it isn't routed to; the desktop screens are
                    the real web app
-apps/teacher-mobile/  React Native (Android only — iOS deferred, see its own
-                   README) — the teacher app, a separate binary from apps/mobile
-                   since a teacher's workflow doesn't fit that app's role union
-packages/shared/   Domain logic used by all three apps: types, grading scale, fee
+packages/shared/   Domain logic used by both apps: types, grading scale, fee
                    maths, attendance register, M-Pesa helpers, offline write queue
 supabase/          Schema, row-level security, seed script, M-Pesa edge functions
 e2e/               Playwright tests over the five critical flows
+tests/integration/ Vitest tests against the local Supabase: sign-in per role, school isolation, who may record payments, billing
+tests/security/    Vitest static checks (no database): HTML sinks and secrets in the client code, which edge functions are public, web headers, workflow hardening, and scripts/security-scan.sh run against seeded attacks
+tests/integrity/   Vitest static checks (no database) on the migration files: naming and versions, the split organizations migration, row-level security on every table, and that the old schema.sql and rls.sql stay deleted (the migrations are the only schema)
 ```
 
 ## Running it
@@ -30,7 +32,8 @@ The web app talks to a real local Supabase — there is no mock-data mode anymor
 npm install
 cp .env.example .env         # then fill in the values `supabase start` prints below
 npx supabase start           # Postgres, Auth, Studio etc. in Docker — first run pulls images
-npm run db:seed              # applies supabase/migrations (schema + RLS) via db reset, then seeds demo data
+npm run db:seed              # seeds the demo data (the first `supabase start` has already applied supabase/migrations)
+npm run db:seed-org          # adds the org admin login (see "Seeded logins" below)
 npm run dev                  # web on :5173 (or the next free port — Vite will say which)
 npm run dev:mobile           # Metro, then `npm run android` or `npm run ios` -w @figbloom/mobile
 ```
@@ -44,9 +47,68 @@ the browser). `supabase/config.toml` moves every service off Supabase's usual
 excludedportrange protocol=tcp`), and Docker can't bind to those from the host.
 If your machine doesn't have that reservation you can move the ports back.
 
-Development logins are listed on the sign-in screen — the password column
-tells you what to type for each (a fixed password for staff, `OTP 000000` for
-the seeded parent, a PIN for the seeded student).
+## Seeded logins
+
+`npm run db:seed` creates the demo schools and one login for each role below, and `npm run db:seed-org` adds the
+org admin (it seeds the Kijani Ridge Group). Every one of them uses the same local-only password, `figbloom-dev`.
+Against a hosted project the seed scripts refuse to run unless `ALLOW_REMOTE_SEED=1` is set, and then give every
+login a random password instead.
+
+| Role | Sign in as | School | Seeded by |
+|---|---|---|---|
+| Platform staff | `joyce@figbloom.co.ke` | none | `db:seed` |
+| Org admin | `group@kijaniridge.sc.ke` | none (the Kijani Ridge Group owns the school) | `db:seed-org` |
+| School admin | `principal@alliance.sc.ke` | Alliance High School | `db:seed` |
+| Teacher | login ID `TC-0002` | Alliance High School | `db:seed` |
+| Parent | login ID `PT-0002` | Alliance High School | `db:seed` |
+| Student | login ID `ST-0002` | Alliance High School | `db:seed` |
+| Driver | login ID `BD-0001` | Alliance High School | `db:seed` |
+
+Staff with an email sign in with it. Everyone else picks their school and types their login ID; behind the scenes
+that becomes `<id>@login.<school>.figbloom.internal` (`loginIdEmail()` in `packages/shared/src/auth.ts`). The seed
+also creates a guard (`GD-0001`) and a receptionist (`RC-0001`).
+
+## Resetting the local database
+
+These only touch the Supabase running on this machine.
+
+| To get | Run |
+|---|---|
+| Back to the full seeded state, from scratch | `npm run db:fresh` (that is `db:reset`, then `db:seed`, then `db:seed-org`) |
+| Every migration re-applied and the data emptied | `npm run db:reset` |
+| A freshly reset database seeded | `npm run db:seed`, then `npm run db:seed-org` |
+
+The seeds only add data, so reset first on a database that is already seeded. `db:reset` can take about 15 minutes
+when the Supabase CLI wants a newer Postgres image than the one on your machine: it re-pulls about 1.7 GB and the
+log looks stuck, so check Docker before cancelling.
+
+## Tests
+
+| Command | What it runs | Needs |
+|---|---|---|
+| `npm run test:unit` | Vitest on `packages/shared` (pure logic, including every mark from 0 to 100 against the KCSE, CBC and GPA grade tables typed out by hand in `gradeTables.test.ts`, and a seven-learner report card worked out on paper in `reportCardFigures.test.ts`, down to the text the PDF prints, the date a register is filed under at the Nairobi midnight boundary in `attendanceDates.test.ts`, and the CSV helpers and the learner import's every rule in `csv.test.ts` and `apps/web/src/lib/studentImport.test.ts`; also `tests/security`: what the code and configuration say about HTML sinks, secrets shipped to a browser or phone, the five public edge functions, the web host's headers and the two GitHub workflows, and `scripts/security-scan.sh` run in throwaway git repositories against every attack it promises to catch, then six it does not; needs `sh`, `git` and `node`, otherwise those tests are skipped; and `tests/integrity`: what the migration files say about themselves) | nothing |
+| `npm run test:edge` | Deno tests for `supabase/functions` (including that `provision-student`, `provision-guardian` and `invite-admin` roll back a half-made account at every step, and that they should say so when the audit entry fails) | Deno |
+| `npm test` inside `apps/mobile` | Jest and React Native Testing Library: the child and exam switchers (parent screens), and the "could not be sent" notice the queue-sync hook and the Homework due-date box (teacher screens); each test asserts what the person sees, not just that it renders | Jest, nothing else running (no phone, no database) |
+| `npm run test:integration` | Vitest in `tests/integration`: signs in as each of the seven roles above, then checks school isolation (rows, storage, edge functions), who may record a payment, the fee billing run and its audit trail, what a parent's Fees screen is built from, how the M-Pesa functions answer as deployed, what the server (not the screens) enforces for sign-in, tokens and sessions, the three public endpoints, entering and publishing marks per exam, class and subject (what a parent and a learner see, class means, withdrawing), and report cards from the marks to the card a family downloads (preparing, comments, who may read or change one, sending, withdrawing, the audit entries), and attendance (one row per learner and day, corrections, a register held on a phone and sent for real, the parent's and the report card's figure), and school setup (which schools can sign in by status, what a timetable save that is refused part-way leaves, what a cover assignment tells the substitute, why a grade changes with the class's level), and uploads (a name that climbs out of a school's folder, what the public bucket serves and to whom, who may overwrite a logo or a photo); one file at a time, because they share one database | the local stack, seeded with `db:fresh`; `edgeFunctionIsolation.test.ts` also needs the edge functions from `main` |
+| `npm test` | Playwright over `e2e/` (`flows.spec.ts`; `reconciliation.spec.ts`, which reads every money figure on the admin, parent, student and group screens and compares it with the database; `signin.spec.ts`, wrong passwords, wrong portal and the emailed reset link, which uses the local mail catcher; `gradebook.spec.ts`, the grade, the means and the Publish button on the teacher gradebook as marks are typed, saving nothing; and `reportCards.spec.ts`, which prepares Form 2 West's 43 report cards, compares every row on the screen and every page of the PDF with the marks in the database, then sends one card to the parent and removes it again, desktop only; and `attendance.spec.ts`, which reads the admin Dashboard and Reports and the parent's Home against the attendance rows, submits and corrects a register, and holds one on a phone while someone else signs in; and `learners.spec.ts`, desktop only, which adds, imports (a real file through the file chooser), archives, restores and promotes learners on the People and Classes screens and checks a school of more than 1,100 learners; and `setup.spec.ts`, desktop only, which starts a new term, deletes a class and books a teacher into two classes through the Settings and Classes screens, and compares a one-level school with a mixed one; and `reports.spec.ts`, desktop only, which re-derives every figure on Reports, Performance, the CBE report, every platform page (Tenants, Organizations, Curriculum, Usage, Subscriptions, Invoices, System health, Incidents, Impersonation log, Audit trail) and the group dashboard from the database, drives the billing and payment dialogs, then archives learners, opens an empty school, adds 1,200 learners to pass 1,000 rows and signs in as each role to see who may open each screen; and `xss.spec.ts`, desktop only, which puts a hostile string into a learner, teacher, parent, school, class, subject, fee item, announcement, homework, incident, organization and a CSV cell, opens every screen that shows it as each role and checks nothing ran and nothing was injected; and `a11y.spec.ts`, desktop only, which opens every screen of all seven roles and the public pages at 1280, 768 and 390 px wide, runs axe-core (WCAG 2.0 and 2.1, A and AA) at 1280 and 390, and records anything cut off, scrolling sideways or logging a console error; and `usability.spec.ts`, desktop only, the keyboard (sign-in, focus rings, dialogs), every dialog and sign-in view at two widths, failed and slow requests, a double click on Pay, Submit register, Bill learners and Record payment, very long names (it renames a few rows and puts them back) and the accessibility settings. Both list each known bug as a test that is expected to fail, tagged `QA16-...` and its FIG id, and fail on any finding that no known bug accounts for), desktop then phone, one worker | the local stack, seeded, and the edge functions running |
+
+`test:integration` refuses to start unless the Supabase URL is `127.0.0.1` or `localhost`
+(`tests/integration/support/localGuard.ts`), so it cannot be pointed at the demo or a production project by mistake.
+Only the URL and the anon key from `.env` reach those tests, never the service-role key. A new role or login goes in
+`TEST_ROLES` in `tests/integration/support/signInAs.ts`; the smoke test picks it up.
+
+Since the fee-record guards (an invoice with a payment, its term, its learner and its proof file cannot be deleted), the tests
+that pay invoices cannot clean up after themselves: they use a term year of their own per run so they can run again, and
+`npm run db:fresh` clears what they leave. The browser specs answer the app's own confirm box with `e2e/support/confirm.ts`.
+`e2e/reports.spec.ts` seeds 1,200 learners with paid invoices to pass 1,000 rows and cannot remove them; run `npm run db:fresh` after it
+and before `e2e/reconciliation.spec.ts` (which also differs from Reports once an archived learner has an invoice: FIG-1501).
+The audit's final report and release recommendation are in `QA_REPORT.md`.
+
+Playwright clears the local login-lookup log before it starts (sign-in by login ID is limited to 30 lookups per 10
+minutes), so runs can follow each other. After a reboot or a Docker restart the edge-function container stays down,
+and sign-in then fails in Playwright:
+`docker restart supabase_edge_runtime_figbloom`. The first Playwright run after Vite starts can time out on the first
+desktop test (a cold page load), which makes the rest of the desktop block show "did not run": run it again.
 
 ## Routes
 
@@ -63,6 +125,24 @@ the seeded parent, a PIN for the seeded student).
 Tenants resolve by **path**, not subdomain: one deployment, no wildcard DNS, and
 a school's URL survives a domain change. Mobile bakes the slug into the session.
 
+## Production database: `schools-db.figbloom.org` (self-hosted, since 5 Nov 2026)
+
+Figbloom Schools runs on self-hosted Supabase on AWS (figbloom-platform,
+"Figbloom Schools' database"), at `schools-db.figbloom.org`. Supabase Cloud is
+no longer production. Wherever a section below says `supabase db push` or
+`supabase functions deploy`, apply it to schools-db instead: bundle
+`supabase/` (`supabase/migrations`, `supabase/functions`,
+`supabase/config.toml`) as a `.tgz` in the platform's backups bucket under
+`migrations/`, and run `sudo /opt/figbloom/supabase/apply-migrations.sh
+<bundle>.tgz` on the host (SSM Run Command or Session Manager; the
+figbloom-platform README has the steps). It applies only the migrations the
+database hasn't run. Function secrets on that host live in the functions
+container's environment, not `supabase secrets set`.
+
+The edge functions there sit behind the ALB and Envoy, so the per-caller rate
+limits need `CLIENT_IP_HEADER=x-forwarded-for` and `TRUSTED_PROXY_HOPS=2`
+("Rate limits on the public functions").
+
 ## Figbloom console (`platform-schools`)
 
 Figbloom's own console (console.figbloom.org) lists every school and can suspend
@@ -71,7 +151,11 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
 
 - **What it answers:** `{"action": "list"}` gives each school's id, name, slug,
   status (as stored, e.g. `active`, `trial`, `suspended`), status reason, group,
-  created date, the first school admin's email, counts of learners, teachers and
+  created date, the first school admin's email (`admin_email`), the school's
+  admins (`admins: [{email, name, role: "school_admin"}]`: every school admin
+  who is not archived and has a real email, synthetic login addresses dropped,
+  oldest first, at most 20; the console invites them to Figbloom HR;
+  `20261105610000_console_school_admins.sql`), counts of learners, teachers and
   parents, and the latest sign-in at that school. Nothing else personal.
   `{"action": "set_status", "school_id", "status": "suspended" | "active",
   "reason", "actor_email"}` suspends (reason required) or reactivates a
@@ -93,7 +177,7 @@ or reactivate one. Its backend (bloomHR's `/api`) calls the edge function
   "Figbloom (via Figbloom console)"). The Figbloom staff member's email is
   never on the school's side: it is kept only in an audit event with no
   school, which only Figbloom staff (super admins) can read.
-- **What the school's people see.** Sign-in on the web and both phone apps
+- **What the school's people see.** Sign-in on the web and in the phone app
   says "Your school's account is suspended. Please contact your school's
   administrator or Figbloom support." (with `FIGBLOOM_SUPPORT_EMAIL` from
   `packages/shared/src/legalLinks.ts`), never the reason: for a login ID at a
@@ -234,6 +318,170 @@ organisation takes the platform's decision when it is registered (pending,
 or active with the platform's auto-approve), and the hourly reconcile runs.
 Turning it off again hands organisation status back to Schools' console.
 Checks: `supabase/rls-checks/platform_registration.sql` and `supabase/rls-checks/organization_suspension.sql`.
+
+## Figbloom HR: staff events (Schools + HR phase 1)
+
+Once Figbloom staff switch HR & Payroll on for a school (the console, on the platform), HR keeps a draft employee
+for each of the school's staff, and an exit completed in HR archives the Schools account
+(SCHOOLS_HR_PHASE1_CONTRACT.md, section 3; `20261105600000_platform_staff_events`).
+
+- **Staff events** go through the same outbox. Triggers on `profiles` queue a `staff` row for teachers, drivers,
+  other staff and school admins: `schools.staff.created` (hired, or restored), `.updated` (name, phone, title, role,
+  or a real email; a synthetic login address `…@login.<slug>.figbloom.internal` is sent as `email: null`) and
+  `.left` (archived, removed, or no longer a staff role; with `left_on`). `platform-sync` sends them as
+  `POST /events` after the organisations and schools, `tenant_local_id` the school's id, with the same retries.
+- **Two gates on sending.** `PLATFORM_STAFF_EVENTS_ENABLED` (`platform_settings`, off by default): while it is off
+  nothing is queued at all, so no personal data piles up, and `staff_backfill` for real is refused (409
+  `staff_events_disabled`; the dry run still lists). And only schools the platform knows: a school whose registration
+  has been delivered (`platform_links`, kind `tenant`); otherwise nothing is queued and the backfill answers 409
+  `school_not_linked`. If the platform still answers 404 for a staff event, the row ends as `skipped_unlinked` (done,
+  not retried) and `platform-sync` logs it.
+- **Archiving staff** (`archive_staff()` / `restore_staff()`, like learners): the account is kept, its login banned
+  and its sessions ended; restoring lifts the ban.
+- **`hr.employee.left`** arrives at `platform-events`, signed like decisions (`PLATFORM_WEBHOOK_SECRET`). The person
+  must belong to the school the event names. It archives them (not sent back to HR as `.left`); each delivery once.
+  **`PLATFORM_EVENTS_ENABLED`** (`platform_settings`, off): until it is on, events are verified, recorded in
+  `platform_event_deliveries`, logged and acknowledged, not applied.
+
+**Deploy**, on the database and the functions host of the environment:
+
+1. Apply the migration `20261105600000_platform_staff_events`.
+2. Deploy the `platform-sync` and `platform-events` functions (`platform-events` is public: JWT verification off,
+   like `platform-decisions`; its own check is the signature).
+3. Function settings: set `PLATFORM_EVENTS_URL` to `<public functions URL>/platform-events`. `PLATFORM_WEBHOOK_SECRET`
+   (the platform's `figbloom/platform/webhook/schools` value) and the existing `PLATFORM_*` client settings are reused.
+4. Register the event webhook: call `platform-sync` (with `PLATFORM_SYNC_KEY` in `x-platform-sync-key`) with
+   `{"action":"register_event_webhook"}`.
+5. Switch sending on, only on a database whose platform should receive its staff:
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_STAFF_EVENTS_ENABLED';
+   ```
+
+6. After HR is switched on for a school: `{"action":"staff_backfill","school_id":"<tenants.id>"}` lists its staff;
+   with `"dry_run":false` it queues `schools.staff.created` for each, and the next minute's sync sends them.
+7. Switch receiving on (`hr.employee.left` archives accounts):
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_EVENTS_ENABLED';
+   ```
+
+Turning either setting back to `'false'` stops it again (rows already queued are still sent).
+Checks: `supabase/rls-checks/platform_staff_events.sql`.
+
+## Figbloom HR: one-click sign-in ("HR & Payroll")
+
+The web console's sidebar has **HR & Payroll**: one click opens Figbloom HR in a new tab, signed in
+(SCHOOLS_HR_HANDOFF_CONTRACT.md, section 3; `20261105700000_platform_hr_handoff`, the `open-hr` function).
+
+- **Who sees it:** the school's admin, an org admin acting for a school of their organisation, and a teacher or other
+  staff member holding the **fees** area (the bursar). Not Figbloom staff. HR decides real access; Schools only hides
+  the item from people who can't use it. The rule is the database's `hr_handoff_status(school)`, used by the sidebar and
+  by `open-hr` alike; it refuses (42501) anyone else.
+- **Whether HR is on for the school:** learned from the platform's answer to `POST /handoffs` itself (the platform
+  doesn't relay `platform.module.enabled` to Schools, and its tenant lookup is console-only). `open-hr` records each
+  answer in `platform_module_status`: the item shows while the answer is unknown or yes, hides for an hour after a 409
+  (`target_not_enabled`, `target_not_linked`, `target_no_handoff_url`), then shows again and the next click asks
+  again. A school the platform doesn't know yet (no `platform_links` row) never shows it.
+- **The click** opens a blank tab at once (so no popup blocker), calls `open-hr`, which checks the rule again and asks
+  the platform for a one-time link with the caller's id, name, role and real email (a synthetic login address is sent
+  as `null`), and sends the tab there. A refusal closes the tab and says why.
+- **Switch:** `PLATFORM_HANDOFF_ENABLED` (`platform_settings`, off by default): while off nobody sees the item and
+  `open-hr` refuses.
+
+**Deploy**, on the database and the functions host of the environment:
+
+1. Apply the migration `20261105700000_platform_hr_handoff`.
+2. Deploy the `open-hr` function (JWT verification on). It reuses the existing `PLATFORM_*` client settings.
+3. Once HR has registered its handoff URL with the platform, switch it on:
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'PLATFORM_HANDOFF_ENABLED';
+   ```
+
+Checks: `supabase/rls-checks/platform_hr_handoff.sql`.
+
+## Figbloom HR: "My HR" (Schools + HR phase 2, step 1, view only)
+
+Teachers, other staff and the school's own admins see **My HR** in their console: their own payslips (each one laid
+out from HR's figures, with Print / Save as PDF through the browser: HR has no server-side payslip PDF), leave balances
+and applications with their approval steps, attendance (by month) and KPIs from Figbloom HR, read only
+(SCHOOLS_HR_PHASE2_CONTRACT.md, section 3; `20261105710000_my_hr`, the `my-hr` function).
+
+- **Where:** `teacher/my-hr`, `staff/my-hr`, and `admin/my-hr` (only for a `school_admin`, as staff; not for an org
+  admin acting for the school). Drivers have no console yet; `my-hr` already accepts them for the phone app later.
+- **Who and when:** the database's `my_hr_status()` (about the signed-in person only, no arguments) is the rule for the
+  sidebar and for `my-hr`: an active, non-archived staff profile (teacher, driver, staff, school admin) of a school that
+  isn't suspended; `MY_HR_ENABLED` on; the school known to the platform (`platform_links`); and no
+  `target_not_enabled` / `target_not_linked` answer from the platform about HR in the last hour (what `open-hr` records
+  in `platform_module_status`; `target_no_handoff_url` doesn't hide My HR). Whether the person's own HR record is
+  ready is HR's answer, shown on the page: "Your HR record isn't ready yet. Ask the school's HR administrator."
+- **`my-hr`** takes `{route, payslip_id?, from?, to?}` and calls `HR_MY_HR_URL/<route>` with Schools' platform token and
+  `x-figbloom-school` / `x-figbloom-person` set from the caller's own profile, never from the request. A payslip is
+  `payslips/<id>` (every saved figure; HR's `payslips/<id>/pdf` answers 501 and is never called). HR's refusals become
+  sentences (`not_linked` and `pending_hr`: not ready; 403 `school_not_linked` or 401: HR isn't connected to the
+  school; 503 `my_hr_off`: HR's switch is off; 429: 120 calls per person per 10 minutes; 400: HR's own sentence;
+  anything else: try again shortly).
+- **Switch:** `MY_HR_ENABLED` (`platform_settings`, off by default): while off nobody sees the page and `my-hr` refuses.
+
+**Deploy**, on the database and the functions host of the environment:
+
+1. Apply the migration `20261105710000_my_hr`.
+2. Set the function secret `HR_MY_HR_URL` (HR's `https://<hr host>/api/integrations/my-hr`). It reuses the existing
+   `PLATFORM_*` client settings.
+3. Deploy the `my-hr` function (JWT verification on).
+4. Once HR's `/api/integrations/my-hr/*` is live (`MY_HR_API_ENABLED` on in HR) and the school's staff are linked, switch
+   it on:
+
+   ```sql
+   update platform_settings set value = 'true', updated_at = now() where key = 'MY_HR_ENABLED';
+   ```
+
+Checks: `supabase/rls-checks/my_hr.sql`; `supabase/functions/my-hr/index.test.ts` (against a fake HR shaped like bloomHR's `my_hr_routes.js`).
+
+## Figbloom HR: leave run by HR (Schools + HR phase 2, step 2a)
+
+At a school whose leave is HR's, staff apply for leave in Schools but HR keeps it: HR's types, rules, balances,
+documents and approval chain (SCHOOLS_HR_LEAVE_CONTRACT.md, section 3; `20261105800000_leave_via_hr`).
+
+- **When:** `HR_LEAVE_ENABLED` (`platform_settings`, off; one switch for the database) **and** HR on for the school:
+  known to the platform (`platform_links`) and the platform's latest answer about HR for it (`platform_module_status`,
+  from `open-hr`) isn't a `target_not_enabled` / `target_not_linked` "no". Unlike My HR, a "no" doesn't wear off after
+  an hour (which form a school uses mustn't flip). `hr_leave_access()` (the caller's own, no arguments) answers
+  `{status, approver}`.
+- **Leave page** (`teacher/leave`; `staff/leave`, new, shown only then): the form comes from HR (`my-hr` routes
+  `leave_form`, `leave_applications`, `leave_apply` with a reason of 10+ characters and a document up to 3 MB sent as base64 (HR production sits behind Vercel's ~4.5 MB request limit), `leave_cancel`, shown only when HR says `cancellable`). The old
+  Schools-only form is hidden there, and the database refuses a Schools-only request from an older app. Everywhere else
+  the old form and the office's Leave requests page work exactly as before. The teacher phone app says to apply on the web.
+- **Leave to approve** (`admin/leave-to-approve`): for the school's admins and staff holding the leave or fees area
+  (head teacher, deputy, bursar); HR decides who actually has items (`approvals`, `approval_decide`, done in HR as that
+  person's HR user). Someone HR can't match yet sees "Open HR & Payroll once to connect your HR account", with the
+  HR & Payroll button when they have it.
+- **HR's decision comes back** as `hr.leave.approved` / `hr.leave.cancelled` on `platform-events`:
+  `platform_hr_leave_event()` writes the person's `leave_requests` row (`source = 'hr'`, `hr_application_id` unique per
+  school) as approved, so cover planning (approved leave_requests), the affected lessons, the Needs-cover card and the
+  usual "Your leave request was approved" notice work unchanged. A cancel cancels the row, removes the cover arranged
+  for the days ahead (telling the substitute, as the office's change of cover does) and tells the person. Each delivery
+  once; each application in order (older events and a cancel of dates the row no longer has are `stale`, so a date
+  change works in either order). Overlap with other approved leave is refused (409, not recorded) for a person to sort
+  out. Applied only while `PLATFORM_EVENTS_ENABLED` and `HR_LEAVE_ENABLED` are both on; before that, recorded only.
+- **History export:** `platform-sync {"action":"leave_history_import","school_id":"..."}` lists (dry run, the default)
+  the school's approved Schools leave not yet exported, for staff whose `schools.staff` event was delivered;
+  the dry run also asks HR's own dry run (per-record `would_import`, `not_linked`, ...); `"dry_run":false` sends it to HR's `import/leave-history` (up to 5000 per call) and marks what HR answered `imported` or `already_imported` (`hr_exported_at`; `not_linked`, `skipped`, `invalid`, `refused` are listed, not marked), so it can be
+  run again safely.
+
+**Deploy:** apply `20261105800000_leave_via_hr`; deploy `my-hr`, `platform-events` and `platform-sync`
+(`HR_MY_HR_URL` is already set for My HR; platform-sync now reads it too); check the platform subscribes Schools to
+`hr.leave.approved` / `hr.leave.cancelled` (contract section 1); for each school moving to HR leave, run the history
+export (dry run first); then switch it on:
+
+```sql
+update platform_settings set value = 'true', updated_at = now() where key = 'HR_LEAVE_ENABLED';
+```
+
+Checks: `supabase/rls-checks/leave_via_hr.sql`; `supabase/functions/my-hr/leave.test.ts`,
+`supabase/functions/platform-events/leave.test.ts`, `supabase/functions/platform-sync/leave.test.ts`;
+`apps/web/src/screens/leave/HrLeaveViews.test.ts`, `packages/shared/src/hrLeave.test.ts`.
 
 ## Rate limits on the public functions
 

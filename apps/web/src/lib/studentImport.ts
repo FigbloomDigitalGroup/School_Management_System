@@ -192,7 +192,7 @@ export function downloadCsvTemplate(): void {
   URL.revokeObjectURL(url);
 }
 
-/** Inserts every valid row in one call — a school admin can already write students in their own tenant (see rls.sql). */
+/** Inserts every valid row in one call — a school admin can already write students in their own tenant (the students policies in supabase/migrations). */
 export async function importStudents(
   tenantId: string,
   classIdByName: Map<string, string>,

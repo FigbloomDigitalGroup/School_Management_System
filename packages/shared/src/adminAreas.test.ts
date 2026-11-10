@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_AREAS, ADMIN_AREA_INFO, ADMIN_AREA_PAGES, ADMIN_PAGE_AREA, ADMIN_PRESETS, adminAccessFor, areasOfPresets, describeAreas,
-  hasAdminConsole, isAdminArea, mayHoldAdminAreas, mayOpenAdminPage, presetsWithin, rolesHeldBy, effectiveAreas, showsAdminSwitch, sortAreas, togglePreset, type AdminArea,
+  hasAdminConsole, isAdminArea, mayHoldAdminAreas, mayOpenAdminPage, phoneConsolesFor, presetsWithin, rolesHeldBy, effectiveAreas, showsAdminSwitch, sortAreas, togglePreset, type AdminArea,
 } from "./adminAreas";
 import { NAV } from "./auth";
 
@@ -151,5 +151,36 @@ describe("admin pages", () => {
   it("are closed to a teacher without areas", () => {
     expect(mayOpenAdminPage([], "admin")).toBe(false);
     expect(mayOpenAdminPage([], "admin/account")).toBe(false);
+  });
+});
+
+describe("the consoles the phone app opens", () => {
+  it("is the whole admin console, and no teacher one, for a school admin", () => {
+    expect(phoneConsolesFor("school_admin", [])).toEqual({ teacher: false, admin: "all" });
+  });
+  it("is a teacher's own console alone when they hold no areas", () => {
+    expect(phoneConsolesFor("teacher", [])).toEqual({ teacher: true, admin: null });
+  });
+  it("adds the admin console, with exactly their areas, when a teacher holds some", () => {
+    expect(phoneConsolesFor("teacher", ["leave", "fees"])).toEqual({ teacher: true, admin: ["fees", "leave"] });
+  });
+  it("is the admin console alone for other staff who hold areas", () => {
+    expect(phoneConsolesFor("staff", ["fees"])).toEqual({ teacher: false, admin: ["fees"] });
+  });
+  it("keeps the visitors area in the list when it comes with another one", () => {
+    expect(phoneConsolesFor("staff", ["visitors", "fees"])).toEqual({ teacher: false, admin: ["fees", "visitors"] });
+    expect(phoneConsolesFor("teacher", ["visitors", "leave"])).toEqual({ teacher: true, admin: ["visitors", "leave"] });
+  });
+  it("is nothing for other staff with no areas, or with the visitors area alone: the phone has no visitor log", () => {
+    expect(phoneConsolesFor("staff", [])).toEqual({ teacher: false, admin: null });
+    expect(phoneConsolesFor("staff", ["visitors"])).toEqual({ teacher: false, admin: null });
+  });
+  it("leaves a teacher with only the visitors area on their own console, with no admin one to switch to", () => {
+    expect(phoneConsolesFor("teacher", ["visitors"])).toEqual({ teacher: true, admin: null });
+  });
+  it("is nothing for families, drivers, org admins and super admins: the web is theirs, or another app", () => {
+    for (const role of ["parent", "student", "driver", "org_admin", "super_admin"] as const) {
+      expect(phoneConsolesFor(role, ["fees"])).toEqual({ teacher: false, admin: null });
+    }
   });
 });

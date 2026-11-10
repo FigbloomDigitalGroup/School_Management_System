@@ -1,8 +1,9 @@
 import { useState } from "react";
 import {
-  PAYMENT_SMS_FLAG_LABEL, fetchAllPages, formatMoney, itemsForStudent, paymentSmsFlags, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel,
+  PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feeFigures, fetchFeesCollection, fetchSchoolYearGroups, fetchTenantCurrentTerm, fetchTermFeeItems, formatMoney,
+  itemsForStudent, proofFlags, proofToConfirm, rejectPaymentProof, rejectionReason, targetYearLabel, totalCents, yearLabel,
 } from "@figbloom/shared";
-import type { ClassLevel, FeeItem, PaymentSmsSource, Term, YearGroup } from "@figbloom/shared";
+import type { FeeItem, FeesCollection, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof, YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
@@ -18,144 +19,22 @@ import { privateDocUrl } from "../../lib/uploads";
 import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
 import { TermReceipts } from "../../components/signatures/ReceiptSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
-import { BillTermModal, RecordPaymentModal, type PayableInvoice, type ProofToConfirm } from "./FeeCollection";
+import { BillTermModal, RecordPaymentModal } from "./FeeCollection";
 
-interface OutstandingRow {
-  id: string;
-  name: string;
-  cls: string;
-  /** The invoice total, charges included. */
-  billed: number;
-  /** The part of `billed` that is charges (a lost textbook). */
-  charges: number;
-  paid: number;
-}
-
-/** An invoice paid above its total, in any term (the overpaid_invoices view). */
-interface OverpaidRow {
-  id: string;
-  total_cents: number;
-  paid_cents: number;
-  overpaid_cents: number;
-  students: { full_name: string; classes: { name: string } | null } | null;
-  terms: { name: string } | null;
-}
-
-interface RawInvoiceRow {
-  id: string;
-  total_cents: number;
-  charges_cents: number;
-  paid_cents: number;
-  students: { full_name: string; classes: { name: string } | null } | null;
-}
-
-/** What a pasted confirmation SMS said (payment_proofs.sms_text and the txn_* fields parsed from it). */
-interface ProofSms {
-  sms_text: string | null;
-  txn_source: PaymentSmsSource | null;
-  txn_code: string | null;
-  txn_amount_cents: number | null;
-  txn_at: string | null;
-  txn_payee: string | null;
-  txn_payee_number: string | null;
-  txn_account: string | null;
-}
-
-interface PendingProofRow extends ProofSms {
-  id: string;
-  file_path: string | null;
-  file_name: string | null;
-  note: string | null;
-  uploaded_at: string;
-  studentName: string;
-  cls: string;
-  invoice: PayableInvoice | null;
-}
-
-interface RawProofRow extends ProofSms {
-  id: string;
-  file_path: string | null;
-  file_name: string | null;
-  note: string | null;
-  uploaded_at: string;
-  fee_invoices: { id: string; total_cents: number; paid_cents: number; students: { full_name: string; classes: { name: string } | null } | null } | null;
-}
-
-interface FeesData {
-  term: Term | null;
+interface FeesData extends FeesCollection {
   feeItems: FeeItem[];
   formLevels: YearGroup[];
-  invoices: { total_cents: number; paid_cents: number }[];
-  outstanding: OutstandingRow[];
-  overpaid: OverpaidRow[];
-  pendingProofs: PendingProofRow[];
 }
 
 async function fetchFees(tenantId: string): Promise<FeesData> {
-  const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
-  const termId = term?.id ?? null;
-
-  const [{ data: feeItemRows }, rawInvoices, proofsRes, { data: classRows }, { data: overpaid }] = await Promise.all([
-    termId
-      ? sb.from("fee_items").select("*").eq("tenant_id", tenantId).eq("term_id", termId).returns<FeeItem[]>()
-      : Promise.resolve({ data: [] as FeeItem[] }),
-    // Every invoice, not the first 1000: the totals below are the school's whole term.
-    termId
-      ? fetchAllPages<RawInvoiceRow>((from, to) =>
-          sb.from("fee_invoices").select("id,total_cents,charges_cents,paid_cents,students(full_name,classes(name))")
-            .eq("tenant_id", tenantId).eq("term_id", termId).order("id").range(from, to).returns<RawInvoiceRow[]>())
-      : Promise.resolve([] as RawInvoiceRow[]),
-    // Payment proofs are keyed by invoice, not term — reach the current term
-    // through fee_invoices the same way the outstanding-balances query does.
-    termId
-      ? sb.from("payment_proofs")
-          .select("id,file_path,file_name,note,uploaded_at,sms_text,txn_source,txn_code,txn_amount_cents,txn_at,txn_payee,txn_payee_number,txn_account,fee_invoices!inner(id,total_cents,paid_cents,term_id,students(full_name,classes(name)))")
-          .eq("tenant_id", tenantId)
-          .eq("status", "pending")
-          .eq("fee_invoices.term_id", termId)
-          .order("uploaded_at", { ascending: true })
-          .returns<RawProofRow[]>()
-      : Promise.resolve({ data: [] as RawProofRow[] }),
-    sb.from("classes").select("level, form_level").eq("tenant_id", tenantId).returns<{ level: ClassLevel; form_level: number }[]>(),
-    // Any term, not only this one: money owed back doesn't expire with the term.
-    sb.from("overpaid_invoices").select("id,total_cents,paid_cents,overpaid_cents,students(full_name,classes(name)),terms(name)")
-      .eq("tenant_id", tenantId).order("overpaid_cents", { ascending: false }).returns<OverpaidRow[]>(),
+  const term = await fetchTenantCurrentTerm(tenantId);
+  const [collection, feeItems, formLevels] = await Promise.all([
+    fetchFeesCollection(tenantId, term),
+    term ? fetchTermFeeItems(term.id) : Promise.resolve([] as FeeItem[]),
+    // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
+    fetchSchoolYearGroups(tenantId),
   ]);
-
-  // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
-  const formLevels = yearGroupsOf(classRows ?? []);
-
-  const invoices = rawInvoices.map((r) => ({ total_cents: r.total_cents, paid_cents: r.paid_cents }));
-
-  const outstanding = rawInvoices
-    .filter((r) => r.paid_cents < r.total_cents)
-    .map((r) => ({
-      id: r.id,
-      name: r.students?.full_name ?? "Unknown learner",
-      cls: r.students?.classes?.name ?? "—",
-      billed: r.total_cents,
-      charges: r.charges_cents,
-      paid: r.paid_cents,
-    }))
-    .sort((a, b) => (b.billed - b.paid) - (a.billed - a.paid))
-    .slice(0, 10);
-
-  const pendingProofs: PendingProofRow[] = (proofsRes.data ?? []).map((r) => {
-    const studentName = r.fee_invoices?.students?.full_name ?? "Unknown learner";
-    const cls = r.fee_invoices?.students?.classes?.name ?? "—";
-    const { fee_invoices: _invoice, ...proof } = r;
-    return {
-      ...proof,
-      studentName,
-      cls,
-      invoice: r.fee_invoices
-        ? { id: r.fee_invoices.id, studentName, cls, balanceCents: Math.max(r.fee_invoices.total_cents - r.fee_invoices.paid_cents, 0) }
-        : null,
-    };
-  });
-
-  return { term: term ?? null, feeItems: feeItemRows ?? [], formLevels, invoices, outstanding, overpaid: overpaid ?? [], pendingProofs };
+  return { ...collection, feeItems, formLevels };
 }
 
 export function Fees() {
@@ -172,8 +51,8 @@ export function Fees() {
   const [editingItems, setEditingItems] = useState(false);
   const [billing, setBilling] = useState(false);
   // null: closed. {}: open with a learner search. Otherwise that invoice (and proof, when confirming one).
-  const [recording, setRecording] = useState<{ invoice?: PayableInvoice; proof?: PendingProofRow } | null>(null);
-  const [rejecting, setRejecting] = useState<PendingProofRow | null>(null);
+  const [recording, setRecording] = useState<{ invoice?: PayableInvoice; proof?: PendingProof } | null>(null);
+  const [rejecting, setRejecting] = useState<PendingProof | null>(null);
 
   function done(message: string) {
     setBilling(false);
@@ -186,12 +65,10 @@ export function Fees() {
   // confirmed together with the payment it shows, so the balance moves too.
   // The reason is shown to the family, so they know whether to resubmit or call.
   async function rejectProof(id: string, reason: string): Promise<boolean> {
-    const { error: updateError } = await supabase()
-      .from("payment_proofs")
-      .update({ status: "rejected", reviewed_by: profile.id, reviewed_at: new Date().toISOString(), rejection_reason: reason })
-      .eq("id", id);
-    if (updateError) {
-      toast(`Could not update: ${updateError.message}`, "error");
+    try {
+      await rejectPaymentProof({ proofId: id, reviewerId: profile.id, reason });
+    } catch (err) {
+      toast(`Could not update: ${err instanceof Error ? err.message : "try again."}`, "error");
       return false;
     }
     setReviewedIds((s) => new Set(s).add(id));
@@ -221,14 +98,7 @@ export function Fees() {
       }))
     : [];
 
-  const billed = data ? data.invoices.reduce((a, i) => a + i.total_cents, 0) : 0;
-  const collected = data ? data.invoices.reduce((a, i) => a + i.paid_cents, 0) : 0;
-  // per invoice: one family's overpayment doesn't cancel another's debt
-  const outstandingTotal = data ? data.invoices.reduce((a, i) => a + Math.max(i.total_cents - i.paid_cents, 0), 0) : 0;
-  const collectedPct = billed > 0 ? Math.round((collected / billed) * 100) : 0;
-  const owingCount = data ? data.invoices.filter((i) => i.paid_cents < i.total_cents).length : 0;
-  const fullyPaidCount = data ? data.invoices.filter((i) => i.paid_cents >= i.total_cents && i.total_cents > 0).length : 0;
-  const fullyPaidPct = data && data.invoices.length > 0 ? Math.round((fullyPaidCount / data.invoices.length) * 100) : 0;
+  const { billed, collected, outstandingTotal, collectedPct, owingCount, fullyPaidCount, fullyPaidPct } = feeFigures(data?.invoices ?? []);
 
   return (
     <>
@@ -352,7 +222,7 @@ export function Fees() {
                   <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.billed - r.paid, tenant.country)}</span>
                 ) },
                 { key: "st", header: "", align: "right", render: (r: OutstandingRow) => (
-                  <Badge tone={r.paid === 0 ? "warn" : "muted"}>{r.paid === 0 ? "Nothing paid" : "Part paid"}</Badge>
+                  <Badge tone={r.paid === 0 ? "warn" : "muted"}>{balanceStanding(r)}</Badge>
                 ) },
                 { key: "pay", header: "", align: "right", render: (r: OutstandingRow) => (
                   <Button onClick={() => setRecording({ invoice: { id: r.id, studentName: r.name, cls: r.cls, balanceCents: r.billed - r.paid } })}>
@@ -402,14 +272,9 @@ export function Fees() {
             <DataTable
               title="Payment proof awaiting review"
               columns={[
-                { key: "student", header: "Learner", width: "1.4fr", render: (r: PendingProofRow) => <Cell sub={r.cls}>{r.studentName}</Cell> },
-                { key: "file", header: "Evidence", width: "1.6fr", render: (r: PendingProofRow) => {
-                  const flags = r.sms_text
-                    ? paymentSmsFlags(
-                        { code: r.txn_code, amountCents: r.txn_amount_cents, payeeNumber: r.txn_payee_number, paidAt: r.txn_at },
-                        { balanceCents: r.invoice?.balanceCents ?? null, paybill: tenant.payment_paybill, till: tenant.payment_till },
-                      )
-                    : [];
+                { key: "student", header: "Learner", width: "1.4fr", render: (r: PendingProof) => <Cell sub={r.cls}>{r.studentName}</Cell> },
+                { key: "file", header: "Evidence", width: "1.6fr", render: (r: PendingProof) => {
+                  const flags = proofFlags(r, { paybill: tenant.payment_paybill, till: tenant.payment_till });
                   const path = r.file_path;
                   return (
                     <div className="min-w-0">
@@ -436,11 +301,11 @@ export function Fees() {
                     </div>
                   );
                 } },
-                { key: "note", header: "Note", render: (r: PendingProofRow) => <Cell>{r.note ?? "—"}</Cell> },
-                { key: "when", header: "Uploaded", width: "0.8fr", render: (r: PendingProofRow) => (
+                { key: "note", header: "Note", render: (r: PendingProof) => <Cell>{r.note ?? "—"}</Cell> },
+                { key: "when", header: "Uploaded", width: "0.8fr", render: (r: PendingProof) => (
                   <Mono>{new Date(r.uploaded_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</Mono>
                 ) },
-                { key: "actions", header: "", align: "right", width: "1.2fr", render: (r: PendingProofRow) => (
+                { key: "actions", header: "", align: "right", width: "1.2fr", render: (r: PendingProof) => (
                   <div className="flex justify-end gap-2">
                     <Button onClick={() => setRejecting(r)}>Reject</Button>
                     <Button variant="accent" disabled={!r.invoice} onClick={() => r.invoice && setRecording({ invoice: r.invoice, proof: r })}>Confirm</Button>
@@ -501,39 +366,19 @@ export function Fees() {
   );
 }
 
-function proofToConfirm(p: PendingProofRow): ProofToConfirm {
-  return {
-    id: p.id,
-    fileName: p.file_name,
-    note: p.note,
-    smsText: p.sms_text,
-    code: p.txn_code,
-    amountCents: p.txn_amount_cents,
-    // Airtel Money and bank transfers are recorded as bank: there is no separate method for them.
-    method: p.txn_source === "mpesa" ? "mpesa" : p.sms_text ? "bank" : null,
-  };
-}
-
-const REJECT_REASONS = [
-  "The transaction code is not on the school's statement.",
-  "The amount on the statement is different.",
-  "This payment is for a different learner.",
-  "The file or message can't be read.",
-];
-
 function RejectProofModal({ proof, onClose, onReject }: {
-  proof: PendingProofRow;
+  proof: PendingProof;
   onClose: () => void;
   onReject: (reason: string) => Promise<boolean>;
 }) {
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
-  const ready = reason.trim().length >= 3 && !saving;
+  const ready = rejectionReason(reason) !== null && !saving;
 
   async function submit() {
     if (!ready) return;
     setSaving(true);
-    if (!(await onReject(reason.trim().slice(0, 300)))) setSaving(false);
+    if (!(await onReject(reason))) setSaving(false);
   }
 
   return (

@@ -21,6 +21,13 @@ export class FakePlatform {
   organizations = new Map<string, FakeOrganization>();
   tenants = new Map<string, FakeTenant>();
   webhookUrl: string | null = null;
+  eventWebhookUrl: string | null = null;
+  /** POST /events accepted, in order (a repeated id is accepted once, not again). */
+  events: { type: string; id: string; occurred_at: string; tenant_local_id: string; data: Record<string, unknown> }[] = [];
+  /** POST /handoffs: the schools (tenant_local_id) where each target product is on (tenant_modules) and linked, and its handoff URL. */
+  modules = new Map<string, { enabled: Set<string>; linked: Set<string>; handoffUrl: string | null }>();
+  /** POST /handoffs made, in order (the code is not kept: only its hash would be). */
+  handoffs: { target: string; tenant_local_id: string; person: Record<string, unknown>; return_to?: string }[] = [];
   /** Every call to the API (not the token endpoint), in order. */
   calls: { method: string; path: string; body: unknown; token: string }[] = [];
   tokensIssued = 0;
@@ -70,6 +77,12 @@ export class FakePlatform {
       this.tenants.set(local, t);
       return json({ tenant_id: t.tenant_id, slug: t.local_slug, local_slug: t.local_slug }, existing ? 200 : 201);
     }
+    if (url.pathname === "/events" && method === "POST") return this.postEvent(body);
+    if (url.pathname === "/handoffs" && method === "POST") return this.postHandoff(body);
+    if (url.pathname === "/products/schools/event-webhook" && method === "PUT") {
+      this.eventWebhookUrl = body.url;
+      return json({ url: body.url });
+    }
     if (url.pathname === "/products/schools/decision-webhook" && method === "PUT") {
       this.webhookUrl = body.url;
       return json({ url: body.url });
@@ -81,6 +94,39 @@ export class FakePlatform {
   decide(localId: string, status: string, reason: string | null = null) {
     const o = this.organizations.get(localId)!;
     Object.assign(o, { status, status_reason: reason, decided_on_platform: true });
+  }
+
+  /** Contract section 1: the sender's own types only; a repeated id accepted and not delivered; the school must be registered. */
+  // deno-lint-ignore no-explicit-any
+  private postEvent(body: any): Response {
+    if (typeof body?.type !== "string" || !body.type.startsWith("schools.")) return json({ error: { code: "forbidden", message: "Not your event type" } }, 403);
+    if (this.events.some((e) => e.id === body.id)) return json({ deliveries: 0, duplicate: true });
+    if (!this.tenants.has(body.tenant_local_id)) return json({ error: { code: "tenant_not_found", message: "Unknown tenant_local_id" } }, 404);
+    this.events.push(body);
+    return json({ deliveries: 1 }, 202);
+  }
+
+  /** HR is on and linked for this school, with this handoff URL. */
+  enableModule(target: string, tenantLocalId: string, handoffUrl: string | null = `https://${target}.platform.test/api/platform/handoff`) {
+    const m = this.modules.get(target) ?? { enabled: new Set<string>(), linked: new Set<string>(), handoffUrl: null };
+    m.enabled.add(tenantLocalId);
+    m.linked.add(tenantLocalId);
+    m.handoffUrl = handoffUrl;
+    this.modules.set(target, m);
+    return m;
+  }
+
+  /** Contract section 1: the school must be known; the target on, linked and with a handoff URL; the answer a one-time URL. */
+  // deno-lint-ignore no-explicit-any
+  private postHandoff(body: any): Response {
+    if (!this.tenants.has(body?.tenant_local_id)) return json({ error: { code: "tenant_not_found", message: "Unknown tenant_local_id" } }, 404);
+    const m = this.modules.get(body.target);
+    if (!m?.enabled.has(body.tenant_local_id)) return json({ error: { code: "target_not_enabled", message: "The target product is not enabled for this tenant" } }, 409);
+    if (!m.linked.has(body.tenant_local_id)) return json({ error: { code: "target_not_linked", message: "The target product has no link for this tenant" } }, 409);
+    if (!m.handoffUrl) return json({ error: { code: "target_no_handoff_url", message: "The target product has no handoff URL" } }, 409);
+    this.handoffs.push(body);
+    const code = `code-${++this.seq}`;
+    return json({ url: `${m.handoffUrl}?code=${code}`, expires_at: new Date(Date.now() + 60_000).toISOString() }, 201);
   }
 
   private token(headers: Headers, body: string): Response {

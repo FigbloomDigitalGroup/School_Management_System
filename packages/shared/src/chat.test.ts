@@ -1,12 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
-  chatDayLabel, chatDraftBody, chatFilePath, chatMimeForFile, conversationPreview, groupMessagesByDay, mergeMessage,
-  type ChatMessage,
+  chatDayLabel, chatDraftBody, chatFilePath, chatMimeForFile, conversationPreview, filterSchoolConversations, groupMessagesByDay, mergeMessage,
+  schoolChatTitle, type ChatMessage,
 } from "./chat";
 
 function msg(id: string, createdAt: string): ChatMessage {
   return { id, conversationId: "c1", senderId: "p1", body: id, filePath: null, fileName: null, mimeType: null, sizeBytes: null, createdAt };
 }
+
+describe("the office's list of the school's chats", () => {
+  const chat = (a: string, b: string) => ({ a: { profileId: a, name: a, role: "parent" as const }, b: { profileId: b, name: b, role: "teacher" as const } });
+  const chats = [chat("Mary Otieno", "Ann Wanjiru"), chat("Joel Kamau", "Ann Wanjiru"), chat("Ruth Njeri", "Peter Mwangi")];
+
+  it("names a chat by the two people in it", () => {
+    expect(schoolChatTitle(chats[0]!)).toBe("Mary Otieno and Ann Wanjiru");
+  });
+  it("finds the chats with someone by any part of their name, in any case, on either side", () => {
+    expect(filterSchoolConversations(chats, "ann").map(schoolChatTitle)).toEqual(["Mary Otieno and Ann Wanjiru", "Joel Kamau and Ann Wanjiru"]);
+    expect(filterSchoolConversations(chats, "  MWANGI ").map(schoolChatTitle)).toEqual(["Ruth Njeri and Peter Mwangi"]);
+    expect(filterSchoolConversations(chats, "nobody")).toEqual([]);
+  });
+  it("lists every chat when the filter is blank", () => {
+    expect(filterSchoolConversations(chats, "   ")).toHaveLength(3);
+  });
+});
 
 describe("chatMimeForFile", () => {
   it("takes documents, pictures and voice notes", () => {

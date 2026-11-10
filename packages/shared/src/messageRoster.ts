@@ -7,7 +7,7 @@ import type { Audience, ClassGroup, ClassLevel, Role } from "./types";
  * the inboxes would build for them -- so "Reaches N people" is counted with
  * the exact rule that decides who actually sees the message, not a separate
  * estimate that could drift from it. Shared by admin's Announcements and the
- * teacher Messages composers (web and teacher-mobile).
+ * teacher Messages composers (web and the phone app).
  */
 
 export interface RosterPerson {

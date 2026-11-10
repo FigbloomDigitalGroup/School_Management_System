@@ -1,13 +1,13 @@
 # Phone Apps — The UI Kit and Light/Dark Theme
 
-This covers how the two phone apps (`apps/mobile`: parent, student, driver; `apps/teacher-mobile`: teacher) are drawn: the shared kit, the design tokens, and how light and dark work. Read it before adding a screen.
+This covers how the phone app (`apps/mobile`: parent, student, driver and teacher) is drawn: the shared kit, the design tokens, and how light and dark work. Read it before adding a screen.
 
 ## TL;DR
 
 - Colours come from **one place**, `packages/shared/src/tokens.ts`, in two sets: `appSurface`/`brand`/`status` (light) and `appSurfaceDark`/`brandDark`/`statusDark` (dark). Every colour a screen uses is a key in those sets. `tokens.test.ts` holds both sets to WCAG AA (4.5:1 for text).
 - A component gets its colours from **`useTheme()`**, never from a module constant: `const { t, s, scheme, accentInk, fieldLine } = useTheme();`. `t` is the colour tokens, `s` the shared styles (`s.card`, `s.h2`, ...), `scheme` is `"light"` or `"dark"`.
 - Light or dark is chosen once, in `ThemeProvider` (mounted in each app's `App.tsx`): the person's pick from Account > Appearance (Same as phone / Light / Dark, remembered), else the phone's setting. Changing it re-renders live; nothing restarts.
-- The kit lives in `src/theme.ts` and `src/ui/` and is **byte-identical in both apps** (there is no shared React Native package). `scripts/phoneUiSync.test.ts` fails and names the file that drifted. Change both or neither.
+- The kit lives in `src/theme.ts` and `src/ui/` and exists **once**, in `apps/mobile` (the teacher's app used to carry a second copy, kept in step by a sync test; the two were merged on 2026-11-06).
 
 ## The kit
 

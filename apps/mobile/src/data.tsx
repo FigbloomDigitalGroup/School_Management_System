@@ -4,16 +4,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { loadParentData, markMessageRead, subscribeAnnouncements, type ChildInfo, type ChildSubject, type ClassLevel, type FeeCharge, type FeeItem, type MessageInfo, type ParentData, type PublishedExam, type Receipt } from "@figbloom/shared";
 import { accentFor } from "./theme";
 import { useTheme } from "./ui/ThemeContext";
+import { PARENT_CACHE_KEY as CACHE_KEY } from "./lib/cacheKeys";
 
 /**
  * Real parent data — one Supabase query (shared with web), cached to
  * AsyncStorage so the last-known balance and results stay readable with no
  * network. The cached copy is shown immediately; a fresh fetch replaces it
  * (and the cache) the moment it lands.
+ *
+ * Stored under `${CACHE_KEY}.${profileId}`: a second account on this phone must never see the first one's
+ * figures while its own loads. Signing out deletes it (FIG-1489, see lib/signOut.ts).
  */
-
-/** Suffixed with the profile id: a second account on this phone must never see the first one's figures while its own loads. */
-const CACHE_KEY = "figbloom.parentData.v1";
 
 interface Child {
   id: string;

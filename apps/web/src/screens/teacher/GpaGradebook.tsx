@@ -114,7 +114,9 @@ export function GpaGradebook() {
     el?.select();
   }
 
-  const entered = roster.filter((s) => value(s.student_id).trim() !== "").length;
+  // A box the screen has refused is not an entry (see Gradebook.tsx, FIG-1374): counting it turned Publish on with a learner missing.
+  const refused = roster.filter((s) => { const v = value(s.student_id).trim(); return v !== "" && !parseScoreInput(v, assessment?.out_of ?? 100).ok; }).length;
+  const entered = roster.filter((s) => { const v = value(s.student_id).trim(); return v !== "" && parseScoreInput(v, assessment?.out_of ?? 100).ok; }).length;
 
   function buildMarkRows() {
     return roster.flatMap((s) => {
@@ -149,7 +151,7 @@ export function GpaGradebook() {
       if (rows.length) await saveMarks(tenant.id, assessmentId, profile.id, rows);
       await publishAssessment(assessmentId);
       setReloadKey((k) => k + 1);
-      toast(`${assessment.name} published to ${roster.length} student${roster.length === 1 ? "" : "s"}.`);
+      toast(`${assessment.name} published to ${rows.length} student${rows.length === 1 ? "" : "s"}.`);
     } catch (err) {
       toast(err instanceof Error ? `Could not publish: ${err.message}` : "Could not publish.", "error");
     }
@@ -203,7 +205,7 @@ export function GpaGradebook() {
               <>
                 <Button onClick={() => void saveDraft()}>Save draft</Button>
                 <Button variant="accent" disabled={!marksReady || !!assessment?.published_at || entered < roster.length} onClick={() => void publish()}>
-                  {assessment?.published_at ? "Published" : marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish"}
+                  {assessment?.published_at ? "Published" : marksReady && refused > 0 ? `Fix ${refused} mark${refused === 1 ? "" : "s"}` : marksReady && entered < roster.length ? `${roster.length - entered} still to enter` : "Publish"}
                 </Button>
               </>
             )}

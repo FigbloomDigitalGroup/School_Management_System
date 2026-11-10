@@ -4,9 +4,11 @@ import { supabase } from "./supabase";
  * A learner's health and bio details (student_health, see
  * 20261025050000_learner_address_health.sql): allergies, conditions,
  * medication, blood group, diet, support needs, doctor and emergency contact.
- * Staff, the learner's guardians and the learner can read it; admins and
- * guardians can change it. Teachers see a small "Allergy" / "Medical" chip on
- * their class lists from healthFlags().
+ * The school admin and staff holding the people or medical area, the
+ * learner's guardians and the learner can read it; admins and guardians can
+ * change it. A teacher does not read the record: they see a small "Allergy" /
+ * "Medical" chip on the class lists they teach, made by healthFlags() from the
+ * five fields teacher_health_flags() hands them (FIG-1303).
  */
 
 export const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] as const;
@@ -105,7 +107,7 @@ export interface HealthFlags {
 }
 
 /** What a teacher's class list shows for a learner; null when there's nothing to flag. */
-export function healthFlags(h: Pick<StudentHealth, "allergies" | "medical_conditions" | "medications" | "dietary_needs" | "special_needs"> | null | undefined): HealthFlags | null {
+export function healthFlags(h: HealthFlagSource | null | undefined): HealthFlags | null {
   if (!h) return null;
   const allergy = h.allergies.length > 0;
   const medical = h.medical_conditions.length > 0 || !!h.medications?.trim() || !!h.special_needs?.trim();
@@ -127,15 +129,22 @@ export async function fetchStudentHealth(studentId: string): Promise<StudentHeal
   return data;
 }
 
-/** Several learners' records at once (a class list), by student id. Learners with none are absent. */
-export async function fetchHealthForStudents(studentIds: string[]): Promise<Map<string, StudentHealth>> {
+/** The part of a record that a class list's chip is made from (and the only part a teacher is given). */
+export type HealthFlagSource = Pick<StudentHealth, "allergies" | "medical_conditions" | "medications" | "dietary_needs" | "special_needs">;
+
+/**
+ * The health flags of several learners at once (a class list), by student id. This asks teacher_health_flags(), which answers only for
+ * learners of a class the signed-in teacher teaches or is the class teacher of, and gives only the five fields healthFlags() needs: never
+ * the blood group, notes, doctor or emergency contacts (FIG-1303). Learners with nothing recorded are absent.
+ */
+export async function fetchHealthFlagsForStudents(studentIds: string[]): Promise<Map<string, HealthFlagSource>> {
   const ids = [...new Set(studentIds)];
-  const out = new Map<string, StudentHealth>();
-  // chunked: a long id list in one URL runs past what the API gateway accepts
+  const out = new Map<string, HealthFlagSource>();
+  // chunked: a long id list in one request runs past what the API gateway accepts
   for (let i = 0; i < ids.length; i += 150) {
-    const { data, error } = await supabase().from("student_health").select("*").in("student_id", ids.slice(i, i + 150)).returns<StudentHealth[]>();
+    const { data, error } = await supabase().rpc("teacher_health_flags", { p_student_ids: ids.slice(i, i + 150) });
     if (error) throw error;
-    for (const h of data ?? []) out.set(h.student_id, h);
+    for (const h of (data ?? []) as (HealthFlagSource & { student_id: string })[]) out.set(h.student_id, h);
   }
   return out;
 }

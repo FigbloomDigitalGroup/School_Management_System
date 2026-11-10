@@ -41,7 +41,7 @@ const REMOTE = url.includes("supabase.co");
 const PASSWORD = process.env.SEED_PASSWORD ?? (REMOTE ? randomBytes(9).toString("base64url") : "figbloom-dev");
 // WITH_ORG=1 also creates a group-owner organisation that owns the school, with
 // an org_admin login (see organizations.sql). Existing organisations are never touched.
-const WITH_ORG = process.env.WITH_ORG === "1";
+const WITH_ORG = process.env.WITH_ORG === "1" || process.argv.includes("--with-org"); // `npm run db:seed-org`
 // FLEET_ONLY=1 adds just the buses, routes and drivers (seedFleet) to an
 // existing Kijani Ridge -- tops up whatever buses it doesn't have yet.
 const FLEET_ONLY = process.env.FLEET_ONLY === "1";
@@ -49,6 +49,9 @@ const FLEET_ONLY = process.env.FLEET_ONLY === "1";
 // payments, attendance, timetables, announcements, homework, leave) to an existing
 // Kijani Ridge -- skipped if this term's fee structure is already there.
 const LIFE_ONLY = process.env.LIFE_ONLY === "1";
+// CHAT_ONLY=1 adds just the chats and the call log (seedChats) to an existing
+// Kijani Ridge -- skipped if the school already has any conversations or calls.
+const CHAT_ONLY = process.env.CHAT_ONLY === "1";
 
 type Login = { login_id?: string; email?: string };
 
@@ -400,6 +403,151 @@ async function seedSchoolLife(tenantId: string) {
   }
 }
 
+// ---------------------------------------------------------------- chats and calls
+// People by login_id (the head by email). SF-* are the support staff added to
+// the live school by hand; a fresh seed doesn't have them, so their threads skip.
+type Who = string;
+type Line = [from: Who, daysAgo: number, time: string, body: string];
+const HEAD = "head@kijaniridge.sc.ke";
+
+// One fee question travels parent -> head -> bursar -> parent, so the head's
+// "All school chats" shows both sides of it.
+const CHATS: { a: Who; b: Who; lines: Line[]; unread?: [Who, number] }[] = [
+  { a: "PT-0001", b: "TC-0001", unread: ["PT-0001", 2], lines: [
+    ["PT-0001", 4, "18:42", "Good evening Mr Kiprop. Zawadi says she found linear equations exercise 4B hard, especially checking answers by substitution. Is there something she can practise at home?"],
+    ["TC-0001", 4, "19:15", "Good evening Mrs Mwangi. She's not behind; most of the class asked about substitution. I'll run a short catch-up on Thursday at lunch, and she's welcome to bring her book."],
+    ["PT-0001", 4, "19:21", "Thank you, that helps. We'll go through the first few questions this weekend."],
+    ["TC-0001", 1, "16:05", "Quick update: Zawadi came to the catch-up and redid 4B. 11 of 12 correct, and she explained her substitution check to the group. I tried to call you just now."],
+    ["TC-0001", 0, "07:05", "Also, Amani's multiplication on page 42 is due tomorrow. The first row is meant to be done together with a parent."],
+  ] },
+  { a: "PT-0001", b: HEAD, lines: [
+    ["PT-0001", 6, "09:10", "Good morning Madam Wambui. Amani's statement shows 'ICT and digital learning' this term. Is that charged for Grade 3 as well? I couldn't reach the office by phone."],
+    [HEAD, 6, "10:02", "Good morning Mrs Mwangi. Thank you for asking. I've asked the bursar to check Amani's invoice today and will come back to you."],
+    [HEAD, 5, "14:30", "The bursar has checked: ICT and digital learning applies to every learner this term, Grade 3 included, as Grade 3 now uses the class tablets. The charge is correct. I called to explain as well."],
+    ["PT-0001", 5, "15:12", "Understood, thank you for the quick answer."],
+    ["PT-0001", 2, "11:20", "One more question: is school closing early next Tuesday for the staff development day?"],
+    [HEAD, 2, "11:48", "Yes. Classes end at 12:30 pm and the buses leave at 12:45 pm. A notice will go out in Announcements."],
+  ] },
+  { a: HEAD, b: "SF-0008", lines: [
+    [HEAD, 6, "10:05", "David, Lucy Mwangi is asking whether ICT and digital learning should be on Amani's invoice (Grade 3). Could you check today?"],
+    ["SF-0008", 6, "13:40", "Checked. ICT applies to all learners this term, Grade 3 included, after the tablets came in. Amani's invoice is correct and has no duplicate lines."],
+    [HEAD, 6, "13:46", "Thank you. I'll explain it to her."],
+  ] },
+  { a: "PT-0001", b: "ST-0001", unread: ["ST-0001", 1], lines: [
+    ["ST-0001", 3, "15:55", "Mum, I'm staying for drama club until 5. Bus 3 leaves at 5:20."],
+    ["PT-0001", 3, "15:58", "Okay. Send me a message when you're on the bus."],
+    ["ST-0001", 3, "17:24", "On the bus now 🚌"],
+    ["PT-0001", 0, "06:50", "Don't forget your PE kit today, and bring your maths book for Mr Kiprop."],
+  ] },
+  { a: "BD-0001", b: HEAD, unread: [HEAD, 1], lines: [
+    ["BD-0001", 0, "07:36", "Good morning Madam. Route 1 is running about 15 minutes late. Heavy traffic at the Imara Daima junction."],
+    [HEAD, 0, "07:40", "Noted, thank you Joseph. I'll ask the office to let the Route 1 parents know."],
+    ["BD-0001", 0, "07:58", "We've arrived. All learners on board were dropped at the main gate."],
+  ] },
+  { a: "SF-0004", b: HEAD, lines: [
+    ["SF-0004", 2, "10:12", "Madam, a Grade 5 learner came to sick bay with a headache. Temperature normal after an hour's rest. I've noted the visit in his health record and he has gone back to class."],
+    ["SF-0004", 2, "10:16", "I tried calling. Nothing urgent, just letting you know."],
+    [HEAD, 2, "10:40", "Thank you, Faith. Please let his class teacher know too."],
+  ] },
+  { a: "TC-0001", b: "SF-0006", unread: ["TC-0001", 1], lines: [
+    ["SF-0006", 2, "19:40", "Daniel, the inter-house football heats are on Thursday afternoon. Some of your Grade 8s are in the squad. Does that clash with your maths catch-up?"],
+    ["TC-0001", 2, "19:52", "The catch-up is at lunch, so no clash. Can I call you about the Grade 10 team list?"],
+    ["SF-0006", 2, "20:15", "Thanks for the call. I've moved two of the Grade 10s to the reserve list as we agreed."],
+  ] },
+  { a: "SF-0003", b: "TC-0001", lines: [
+    ["SF-0003", 1, "10:03", "Mr Kiprop, a Grade 8 Cedar parent is at reception asking to see you. I tried calling."],
+    ["TC-0001", 1, "10:05", "I'm in a lesson. Please ask them to wait 15 minutes, or I can call them at 4."],
+    ["SF-0003", 1, "10:07", "They'll wait. I've signed them in as a visitor."],
+  ] },
+  { a: "SF-0007", b: HEAD, unread: [HEAD, 1], lines: [
+    ["SF-0007", 1, "15:30", "Madam, the notice about Tuesday's early closing is drafted. Shall I send it to all parents?"],
+    [HEAD, 1, "15:52", "Yes, please. Put the bus time (12:45 pm) in the first line."],
+    ["SF-0007", 0, "07:20", "Sent to all parents this morning. Two parents have already replied to say thank you."],
+  ] },
+];
+
+const CALLS: { from: Who; to: Who; daysAgo: number; time: string; status: "ended" | "missed" | "declined"; video?: boolean; minutes?: number }[] = [
+  { from: "PT-0001", to: HEAD, daysAgo: 6, time: "09:04", status: "declined" },
+  { from: HEAD, to: "SF-0008", daysAgo: 6, time: "13:50", status: "ended", minutes: 5 },
+  { from: HEAD, to: "PT-0001", daysAgo: 5, time: "14:20", status: "ended", minutes: 4 },
+  { from: "PT-0001", to: "TC-0001", daysAgo: 4, time: "19:30", status: "ended", minutes: 7 },
+  { from: "PT-0001", to: "ST-0001", daysAgo: 3, time: "17:30", status: "ended", video: true, minutes: 3 },
+  { from: "SF-0004", to: HEAD, daysAgo: 2, time: "10:14", status: "missed" },
+  { from: "TC-0001", to: "SF-0006", daysAgo: 2, time: "19:55", status: "ended", video: true, minutes: 11 },
+  { from: "SF-0003", to: "TC-0001", daysAgo: 1, time: "10:01", status: "declined" },
+  { from: "TC-0001", to: "PT-0001", daysAgo: 1, time: "16:03", status: "missed" },
+  { from: "BD-0001", to: HEAD, daysAgo: 0, time: "07:34", status: "ended", minutes: 2 },
+];
+
+/**
+ * Chats between parents, a learner, teachers and staff, with some left unread,
+ * and a call log of answered, missed and declined calls, so a demo can sign in
+ * as each side and as the head (who reads every chat and call, read-only).
+ * Rows go in with the service role, so each pairing is checked against
+ * chat_pair_allowed() first: the seed never creates a chat the app wouldn't.
+ */
+async function seedChats(tenantId: string) {
+  const { count: chats } = await db.from("conversations").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId);
+  const { count: calls } = await db.from("calls").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId);
+  if (chats || calls) { console.log("  chats or calls already seeded; skipped"); return; }
+
+  const people = ok(await db.from("profiles").select("id, login_id, email, full_name").eq("tenant_id", tenantId), "profiles");
+  const who = (w: Who) => people.find((p) => p.login_id === w || p.email === w);
+  const pair = async (a: Who, b: Who) => {
+    const [pa, pb] = [who(a), who(b)];
+    if (!pa || !pb) { console.log(`  ${a} <-> ${b}: no such account here; skipped`); return null; }
+    const { data, error } = await db.rpc("chat_pair_allowed", { p_a: pa.id, p_b: pb.id });
+    if (error) throw new Error(`chat_pair_allowed ${a} ${b}: ${error.message}`);
+    if (!data) { console.log(`  ${a} <-> ${b}: not allowed to talk; skipped`); return null; }
+    return [pa, pb] as const;
+  };
+  // "HH:MM" in Nairobi, so many days back; never in the future
+  const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+  const when = (daysAgo: number, hm: string) => new Date(`${today}T${hm}:00+03:00`).getTime() - daysAgo * 86_400_000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  let threads = 0, messages = 0;
+  for (const c of CHATS) {
+    const both = await pair(c.a, c.b);
+    if (!both) continue;
+    const times = c.lines.map(([, d, hm], i) => Math.min(when(d, hm), Date.now() - (c.lines.length - i) * 60_000));
+    const conv = ok(await db.from("conversations").insert({
+      tenant_id: tenantId, pair_key: both.map((p) => p.id).sort().join(":"), created_by: who(c.lines[0]![0])!.id, created_at: iso(times[0]!),
+    }).select("id").single(), "conversation");
+    ok(await db.from("conversation_members").insert(both.map((p) => ({ conversation_id: conv.id, profile_id: p.id, tenant_id: tenantId }))).select("profile_id"), "members");
+    // the stamp trigger sets created_at to now(), so each message is inserted, then put back at its time
+    for (const [i, [from, , , body]] of c.lines.entries()) {
+      const m = ok(await db.from("chat_messages").insert({ tenant_id: tenantId, conversation_id: conv.id, sender_id: who(from)!.id, body }).select("id").single(), "message");
+      ok(await db.from("chat_messages").update({ created_at: iso(times[i]!) }).eq("id", m.id).select("id"), "message time");
+    }
+    const last = times[times.length - 1]!;
+    ok(await db.from("conversations").update({ last_message_at: iso(last) }).eq("id", conv.id).select("id"), "last message");
+    for (const p of both) {
+      const behind = c.unread && who(c.unread[0])!.id === p.id ? c.unread[1] : 0;
+      const readAt = behind ? times[times.length - behind]! - 1000 : last;
+      ok(await db.from("conversation_members").update({ last_read_at: iso(readAt) }).eq("conversation_id", conv.id).eq("profile_id", p.id).select("profile_id"), "read mark");
+    }
+    threads++; messages += c.lines.length;
+  }
+
+  const rows = [];
+  for (const k of CALLS) {
+    const both = await pair(k.from, k.to);
+    if (!both) continue;
+    const at = Math.min(when(k.daysAgo, k.time), Date.now() - 3_600_000);
+    const answered = k.status === "ended" ? at + 6_000 : null;
+    rows.push({
+      tenant_id: tenantId, caller_id: both[0].id, callee_id: both[1].id, caller_name: both[0].full_name, callee_name: both[1].full_name,
+      video: !!k.video, status: k.status, created_at: iso(at), answered_at: answered && iso(answered),
+      ended_at: iso(answered ? answered + k.minutes! * 60_000 : at + (k.status === "missed" ? 45_000 : 8_000)),
+      // as set_call_status() leaves them: whoever hung up, the caller giving up, nobody for a decline
+      ended_by: k.status === "declined" ? null : both[0].id,
+    });
+  }
+  if (rows.length) ok(await db.from("calls").insert(rows).select("id"), "calls");
+  console.log(`  ${threads} chats (${messages} messages), ${rows.length} calls`);
+}
+
 async function main() {
   console.log("Seeding CBE demo school…");
 
@@ -416,6 +564,12 @@ async function main() {
     if (!existing) throw new Error(`${SLUG} doesn't exist yet; run without LIFE_ONLY first.`);
     await seedSchoolLife(existing.id);
     console.log("\nDone. Kijani Ridge Academy now has fees, attendance, timetables, announcements and homework.");
+    return;
+  }
+  if (CHAT_ONLY) {
+    if (!existing) throw new Error(`${SLUG} doesn't exist yet; run without CHAT_ONLY first.`);
+    await seedChats(existing.id);
+    console.log("\nDone. Sign in as the head to read every chat and call; PT-0001, TC-0001 and ST-0001 each see their own.");
     return;
   }
   if (existing) throw new Error(`${SLUG} already exists. supabase db reset to start clean.`);
@@ -578,6 +732,7 @@ async function main() {
 
   // ---------------------------------------------------------------- fees, registers, timetables, notices, homework
   await seedSchoolLife(tenantId);
+  await seedChats(tenantId);
 
   console.log("\nDone. Kijani Ridge Academy sign-ins (password " + PASSWORD + "):");
   if (orgId) console.log("  org_admin     group@kijaniridge.sc.ke   (Kijani Ridge Group, owns the school)");

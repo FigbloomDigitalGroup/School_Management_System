@@ -32,6 +32,18 @@ export async function registerPushToken(): Promise<void> {
   }
 }
 
+/**
+ * Takes this phone's token off the signed-in person's account, so the school stops sending their
+ * notifications here (FIG-1489). Needs the login, so it has to run BEFORE the sign-out; the database only
+ * lets a person delete their own row. Throws when it cannot (no signal): the caller signs out anyway.
+ */
+export async function forgetPushToken(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  const token = await getToken(getMessaging());
+  const { error } = await supabase().from("device_tokens").delete().eq("token", token);
+  if (error) throw new Error(error.message);
+}
+
 async function saveToken(token: string): Promise<void> {
   const { data: { user } } = await supabase().auth.getUser();
   if (!user) return;

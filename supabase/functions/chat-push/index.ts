@@ -12,7 +12,7 @@
  * Needs the same FCM_SERVICE_ACCOUNT_JSON_B64 secret as send-push.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { fcmAccessToken, sendToToken, serviceAccountFromEnv } from "../_shared/fcm.ts";
 

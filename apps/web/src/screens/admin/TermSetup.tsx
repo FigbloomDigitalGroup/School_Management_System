@@ -78,21 +78,13 @@ export function TermSetup() {
   async function handleCreateTerm(e: FormEvent) {
     e.preventDefault();
     if (!termStartsOn || !termEndsOn) { toast("Give the term a start and end date.", "error"); return; }
-    if (termEndsOn < termStartsOn) { toast("The end date must be after the start date.", "error"); return; }
+    if (termEndsOn <= termStartsOn) { toast("The end date must be after the start date.", "error"); return; }
     setSavingTerm(true);
     try {
-      if (data?.term) {
-        const { error: endErr } = await supabase().from("terms").update({ is_current: false }).eq("id", data.term.id);
-        if (endErr) throw endErr;
-      }
-      const { error } = await supabase().from("terms").insert({
-        tenant_id: tenant.id,
-        name: `Term ${termIndex}, ${termYear}`,
-        year: termYear,
-        index: termIndex,
-        starts_on: termStartsOn,
-        ends_on: termEndsOn,
-        is_current: true,
+      // One database call: it switches the current term off and starts this one together, so a term the database refuses leaves the
+      // school with the term it had (FIG-1427).
+      const { error } = await supabase().rpc("start_term", {
+        p_tenant_id: tenant.id, p_year: termYear, p_index: termIndex, p_starts_on: termStartsOn, p_ends_on: termEndsOn,
       });
       if (error) throw error;
       toast(`Term ${termIndex}, ${termYear} started.`);
@@ -100,7 +92,9 @@ export function TermSetup() {
       setTermEndsOn("");
       reload();
     } catch (err) {
-      toast(err instanceof Error ? `Could not create the term: ${err.message}` : "Could not create the term.", "error");
+      // A failed request's error is a plain object, not an Error, so its words are read from .message either way.
+      const reason = (err as { message?: string } | null)?.message;
+      toast(reason ? `Could not create the term: ${reason}` : "Could not create the term.", "error");
     } finally {
       setSavingTerm(false);
     }

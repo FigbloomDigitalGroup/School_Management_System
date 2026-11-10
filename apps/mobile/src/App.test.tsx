@@ -1,0 +1,347 @@
+import { Pressable as MockPressable, Text as MockText } from "react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as shared from "@figbloom/shared";
+import App from "../App";
+import { NO_CONNECTION_TITLE, SAVED_COPY_MESSAGE, TRY_AGAIN } from "./components/OfflineNotice";
+
+// FIG-1487: opening the app with no signal showed the sign-in screen, so the saved fees and results could never be
+// reached. "Cannot reach the server" is not "signed out".
+
+// Everything the App renders around the sign-in decision is replaced by a marker: what is tested is which one shows.
+jest.mock("react-native-safe-area-context", () => ({ SafeAreaProvider: ({ children }: { children: unknown }) => children }));
+jest.mock("./lib/client", () => ({}));
+jest.mock("./lib/signOut", () => ({ signOutOfThisPhone: jest.fn(() => Promise.resolve()) }));
+const { signOutOfThisPhone } = jest.requireMock("./lib/signOut") as { signOutOfThisPhone: jest.Mock };
+jest.mock("./pushNotifications", () => ({ registerPushToken: jest.fn() }));
+jest.mock("./screens/driver/locationTask", () => ({ stopLocationTracking: jest.fn() }));
+// The lock is replaced by a marker that says whether it was told to be required (the admin screens), then shows its children.
+jest.mock("./components/FingerprintLock", () => ({
+  FingerprintLock: ({ children, required, onLeave }: { children: unknown; required?: boolean; onLeave?: { label: string } }) => (
+    <>
+      <MockText>{required ? "LOCK REQUIRED" : "LOCK OPTIONAL"}</MockText>
+      {onLeave && <MockText>{`LEAVE: ${onLeave.label}`}</MockText>}
+      {children}
+    </>
+  ),
+}));
+jest.mock("./data", () => ({ ParentDataProvider: ({ children }: { children: unknown }) => children }));
+jest.mock("./studentData", () => ({ StudentDataProvider: ({ children }: { children: unknown }) => children }));
+jest.mock("./screens/SignIn", () => ({
+  SignIn: ({ unsupportedAtStart }: { unsupportedAtStart?: boolean }) => (
+    <>
+      <MockText>SIGN-IN SCREEN</MockText>
+      {unsupportedAtStart && <MockText>NOT ON THE PHONE NOTICE</MockText>}
+    </>
+  ),
+}));
+jest.mock("./screens/ChoosePassword", () => ({ ChoosePassword: () => <MockText>CHOOSE-PASSWORD SCREEN</MockText> }));
+jest.mock("./navigation", () => ({ Navigation: ({ role }: { role: string }) => <MockText>HOME OF THE {role.toUpperCase()}</MockText> }));
+// The two staff consoles are markers too; the teacher's has the "Admin screens" row a real More screen has.
+jest.mock("./teacherNavigation", () => {
+  const { useConsoleSwitch } = jest.requireActual("./lib/consoleSwitch");
+  return {
+    TeacherNavigation: () => {
+      const { canSwitch, switchTo } = useConsoleSwitch();
+      return (
+        <>
+          <MockText>HOME OF THE TEACHER</MockText>
+          {canSwitch && <MockPressable onPress={() => switchTo("admin")}><MockText>Admin screens</MockText></MockPressable>}
+        </>
+      );
+    },
+  };
+});
+jest.mock("./adminNavigation", () => ({ AdminNavigation: () => <MockText>ADMIN CONSOLE</MockText> }));
+jest.mock("@figbloom/shared", () => ({ ...jest.requireActual("@figbloom/shared"), supabase: jest.fn(), fetchMyAdminAreas: jest.fn() }));
+
+const supabase = shared.supabase as unknown as jest.Mock;
+const fetchMyAdminAreas = shared.fetchMyAdminAreas as unknown as jest.Mock;
+
+const NO_SIGNAL = { name: "AuthRetryableFetchError", message: "Network request failed", status: 0 };
+const REFUSED = { name: "AuthApiError", message: "invalid JWT", status: 401 };
+const NO_LOGIN = { name: "AuthSessionMissingError", message: "Auth session missing!" };
+
+type Profile = { role: string; tenant_id: string | null; full_name: string; login_id: string | null; must_change_password: boolean; staff_title?: string | null };
+const parentProfile: Profile = { role: "parent", tenant_id: "school-1", full_name: "Rose A.", login_id: "PT-0002", must_change_password: false };
+
+/** The server, with what it would answer when it is up. `down`: nothing can be reached. `refuses`: it answers, and says no. */
+const server = { down: false, refuses: null as null | typeof REFUSED | typeof NO_LOGIN, profile: parentProfile as Profile | null };
+
+const fake = {
+  auth: {
+    getUser: async () => {
+      if (server.down) return { data: { user: null }, error: NO_SIGNAL };
+      if (server.refuses) return { data: { user: null }, error: server.refuses };
+      return { data: { user: { id: "ann" } }, error: null };
+    },
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+  },
+  from: (table: string) => ({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => {
+          if (server.down) return { data: null, error: { message: "TypeError: Network request failed" } };
+          return { data: table === "profiles" ? server.profile : { accent: "#7A1F2B", country: "KE", name: "Kijani Ridge", slug: "kijani" }, error: null };
+        },
+      }),
+    }),
+  }),
+};
+
+const LOGIN_KEY = "sb-127-auth-token";
+const SAVED_KEY = "figbloom.session.v1.ann";
+const savedParent = { role: "parent", accent: "#7A1F2B", profileId: "ann", country: "KE", tenantId: "school-1" };
+const storeLogin = () => AsyncStorage.setItem(LOGIN_KEY, JSON.stringify({ access_token: "a.b.c", user: { id: "ann" } }));
+const savePhoneIdentity = () => AsyncStorage.setItem(SAVED_KEY, JSON.stringify(savedParent));
+
+beforeEach(async () => {
+  await AsyncStorage.clear();
+  server.down = false;
+  server.refuses = null;
+  server.profile = parentProfile;
+  supabase.mockReset().mockReturnValue(fake);
+  fetchMyAdminAreas.mockReset().mockResolvedValue([]);
+  signOutOfThisPhone.mockClear();
+});
+
+const open = () => render(<App />);
+
+describe("opening the app", () => {
+  it("shows the sign-in screen when the server says nobody is signed in", async () => {
+    server.refuses = NO_LOGIN;
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+  });
+
+  it("opens the person's home and saves who they are when the server answers", async () => {
+    await storeLogin();
+    open();
+    expect(await screen.findByText("HOME OF THE PARENT")).toBeTruthy();
+    expect(screen.queryByText(SAVED_COPY_MESSAGE)).toBeNull();
+    expect(JSON.parse((await AsyncStorage.getItem(SAVED_KEY)) ?? "null")).toEqual(savedParent);
+  });
+
+  it("with no signal, opens the saved home with a note that it may be out of date, not the sign-in screen", async () => {
+    await storeLogin();
+    await savePhoneIdentity();
+    server.down = true;
+    open();
+    expect(await screen.findByText("HOME OF THE PARENT")).toBeTruthy();
+    expect(screen.getByText(SAVED_COPY_MESSAGE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("goes back to normal when Try again finds the server", async () => {
+    await storeLogin();
+    await savePhoneIdentity();
+    server.down = true;
+    open();
+    await screen.findByText(SAVED_COPY_MESSAGE);
+
+    server.down = false;
+    await act(async () => { fireEvent.press(screen.getByText(TRY_AGAIN)); });
+
+    await screen.findByText("HOME OF THE PARENT");
+    expect(screen.queryByText(SAVED_COPY_MESSAGE)).toBeNull();
+  });
+
+  it("with no signal and nothing saved yet, says there is no connection instead of asking for a password", async () => {
+    await storeLogin();
+    server.down = true;
+    open();
+    expect(await screen.findByText(NO_CONNECTION_TITLE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("shows the sign-in screen with no signal when nobody is signed in on the phone", async () => {
+    await savePhoneIdentity(); // left over, with no login to go with it: it must not open anything
+    server.down = true;
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+  });
+
+  it("does not open a saved home for a login the server refuses", async () => {
+    await storeLogin();
+    await savePhoneIdentity();
+    server.refuses = REFUSED;
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+    expect(screen.queryByText("HOME OF THE PARENT")).toBeNull();
+  });
+
+  it("opens the saved home when the login is confirmed but the profile cannot be read", async () => {
+    await storeLogin();
+    await savePhoneIdentity();
+    // The login check gets through, then the profile read fails.
+    supabase.mockReturnValue({ ...fake, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: "Network request failed" } }) }) }) }) });
+    open();
+    expect(await screen.findByText(SAVED_COPY_MESSAGE)).toBeTruthy();
+    expect(screen.getByText("HOME OF THE PARENT")).toBeTruthy();
+  });
+
+  it("opens a driver's home when the server answers, but saves nothing for a driver", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "driver", full_name: "James Kariuki" };
+    open();
+    expect(await screen.findByText("HOME OF THE DRIVER")).toBeTruthy();
+    expect(await AsyncStorage.getItem(SAVED_KEY)).toBeNull();
+  });
+
+  it("gives a driver the no-connection page with no signal: the driver's screen is all live data", async () => {
+    await storeLogin();
+    server.down = true;
+    server.profile = { ...parentProfile, role: "driver", full_name: "James Kariuki" };
+    open();
+    expect(await screen.findByText(NO_CONNECTION_TITLE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("opens a teacher's home when the server answers, but saves nothing for a teacher", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher", full_name: "Ann Wanjiru", login_id: "TC-0002" };
+    open();
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(screen.getByText("LOCK OPTIONAL")).toBeTruthy();
+    expect(screen.queryByText("Admin screens")).toBeNull();
+    expect(await AsyncStorage.getItem(SAVED_KEY)).toBeNull();
+  });
+
+  it("gives a teacher who holds admin areas a way to the admin screens, which are behind a required lock, and a way back", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher", full_name: "Ann Wanjiru" };
+    fetchMyAdminAreas.mockResolvedValue(["leave", "fees"]);
+    open();
+    await screen.findByText("HOME OF THE TEACHER");
+    expect(screen.getByText("LOCK OPTIONAL")).toBeTruthy();
+
+    await act(async () => { fireEvent.press(screen.getByText("Admin screens")); });
+    expect(screen.getByText("ADMIN CONSOLE")).toBeTruthy();
+    expect(screen.getByText("LOCK REQUIRED")).toBeTruthy();
+    expect(screen.getByText("LEAVE: Back to teacher screens")).toBeTruthy();
+    expect(screen.queryByText("HOME OF THE TEACHER")).toBeNull();
+  });
+
+  it("keeps a teacher whose areas cannot be read on their own screens only", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher" };
+    fetchMyAdminAreas.mockRejectedValue(new Error("Network request failed"));
+    open();
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(screen.queryByText("Admin screens")).toBeNull();
+  });
+
+  it("opens the admin console, behind a required lock, for a school admin, and saves nothing", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "school_admin", full_name: "Grace Njeri", staff_title: "Principal" };
+    open();
+    expect(await screen.findByText("ADMIN CONSOLE")).toBeTruthy();
+    expect(screen.getByText("LOCK REQUIRED")).toBeTruthy();
+    expect(screen.queryByText("LEAVE: Back to teacher screens")).toBeNull();
+    expect(fetchMyAdminAreas).not.toHaveBeenCalled(); // a school admin has all of it by role
+    expect(await AsyncStorage.getItem(SAVED_KEY)).toBeNull();
+  });
+
+  it("opens the admin console for other staff who hold an area, and keeps those who hold none on the sign-in screen", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "staff", full_name: "Peter Otieno" };
+    fetchMyAdminAreas.mockResolvedValue(["fees"]);
+    const first = open();
+    expect(await screen.findByText("ADMIN CONSOLE")).toBeTruthy();
+    first.unmount();
+
+    fetchMyAdminAreas.mockResolvedValue([]);
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+    expect(screen.getByText("NOT ON THE PHONE NOTICE")).toBeTruthy();
+  });
+
+  it("does not open an empty admin console for staff whose only area is the visitor log, which the phone has no screen for", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "staff", full_name: "Rose Atieno" };
+    fetchMyAdminAreas.mockResolvedValue(["visitors"]);
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+    expect(screen.getByText("NOT ON THE PHONE NOTICE")).toBeTruthy();
+    expect(screen.queryByText("ADMIN CONSOLE")).toBeNull();
+  });
+
+  it("keeps a teacher whose only area is the visitor log on their own screens, with no way to an empty admin console", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher" };
+    fetchMyAdminAreas.mockResolvedValue(["visitors"]);
+    open();
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(screen.queryByText("Admin screens")).toBeNull();
+  });
+
+  it("says there is no connection, not 'sign in', when the areas of other staff cannot be read", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "staff" };
+    fetchMyAdminAreas.mockRejectedValue(new Error("Network request failed"));
+    open();
+    expect(await screen.findByText(NO_CONNECTION_TITLE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("gives a school admin the no-connection page with no signal: the admin screens are all live data", async () => {
+    await storeLogin();
+    server.down = true;
+    server.profile = { ...parentProfile, role: "school_admin" };
+    open();
+    expect(await screen.findByText(NO_CONNECTION_TITLE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("gives a teacher the no-connection page with no signal, not 'sign in': the teacher's screens are all live data", async () => {
+    await storeLogin();
+    server.down = true;
+    server.profile = { ...parentProfile, role: "teacher" };
+    open();
+    expect(await screen.findByText(NO_CONNECTION_TITLE)).toBeTruthy();
+    expect(screen.queryByText("SIGN-IN SCREEN")).toBeNull();
+  });
+
+  it("goes to the teacher's home when Try again finds the server", async () => {
+    await storeLogin();
+    server.down = true;
+    server.profile = { ...parentProfile, role: "teacher" };
+    open();
+    await screen.findByText(NO_CONNECTION_TITLE);
+
+    server.down = false;
+    await act(async () => { fireEvent.press(screen.getByText(TRY_AGAIN)); });
+
+    expect(await screen.findByText("HOME OF THE TEACHER")).toBeTruthy();
+    expect(screen.queryByText(NO_CONNECTION_TITLE)).toBeNull();
+  });
+
+  it("keeps a teacher with no school (a data problem, not a session) on the sign-in screen", async () => {
+    await storeLogin();
+    server.profile = { ...parentProfile, role: "teacher", tenant_id: null };
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+  });
+
+  it("signs out a login for a role this app has no home for (an org admin, a platform admin), and says so on the sign-in screen", async () => {
+    for (const role of ["org_admin", "super_admin"]) {
+      await AsyncStorage.clear();
+      signOutOfThisPhone.mockClear();
+      await storeLogin();
+      server.profile = { ...parentProfile, role, tenant_id: null };
+      const view = open();
+      expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+      expect(await screen.findByText("NOT ON THE PHONE NOTICE")).toBeTruthy();
+      expect(signOutOfThisPhone).toHaveBeenCalledTimes(1);
+      view.unmount();
+    }
+  });
+
+  it("says nothing about 'not on the phone' to someone who is simply not signed in", async () => {
+    server.refuses = NO_LOGIN;
+    open();
+    expect(await screen.findByText("SIGN-IN SCREEN")).toBeTruthy();
+    expect(screen.queryByText("NOT ON THE PHONE NOTICE")).toBeNull();
+    expect(signOutOfThisPhone).not.toHaveBeenCalled();
+  });
+});

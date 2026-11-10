@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { draftQuestions, type QuestionDraft } from "@figbloom/shared";
+import { curriculumFromClassName, draftQuestions, type QuestionDraft } from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { SelectField, TextArea, TextField } from "./ui/Field";
 import { Modal } from "./ui/Modal";
 import { AI_DRAFT_NOTE } from "../lib/useAi";
 
-/** "Form 2 West" is 8-4-4; "Grade 6 Blue", "PP2" and the rest are CBC. The teacher can change it. */
-export const curriculumFromClassName = (name: string): "844" | "cbc" => (/^\s*form\b/i.test(name) ? "844" : "cbc");
+export { curriculumFromClassName };
 
 /**
  * Drafts questions for the paper being edited. They're added to the end of

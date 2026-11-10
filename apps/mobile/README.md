@@ -1,7 +1,11 @@
 # Figbloom mobile (Android + iOS)
 
-The **parent**, **student** and **driver** apps. Teachers and admins use the
-web console; these roles are phone-first, so they are native.
+The one phone app: **parent**, **student**, **driver**, **teacher**, and the school's
+**admin console** for school admins and for teachers and other staff who hold admin areas.
+The signed-in role decides which screens open (`App.tsx` reads it from the profile).
+Org admins and the platform console use the web console. Teachers used to have a
+separate app (`apps/teacher-mobile`); it was merged in here so there is one sign-in,
+one store listing and one release.
 
 ## Why React Native, and what is actually shared
 
@@ -50,11 +54,86 @@ builds it should pick a minimum iOS version at that point.
 src/
   theme.ts            tokens from @figbloom/shared, as RN StyleSheet values
   storage.ts          AsyncStorage adapter for the shared WriteQueue
-  navigation.tsx      bottom tabs per role
+  navigation.tsx      bottom tabs for the parent and the student; the driver is one page
+  teacherNavigation.tsx  the teacher's five tabs, with everything else under More
+  adminNavigation.tsx the school's admin console: Home and Account for now, more a part at a time
+  navShared.tsx       the navigation colours and tab icon both navigators use
   screens/parent/     Home · Fees · Pay · Results · Inbox · Account
   screens/student/    Today · Timetable · Work · Results · Notices
   screens/driver/     Trip — start/end a trip, background GPS while it runs
+  screens/teacher/    Attendance · Gradebook · Messages · Notices · More (Timetable ·
+                      Classes · Leave · Homework · Materials · Items · Buses · Visitors ·
+                      Performance · Report cards · Bloom · Live class · Account)
+  screens/admin/      Home (who you are, what your areas allow, the way to the web console)
 ```
+
+## The admin console on the phone
+
+Who gets it, from `phoneConsolesFor` in `@figbloom/shared` (the same areas the web
+console uses, `adminAreas.ts`; the database checks every one again with `has_perm`):
+
+| Role | Opens |
+|---|---|
+| `school_admin` | the admin console, all of it |
+| `teacher` | their own screens; and the admin console, with just their areas, when they hold any besides visitors (More > Admin screens, and Home > Back to teacher screens) |
+| `staff` | the admin console, with their areas; with none, or with only visitors (the phone has no visitor log), they stay on the web |
+| `org_admin`, `super_admin` | nothing here: the web console |
+
+**Signing in.** A school admin has a real email and no school ID (`invite-admin`), so
+the sign-in screen has a link under the form, "School admin? Sign in with your email",
+which swaps school + ID for email + password; "Forgot password?" there emails the usual
+reset link, which opens the web's reset page. Teachers and other staff sign in with
+their school ID as before. An account the app has no screens for (an org admin, a
+platform admin, staff with no admin area or only visitors) is signed out again with a "Not on the phone
+yet" note, rather than silently bouncing back to the sign-in form.
+
+**The admin screens always ask for the fingerprint** (`FingerprintLock` with
+`required`), whatever the person chose for the rest of the app, and again each time a
+teacher switches to them. A phone with no fingerprint saved is sent to its security
+settings; a phone with no usable sensor cannot open the admin screens at all (the web
+console is the way). The lock's Account switch is replaced by a note saying so.
+
+Staff identities are live data and are never saved (`lib/staffSession.ts`): with no
+signal they see the "No connection" page. The admin side has three tabs: Home, More and
+Account. More lists the screens in `adminScreens.ts` that this person's areas open
+(`mayOpenAdminPage`), and has no tab at all when there are none. A screen is added by listing
+it there and adding its `Stack.Screen` to `MoreStack` in `adminNavigation.tsx`. One screen
+follows an answer, not an area: "Leave to approve" is listed when Figbloom HR says this person
+approves leave there (`needs: "hrApprover"`), and "My leave" when it says the school's leave is HR's and the
+person is other staff (`needs: "hrStaffLeave"`; `hrScreensFor`), so a bursar whose areas open nothing
+else gets a More tab once HR has answered.
+
+**What is on the admin screens so far**
+
+| Screen | Who | What it does |
+|---|---|---|
+| Home, overview | school admins | The web Dashboard's figures: attendance, fees collected, learners, staff, "Needs you", every class's register for the day, fee collection by status. A class that has not taken its register has "Remind teacher" (an in-app note to the class teacher, as on the web). Pull down to refresh. |
+| Home, registers | staff and teachers holding the `attendance` area | Every class's latest register, read only. |
+| A class's register | both of the above | Who was late, absent or excused on that day. Read only (correcting a register stays on the web). |
+| More > Fees | school admins, and staff or teachers holding `fees` (the bursar) | The term's figures (billed, collected, outstanding, fully paid), the ten largest balances each with **Record payment**, **Record a payment** for any learner (search by name or admission number; cash, M-Pesa to the paybill, bank or cheque, with the receipt or slip number for anything but cash; asks first because it cannot be undone from the phone; `record_payment` in the database checks it again), the proof families uploaded (the pasted message's code and amount, what to look at twice, a signed link to the file, **Confirm** by recording the payment it shows, or **Reject** with the reason the family will read) and what was paid above what was owed (`packages/shared/src/adminFees.ts`; the web's Fees uses the same). Fee items, billing the term and signing invoices stay on the web. |
+| More > People | school admins, and staff or teachers holding `people` | Look a learner up by name or admission number (searched in the database as it is typed, two letters or more, at most 25), or a member of staff by name. A learner opens a card: **allergies, conditions and what they take**, loud, then their guardians with each phone number as a **Call** button on the phone's dialer (international form, `callUrl`). A member of staff is called from the list. The health record and the guardians are read apart, so someone allowed only one still sees it. Adding, editing and archiving people stay on the web (`packages/shared/src/adminPeople.ts`). |
+| More > Sick bay | school admins, and staff or teachers holding `medical` (the nurse) | Read only: doses **not given for over an hour** (the alert), who is **in the sick bay now**, and **today's visits** with where each learner went and when they left; a learner opens the same card. Logging a visit, giving the medication round and approving families' requests stay on the web (`fetchSickBayBoard` composes the readers the web's board uses). |
+| More > Buses | school admins, and staff or teachers holding `transport` | Which buses are on the road now (a position under two minutes old; positions arrive live as the buses report, `subscribeVehiclePositions`), each bus's route, driver and direction, **Show on the map** (the same `BusMap` the parent's bus screen uses: the route's stops, the road once known, the bus), the **alerts** the database raised (speeding, off route, breakdown, children still aboard) with **Acknowledge** (new ones are read as they arrive), and the latest 20 trips with when they ran and how many alerts each raised. Adding vehicles and routes and assigning drivers stay on the web (`packages/shared/src/adminFleet.ts` composes the readers the web's Fleet screen uses; its alert wording is shared). |
+| More > Announcements | school admins, and staff or teachers holding `communication` | Compose a notice: who gets it (whole school, parents, students, teachers, staff, a year group, a class) with how many people that reaches, subject and message, how it goes out (app, push, SMS with its cost, email), and a confirmation before it goes because it cannot be unsent. Files, signatures, the writing helper and drafts stay on the web. |
+| More > Chats | same (`communication`) | The office's own chats with parents and staff, with voice and video call buttons, and an unread count. Calls ring on the admin side too (`CallProvider` wraps the admin navigation). |
+| More > All school chats | same | Every chat in the school, read only (`fetchSchoolConversations`): filter by name, open one as an oversight thread (`ChatThread` with `oversight`: both names on the bubbles, no composer, no calls, nothing marked read). |
+| More > Call log | same | Who called whom, when, voice or video, how long, how it ended (`fetchSchoolCallLog`, `callOutcome`). Never what was said. |
+| More > Leave requests | school admins, and staff or teachers holding `leave` | Teachers' leave requests, awaiting review first: note, Approve or Reject (asks first; the teacher is told in the app, `decideLeaveRequest`), and the past ones, marked "Figbloom HR" where HR decided. Leave that HR runs ("Leave to approve") is the next row. |
+| More > Leave to approve | approvers, at a school whose leave runs in Figbloom HR (`hr_leave_access()`: `available` and `approver`); the row appears once HR has answered (`lib/useHrLeaveAccess.ts`), never on a guess | Applications waiting on this person in HR (`loadApprovals`): who, type, dates, length, reason, their step, the chain so far, and the document (HR's link, good for 5 minutes; an old one reloads the list). Approve, or Decline with a comment (HR takes no decline without one), each after a question; the decision is made in HR as the person (`decideApproval`), so HR's own rules, delegation and audit apply, and its refusals show in its own words. Someone HR does not know yet ("approver_not_linked") is asked to open HR & Payroll once, with the button when the database says they may have it (`requestHrLink`, a one-minute link opened in the browser). |
+| More > My leave, and the teacher's Leave screen | other staff (More > My leave); teachers (their own Leave screen, which shows this in place of the school's own form) | At a school whose leave runs in Figbloom HR (`hr_leave_access()` `available`; the school's own form shows everywhere else, and nothing shows until HR has answered): apply with HR's own leave types and rules (`components/HrLeave.tsx`, from HR's `leave/form`): type, first and last day (typed as digits, laid out as YYYY-MM-DD: there is no date picker in the app), a half day where the type has one, a reason of HR's least length, and a document (photo from the camera or gallery, shrunk to 2,000 pixels a side, or a PDF or Word file; up to 3 MB, checked again from the bytes read) when HR wants one. HR's refusal shows its sentence and a line for each rule. Below it, the person's applications with their status, the days left, who has approved so far, and Cancel (asks first) where HR says it can be cancelled. |
+| Home > Needs cover this week | school admins | Periods this week whose teacher is on approved leave (`fetchCoverageThisWeek`): choose a substitute, mark the period free, or change an earlier choice (`assignCoverage`; the substitute is told in the app). |
+
+The data these read (`fetchSchoolOverview`, `fetchClassRegister`, `fetchLatestRegisters`,
+`remindClassTeacher`) is in `packages/shared/src/adminOverview.ts`, and the announcement composer's
+(`fetchAnnouncementsData`, `insertAnnouncement`, `sendAnnouncementPush`, the reach and audience
+helpers) in `packages/shared/src/adminAnnouncements.ts`. The web's screens use the same functions,
+so the two say the same thing. Each screen loads with
+`lib/useLoad.ts` (skeleton on first load, the reason and "Try again" on failure, pull to refresh).
+
+A teacher's screens are all live data (rosters, registers, marks), so with no
+signal a teacher sees the "No connection" page, as a driver does, and nothing is
+saved for them beyond the write queue (`lib/useQueueSync.ts` sends held
+registers and marks as soon as the app opens).
 
 ## Things that differ from web on purpose
 
@@ -71,7 +150,7 @@ src/
   underneath. Built on `react-native-biometrics` (strong biometrics only, no
   phone-PIN fallback; "Sign out" on the lock screen is the way out). The app
   cannot enrol a fingerprint, so with none on the phone it opens the phone's
-  security settings. `apps/teacher-mobile` has the same files — keep them in step.
+  security settings.
 
 ## Calls and live classes (FIG-1291)
 

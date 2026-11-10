@@ -547,3 +547,114 @@ describe("ai-assist chat with files", () => {
     assertEquals(admin.rowsIn("ai_usage").length, 0);
   });
 });
+
+describe("the guide", () => {
+  const PAGES = [
+    { to: "teacher/attendance", label: "Attendance", about: "Take a class's register." },
+    { to: "teacher/gradebook", label: "Gradebook", about: "Type a mark and press Enter." },
+  ];
+  const ADMIN_PAGES = [
+    { to: "admin/classes", label: "Classes", about: "" },
+    { to: "admin/people", label: "Students & staff", about: "" },
+  ];
+  const guideReq = (payload: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    new Request("https://example.com/ai-assist", {
+      method: "POST", headers: { Authorization: "Bearer x" }, body: JSON.stringify({ task: "guide", payload, ...extra }),
+    });
+  const ask = (content: string, pages = PAGES) => ({ pages, here: pages[0]!.to, messages: [{ role: "user", content }] });
+
+  it("shows a teacher the way with links to their own pages only, and never a plan", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    const { ai, calls } = fakeAi(JSON.stringify({
+      reply: "Open Attendance, pick the class, then Submit.",
+      links: [{ to: "teacher/attendance", label: "Open Attendance" }, { to: "admin/fees", label: "Open Fees" }],
+      actions: [{ kind: "create_class", name: "Grade 9 East" }],
+    }));
+    const res = await handle(guideReq(ask("How do I take the register?")), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+    const { result } = await res.json();
+    assertEquals(result.links, [{ to: "teacher/attendance", label: "Open Attendance" }], "a page outside their sidebar is dropped");
+    assertEquals(result.actions, [], "only a full admin gets a plan");
+
+    const p = calls[0]!;
+    assertStringIncludes(p.system, "teacher/gradebook: Gradebook. Type a mark and press Enter.");
+    assertStringIncludes(p.system, "They are on: teacher/attendance");
+    assert(!JSON.stringify(p.schema).includes("actions"), "a teacher's answer has no room for actions");
+    assertEquals(admin.rowsIn("ai_usage")[0]!.task, "guide");
+  });
+
+  it("gives a full admin the school's structure, without any person in it, and a plan", async () => {
+    const { admin, asUser } = makeClients("school_admin", { level: "primary" });
+    admin.seed("classes", [{ id: "c1", tenant_id: TENANT_ID, name: "Grade 4 East", level: "primary", form_level: 4, stream: "East", class_teacher_id: "teacher-otieno" }]);
+    admin.seed("subjects", [{ id: "s1", tenant_id: TENANT_ID, name: "Mathematics", code: "MATH", level: null, min_form_level: null, max_form_level: null }]);
+    admin.seed("terms", [{ id: "t3", tenant_id: TENANT_ID, name: "Term 3, 2026", year: 2026, index: 3, starts_on: "2026-08-24", ends_on: "2026-10-30", is_current: true }]);
+    admin.seed("exams", [{ id: "e1", tenant_id: TENANT_ID, term_id: "t3", name: "Opener" }]);
+    admin.seed("fee_items", [{ id: "f1", tenant_id: TENANT_ID, term_id: "t3", name: "Tuition", amount_cents: 1_500_000, applies_to: "all", level: null, form_level: null }]);
+    const plan = [{ kind: "create_class", name: "Grade 5 East", level: "primary", year: 5, stream: "East" }];
+    const { ai, calls } = fakeAi(JSON.stringify({ reply: "I'll add Grade 5 East.", links: [{ to: "admin/classes", label: "Open Classes" }], actions: plan }));
+
+    const res = await handle(guideReq(ask("Add Grade 5 East", ADMIN_PAGES)), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).result.actions, plan);
+
+    const p = calls[0]!;
+    assertStringIncludes(p.system, "Grade 4 East");
+    assertStringIncludes(p.system, "\"currentTermExams\":[\"Opener\"]");
+    assertStringIncludes(p.system, "\"shillings\":15000");
+    assertStringIncludes(p.system, "This school can use: pre_primary, primary, junior_secondary.");
+    assert(!p.system.includes("teacher-otieno"), "a class teacher is never sent");
+    assert(JSON.stringify(p.schema).includes("create_fee_item"));
+  });
+
+  it("refuses a phone number before anything is spent", async () => {
+    for (const number of ["0712 345 678", "+254712345678", "254-712-345-678", "0112345678"]) {
+      const { admin, asUser } = makeClients("school_admin");
+      const { ai, calls } = fakeAi("never");
+      const res = await handle(guideReq(ask(`Add the parent on ${number}`, ADMIN_PAGES)), { admin, asUser, ai });
+      assertEquals(res.status, 400, number);
+      assertMatch((await res.json()).error, /Leave phone numbers out/);
+      assertEquals(calls.length, 0);
+      assertEquals(admin.rowsIn("ai_usage").length, 0);
+    }
+    // amounts, years and dates are not phone numbers
+    const { admin, asUser } = makeClients("school_admin");
+    const { ai } = fakeAi(JSON.stringify({ reply: "ok", links: [], actions: [] }));
+    const res = await handle(guideReq(ask("Tuition is 45,000 for Term 1 2027, from 2027-01-05 to 2027-04-02", ADMIN_PAGES)), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+  });
+
+  it("works for an org admin in their organization console, logged against the organization", async () => {
+    const { admin, asUser } = makeClients("org_admin");
+    admin.seed("profiles", [{ id: "me", role: "org_admin", tenant_id: null }]);
+    admin.seed("organization_admins", [{ id: "oa1", profile_id: "me", organization_id: "org-1" }]);
+    admin.seed("organizations", [{ id: "org-1", name: "Kijani Schools", status: "active" }]);
+    const pages = [{ to: "schools", label: "Schools", about: "" }];
+    const { ai, calls } = fakeAi(JSON.stringify({ reply: "Open Schools, then Add school.", links: [{ to: "schools", label: "Open Schools" }] }));
+
+    const res = await handle(guideReq(ask("How do I add a school?", pages), { organizationId: "org-1" }), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+    assertStringIncludes(calls[0]!.system, "in the organization console of Kijani Schools");
+    const usage = admin.rowsIn("ai_usage")[0]!;
+    assertEquals([usage.tenant_id, usage.organization_id, usage.task], [null, "org-1", "guide"]);
+
+    // someone else's organization, or a suspended one, gets nothing
+    admin.seed("organizations", [{ id: "org-1", name: "Kijani Schools", status: "suspended" }]);
+    const refused = await handle(guideReq(ask("How do I add a school?", pages), { organizationId: "org-1" }), { admin, asUser, ai });
+    assertEquals(refused.status, 403);
+  });
+
+  it("is off where the school has turned AI off", async () => {
+    const { admin, asUser } = makeClients("teacher", { ai_enabled: false });
+    const { ai, calls } = fakeAi("never");
+    const res = await handle(guideReq(ask("Where is the gradebook?")), { admin, asUser, ai });
+    assertEquals(res.status, 403);
+    assertMatch((await res.json()).error, /guide uses AI/);
+    assertEquals(calls.length, 0);
+  });
+
+  it("refuses a page that isn't a page", async () => {
+    const { admin, asUser } = makeClients("teacher");
+    const res = await handle(guideReq(ask("hi", [{ to: "https://evil.example", label: "x", about: "" }])), { admin, asUser, ai: fakeAi("never").ai });
+    assertEquals(res.status, 400);
+  });
+});

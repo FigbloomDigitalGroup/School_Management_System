@@ -66,6 +66,30 @@ export function isRingExpired(call: Pick<Call, "status" | "created_at">, now: Da
   return call.status === "ringing" && now.getTime() - new Date(call.created_at).getTime() > CALL_RING_SECONDS * 1000;
 }
 
+export type CallTone = "ok" | "info" | "warn" | "muted";
+
+const CALL_OUTCOME: Record<CallStatus, { label: string; tone: CallTone }> = {
+  ended: { label: "Answered", tone: "ok" },
+  accepted: { label: "In progress", tone: "info" },
+  ringing: { label: "Ringing", tone: "info" },
+  missed: { label: "Missed", tone: "warn" },
+  declined: { label: "Declined", tone: "muted" },
+};
+
+/**
+ * How a call in the school's log ended, in words and a tone, for the web and the phone alike. A call nobody closed
+ * after it stopped ringing was missed, as set_call_status() would record it.
+ */
+export function callOutcome(call: Pick<Call, "status" | "created_at">, now: Date = new Date()): { label: string; tone: CallTone } {
+  return CALL_OUTCOME[isRingExpired(call, now) ? "missed" : call.status];
+}
+
+/** The calls where the caller or the person called has a name containing this text (any case); all of them when it is blank. */
+export function filterCallsByName<T extends Pick<Call, "caller_name" | "callee_name">>(calls: readonly T[], text: string): T[] {
+  const q = text.trim().toLowerCase();
+  return calls.filter((c) => !q || c.caller_name.toLowerCase().includes(q) || c.callee_name.toLowerCase().includes(q));
+}
+
 /** How long a ringing call still has to ring, in ms (0 once it is over): when its card should go away. */
 export function ringLeftMs(call: Pick<Call, "created_at">, now: Date = new Date()): number {
   return Math.max(0, CALL_RING_SECONDS * 1000 - (now.getTime() - new Date(call.created_at).getTime()));
@@ -136,6 +160,19 @@ export async function setCallStatus(callId: string, status: Exclude<CallStatus, 
 export async function fetchCallLog(profileId: string, limit = 30): Promise<Call[]> {
   const { data, error } = await supabase()
     .from("calls").select("*").or(`caller_id.eq.${profileId},callee_id.eq.${profileId}`)
+    .order("created_at", { ascending: false }).limit(limit).returns<Call[]>();
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/**
+ * The school's call log for the office, newest first: who called whom, when
+ * and for how long, never anything said. calls_read lets in anyone with the
+ * communication area.
+ */
+export async function fetchSchoolCallLog(tenantId: string, limit = 500): Promise<Call[]> {
+  const { data, error } = await supabase()
+    .from("calls").select("*").eq("tenant_id", tenantId)
     .order("created_at", { ascending: false }).limit(limit).returns<Call[]>();
   if (error) throw new Error(error.message);
   return data ?? [];

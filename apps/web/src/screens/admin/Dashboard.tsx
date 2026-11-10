@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { formatMoney, supabase } from "@figbloom/shared";
-import type { ClassGroup, FeeInvoice, Term } from "@figbloom/shared";
+import {
+  feeCollectedPct, fetchSchoolOverview, formatMoney, needsYou, overviewAttendanceRate, remindClassTeacher,
+  type OverviewClass,
+} from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -13,81 +15,6 @@ import { AttendanceDetail } from "./AttendanceDetail";
 import { CoverageCard } from "./CoverageCard";
 import { PendingSignatures } from "../../components/signatures/PendingSignatures";
 
-interface DashboardData {
-  term: Term | null;
-  classes: Pick<ClassGroup, "id" | "name" | "class_teacher_id">[];
-  studentsByClass: Map<string, number>;
-  activeStudents: number;
-  staffCount: number;
-  invoices: Pick<FeeInvoice, "total_cents" | "paid_cents">[];
-  attendanceDate: string | null;
-  presentByClass: Map<string, number>;
-  lateByClass: Map<string, number>;
-  absentByClass: Map<string, number>;
-  submittedClasses: Set<string>;
-}
-
-async function fetchDashboard(tenantId: string): Promise<DashboardData> {
-  const sb = supabase();
-
-  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
-  const termId = term?.id ?? null;
-
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, invoicesRes] = await Promise.all([
-    sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
-    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
-    termId
-      ? sb.from("fee_invoices").select("total_cents,paid_cents").eq("tenant_id", tenantId).eq("term_id", termId).returns<Pick<FeeInvoice, "total_cents" | "paid_cents">[]>()
-      : Promise.resolve({ data: [] as Pick<FeeInvoice, "total_cents" | "paid_cents">[] }),
-  ]);
-
-  const studentsByClass = new Map<string, number>();
-  for (const s of studentRows ?? []) studentsByClass.set(s.class_id, (studentsByClass.get(s.class_id) ?? 0) + 1);
-
-  let attendanceDate: string | null = null;
-  const presentByClass = new Map<string, number>();
-  const lateByClass = new Map<string, number>();
-  const absentByClass = new Map<string, number>();
-  const submittedClasses = new Set<string>();
-
-  if (termId) {
-    const { data: latest } = await sb
-      .from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
-      .order("taken_on", { ascending: false }).limit(1)
-      .returns<{ taken_on: string }[]>();
-    attendanceDate = latest?.[0]?.taken_on ?? null;
-
-    if (attendanceDate) {
-      const { data: rows } = await sb
-        .from("attendance").select("class_id,mark")
-        .eq("tenant_id", tenantId).eq("term_id", termId).eq("taken_on", attendanceDate)
-        .returns<{ class_id: string; mark: string }[]>();
-      for (const r of rows ?? []) {
-        submittedClasses.add(r.class_id);
-        // A late arrival still attended — only "absent"/"excused" should read as not-here.
-        if (r.mark === "present" || r.mark === "late") presentByClass.set(r.class_id, (presentByClass.get(r.class_id) ?? 0) + 1);
-        if (r.mark === "late") lateByClass.set(r.class_id, (lateByClass.get(r.class_id) ?? 0) + 1);
-        if (r.mark === "absent") absentByClass.set(r.class_id, (absentByClass.get(r.class_id) ?? 0) + 1);
-      }
-    }
-  }
-
-  return {
-    term: term ?? null,
-    classes: classRows ?? [],
-    studentsByClass,
-    activeStudents: studentRows?.length ?? 0,
-    staffCount: staffRows?.length ?? 0,
-    invoices: invoicesRes.data ?? [],
-    attendanceDate,
-    presentByClass,
-    lateByClass,
-    absentByClass,
-    submittedClasses,
-  };
-}
-
 /**
  * A principal opens this at 07:30. It answers three questions in order:
  * is the school running today, is anything on fire, and what needs a signature.
@@ -95,27 +22,18 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
 export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
   const toast = useToast();
-  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id]);
+  const { data, loading, error } = useAsync(() => fetchSchoolOverview(tenant.id), [tenant.id]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 
-  async function remindTeacher(cls: Pick<ClassGroup, "id" | "name" | "class_teacher_id">) {
+  async function remindTeacher(cls: OverviewClass) {
     if (!cls.class_teacher_id) {
       toast(`${cls.name} has no class teacher assigned yet.`);
       return;
     }
     setRemindingClassId(cls.id);
     try {
-      const { error: sendError } = await supabase().from("announcements").insert({
-        tenant_id: tenant.id,
-        author_id: profile.id,
-        subject: `Attendance not yet taken — ${cls.name}`,
-        body: `${cls.name} hasn't submitted today's attendance register yet. Please take it as soon as you can.`,
-        audience: { kind: "user", user_id: cls.class_teacher_id },
-        channels: ["in_app"],
-        published_at: new Date().toISOString(),
-      });
-      if (sendError) throw sendError;
+      await remindClassTeacher(tenant.id, profile.id, cls);
       toast(`Reminded the class teacher for ${cls.name}`);
     } catch (err) {
       toast(err instanceof Error ? `Could not send reminder: ${err.message}` : "Could not send reminder.", "error");
@@ -126,34 +44,17 @@ export function AdminDashboard() {
 
   const firstName = profile.full_name.split(" ")[0];
 
-  const totalBilled = data ? data.invoices.reduce((a, i) => a + i.total_cents, 0) : 0;
-  const totalPaid = data ? data.invoices.reduce((a, i) => a + i.paid_cents, 0) : 0;
-  const feePct = totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 0;
+  const totalBilled = data?.fees.billed ?? 0;
+  const totalPaid = data?.fees.paid ?? 0;
+  const feePct = data ? feeCollectedPct(data.fees) : 0;
 
-  const nothingPaid = data ? data.invoices.filter((i) => i.paid_cents === 0).length : 0;
-  const partPaid = data ? data.invoices.filter((i) => i.paid_cents > 0 && i.paid_cents < i.total_cents).length : 0;
-  const fullPaid = data ? data.invoices.filter((i) => i.paid_cents >= i.total_cents && i.total_cents > 0).length : 0;
-  const bucketTotal = Math.max(data?.invoices.length ?? 0, 1);
+  const nothingPaid = data?.fees.nothing_paid ?? 0;
+  const partPaid = data?.fees.part_paid ?? 0;
+  const fullPaid = data?.fees.full_paid ?? 0;
+  const bucketTotal = Math.max(data?.fees.invoices ?? 0, 1);
 
-  const missingClasses = data ? data.classes.filter((c) => !data.submittedClasses.has(c.id)) : [];
-  const owingCount = data ? data.invoices.filter((i) => i.paid_cents < i.total_cents).length : 0;
-
-  const needs: { title: string; body: string }[] = data
-    ? [
-        ...(missingClasses.length > 0
-          ? [{
-              title: `${missingClasses.length} class${missingClasses.length === 1 ? "" : "es"} ${missingClasses.length === 1 ? "has" : "have"} not taken attendance`,
-              body: `${missingClasses.map((c) => c.name).join(", ") || "No classes"}${data.attendanceDate ? ` for ${data.attendanceDate}` : ""}.`,
-            }]
-          : []),
-        ...(owingCount > 0
-          ? [{
-              title: `${data.term ? data.term.name + " fee" : "Fee"} balances are outstanding`,
-              body: `${owingCount} learner${owingCount === 1 ? "" : "s"} still owe a balance this term.`,
-            }]
-          : []),
-      ]
-    : [];
+  const needs = data ? needsYou(data) : [];
+  const attendanceRate = data ? overviewAttendanceRate(data) : null;
 
   return (
     <>
@@ -189,9 +90,7 @@ export function AdminDashboard() {
             stats={[
               {
                 label: "Attendance today",
-                value: data.submittedClasses.size > 0
-                  ? `${Math.round(([...data.presentByClass.values()].reduce((a, b) => a + b, 0) / Math.max([...data.submittedClasses].reduce((a, id) => a + (data.studentsByClass.get(id) ?? 0), 0), 1)) * 100)}%`
-                  : "—",
+                value: attendanceRate !== null ? `${attendanceRate}%` : "—",
                 sub: `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
               },
               { label: "Fees collected", value: `${feePct}%`, sub: `${formatMoney(totalPaid, tenant.country)} of ${formatMoney(totalBilled, tenant.country)}` },

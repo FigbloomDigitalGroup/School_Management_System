@@ -102,10 +102,16 @@ html:has(.landing-root) {
 
 .site-header-bar.is-scrolled .brand {
   border-color: rgba(17, 17, 17, 0.9);
+  /* The bar is see-through glass: a solid plate keeps the dark green letters readable over dark parts of the page */
+  background-color: #fff;
 }
 
-.site-header-bar.is-scrolled .brand-mark svg {
-  color: #111;
+.site-header-bar.is-scrolled .brand-logo-light {
+  display: none;
+}
+
+.site-header-bar.is-scrolled .brand-logo-dark {
+  display: block;
 }
 
 .site-header-bar.is-scrolled .main-nav {
@@ -141,26 +147,21 @@ html:has(.landing-root) {
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: 5px;
   min-height: 50px;
   padding: 4px 12px;
   border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: 10px;
-  font-size: 16px;
-  font-weight: 500;
 }
 
-.brand-mark {
-  display: grid;
-  width: 31px;
-  height: 31px;
-  place-items: center;
+/* Two copies of the logo: white letters over the dark hero, dark green letters once the bar turns light (is-scrolled) */
+.brand-logo {
+  display: block;
+  width: auto;
+  height: 36px;
 }
 
-.brand-mark svg {
-  width: 29px;
-  height: 29px;
-  stroke-width: 5;
+.brand-logo-dark {
+  display: none;
 }
 
 .main-nav {
@@ -212,6 +213,30 @@ html:has(.landing-root) {
 .login-link:hover,
 .header-demo-link:hover {
   background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* The global orange focus ring (index.css) clashes with the header. Keyboard users still get a ring, in the header's own colours. */
+.site-header a:focus-visible {
+  outline-color: #fff;
+}
+
+.site-header-bar.is-scrolled .site-header a:focus-visible {
+  outline-color: #111;
+}
+
+/*
+  One border while focused: the thick ring only. The logo box and Login have their own thin border,
+  which would show as a second line inside the ring, so hide it and sit the ring on the edge.
+*/
+.site-header .brand:focus-visible,
+.site-header .login-link:focus-visible,
+.site-header .header-demo-link:focus-visible {
+  outline-offset: 0;
+}
+
+.site-header-bar .site-header .brand:focus-visible,
+.site-header-bar .site-header .login-link:focus-visible {
+  border-color: transparent;
 }
 
 .hero-content {
@@ -750,25 +775,22 @@ html:has(.landing-root) {
 
   .brand {
     min-height: 44px;
-    padding: 4px 8px;
-    font-size: 14px;
+    padding: 4px 7px;
   }
 
-  .brand-mark,
-  .brand-mark svg {
-    width: 25px;
-    height: 25px;
+  .brand-logo {
+    height: 30px;
   }
 
   .header-actions {
-    gap: 7px;
+    gap: 6px;
     font-size: 11px;
   }
 
   .login-link,
   .header-demo-link {
     min-height: 36px;
-    padding: 0 10px;
+    padding: 0 8px;
   }
 
   .hero-content {
@@ -821,6 +843,13 @@ html:has(.landing-root) {
 
   .orbit-card span {
     font-size: 10px;
+  }
+}
+
+/* Very small phones (320px class): a little smaller so the logo and the two buttons still fit */
+@media (max-width: 349px) {
+  .brand-logo {
+    height: 26px;
   }
 }
 

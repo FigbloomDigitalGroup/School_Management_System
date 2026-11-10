@@ -3,9 +3,10 @@ import { ActivityIndicator, AppState, Keyboard, Modal, Text, View } from "react-
 import { Fingerprint } from "lucide-react-native";
 import { supabase } from "@figbloom/shared";
 import {
-  confirmFingerprint, fingerprintSupport, forgetFingerprintUnlock, readFingerprintUnlock, saveFingerprintUnlock,
+  confirmFingerprint, fingerprintSupport, forgetFingerprintUnlock, openFingerprintSettings, readFingerprintUnlock, saveFingerprintUnlock,
 } from "../lib/fingerprintUnlock";
 import { accentFor, HIT } from "../theme";
+import { signOutOfThisPhone } from "../lib/signOut";
 import { RIPPLE_ON_DARK } from "../ui/color";
 import { Tap } from "../ui/Tap";
 import { useTheme } from "../ui/ThemeContext";
@@ -14,7 +15,10 @@ import { useTheme } from "../ui/ThemeContext";
 const GRACE_MS = 30_000;
 
 interface FingerprintLockValue {
+  /** The person's own choice. */
   enabled: boolean;
+  /** The screens on show always ask for the fingerprint (the admin screens), whatever the person chose. */
+  required: boolean;
   /** Turns the lock on or off for the signed-in person. Does not check the fingerprint: the caller has. */
   setEnabled: (on: boolean) => Promise<void>;
 }
@@ -32,22 +36,37 @@ interface Props {
   accent: string;
   /** Runs before the lock screen's "Sign out" — the driver's GPS service has to stop first. */
   beforeSignOut?: () => Promise<void>;
+  /**
+   * The screens on show are the admin ones: the lock is on whatever the person chose, and turning it on asks
+   * for the fingerprint afresh. A phone with no fingerprint to ask for cannot open them.
+   */
+  required?: boolean;
+  /** A way out of a required lock to the person's own screens, for a teacher who switched to admin. */
+  onLeave?: { label: string; run: () => void };
   children: ReactNode;
 }
 
 /**
- * Optional fingerprint lock over the signed-in app. The session itself stays on the phone; this
+ * Fingerprint lock over the signed-in app: the person's choice, or always when `required`. The session itself stays on the phone; this
  * only decides whether the screens are usable: on a cold start, and on coming back after the app
  * has been in the background for GRACE_MS. The app underneath stays mounted while locked, so a
  * half-written message or a running trip is still there after unlocking.
  *
  * The choice is per profile and is dropped on sign-out, so signing in again starts with it off.
  */
-export function FingerprintLock({ profileId, accent, beforeSignOut, children }: Props) {
+export function FingerprintLock({ profileId, accent, beforeSignOut, required = false, onLeave, children }: Props) {
   const { t } = useTheme();
   // null until the saved choice has been read: rendering the app before then would flash it on a locked phone.
   const [enabled, setEnabledState] = useState<boolean | null>(null);
   const [locked, setLocked] = useState(true);
+  const on = required || !!enabled;
+
+  // Switching to the admin screens is not covered by an earlier unlock: the fingerprint is asked for again.
+  const wasRequired = useRef(required);
+  useEffect(() => {
+    if (required && !wasRequired.current) setLocked(true);
+    wasRequired.current = required;
+  }, [required]);
 
   useEffect(() => {
     let alive = true;
@@ -56,7 +75,7 @@ export function FingerprintLock({ profileId, accent, beforeSignOut, children }: 
   }, [profileId]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!on) return;
     let leftAt: number | null = null;
     // iOS shows "inactive" while its own Face ID prompt is up, so only "background" starts the clock.
     const sub = AppState.addEventListener("change", (state) => {
@@ -66,7 +85,7 @@ export function FingerprintLock({ profileId, accent, beforeSignOut, children }: 
       leftAt = null;
     });
     return () => sub.remove();
-  }, [enabled]);
+  }, [on]);
 
   useEffect(() => {
     // An expired session ends up here too: whoever signs in next sets their own choice.
@@ -85,7 +104,7 @@ export function FingerprintLock({ profileId, accent, beforeSignOut, children }: 
   }, [profileId]);
 
   const unlock = useCallback(() => setLocked(false), []);
-  const value = useMemo(() => ({ enabled: !!enabled, setEnabled }), [enabled, setEnabled]);
+  const value = useMemo(() => ({ enabled: !!enabled, required, setEnabled }), [enabled, required, setEnabled]);
 
   if (enabled === null) {
     return (
@@ -98,7 +117,7 @@ export function FingerprintLock({ profileId, accent, beforeSignOut, children }: 
   return (
     <Ctx.Provider value={value}>
       {children}
-      {enabled && locked && <LockScreen accent={accent} onUnlocked={unlock} beforeSignOut={beforeSignOut} />}
+      {on && locked && <LockScreen accent={accent} required={required} onLeave={onLeave} onUnlocked={unlock} beforeSignOut={beforeSignOut} />}
     </Ctx.Provider>
   );
 }
@@ -107,9 +126,16 @@ export function FingerprintLock({ profileId, accent, beforeSignOut, children }: 
  * A Modal, not an absolutely-positioned View: on iOS a native-stack modal (the Pay screen) is
  * presented above the root view, and would sit over a lock drawn there.
  */
-function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onUnlocked: () => void; beforeSignOut?: () => Promise<void> }) {
+function LockScreen({ accent, required, onLeave, onUnlocked, beforeSignOut }: {
+  accent: string;
+  required: boolean;
+  onLeave?: { label: string; run: () => void };
+  onUnlocked: () => void;
+  beforeSignOut?: () => Promise<void>;
+}) {
   const a = accentFor(accent);
-  const [state, setState] = useState<"asking" | "retry" | "unavailable">("asking");
+  // "not_enrolled": a required lock on a phone with a sensor but no fingerprint saved, which the person can fix.
+  const [state, setState] = useState<"asking" | "retry" | "unavailable" | "not_enrolled">("asking");
   const [signingOut, setSigningOut] = useState(false);
   const asking = useRef(false);
 
@@ -118,13 +144,14 @@ function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onU
     asking.current = true;
     setState("asking");
     try {
-      if ((await fingerprintSupport()) !== "ready") { setState("unavailable"); return; }
+      const support = await fingerprintSupport();
+      if (support !== "ready") { setState(required && support === "not_enrolled" ? "not_enrolled" : "unavailable"); return; }
       if (await confirmFingerprint("Unlock Figbloom")) onUnlocked();
       else setState("retry");
     } finally {
       asking.current = false;
     }
-  }, [onUnlocked]);
+  }, [onUnlocked, required]);
 
   // Back in front after leaving the lock screen open: ask again rather than leave a dead screen.
   // Only after a real trip to the background — iOS flips to "inactive" and back around its own
@@ -142,7 +169,7 @@ function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onU
     setSigningOut(true);
     try {
       await beforeSignOut?.();
-      await supabase().auth.signOut({ scope: "local" });
+      await signOutOfThisPhone();
     } finally {
       setSigningOut(false);
     }
@@ -155,38 +182,64 @@ function LockScreen({ accent, onUnlocked, beforeSignOut }: { accent: string; onU
         <View style={{ width: 84, height: 84, borderRadius: 42, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.16)" }}>
           <Fingerprint color="#fff" size={44} />
         </View>
-        <Text style={{ fontSize: 22, fontWeight: "600", color: "#fff", marginTop: 24 }}>
-          {state === "unavailable" ? "Fingerprint unavailable" : "Figbloom is locked"}
+        <Text style={{ fontSize: 22, fontWeight: "600", color: "#fff", marginTop: 24, textAlign: "center" }}>
+          {state === "not_enrolled" ? "Set up a fingerprint"
+            : state === "unavailable" ? (required ? "Admin screens need a fingerprint" : "Fingerprint unavailable")
+            : "Figbloom is locked"}
         </Text>
         <Text style={{ fontSize: 13.5, lineHeight: 20, color: "rgba(255,255,255,0.8)", textAlign: "center", marginTop: 8 }}>
-          {state === "unavailable"
-            ? "This phone no longer has a fingerprint set up for the app. Sign out, then sign in with your password."
-            : state === "retry"
-              ? "That didn't unlock it. Tap the button to try again."
-              : "Touch the fingerprint sensor to continue."}
+          {state === "not_enrolled"
+            ? "The admin screens on this phone need your fingerprint, and none is saved on it yet. Add one in the phone's settings, then come back."
+            : state === "unavailable"
+              ? (required
+                ? "This phone has no fingerprint sensor the app can use, so the admin screens cannot open here. Use the web console instead."
+                : "This phone no longer has a fingerprint set up for the app. Sign out, then sign in with your password.")
+              : state === "retry"
+                ? "That didn't unlock it. Tap the button to try again."
+                : "Touch the fingerprint sensor to continue."}
         </Text>
 
-        {state !== "unavailable" && (
-          <Tap
-            accessibilityRole="button"
-            disabled={state === "asking"}
-            onPress={() => void ask()}
-            style={{ ...HIT, marginTop: 28, paddingHorizontal: 24, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", opacity: state === "asking" ? 0.6 : 1 }}
-          >
-            <Text style={{ fontSize: 15, fontWeight: "600", color: a.deep }}>Unlock with fingerprint</Text>
-          </Tap>
+        {state === "not_enrolled" ? (
+          <>
+            <LockButton label="Open phone settings" color={a.deep} onPress={() => void openFingerprintSettings()} />
+            <LockLink label="Check again" onPress={() => void ask()} />
+          </>
+        ) : state !== "unavailable" && (
+          <LockButton label="Unlock with fingerprint" color={a.deep} disabled={state === "asking"} onPress={() => void ask()} />
         )}
 
-        <Tap
-          accessibilityRole="button"
-          disabled={signingOut}
-          onPress={() => void signOut()}
-          ripple={RIPPLE_ON_DARK}
-          style={{ ...HIT, marginTop: 12, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: signingOut ? 0.6 : 1 }}
-        >
-          <Text style={{ fontSize: 13.5, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>{signingOut ? "Signing out…" : "Sign out"}</Text>
-        </Tap>
+        {onLeave && <LockLink label={onLeave.label} onPress={onLeave.run} />}
+        <LockLink label={signingOut ? "Signing out…" : "Sign out"} disabled={signingOut} onPress={() => void signOut()} />
       </View>
     </Modal>
+  );
+}
+
+/** The lock screen's one main action: a white pill. */
+function LockButton({ label, color, disabled, onPress }: { label: string; color: string; disabled?: boolean; onPress: () => void }) {
+  return (
+    <Tap
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={{ ...HIT, marginTop: 28, paddingHorizontal: 24, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", opacity: disabled ? 0.6 : 1 }}
+    >
+      <Text style={{ fontSize: 15, fontWeight: "600", color }}>{label}</Text>
+    </Tap>
+  );
+}
+
+/** Quieter actions under it: check again, back to the teacher screens, sign out. */
+function LockLink({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
+  return (
+    <Tap
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      ripple={RIPPLE_ON_DARK}
+      style={{ ...HIT, marginTop: 12, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: disabled ? 0.6 : 1 }}
+    >
+      <Text style={{ fontSize: 13.5, fontWeight: "600", color: "rgba(255,255,255,0.85)" }}>{label}</Text>
+    </Tap>
   );
 }

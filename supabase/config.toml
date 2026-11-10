@@ -83,8 +83,17 @@ verify_jwt = false             # the Figbloom console's backend, server to serve
 [functions.platform-decisions]
 verify_jwt = false             # the Figbloom platform's decision webhook; its own check is x-figbloom-signature (HMAC) against PLATFORM_WEBHOOK_SECRET
 
+[functions.platform-events]
+verify_jwt = false             # the Figbloom platform's event relay (hr.employee.left); its own check is x-figbloom-signature (HMAC) against PLATFORM_WEBHOOK_SECRET
+
 [functions.platform-sync]
 verify_jwt = false             # pg_cron (pg_net) and staff, server to server; its own check is the service-role key, in constant time
+
+[functions.open-hr]
+verify_jwt = true              # the school admin, org admin or bursar clicking "HR & Payroll"; asks the platform for a one-time HR sign-in link (POST /handoffs) with the PLATFORM_* secrets
+
+[functions.my-hr]
+verify_jwt = true              # a staff member's own "My HR" (payslips, leave, attendance, KPIs) from Figbloom HR, with the PLATFORM_* token and HR_MY_HR_URL; school and person from the session only
 
 [functions.request-password-reset]
 verify_jwt = false             # "Forgot password?" from the sign-in screen — the person can't sign in, so no JWT

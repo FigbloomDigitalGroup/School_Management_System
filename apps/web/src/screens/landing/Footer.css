@@ -29,28 +29,13 @@
 }
 
 .footer-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-  text-decoration: none;
+  display: inline-block;
 }
 
-.footer-logo-mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 12px;
-  background: rgba(16, 185, 130, 0.18);
-  color: #72e2b7;
-}
-
-.footer-logo-mark svg {
-  width: 26px;
-  height: 26px;
+.footer-logo img {
+  display: block;
+  width: auto;
+  height: 56px;
 }
 
 .footer-brand p {
@@ -177,5 +162,9 @@
   .footer-top {
     grid-template-columns: 1fr;
     gap: 32px;
+  }
+
+  .footer-logo img {
+    height: 48px;
   }
 }

@@ -130,6 +130,22 @@ export function showsAdminSwitch(role: Role, areas: readonly AdminArea[]): boole
   return false;
 }
 
+/**
+ * Which consoles the phone app opens for this person: a teacher console, an admin console, or both.
+ * A school admin has the admin console. A teacher keeps their own console, and gains the admin one when they
+ * hold areas (the web's "Teacher | Admin" switch). Other staff have no console of their own on the phone, so
+ * they open the admin one for any area they hold. The visitors area alone opens nothing: the phone has no
+ * visitor log for the front desk (the web console is theirs), so that console would be empty. Org admins and
+ * super admins have none yet: the web is theirs. `admin` is null when there is nothing to open.
+ */
+export function phoneConsolesFor(role: Role, areas: readonly AdminArea[]): { teacher: boolean; admin: AdminAccess | null } {
+  if (role === "school_admin") return { teacher: false, admin: "all" };
+  if (role !== "teacher" && role !== "staff") return { teacher: false, admin: null };
+  const access = adminAccessFor(role, areas);
+  const opens = access !== "all" && access.some((a) => a !== "visitors");
+  return { teacher: role === "teacher", admin: opens ? access : null };
+}
+
 /** Where each area's work is in the admin console, for the home page of someone holding only some areas. */
 export const ADMIN_AREA_PAGES: Record<AdminArea, { to: string; label: string }[]> = {
   people: [{ to: "admin/people", label: "Students & staff" }],
@@ -183,7 +199,14 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/settings": "full",
   "admin/access": "full",
   "admin/bloom": "full",
+  // setting the school up is for full admins; everyone else has the Guide panel
+  "admin/assistant": "full",
   "admin/account": null,
+  // the school admin's own HR record, as staff (20261105710000); the shell shows it only to the school's own admins
+  "admin/my-hr": null,
+  // leave applications waiting on this person in Figbloom HR (20261105800000): the shell shows it to approvers only
+  // (the school's admins, the leave and fees areas) while the school's leave is HR's; HR decides who has items
+  "admin/leave-to-approve": null,
 };
 
 /** Whether this access opens that admin page. A page not listed is full admins only. */

@@ -3,7 +3,9 @@
 --
 -- Runs against a local database that has the migrations applied and
 -- `npm run db:seed` data, inside one transaction that is rolled back.
--- Every check prints PASS or FAIL.
+-- Every check prints PASS or FAIL. A KNOWN line is a defect already filed (its tag names the bug): it stays KNOWN until
+-- the behaviour is fixed, then prints PASS and should be turned into a plain check.
+-- Read the live function definitions, not the migration files: main's admin-areas work changed record_payment to has_perm(..., 'fees').
 --
 --   docker exec -i supabase_db_figbloom psql -U postgres -d postgres -q < supabase/rls-checks/fees.sql
 
@@ -14,8 +16,11 @@ select set_config('t.a',       (select id::text from tenants where slug = 'allia
 select set_config('t.admin',   (select id::text from profiles where role = 'school_admin' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
 select set_config('t.parent',  (select id::text from profiles where role = 'parent' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
 select set_config('t.teacher', (select id::text from profiles where role = 'teacher' and tenant_id = (select id from tenants where slug = 'alliance') limit 1), true);
-select set_config('t.inv', (select id::text from fee_invoices where paid_cents < total_cents and paid_cents = 0 order by id limit 1), true);
-select set_config('t.inv2', (select id::text from fee_invoices where paid_cents < total_cents and id::text <> current_setting('t.inv') order by id limit 1), true);
+-- Alliance's invoices only: other seeded schools (npm run db:seed-org adds one) have invoices too,
+-- and the Alliance admin acting below cannot see theirs.
+select set_config('t.inv', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid and paid_cents < total_cents and paid_cents = 0 order by id limit 1), true);
+select set_config('t.inv2', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid and paid_cents < total_cents and id::text <> current_setting('t.inv') order by id limit 1), true);
+select set_config('t.inv2_seeded', (select count(*) from payments where invoice_id = current_setting('t.inv2')::uuid and status = 'success')::text, true);
 select set_config('t.bal', (select (total_cents - paid_cents)::text from fee_invoices where id = current_setting('t.inv')::uuid), true);
 
 insert into payment_proofs (tenant_id, invoice_id, uploaded_by, file_path, file_name)
@@ -115,7 +120,7 @@ insert into payments (tenant_id, invoice_id, amount_cents, method, status, check
   values (current_setting('t.a')::uuid, current_setting('t.inv2')::uuid, 200, 'mpesa', 'pending', 'ws_CO_test');
 update payments set status = 'success', mpesa_receipt = 'SFCCALLBACK' where checkout_request_id = 'ws_CO_test';
 select pg_temp.check('callback (service role) still credits the invoice',
-  (select count(*) from payments where invoice_id = current_setting('t.inv2')::uuid and status = 'success') = 2);
+  (select count(*) from payments where invoice_id = current_setting('t.inv2')::uuid and status = 'success') = current_setting('t.inv2_seeded')::int + 2);
 
 -- ---------------------------------------------------------------- billing run
 select set_config('t.s1', (select id::text from students where tenant_id = current_setting('t.a')::uuid order by id limit 1), true);
@@ -143,6 +148,142 @@ do $$ begin
   exception when others then raise notice 'PASS invoice created already paid is refused (%)', sqlerrm; end;
 end $$;
 select log_admin_event(current_setting('t.a')::uuid, 'Term 1, 2027 billed: 1 invoices', 'financial', '{}');
+reset role;
+
+-- ---------------------------------------------------------------- QA 05 (FIG-1238): the money maths, worked by hand
+-- Invoices of 1,000,000 cents (KSh 10,000) due in 2031, so "overdue" never gets in the way. They are created as the owner
+-- (no jwt): the guard lets the service role through, and an invoice must start with nothing paid.
+create function pg_temp.known(label text, tag text, ok boolean) returns void language plpgsql as $$
+begin raise notice '% %', case when ok then 'PASS (the gap is closed: turn this into a plain check)' else 'KNOWN ' || tag || ' (open)' end, label; end $$;
+grant execute on all functions in schema pg_temp to authenticated;
+
+select set_config('request.jwt.claims', '', true);
+insert into fee_invoices (tenant_id, student_id, term_id, total_cents, due_on)
+  select current_setting('t.a')::uuid, s.id, current_setting('t.term')::uuid, 1000000, '2031-12-31'
+    from (select id from students where tenant_id = current_setting('t.a')::uuid order by id offset 2 limit 6) s;
+select set_config('t.u', (select id::text from fee_invoices where term_id = current_setting('t.term')::uuid and total_cents = 1000000 order by id offset 5 limit 1), true);
+select set_config('t.x', (select id::text from fee_invoices where term_id = current_setting('t.term')::uuid and total_cents = 1000000 order by id offset 0 limit 1), true);
+select set_config('t.y', (select id::text from fee_invoices where term_id = current_setting('t.term')::uuid and total_cents = 1000000 order by id offset 1 limit 1), true);
+select set_config('t.z', (select id::text from fee_invoices where term_id = current_setting('t.term')::uuid and total_cents = 1000000 order by id offset 2 limit 1), true);
+select set_config('t.w', (select id::text from fee_invoices where term_id = current_setting('t.term')::uuid and total_cents = 1000000 order by id offset 3 limit 1), true);
+select set_config('t.v', (select id::text from fee_invoices where term_id = current_setting('t.term')::uuid and total_cents = 1000000 order by id offset 4 limit 1), true);
+
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+
+-- partial, then exact: unpaid -> part_paid -> paid, against numbers worked out by hand
+select record_payment(current_setting('t.x')::uuid, 400000, 'cash', null);
+select pg_temp.check('400,000 of 1,000,000 paid: paid_cents 400,000 and status part_paid',
+  (select paid_cents = 400000 and status::text = 'part_paid' from fee_invoices where id = current_setting('t.x')::uuid));
+select record_payment(current_setting('t.x')::uuid, 600000, 'bank', 'SLIP-Q2');
+select pg_temp.check('the other 600,000 clears it: paid_cents 1,000,000 and status paid',
+  (select paid_cents = 1000000 and status::text = 'paid' from fee_invoices where id = current_setting('t.x')::uuid));
+select pg_temp.expect_error('one more cent on a paid invoice',
+  format('select record_payment(%L, 1, ''cash'', null)', current_setting('t.x')), '22023');
+
+-- zero, negative, missing, one cent over, the largest bigint: all refused, and nothing moves
+select pg_temp.expect_error('zero', format('select record_payment(%L, 0, ''cash'', null)', current_setting('t.y')), '22023');
+select pg_temp.expect_error('negative', format('select record_payment(%L, -500, ''cash'', null)', current_setting('t.y')), '22023');
+select pg_temp.expect_error('no amount', format('select record_payment(%L, null, ''cash'', null)', current_setting('t.y')), '22023');
+select pg_temp.expect_error('one cent over the balance', format('select record_payment(%L, 1000001, ''cash'', null)', current_setting('t.y')), '22023');
+select pg_temp.expect_error('the largest bigint', format('select record_payment(%L, 9223372036854775807, ''cash'', null)', current_setting('t.y')), '22023');
+select pg_temp.expect_error('cheque without a number', format('select record_payment(%L, 1000, ''cheque'', null)', current_setting('t.y')), '22023');
+select pg_temp.expect_error('M-Pesa without a code', format('select record_payment(%L, 1000, ''mpesa'', '' '')', current_setting('t.y')), '22023');
+select pg_temp.check('none of those refusals moved the invoice',
+  (select paid_cents = 0 and status::text = 'unpaid' from fee_invoices where id = current_setting('t.y')::uuid));
+
+-- every method on one invoice: cash 100,000 + M-Pesa 200,000 + bank 300,000 + cheque 400,000 = 1,000,000
+select record_payment(current_setting('t.y')::uuid, 100000, 'cash', '   ');
+select record_payment(current_setting('t.y')::uuid, 200000, 'mpesa', 'qa5mp1');
+select record_payment(current_setting('t.y')::uuid, 300000, 'bank', 'BNK-1');
+select record_payment(current_setting('t.y')::uuid, 400000, 'cheque', 'CHQ-1');
+select pg_temp.check('four methods add up to the whole invoice and it is paid',
+  (select paid_cents = 1000000 and status::text = 'paid' from fee_invoices where id = current_setting('t.y')::uuid));
+select pg_temp.check('each method is stored as recorded: amount, method, reference',
+  (select string_agg(method::text || ':' || amount_cents || ':' || coalesce(reference, '-'), ' ' order by amount_cents) from payments where invoice_id = current_setting('t.y')::uuid)
+    = 'cash:100000:- mpesa:200000:QA5MP1 bank:300000:BNK-1 cheque:400000:CHQ-1');
+select pg_temp.check('only the M-Pesa payment fills mpesa_receipt, in capitals',
+  (select string_agg(coalesce(mpesa_receipt, '-'), ' ' order by amount_cents) from payments where invoice_id = current_setting('t.y')::uuid) = '- QA5MP1 - -');
+select pg_temp.check('every recorded payment is a success entered by the admin',
+  (select bool_and(status::text = 'success' and recorded_by = current_setting('t.admin')::uuid) from payments where invoice_id = current_setting('t.y')::uuid));
+select pg_temp.check('payments add up to paid_cents on both invoices (the ledger reconciles)',
+  (select count(*) = 2 and bool_and(i.paid_cents = (select coalesce(sum(p.amount_cents), 0) from payments p where p.invoice_id = i.id and p.status::text = 'success'))
+     from fee_invoices i where i.id in (current_setting('t.x')::uuid, current_setting('t.y')::uuid)));
+select pg_temp.expect_error('the same M-Pesa code on another invoice, in lower case',
+  format('select record_payment(%L, 1000, ''mpesa'', ''qa5mp1'')', current_setting('t.z')), '23505');
+
+-- a client cannot write payments directly: RLS has no write policy (20261021000002_payments_server_only)
+select pg_temp.expect_error('admin inserts a payment row',
+  format('insert into payments (tenant_id, invoice_id, amount_cents, method, status) values (%L, %L, 1000, ''cash'', ''success'')', current_setting('t.a'), current_setting('t.z')), '42501');
+do $$ declare n int; begin
+  update payments set amount_cents = 1 where invoice_id = current_setting('t.y')::uuid; get diagnostics n = row_count;
+  raise notice '% admin edits a payment: % row(s) changed', case when n = 0 then 'PASS' else 'FAIL' end, n;
+  delete from payments where invoice_id = current_setting('t.y')::uuid; get diagnostics n = row_count;
+  raise notice '% admin deletes a payment: % row(s) removed', case when n = 0 then 'PASS' else 'FAIL' end, n;
+end $$;
+select pg_temp.check('the payments are all still there, unchanged',
+  (select count(*) = 4 and sum(amount_cents) = 1000000 from payments where invoice_id = current_setting('t.y')::uuid));
+
+-- ---- KNOWN gaps found by QA 05. They are neither PASS nor FAIL: they print KNOWN while the behaviour is wrong and PASS once fixed.
+-- FIG-1315 (fixed by 20261103500000): a hand edit of total_cents is refused; adjust_invoice_total() is the way (main's block below tests it)
+select record_payment(current_setting('t.z')::uuid, 400000, 'cash', null);
+select pg_temp.expect_error('a hand edit of total_cents is refused (FIG-1315, fixed)',
+  format('update fee_invoices set total_cents = 400000 where id = %L', current_setting('t.z')), '42501');
+-- FIG-1319 (fixed by 20261103300000): an invoice with payments cannot be deleted, so its payments are not erased with it
+select record_payment(current_setting('t.w')::uuid, 250000, 'cash', null);
+select pg_temp.expect_error('deleting an invoice that has payments is refused (FIG-1319, fixed)',
+  format('delete from fee_invoices where id = %L', current_setting('t.w')), '23001');
+reset role;
+select pg_temp.check('the invoice and its payment are still there after the refused delete',
+  exists (select 1 from fee_invoices where id = current_setting('t.w')::uuid) and exists (select 1 from payments where invoice_id = current_setting('t.w')::uuid));
+
+-- ---- who may record: the "fees" area, not the role (record_payment checks has_perm(tenant, 'fees'), main's 20261031000001)
+select set_config('t.staff', coalesce((select id::text from profiles where role = 'staff' and tenant_id = current_setting('t.a')::uuid order by id limit 1), ''), true);
+select pg_temp.check('control: the seed has a staff member to test with', current_setting('t.staff') <> '');
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.staff'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.expect_error('a staff member without the fees area records a payment',
+  format('select record_payment(%L, 1000, ''cash'', null)', current_setting('t.u')), '42501');
+reset role;
+insert into staff_permissions (tenant_id, profile_id, area, granted_by)
+  values (current_setting('t.a')::uuid, current_setting('t.staff')::uuid, 'fees', current_setting('t.admin')::uuid);
+set local role authenticated;
+select record_payment(current_setting('t.u')::uuid, 1000, 'cash', null);
+select pg_temp.check('the same staff member, once given the fees area, records a payment',
+  (select paid_cents = 1000 and status::text = 'part_paid' from fee_invoices where id = current_setting('t.u')::uuid));
+reset role;
+delete from staff_permissions where profile_id = current_setting('t.staff')::uuid and area = 'fees';
+set local role authenticated;
+select pg_temp.expect_error('and when the area is taken away again, at once',
+  format('select record_payment(%L, 1000, ''cash'', null)', current_setting('t.u')), '42501');
+reset role;
+
+-- ---- the M-Pesa callback path (service role: no jwt) credits through the same trigger
+select set_config('request.jwt.claims', '', true);
+insert into payments (tenant_id, invoice_id, amount_cents, method, status, checkout_request_id) values
+  (current_setting('t.a')::uuid, current_setting('t.v')::uuid, 1000000, 'mpesa', 'pending', 'qa5_a');
+update payments set status = 'success', mpesa_receipt = 'QA5AAAA' where checkout_request_id = 'qa5_a';
+select pg_temp.check('a successful callback for the full balance pays the invoice',
+  (select paid_cents = 1000000 and status::text = 'paid' from fee_invoices where id = current_setting('t.v')::uuid));
+update payments set status = 'success' where checkout_request_id = 'qa5_a';
+select pg_temp.check('the same callback delivered again does not credit twice',
+  (select paid_cents = 1000000 from fee_invoices where id = current_setting('t.v')::uuid));
+-- FIG-1316 (fixed by 20261103400000): a second prompt, raised once the first has settled, is still applied in full (the family has paid it),
+-- and the excess is recorded as an overpayment in the audit log instead of being silently absorbed
+insert into payments (tenant_id, invoice_id, amount_cents, method, status, checkout_request_id)
+  values (current_setting('t.a')::uuid, current_setting('t.v')::uuid, 1000000, 'mpesa', 'pending', 'qa5_b');
+update payments set status = 'success', mpesa_receipt = 'QA5BBBB' where checkout_request_id = 'qa5_b';
+select pg_temp.check('a second full-balance prompt is applied in full and its excess is audited as an overpayment (FIG-1316, fixed)',
+  (select paid_cents = 2000000 from fee_invoices where id = current_setting('t.v')::uuid)
+  and (select count(*) from audit_events where metadata->>'invoice_id' = current_setting('t.v') and event like 'Overpayment for %'
+         and (metadata->>'excess_cents')::bigint = 1000000) = 1);
+do $$ declare p bigint; t bigint; begin
+  select paid_cents, total_cents into p, t from fee_invoices where id = current_setting('t.v')::uuid;
+  raise notice 'INFO callback path: paid_cents % on a total of % (excess %), status %, recorded as an overpayment in the audit log (FIG-1316)', p, t, p - t,
+    (select status from fee_invoices where id = current_setting('t.v')::uuid);
+end $$;
+
+-- (merge of origin/main, 2026-11-01) main's blocks come last: the final one deletes the whole Alliance school, and they start from the owner role
 reset role;
 
 -- ---------------------------------------------------------------- bill_term: one call, logged as saved (20261104320000, FIG-1331)
@@ -178,7 +319,9 @@ select pg_temp.check('the status rule: paid, overdue, part paid, unpaid',
   invoice_status_for(100, 100, current_date - 30) = 'paid' and invoice_status_for(100, 40, current_date - 1) = 'overdue'
   and invoice_status_for(100, 40, current_date + 1) = 'part_paid' and invoice_status_for(100, 0, current_date + 1) = 'unpaid');
 select set_config('t.stale', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
-   and paid_cents < total_cents and id::text not in (current_setting('t.inv'), current_setting('t.inv2')) order by id offset 9 limit 1), true);
+   and paid_cents < total_cents and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   and term_id <> current_setting('t.term')::uuid  -- not the Term 1, 2027 invoices this script makes up (the first learner's is deleted below)
+   order by id offset 9 limit 1), true);
 select set_config('request.jwt.claims', '', true);
 update fee_invoices set due_on = current_date - 3, status = 'unpaid' where id = current_setting('t.stale')::uuid and paid_cents = 0;
 update fee_invoices set due_on = current_date - 3, status = 'part_paid' where id = current_setting('t.stale')::uuid and paid_cents > 0;
@@ -199,6 +342,7 @@ select pg_temp.check('the refresh runs every night',
 -- ---------------------------------------------------------------- whole shillings (20261104340000, FIG-1334)
 select set_config('t.cents', (select id::text from fee_invoices where tenant_id = current_setting('t.a')::uuid
    and paid_cents = 0 and total_cents > 100000 and id::text not in (current_setting('t.inv'), current_setting('t.inv2'))
+   and term_id <> current_setting('t.term')::uuid  -- as above: a payment on the first learner's Term 1, 2027 invoice stops the delete at the end of that section (1 run in about 340)
    order by id offset 11 limit 1), true);
 select set_config('request.jwt.claims', '', true);
 update fee_invoices set total_cents = total_cents + 50 where id = current_setting('t.cents')::uuid;  -- a balance left with cents

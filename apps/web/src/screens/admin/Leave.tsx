@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  fetchAllLeaveRequests, formatShortDate, reviewLeaveRequest, supabase, type LeaveRequestRow, type LeaveStatus,
+  decideLeaveRequest, fetchAllLeaveRequests, formatShortDate, LEAVE_STATUS_LABEL, LEAVE_STATUS_TONE, splitLeaveRequests, type LeaveRequestRow,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
@@ -10,13 +10,6 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
-
-const STATUS_TONE: Record<LeaveStatus, "ok" | "warn" | "muted"> = {
-  pending: "warn", approved: "ok", rejected: "muted", cancelled: "muted",
-};
-const STATUS_LABEL: Record<LeaveStatus, string> = {
-  pending: "Awaiting review", approved: "Approved", rejected: "Rejected", cancelled: "Cancelled",
-};
 
 /**
  * Every leave request in the school, pending ones first. Approving or
@@ -41,23 +34,11 @@ export function AdminLeave() {
   async function review(r: LeaveRequestRow, status: "approved" | "rejected") {
     setReviewingId(r.id);
     try {
-      const note = noteDrafts[r.id] ?? "";
-      await reviewLeaveRequest(r.id, profile.id, status, note);
-
-      const { error: notifyErr } = await supabase().from("announcements").insert({
-        tenant_id: tenant.id,
-        author_id: profile.id,
-        subject: status === "approved" ? "Your leave request was approved" : "Your leave request was not approved",
-        body: (status === "approved"
-          ? `Your leave from ${formatShortDate(r.starts_on)} to ${formatShortDate(r.ends_on)} has been approved.`
-          : `Your leave from ${formatShortDate(r.starts_on)} to ${formatShortDate(r.ends_on)} was not approved.`
-        ) + (note.trim() ? ` Note: ${note.trim()}` : ""),
-        audience: { kind: "user", user_id: r.teacher_id },
-        channels: ["in_app"],
-        published_at: new Date().toISOString(),
+      const { notifyError } = await decideLeaveRequest({
+        tenantId: tenant.id, reviewerId: profile.id, request: r, status, note: noteDrafts[r.id] ?? "",
       });
 
-      if (notifyErr) toast(`Recorded, but ${r.teacherName} could not be notified: ${notifyErr.message}`, "error");
+      if (notifyError) toast(`Recorded, but ${r.teacherName} could not be notified: ${notifyError}`, "error");
       else toast(`${status === "approved" ? "Approved" : "Rejected"} — ${r.teacherName} notified.`);
       reload();
     } catch (err) {
@@ -67,8 +48,7 @@ export function AdminLeave() {
     }
   }
 
-  const pending = (requests ?? []).filter((r) => r.status === "pending");
-  const decided = (requests ?? []).filter((r) => r.status !== "pending");
+  const { pending, decided } = splitLeaveRequests(requests ?? []);
 
   return (
     <>
@@ -126,7 +106,7 @@ export function AdminLeave() {
                 { key: "teacher", header: "Teacher", width: "1.2fr", render: (r: LeaveRequestRow) => <Cell sub={r.reason ?? undefined}>{r.teacherName}</Cell> },
                 { key: "dates", header: "Dates", render: (r: LeaveRequestRow) => <span className="text-[13px]">{formatShortDate(r.starts_on)} – {formatShortDate(r.ends_on)}</span> },
                 { key: "note", header: "Note", width: "1.4fr", render: (r: LeaveRequestRow) => <span className="text-[12.5px] text-ink-faint">{r.review_note ?? "—"}</span> },
-                { key: "status", header: "", align: "right", render: (r: LeaveRequestRow) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge> },
+                { key: "status", header: "", align: "right", render: (r: LeaveRequestRow) => <Badge tone={LEAVE_STATUS_TONE[r.status]}>{LEAVE_STATUS_LABEL[r.status]}{r.source === "hr" ? " · Figbloom HR" : ""}</Badge> },
               ]}
               rows={decided}
               rowKey={(r) => r.id}
