@@ -239,6 +239,20 @@ describe("storing the cards, and who may change them", () => {
     expect(faithCard).toMatchObject({ termId, classId: faith.classId, publishedAt: null, teacherComment: null, principalComment: null });
   });
 
+  it("FIG-1387: an exam of another term cannot end up on a card: preparing refuses it, so a stale selection can never store another term's marks", async () => {
+    await useAs("school_admin");
+    const other = (await admin.client.from("terms").select("id").eq("tenant_id", tenantId).neq("id", termId).limit(1).single()).data!.id as string;
+    const options = defaultReportCardOptions("kcse");
+    // both exams belong to the throwaway term; the card is for another term
+    await expect(prepareClassReportCards({ tenantId, school, termId: other, classId: faith.classId, examIds: [exam1], options })).rejects.toThrow(/not in this term/);
+    await expect(prepareClassReportCards({ tenantId, school, termId: other, classId: faith.classId, examIds: [exam1, exam2], options })).rejects.toThrow(/not in this term/);
+    // one right and one wrong is refused too: nothing is quietly dropped
+    await expect(prepareClassReportCards({ tenantId, school, termId, classId: faith.classId, examIds: [exam1, "00000000-0000-4000-8000-00000000dead"], options })).rejects.toThrow(/not in this term/);
+    // the term's own exams are fine
+    const own = await prepareClassReportCards({ tenantId, school, termId, classId: faith.classId, examIds: [exam1], options });
+    expect(own.length).toBeGreaterThan(0);
+  });
+
   it("preparing again updates the drafts and keeps the comments", async () => {
     await useAs("school_admin");
     await saveReportCardComments(faithCard.id, { teacher: "  Steady work.  ", principal: "Well done." });

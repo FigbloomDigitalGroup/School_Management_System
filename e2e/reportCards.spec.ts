@@ -113,35 +113,38 @@ async function openOfficeScreen(page: Page) {
 // ---------------------------------------------------------------- 1. the office prepares the class
 
 test.describe("the office prepares Form 2 West", () => {
-  // KNOWN FIG-1387 (open): the screen says every exam with results out counts by default, but on first load nothing is ticked and
-  // Prepare is off. After switching to another term the OLD term's exam stays selected without being shown, and Prepare is on.
-  // Both come from the two effects in ReportCards.tsx that read the exam list before the new term's exams have arrived.
-  // test.fail(): passes while the defect is there; when it is fixed it fails and tells you to remove test.fail().
-  test("KNOWN FIG-1387 (open): the exam with results out is ticked by default", async ({ page }) => {
-    test.fail();
+  // FIG-1387: the screen says every exam with results out counts by default. The default is worked out from the exams of the term that is
+  // chosen, once they have arrived (it used to be worked out from whatever list was on screen before, so on first load nothing was ticked,
+  // and after changing the term the OLD term's exam stayed selected out of sight and Prepare was on).
+  test("the exam with results out is ticked by default, and Prepare is on", async ({ page }) => {
     await signInAdmin(page);
     await openOfficeScreen(page);
     await expect(page.getByText("(no results out)")).toBeVisible();
     await expect(page.getByLabel(EXAM)).toBeChecked();
+    await expect(page.getByLabel(/End of Term 3/), "an exam with no results out is not ticked by default").not.toBeChecked();
+    await expect(page.getByRole("button", { name: /Prepare/ })).toBeEnabled();
   });
 
-  test("KNOWN FIG-1387 (open): a term with no exams cannot be prepared", async ({ page }) => {
-    test.fail();
+  test("a term with no exams cannot be prepared, and coming back to the first term ticks its exam again", async ({ page }) => {
     await signInAdmin(page);
     await openOfficeScreen(page);
+    await expect(page.getByLabel(EXAM)).toBeChecked();
     await page.getByLabel("Term", { exact: true }).selectOption({ label: "Term 2, 2026" });
     await expect(page.getByText("No exams this term.")).toBeVisible();
-    await expect(page.getByRole("button", { name: /Prepare/ })).toBeDisabled(); // never pressed here
+    await expect(page.getByRole("button", { name: /Prepare/ }), "nothing from the other term is still selected").toBeDisabled(); // never pressed here
+    await page.getByLabel("Term", { exact: true }).selectOption({ label: "Term 3, 2026" });
+    await expect(page.getByLabel(EXAM)).toBeChecked();
+    await expect(page.getByRole("button", { name: /Prepare/ })).toBeEnabled();
   });
 
-  test("ticking the exam by hand, preparing makes one card per learner", async ({ page }) => {
+  test("with the exam that has results out ticked, preparing makes one card per learner", async ({ page }) => {
     const f = await facts();
     expect(f.learners, "the seed: 43 learners with nine marks each").toHaveLength(43);
     expect(f.subjects).toHaveLength(9);
     await signInAdmin(page);
     await openOfficeScreen(page);
     await expect(page.getByText("(no results out)")).toBeVisible();
-    await page.getByLabel(EXAM).check();
+    await expect(page.getByLabel(EXAM)).toBeChecked(); // ticked by default (FIG-1387); nothing to tick by hand
     await expect(page.getByLabel(/End of Term 3/)).not.toBeChecked();
     await page.getByRole("button", { name: "Prepare report cards" }).click();
     await expect(page.getByText("43 report cards prepared.")).toBeVisible({ timeout: 30000 });
