@@ -22,7 +22,8 @@ import { PendingSignatures } from "../../components/signatures/PendingSignatures
 export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
   const toast = useToast();
-  const { data, loading, error } = useAsync(() => fetchSchoolOverview(tenant.id), [tenant.id]);
+  // "Attendance today" is today (FIG-1401): before any class has taken a register it reads "—" and every class Not taken, never an earlier day.
+  const { data, loading, error } = useAsync(() => fetchSchoolOverview(tenant.id, "today"), [tenant.id]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 

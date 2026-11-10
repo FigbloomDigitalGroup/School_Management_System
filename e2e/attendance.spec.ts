@@ -13,7 +13,8 @@ const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_
  * calling any of the app's own code. Each screen is then read as a person sees it. Seed data only (npm run db:seed and db:seed-org):
  * Alliance has ten days of registers for Form 2 West (the first ten school days of the term, to 2026-09-11), Kijani Ridge has registers for five classes from the start of
  * the term to 2026-10-27, and neither school has taken a register today. The tests that write (the teacher's register, the queue)
- * clear today's Alliance rows before and after, as flows.spec.ts does; the one that archives a learner puts them back.
+ * clear today's Alliance rows before and after, as flows.spec.ts does; the Dashboard tests take today's registers for two classes of each school
+ * (FIG-1401: the Dashboard shows today and nothing else) and clear them afterwards; the one that archives a learner puts them back.
  * supabase/rls-checks/attendance.sql and tests/integration/attendance.test.ts ask the same questions without a browser.
  *
  * Known defects use test.fail(): they pass while the defect exists and fail the day it is fixed. Then remove test.fail().
@@ -132,12 +133,64 @@ const SCHOOLS = [
 ] as const;
 
 // ================================================================ the admin Dashboard
+// The Dashboard shows TODAY (in school time) and nothing else (FIG-1401). The seed has no register for today, so the figure tests take a few
+// classes' registers for today with the service role first (clearToday before and after), and compare the screen with those rows.
+const SEED_MARKS = ["present", "present", "present", "absent", "present", "late", "present", "excused", "present", "present"];
+
+/** Today's registers for some classes of a school, written straight to the table: a mix of present, absent, late and excused. */
+async function takeToday(slug: string, classNames: string[]) {
+  const d = await school(slug);
+  const by = (await db.from("profiles").select("id").eq("tenant_id", d.tenantId).eq("role", "school_admin").limit(1).single()).data!.id as string;
+  const rows: { tenant_id: string; term_id: string; class_id: string; student_id: string; taken_by: string; taken_on: string; mark: string }[] = [];
+  for (const name of classNames) {
+    const c = d.classes.find((x) => x.name === name);
+    if (!c) throw new Error(`${slug} has no class ${name}`);
+    d.learners.filter((l) => l.class_id === c.id).forEach((l, i) =>
+      rows.push({ tenant_id: d.tenantId, term_id: d.termId, class_id: c.id, student_id: l.id, taken_by: by, taken_on: todayInSchool(), mark: SEED_MARKS[i % SEED_MARKS.length]! }));
+  }
+  const { error } = await db.from("attendance").insert(rows);
+  if (error) throw new Error(`could not take today's registers for ${slug}: ${error.message}`);
+}
+async function clearToday(slug: string) {
+  const t = await db.from("tenants").select("id").eq("slug", slug).single();
+  const { error } = await db.from("attendance").delete().eq("tenant_id", t.data!.id as string).eq("taken_on", todayInSchool());
+  if (error) throw new Error(`could not clear today's registers for ${slug}: ${error.message}`);
+}
+/** The two classes a school's Dashboard tests take a register for: Alliance's Form 2 West and Form 1 East, Kijani Ridge's two biggest classes. */
+const TODAYS_CLASSES: Record<string, string[]> = { alliance: ["Form 2 West", "Form 1 East"], "kijani-ridge": ["Grade 8 Cedar", "Grade 5 Baobab"] };
+
 test.describe("admin Dashboard: the card and the by-class list against the rows", () => {
+  test.beforeAll(async () => { for (const s of SCHOOLS) await clearToday(s.slug); });
+  test.afterAll(async () => { for (const s of SCHOOLS) await clearToday(s.slug); });
+
+  test("QA10-TODAY FIG-1401: with no register taken yet today, 'Attendance today' shows nothing for today, not an earlier day: \"—\", 0 classes submitted, every class Not taken with Remind teacher", async ({ page }) => {
+    const d = await school("alliance");
+    expect(d.rows.some((r) => r.taken_on === todayInSchool()), "nothing has been taken in Alliance today").toBe(false);
+    expect(latestDate(d) < todayInSchool(), "the seed's latest register is an earlier day").toBe(true);
+    await signInEmail(page, SCHOOLS[0].admin);
+    await page.goto("/s/alliance/admin");
+    await expect(page.getByText(/classes submitted/).first()).toBeVisible({ timeout: 30000 });
+    const lines = await textLines(page);
+    const card = after(lines, "Attendance today", 2);
+    table.push(["Dashboard alliance", "attendance today, no register yet today", "— / 0 of 8", `${card[0]} / ${card[1]}`]);
+    expect(card[0]).toBe("—");
+    expect(card[1]).toBe(`0 of ${d.classes.length} classes submitted`);
+    const h = lines.find((l) => l.toLowerCase().startsWith("attendance by class ·"));
+    same("Dashboard alliance", "date of the by-class list", todayInSchool(), h!.split("·")[1]!.trim());
+    expect(await page.getByText("Not taken", { exact: true }).count(), "every class is Not taken").toBe(d.classes.length);
+    expect(await page.getByRole("button", { name: "Remind teacher" }).count(), "and every one can be reminded").toBe(d.classes.length);
+  });
+
+  test("set up: today's registers for two classes of each school", async () => {
+    for (const s of SCHOOLS) await takeToday(s.slug, TODAYS_CLASSES[s.slug]!);
+  });
+
   for (const s of SCHOOLS) {
-    test(`${s.slug}: the figures are the rows of the most recent register on file`, async ({ page }) => {
+    test(`${s.slug}: the figures are the rows of today's registers, and the classes that have not taken one say so`, async ({ page }) => {
       const d = await school(s.slug);
-      const date = latestDate(d);
+      const date = todayInSchool();
       const exp = dashboardFor(d, date);
+      expect(exp.submitted, "two classes have a register today").toBe(2);
       await signInEmail(page, s.admin);
       const t0 = Date.now();
       await page.goto(`/s/${s.slug}/admin`);
@@ -168,14 +221,14 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     });
   }
 
-  test("alliance: 'who wasn't here' lists the learners marked late, absent or excused on that date, and nobody else", async ({ page }) => {
+  test("alliance: 'who wasn't here' lists the learners marked late, absent or excused today, and nobody else", async ({ page }) => {
     const d = await school("alliance");
-    const date = latestDate(d);
+    const date = todayInSchool();
     const form2West = d.classes.find((c) => c.name === "Form 2 West")!;
     const label: Record<string, string> = { late: "Late", absent: "Absent", excused: "Excused" };
     const expected = d.rows.filter((r) => r.taken_on === date && r.class_id === form2West.id && r.mark !== "present")
       .map((r) => { const l = d.learners.find((x) => x.id === r.student_id)!; return `${l.full_name}|${l.admission_no}|${label[r.mark]}`; }).sort();
-    expect(expected.length, "the seeded day has at least one learner away").toBeGreaterThan(0);
+    expect(expected.length, "today's register has at least one learner away").toBeGreaterThan(0);
 
     await signInEmail(page, SCHOOLS[0].admin);
     await page.goto("/s/alliance/admin");
@@ -193,23 +246,9 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     expect(shown.sort()).toEqual(expected);
   });
 
-  test("KNOWN QA10-TODAY FIG-1401 (open): with no register taken yet today, 'Attendance today' does not show an earlier day", async ({ page }) => {
-    test.fail();
-    const d = await school("alliance");
-    expect(d.rows.some((r) => r.taken_on === todayInSchool()), "nothing has been taken in Alliance today").toBe(false);
-    await signInEmail(page, SCHOOLS[0].admin);
-    await page.goto("/s/alliance/admin");
-    await expect(page.getByText(/classes submitted/).first()).toBeVisible();
-    const card = after(await textLines(page), "Attendance today", 2);
-    table.push(["Dashboard alliance", "attendance today, no register yet today", "— / 0 of 8", `${card[0]} / ${card[1]}`]);
-    expect(card[0]).toBe("—");
-    expect(card[1]).toBe(`0 of ${d.classes.length} classes submitted`);
-  });
-
-  test("KNOWN QA10-ARCHIVE FIG-1409 (open): a learner archived after the register is not counted on one side of 'here / on roll' and not the other", async ({ page }) => {
-    test.fail();
+  test("QA10-ARCHIVE FIG-1409: a learner archived after the register is counted on neither side of 'here / on roll'", async ({ page }) => {
     const d = await school("kijani-ridge");
-    const date = latestDate(d);
+    const date = todayInSchool();
     const exp = dashboardFor(d, date);
     const target = d.classes.map((c) => ({ c, e: exp.perClass.get(c.id)! })).filter((x) => x.e.submitted).sort((a, b) => b.e.total - a.e.total)[0]!;
     const present = d.rows.find((r) => r.taken_on === date && r.class_id === target.c.id && r.mark === "present")!;
@@ -223,10 +262,9 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
       const h = lines.findIndex((l) => l.toLowerCase().startsWith("attendance by class ·"));
       const start = lines.indexOf(target.c.name, h + 1);
       const shown = lines.slice(start + 1, start + 6).find((l) => /^\d+ \/ \d+$/.test(l));
-      // Either count the archived learner on both sides (here / on roll as it was) or on neither.
-      const asItWas = `${target.e.here} / ${target.e.total}`, withoutThem = `${target.e.here - 1} / ${target.e.total - 1}`;
-      table.push(["Dashboard kijani-ridge", `${target.c.name}: after archiving one learner who was present`, `${asItWas} or ${withoutThem}`, shown ?? "(missing)"]);
-      expect([asItWas, withoutThem]).toContain(shown);
+      const withoutThem = `${target.e.here - 1} / ${target.e.total - 1}`;
+      table.push(["Dashboard kijani-ridge", `${target.c.name}: after archiving one learner who was present`, withoutThem, shown ?? "(missing)"]);
+      expect(shown, "the archived learner is in neither number").toBe(withoutThem);
     } finally {
       await db.from("students").update({ active: true }).eq("id", present.student_id);
     }
