@@ -1,6 +1,6 @@
 -- FIG-1407, part 2: a register taken for the class a learner WAS in is still accepted after they have moved to another class.
 --
--- 20261110150000 made an attendance row's class have to be the learner's class. That is right for a stray row (a teacher filing someone else's
+-- 20261110170000 made an attendance row's class have to be the learner's class. That is right for a stray row (a teacher filing someone else's
 -- learner in their register), but a register reaches the server later than it is taken: a phone with no signal on Friday sends Friday's register on
 -- Monday, and meanwhile an admin may have moved a learner to the right class. A register goes in as ONE request, so one moved learner would have had
 -- the whole class's register refused, and on the phone the only choice left is to discard it.

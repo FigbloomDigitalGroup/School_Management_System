@@ -86,7 +86,7 @@ select pg_temp.check('A4 no *_at column is a date, and no *_on or date column is
 select pg_temp.check('A5 every uuid *_id column has a foreign key, except the two that are keyed by (doc_kind, doc_id) on purpose (signatures are evidence that outlives the document), '
   || 'the platform outbox''s local_id (an organisation''s or a school''s id: platform_links, platform_sync_queue) and event_id (an event''s own id, not a reference), '
   || 'and the organisation a platform decision named (platform_webhook_deliveries: recorded even when Schools has no such organisation), '
-  || 'and the class a learner came from (students.previous_class_id: a plain uuid on purpose, because a second foreign key from students to classes makes every students -> classes(...) load fail as ambiguous: 20261110160000)',
+  || 'and the class a learner came from (students.previous_class_id: a plain uuid on purpose, because a second foreign key from students to classes makes every students -> classes(...) load fail as ambiguous: 20261110180000)',
   (select coalesce(string_agg(c.table_name || '.' || c.column_name, ',' order by c.table_name, c.column_name), '') from information_schema.columns c
     join pg_tables t on t.schemaname = c.table_schema and t.tablename = c.table_name
    where c.table_schema = 'public' and c.data_type = 'uuid' and c.column_name like '%\_id' and c.column_name <> 'id'
