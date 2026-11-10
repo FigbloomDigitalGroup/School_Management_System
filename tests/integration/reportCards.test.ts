@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initSupabase, supabase } from "../../packages/shared/src/supabase";
 import {
-  defaultReportCardOptions, fetchClassReportCards, fetchMyReportCards, fetchTermExams, prepareClassReportCards,
+  defaultReportCardOptions, fetchClassReportCards, fetchMyReportCards, fetchTermExams, fetchUnpublishedMarks, prepareClassReportCards,
   saveReportCardComments, saveReportCards, saveTeacherComment, setReportCardsPublished,
   type ReportCardData, type StoredReportCard,
 } from "../../packages/shared/src/reportCards";
@@ -43,7 +43,7 @@ let admin: SignedIn, teacher: SignedIn, parent: SignedIn, student: SignedIn, dri
 let tenantId = "", termId = "", exam1 = "", exam2 = "";
 let school: ReportCardData["school"];
 let faith = { id: "", classId: "" }, samuel = { id: "", classId: "" };
-let subject1 = "", subject2 = "", name1 = "", name2 = "";
+let subject1 = "", subject2 = "", subject3 = "", name1 = "", name2 = "", name3 = "";
 let others: string[] = []; // Aisha, Brian, Cheche, Dedan, Emma
 let preparedFaithClass: ReportCardData[] = [];
 let faithCard: StoredReportCard, samuelCard: StoredReportCard, aishaCard: StoredReportCard;
@@ -107,11 +107,13 @@ beforeAll(async () => {
   const ta = await teacher.client.from("teaching_assignments").select("class_id, subject_id").eq("teacher_id", teacher.userId);
   const taught = (cls: string) => new Set((ta.data ?? []).filter((r) => r.class_id === cls).map((r) => r.subject_id as string));
   subject1 = [...taught(faith.classId)].find((s) => taught(samuel.classId).has(s))!;
-  const second = await admin.client.from("subjects").select("id, name").eq("tenant_id", tenantId).neq("id", subject1).order("id").limit(1);
+  const second = await admin.client.from("subjects").select("id, name").eq("tenant_id", tenantId).neq("id", subject1).order("id").limit(2);
   subject2 = second.data![0]!.id as string;
-  const names = await admin.client.from("subjects").select("id, name").in("id", [subject1, subject2]);
+  subject3 = second.data![1]!.id as string; // entered for Faith but never published (FIG-1388)
+  const names = await admin.client.from("subjects").select("id, name").in("id", [subject1, subject2, subject3]);
   name1 = names.data!.find((s) => s.id === subject1)!.name as string;
   name2 = names.data!.find((s) => s.id === subject2)!.name as string;
+  name3 = names.data!.find((s) => s.id === subject3)!.name as string;
 
   const roster = await admin.client.from("students").select("id").eq("class_id", faith.classId).eq("active", true).neq("id", faith.id).order("id").limit(5);
   others = (roster.data ?? []).map((s) => s.id as string);
@@ -133,7 +135,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------- 1. the card is the gradebook's marks, worked out
 
 describe("report cards: from the gradebook's marks to the card", () => {
-  it("sets up the hand-worked marks, and publishes Samuel's class so that both exams count as 'results out'", async () => {
+  it("sets up the hand-worked marks, publishes Samuel's class and Faith's class (S1 and S2) so that both exams count as 'results out', and enters S3 for Faith without publishing it", async () => {
     const [aisha, brian, cheche, dedan, emma] = others as [string, string, string, string, string];
     await enter([
       mark(faith.id, exam1, subject1, 90), mark(faith.id, exam2, subject1, 70), mark(faith.id, exam1, subject2, 59), mark(faith.id, exam2, subject2, 60),
@@ -143,9 +145,11 @@ describe("report cards: from the gradebook's marks to the card", () => {
       mark(dedan, exam1, subject1, null, "missed"), mark(dedan, exam2, subject1, 50),
       mark(emma, exam1, subject1, 50), mark(emma, exam2, subject1, 50),
       mark(samuel.id, exam1, subject1, 66), mark(samuel.id, exam2, subject1, 64),
+      mark(faith.id, exam1, subject3, 77), // a draft: S3 is never published to Faith's class
     ]);
     await publishMarks(exam1, samuel.classId, subject1);
     await publishMarks(exam2, samuel.classId, subject1);
+    for (const subject of [subject1, subject2]) for (const exam of [exam1, exam2]) await publishMarks(exam, faith.classId, subject);
     await useAs("school_admin");
     const exams = await fetchTermExams(termId);
     expect(exams.map((e) => e.published), "what the screen ticks by default").toEqual([true, true]);
@@ -214,13 +218,24 @@ describe("report cards: from the gradebook's marks to the card", () => {
     samuelCard = await storedFor(samuel.classId, samuel.id);
   });
 
-  // KNOWN: the screen ticks every exam with "results out", and that is a fact about the exam, not about a class and subject. The cards
-  // are then worked out from every mark in the chosen exams, published to the class or not.
-  it.fails("FIG-1388 (open): a card carries only subjects whose marks were published to the class", async () => {
+  // FIG-1388: "results out" is a fact about the exam (any class and subject published), not about this class and subject. A card counts only
+  // the marks published to the class for that subject, the same rule as the family's Results screen.
+  it("FIG-1388: a card carries only the subjects whose marks were published to the class: S3 was entered for Faith but never published, so it is left off, and so is its effect on her mean and position", async () => {
     const faithCardData = cardFor(preparedFaithClass, faith.id);
     const published = await admin.client.from("mark_publications").select("subject_id").eq("class_id", faith.classId).in("exam_id", [exam1, exam2]);
-    expect(published.data, "nothing of Faith's class has been published").toHaveLength(0);
-    expect(faithCardData.subjects.map((s) => s.name), "so the card has no subject rows yet").toEqual([]);
+    expect(new Set((published.data ?? []).map((r) => r.subject_id)), "S1 and S2 are published to Faith's class, S3 is not").toEqual(new Set([subject1, subject2]));
+    const entered = await admin.client.from("marks").select("score").eq("student_id", faith.id).eq("subject_id", subject3).eq("exam_id", exam1).single();
+    expect(entered.data?.score, "S3 has a mark for Faith in the gradebook").toBe(77);
+    expect(faithCardData.subjects.map((s) => s.name), "so the card has S1 and S2 and no S3").toEqual([name1, name2].sort((x, y) => x.localeCompare(y)));
+    expect(faithCardData.summary, "a mean over S1 and S2 only: 77 would have moved it").toMatchObject({ subjectsSat: 2, total: 140, mean: 70 });
+  });
+
+  it("FIG-1388: the screen can say which marks a card leaves off: the subjects with marks the class has not published", async () => {
+    await useAs("school_admin");
+    const left = await fetchUnpublishedMarks(faith.classId, [exam1, exam2]);
+    expect(left.map((r) => [r.subjectName, r.examId])).toEqual([[name3, exam1]]);
+    expect(await fetchUnpublishedMarks(samuel.classId, [exam1, exam2]), "Samuel's class has nothing unpublished").toEqual([]);
+    expect(await fetchUnpublishedMarks(faith.classId, []), "no exams chosen, nothing to leave off").toEqual([]);
   });
 });
 
@@ -334,8 +349,6 @@ describe("sending report cards to families", () => {
   });
 
   it("the same numbers reach the family by both routes: the marks the class has published and the card", async () => {
-    await publishMarks(exam1, faith.classId, subject1);
-    await publishMarks(exam2, faith.classId, subject1);
     const marks = await parent.client.from("marks").select("exam_id, subject_id, score").eq("student_id", faith.id).in("exam_id", [exam1, exam2]);
     const seen = (e: string, s: string) => (marks.data ?? []).find((r) => r.exam_id === e && r.subject_id === s)?.score ?? null;
     await useAs("parent");
@@ -346,12 +359,15 @@ describe("sending report cards to families", () => {
     expect(s1).toMatchObject({ average: 80, grade: "A", points: 12 });
   });
 
-  // What FIG-1388 leaves behind: the family holds a subject's marks on the card that the class never published as marks.
-  it("(what the open defect leaves behind) the card shows the family S2 marks that the marks screen hides from them", async () => {
-    const marks = await parent.client.from("marks").select("score").eq("student_id", faith.id).eq("subject_id", subject2).in("exam_id", [exam1, exam2]);
-    expect(marks.data, "the marks screen: nothing for S2").toEqual([]);
+  // FIG-1388: what the family holds on the card is what their marks screen can show: S1 and S2 on both, S3 on neither.
+  it("what the card gives the family is what the marks screen shows them: S2 on both, and S3 (never published) on neither", async () => {
+    const marks = await parent.client.from("marks").select("subject_id, score").eq("student_id", faith.id).in("exam_id", [exam1, exam2]);
+    const onScreen = (s: string) => (marks.data ?? []).filter((r) => r.subject_id === s).map((r) => r.score);
+    expect(onScreen(subject3), "the marks screen: nothing for S3").toEqual([]);
+    expect(onScreen(subject2).sort(), "the marks screen: S2 is there").toEqual([59, 60]);
     await useAs("parent");
     const card = (await fetchMyReportCards([faith.id]))[0]!;
+    expect(card.data.subjects.find((s) => s.name === name3), "the card: no S3").toBeUndefined();
     expect(card.data.subjects.find((s) => s.name === name2)).toMatchObject({ scores: [59, 60], average: 60, grade: "B-" });
   });
 

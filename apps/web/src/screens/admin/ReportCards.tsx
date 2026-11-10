@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   AI_COMMENT_BATCH, chunk, draftReportComments, learnerForAi,
-  defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, gradingSchemeFor, rubricFor,
+  defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, fetchUnpublishedMarks, gradingSchemeFor, rubricFor,
   prepareClassReportCards, reportCardFileName, saveReportCardComments, saveReportCards, saveTeacherComment,
   setReportCardsPublished, suggestComment, type ReportCardOptions, type StoredReportCard,
   CAPACITY_LABEL, fetchDocumentSignatures, signatureDate, signatureFor, signDocuments, type StoredSignature,
@@ -67,6 +67,18 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
     if (examIds === null && !exams.loading && exams.data) setExamIds(exams.data.filter((e) => e.published).map((e) => e.id));
   }, [exams.data, exams.loading, examIds]);
   useEffect(() => { setOptions(defaultReportCardOptions(scheme)); }, [classId, scheme]);
+
+  // A card counts only the marks published to the class for that subject (FIG-1388), like the family's Results screen. These are the marks
+  // the class has entered but not published, which the cards leave off: listed here so the office can ask for them to be published first.
+  const unpublished = useAsync(
+    () => (classId && examIds?.length ? fetchUnpublishedMarks(classId, examIds) : Promise.resolve([])),
+    [classId, (examIds ?? []).join(","), reloadKey],
+  );
+  const leftOff = (() => {
+    const bySubject = new Map<string, string[]>();
+    for (const r of unpublished.data ?? []) bySubject.set(r.subjectName, [...(bySubject.get(r.subjectName) ?? []), r.examName]);
+    return [...bySubject.entries()].map(([subject, exs]) => `${subject} (${exs.join(", ")})`);
+  })();
 
   const cards = useAsync(
     () => (termId && classId ? fetchClassReportCards(termId, classId) : Promise.resolve([] as StoredReportCard[])),
@@ -233,6 +245,11 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                       </label>
                     ))}
                   </div>
+                )}
+                {!exams.loading && !unpublished.loading && leftOff.length > 0 && (
+                  <p role="note" className="mt-3 rounded-md border border-warn-ink/30 bg-warn-ink/5 px-3 py-2 text-[12px] leading-relaxed text-warn-ink">
+                    Left off these cards, because the marks are not published to this class yet: {leftOff.join(", ")}. Ask the teacher to publish them in the Gradebook, then prepare again.
+                  </p>
                 )}
                 <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-2">
                   {([
