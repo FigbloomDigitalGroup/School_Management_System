@@ -1,4 +1,4 @@
-import { mimeForFile, supabase, uploadFile } from "@figbloom/shared";
+import { mimeForFile, publicFileUrl, uploadFile } from "@figbloom/shared";
 import { readPickedFile } from "./pickFile";
 
 /**
@@ -19,5 +19,5 @@ export async function uploadAvatar(tenantId: string, teacherId: string, uri: str
   const path = `${tenantId}/avatars/${name}`;
   const file = await readPickedFile({ uri, name, mimeType: mimeType ?? mimeForFile({ name }) ?? "image/jpeg", sizeBytes: null });
   await uploadFile("public-assets", path, file, { upsert: true });
-  return supabase().storage.from("public-assets").getPublicUrl(path).data.publicUrl;
+  return publicFileUrl(path);
 }

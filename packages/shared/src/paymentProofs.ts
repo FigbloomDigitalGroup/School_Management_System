@@ -1,5 +1,6 @@
 import { safeFileName } from "./materials";
 import type { ParsedPaymentSms } from "./paymentSms";
+import { deleteFiles } from "./files";
 import { uploadFile } from "./storageUpload";
 import { supabase } from "./supabase";
 import { PRIVATE_DOCS_BUCKET, type UploadableFile } from "./uploads";
@@ -87,7 +88,7 @@ export async function sendPaymentProof(input: {
     txn_account: p?.account ?? null,
   });
   if (error) {
-    if (path) await supabase().storage.from(PRIVATE_DOCS_BUCKET).remove([path]).catch(() => {});
+    if (path) await deleteFiles(PRIVATE_DOCS_BUCKET, [path]).catch(() => {});
     throw new Error(error.message);
   }
 }

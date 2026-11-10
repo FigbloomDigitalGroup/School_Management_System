@@ -1,7 +1,7 @@
 import { Upload, type DetailedError } from "tus-js-client";
 import {
-  LEARNING_MEDIA_BUCKET, RESUMABLE_THRESHOLD_BYTES, addAttachment, attachmentFilePath, draftTitle, kindForLink, kindForMime,
-  mimeForFile, removeMediaFiles, supabase, type AttachmentOwner, type MediaDraft,
+  LEARNING_MEDIA_BUCKET, RESUMABLE_THRESHOLD_BYTES, addAttachment, attachmentFilePath, draftTitle, filesOnS3, kindForLink, kindForMime,
+  mimeForFile, removeMediaFiles, storeFile, supabase, type AttachmentOwner, type MediaDraft,
 } from "@figbloom/shared";
 
 /**
@@ -57,14 +57,22 @@ function tusMessage(err: Error): string {
  * 0 to 1. Nothing is overwritten: paths carry a timestamp.
  */
 export function uploadLearningMedia(path: string, file: File, contentType: string, onProgress: (fraction: number) => void): UploadHandle {
+  if (filesOnS3()) {
+    // S3, through the files API: big files go in parts (each retried), with progress, and cancelling stops the upload
+    // and throws away the parts already sent.
+    const abort = new AbortController();
+    const done = storeFile(LEARNING_MEDIA_BUCKET, path, file, contentType, { onProgress, signal: abort.signal })
+      .catch((err: unknown) => { throw abort.signal.aborted ? new UploadCancelled() : err; });
+    return { done, cancel: () => abort.abort() };
+  }
+
   if (file.size <= RESUMABLE_THRESHOLD_BYTES) {
     // The ordinary upload has no progress events and can't be aborted; a
     // cancel that arrives while it's in flight removes the file afterwards.
     let cancelled = false;
     const done = (async () => {
       onProgress(0);
-      const { error } = await supabase().storage.from(LEARNING_MEDIA_BUCKET).upload(path, file, { contentType, upsert: false });
-      if (error) throw new Error(error.message);
+      await storeFile(LEARNING_MEDIA_BUCKET, path, file, contentType);
       if (cancelled) {
         await removeMediaFiles([path]).catch(() => {});
         throw new UploadCancelled();

@@ -1,5 +1,5 @@
 import { safeFileName } from "./materials";
-import { supabase } from "./supabase";
+import { deleteFiles, fileLink } from "./files";
 import { uploadFile } from "./storageUpload";
 
 /**
@@ -37,9 +37,7 @@ export const PRIVATE_DOCS_BUCKET = "private-documents";
 
 /** A signed, time-limited link to a file in the private bucket (it has no public read): a payment proof, a student's document. */
 export async function privateDocumentUrl(path: string, expiresInSeconds = 3600): Promise<string> {
-  const { data, error } = await supabase().storage.from(PRIVATE_DOCS_BUCKET).createSignedUrl(path, expiresInSeconds);
-  if (error) throw new Error(error.message);
-  return data.signedUrl;
+  return fileLink(PRIVATE_DOCS_BUCKET, path, expiresInSeconds);
 }
 
 /** Where a prescription photo lives: the child's own medical folder, which the database lets their guardians write (20261101300001). */
@@ -56,5 +54,5 @@ export async function uploadPrescriptionFile(tenantId: string, studentId: string
 
 /** Takes back a prescription photo whose request was never saved. Best effort: a guardian may not be allowed to delete. */
 export async function removeUnsentPrescription(path: string): Promise<void> {
-  await supabase().storage.from(PRIVATE_DOCS_BUCKET).remove([path]).catch(() => {});
+  await deleteFiles(PRIVATE_DOCS_BUCKET, [path]).catch(() => {});
 }
