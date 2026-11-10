@@ -1,7 +1,7 @@
 import { Alert, Text, View } from "react-native";
 import {
   QUESTION_KIND_LABEL, addOption, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind, moveQuestion, removeOption, totalPoints,
-  type QuestionDraft, type QuestionKind,
+  type QuestionKind, type ReviewQuestion,
 } from "@figbloom/shared";
 import { accentFor } from "../theme";
 import { Button } from "../ui/Button";
@@ -16,13 +16,14 @@ const letter = (k: number) => String.fromCharCode(65 + k);
 /**
  * The questions of an online paper, as the website's builder has them: a type, the marks, the question,
  * and either the options with the correct one marked (multiple choice) or a model answer only staff see
- * (short and long answers). Questions can be moved and removed. `locked` is a paper learners have already
- * started: it shows the questions and changes nothing. The list is the screen's to keep; every change goes
- * out through `onChange`.
+ * (short and long answers). Questions can be moved and removed. A question Bloom was not sure of when it
+ * imported a paper carries notes saying what to check, and a "Looks right" button that clears them once the
+ * teacher has compared it with the paper. `locked` is a paper learners have already started: it shows the
+ * questions and changes nothing. The list is the screen's to keep; every change goes out through `onChange`.
  */
 export function QuestionEditor({ questions, onChange, locked, accent }: {
-  questions: QuestionDraft[];
-  onChange: (questions: QuestionDraft[]) => void;
+  questions: ReviewQuestion[];
+  onChange: (questions: ReviewQuestion[]) => void;
   locked: boolean;
   accent: string;
 }) {
@@ -30,7 +31,7 @@ export function QuestionEditor({ questions, onChange, locked, accent }: {
   const a = accentFor(accent);
   // A marks box someone has just emptied is NaN until they type a number: it counts as nothing, not as "NaN marks".
   const marks = totalPoints(questions.map((q) => ({ points: Number.isNaN(q.points) ? 0 : q.points })));
-  const change = (i: number, next: (q: QuestionDraft) => QuestionDraft) => onChange(questions.map((q, j) => (j === i ? next(q) : q)));
+  const change = (i: number, next: (q: ReviewQuestion) => ReviewQuestion) => onChange(questions.map((q, j) => (j === i ? next(q) : q)));
 
   function remove(i: number) {
     const go = () => onChange(questions.filter((_, j) => j !== i));
@@ -51,7 +52,7 @@ export function QuestionEditor({ questions, onChange, locked, accent }: {
       {questions.length === 0 && <Text style={s.faint}>No questions yet. Add the first one below.</Text>}
 
       {questions.map((q, i) => (
-        <View key={i} style={{ gap: 10, padding: 12, borderRadius: t.radius.lg, borderWidth: 1, borderColor: fieldLine, backgroundColor: t.appSurface.card }}>
+        <View key={i} style={{ gap: 10, padding: 12, borderRadius: t.radius.lg, borderWidth: q.check?.length ? 2 : 1, borderColor: q.check?.length ? t.status.warnInk : fieldLine, backgroundColor: t.appSurface.card }}>
           <View style={[s.row, { justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }]}>
             <Text style={[s.eyebrow, { color: t.appSurface.ink }]}>QUESTION {i + 1}</Text>
             {!locked && (
@@ -85,6 +86,25 @@ export function QuestionEditor({ questions, onChange, locked, accent }: {
             multiline
             editable={!locked}
           />
+
+          {q.check?.length ? (
+            <View style={{ gap: 4, padding: 10, borderRadius: t.radius.lg, backgroundColor: t.status.warnBg }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.status.warnInk }}>Check this against the paper</Text>
+              {q.check.map((note, k) => (
+                <Text key={k} style={{ fontSize: 12.5, lineHeight: 18, color: t.status.warnInk }}>• {note}</Text>
+              ))}
+              {!locked && (
+                <Button
+                  variant="quiet"
+                  tint={t.status.warnInk}
+                  label="Looks right"
+                  accessibilityHint={`Question ${i + 1}`}
+                  onPress={() => change(i, (x) => ({ ...x, check: undefined }))}
+                  style={{ alignSelf: "flex-start", paddingHorizontal: 8 }}
+                />
+              )}
+            </View>
+          ) : null}
 
           {q.kind === "choice" ? (
             <View style={{ gap: 6 }}>

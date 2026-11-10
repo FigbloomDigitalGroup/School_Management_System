@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind,
+  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, applyPaperImport, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind,
   createExamPaper, deleteExamPaper,
   fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchTeacherClasses,
   fetchTeacherSubjectsForClass, fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
-  saveExamQuestions, savePaperBody, savedPaperPublishProblem,
+  flaggedQuestionsBanner, flaggedQuestionsProblem, saveExamQuestions, savePaperBody, savedPaperPublishProblem,
   setPaperFile, setPaperPublished, supabase, toLocalInput, totalPoints, updateExamPaper, validatePaper,
   validateQuestions, windowLabel,
   type ExamPaperRow, type PaperImportDraft, type PaperKind, type PaperMode, type QuestionDraft, type QuestionKind, type ReviewQuestion,
@@ -259,12 +259,12 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
 
   /** Bloom's paper into the editor: its questions, and its title, instructions and time where these are still empty. */
   function applyImport(draft: PaperImportDraft, replace: boolean) {
-    setQuestions((qs) => (replace ? draft.questions : [...qs, ...draft.questions]));
-    if (!title.trim() && draft.title) setTitle(draft.title);
-    if (!instructions.trim() && draft.instructions) setInstructions(draft.instructions);
-    // A new paper's 60 minutes is only a default; the paper's own time wins.
-    if (draft.durationMinutes && (!paper || !duration.trim())) setDuration(String(draft.durationMinutes));
-    setImportWarnings(draft.warnings);
+    const next = applyPaperImport({ title, instructions, duration, questions, isNew: !paper }, draft, replace);
+    setQuestions(next.questions);
+    setTitle(next.title);
+    setInstructions(next.instructions);
+    setDuration(next.duration);
+    setImportWarnings(next.warnings);
   }
 
   async function save(publish: boolean) {
@@ -281,7 +281,7 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
       qs = q.value;
     }
     if (publish && mode === "online" && toCheck) {
-      setError(`${toCheck} question${toCheck === 1 ? " is" : "s are"} flagged for checking. Look at each one and press "Looks right", or save a draft for now.`);
+      setError(flaggedQuestionsProblem(toCheck));
       return;
     }
     if (publish) {
@@ -461,9 +461,7 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
       {(importWarnings.length > 0 || toCheck > 0) && (
         <div role="status" className="mb-3 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3.5 py-2.5 text-[12.5px] leading-snug text-warn-ink">
           {toCheck > 0 && (
-            <p className="font-semibold">
-              Imported by Bloom. {toCheck} question{toCheck === 1 ? " needs" : "s need"} checking against the paper before you can publish.
-            </p>
+            <p className="font-semibold">{flaggedQuestionsBanner(toCheck)}</p>
           )}
           {importWarnings.length > 0 && (
             <ul className="mt-1 list-disc pl-5">{importWarnings.map((w, k) => <li key={k}>{w}</li>)}</ul>

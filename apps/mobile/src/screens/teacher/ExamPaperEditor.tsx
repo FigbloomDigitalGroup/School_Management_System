@@ -3,12 +3,13 @@ import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { CircleAlert, FileText } from "lucide-react-native";
 import {
-  PAPER_KIND_LABEL, PHONE_UPLOAD_LIMIT_BYTES, createExamPaper, fetchCurrentTermExams, fetchPaperContent, fetchTeacherClasses, fetchTeacherSubjectsForClass,
-  formatFileSize, fromLocalInput, publishProblem, saveExamQuestions, savePaperBody, setPaperFile, setPaperPublished,
-  updateExamPaper, validatePaper, validateQuestions,
-  type ClassGroup, type ExamPaperRow, type PaperKind, type PaperMode, type QuestionDraft, type Subject,
+  PAPER_KIND_LABEL, PHONE_UPLOAD_LIMIT_BYTES, applyPaperImport, createExamPaper, fetchAiStatus, fetchCurrentTermExams, fetchPaperContent, fetchTeacherClasses,
+  fetchTeacherSubjectsForClass, flaggedQuestionsBanner, flaggedQuestionsProblem, formatFileSize, fromLocalInput, publishProblem, questionsToCheck,
+  saveExamQuestions, savePaperBody, setPaperFile, setPaperPublished, updateExamPaper, validatePaper, validateQuestions,
+  type ClassGroup, type ExamPaperRow, type PaperImportDraft, type PaperKind, type PaperMode, type QuestionDraft, type ReviewQuestion, type Subject,
 } from "@figbloom/shared";
 import { accentFor, HIT } from "../../theme";
+import { PaperImport } from "../../components/PaperImport";
 import { PillPicker } from "../../components/PillPicker";
 import { QuestionEditor } from "../../components/QuestionEditor";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -63,15 +64,24 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
   const [duration, setDuration] = useState(paper?.durationMinutes ? String(paper.durationMinutes) : paper ? "" : "60");
   const [picked, setPicked] = useState<PickedFile | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
-  const [questions, setQuestions] = useState<QuestionDraft[]>([]);
+  const [questions, setQuestions] = useState<ReviewQuestion[]>([]);
+  // Bloom's import is offered only where the school has switched AI on; unknown counts as off.
+  const [aiOn, setAiOn] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  // What Bloom said about an imported paper as a whole (missing pages, totals that don't add up).
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   // An existing paper's typed text and questions are read once; saving before they arrive would wipe them.
   const [contentReady, setContentReady] = useState(!paper);
   const [contentFailed, setContentFailed] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState<"draft" | "publish" | null>(null);
   const saving = pending !== null;
-  const savingRef = useRef(false);
-  savingRef.current = saving;
+  // Questions Bloom flagged and the teacher has not yet looked at.
+  const toCheck = questionsToCheck(questions);
+  const locking = saving || importBusy;
+  const busyRef = useRef<"saving" | "reading" | null>(null);
+  busyRef.current = saving ? "saving" : importBusy ? "reading" : null;
   // Set once a new paper has been created, so a retry after a later step failed updates it instead of creating a second one.
   const createdId = useRef<string | null>(null);
 
@@ -81,6 +91,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
       .then((c) => { if (alive) { setClasses(c); setClassId((id) => id ?? c[0]?.id ?? null); } })
       .catch(() => { if (alive) setClasses([]); });
     fetchCurrentTermExams(session.tenantId).then((list) => { if (alive) setExams(list); }).catch(() => {});
+    fetchAiStatus(session.tenantId).then((st) => { if (alive) setAiOn(st?.aiEnabled === true); }).catch(() => {});
     return () => { alive = false; };
   }, [session.profileId, session.tenantId]);
 
@@ -111,12 +122,17 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
 
   // Leaving while the paper is being saved may lose it, so ask first; but never trap, since a stalled upload has to be abandonable.
   useEffect(() => nav.addListener("beforeRemove", (e: { preventDefault: () => void; data: { action: unknown } }) => {
-    if (!savingRef.current) return;
+    if (!busyRef.current) return;
     e.preventDefault();
-    Alert.alert("Still saving", "This hasn't finished. If you leave now, it may not be saved.", [
-      { text: "Keep waiting", style: "cancel" },
-      { text: "Leave anyway", style: "destructive", onPress: () => nav.dispatch(e.data.action) },
-    ]);
+    const reading = busyRef.current === "reading";
+    Alert.alert(
+      reading ? "Bloom is still reading" : "Still saving",
+      reading ? "The questions have not arrived yet. If you leave now, they won't be added." : "This hasn't finished. If you leave now, it may not be saved.",
+      [
+        { text: "Keep waiting", style: "cancel" },
+        { text: "Leave anyway", style: "destructive", onPress: () => nav.dispatch(e.data.action) },
+      ],
+    );
   }), [nav]);
 
   async function choose() {
@@ -160,6 +176,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
       if (!q.ok) { setError(q.message); return; }
       qs = q.value;
     }
+    if (publish && mode === "online" && toCheck) { setError(flaggedQuestionsProblem(toCheck)); return; }
     if (publish) {
       const problem = publishProblem({ mode, hasContent: hasFile || !!checked.value.body, questionCount: qs.length });
       if (problem) { setError(problem); return; }
@@ -176,7 +193,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
       else if (removeFile) await setPaperFile(id, null);
       if (mode === "online" && !locked) await saveExamQuestions(id, qs);
       if (publish && !paper?.publishedAt) await setPaperPublished(id, true);
-      savingRef.current = false;
+      busyRef.current = null;
       nav.goBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save. Check your connection and try again.");
@@ -185,7 +202,21 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
   }
 
   const noSubjects = subjects !== null && subjects.length === 0;
-  const cannotSave = saving || noSubjects || !contentReady;
+  const cannotSave = locking || noSubjects || !contentReady;
+  const subjectName = subjects?.find((x) => x.id === subjectId)?.name ?? "";
+  const classLabel = classes?.find((c) => c.id === classId)?.name ?? "";
+
+  /** Bloom's paper into the form: the fields cannot change while it reads, so what is here now is what it is applied to. */
+  function applyImport(draft: PaperImportDraft, replace: boolean) {
+    const next = applyPaperImport({ title, instructions, duration, questions, isNew: !paper }, draft, replace);
+    setQuestions(next.questions);
+    setTitle(next.title);
+    setInstructions(next.instructions);
+    setDuration(next.duration);
+    setImportWarnings(next.warnings);
+    setImporting(false);
+    setError("");
+  }
 
   const timeBoxes = (label: string, value: { date: string; time: string }, set: (v: { date: string; time: string }) => void, optional: boolean) => (
     <View>
@@ -199,7 +230,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
           placeholder="2026-11-09"
           keyboardType="number-pad"
           hint="Year-month-day"
-          editable={!saving}
+          editable={!locking}
         />
         <Field
           style={{ flex: 2 }}
@@ -209,7 +240,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
           placeholder="08:30"
           keyboardType="number-pad"
           hint="24-hour"
-          editable={!saving}
+          editable={!locking}
         />
       </View>
       {optional && <Text style={[s.faint, { marginTop: 4 }]}>Empty both to keep it open.</Text>}
@@ -254,8 +285,8 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
                   : <PillPicker items={subjects} selectedId={subjectId} onPick={setSubjectId} accent={session.accent} />}
               </View>
 
-              <Field label="Title" value={title} onChangeText={(v) => { setTitle(v); setError(""); }} placeholder="e.g. Mid-term Mathematics Paper 1" editable={!saving} />
-              <Field label="Instructions (optional)" value={instructions} onChangeText={setInstructions} placeholder="e.g. Answer all questions in Section A and any two in Section B." multiline editable={!saving} />
+              <Field label="Title" value={title} onChangeText={(v) => { setTitle(v); setError(""); }} placeholder="e.g. Mid-term Mathematics Paper 1" editable={!locking} />
+              <Field label="Instructions (optional)" value={instructions} onChangeText={setInstructions} placeholder="e.g. Answer all questions in Section A and any two in Section B." multiline editable={!locking} />
 
               <View>
                 <Text style={[s.small, { fontWeight: "600", color: t.appSurface.ink, marginBottom: 6 }]}>How learners take it</Text>
@@ -269,8 +300,8 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
                       <Tap
                         key={key}
                         accessibilityRole="radio"
-                        accessibilityState={{ selected: on, disabled: saving || locked }}
-                        disabled={saving || locked}
+                        accessibilityState={{ selected: on, disabled: locking || locked }}
+                        disabled={locking || locked}
                         onPress={() => { setMode(key); setError(""); }}
                         style={{ ...HIT, borderRadius: t.radius.lg, padding: 12, borderWidth: on ? 2 : 1, borderColor: on ? accentInk(a.deep) : fieldLine, backgroundColor: on ? `${a.deep}14` : t.appSurface.card, opacity: locked && !on ? 0.6 : 1 }}
                       >
@@ -285,7 +316,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
               {timeBoxes("Opens", opens, setOpens, false)}
               {timeBoxes("Closes (optional)", closes, setCloses, true)}
               {mode === "online" && (
-                <Field label="Time allowed (minutes)" value={duration} onChangeText={(v) => { setDuration(v.replace(/\D/g, "")); setError(""); }} keyboardType="number-pad" hint="Empty for no limit." editable={!saving} />
+                <Field label="Time allowed (minutes)" value={duration} onChangeText={(v) => { setDuration(v.replace(/\D/g, "")); setError(""); }} keyboardType="number-pad" hint="Empty for no limit." editable={!locking} />
               )}
 
               <View>
@@ -306,16 +337,38 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
                     <FileText size={20} color={accentInk(a.deep)} />
                     <Text numberOfLines={1} style={{ flex: 1, color: t.appSurface.ink, fontSize: 13.5, fontWeight: "600" }}>{paper.fileName}</Text>
                     <Button variant="quiet" tint={a.deep} label="Open" onPress={() => void openCurrentFile()} style={{ paddingHorizontal: 8 }} />
-                    <Button variant="quiet" tint={t.status.warnInk} label="Remove file" disabled={saving} onPress={() => setRemoveFile(true)} style={{ paddingHorizontal: 8 }} />
+                    <Button variant="quiet" tint={t.status.warnInk} label="Remove file" disabled={locking} onPress={() => setRemoveFile(true)} style={{ paddingHorizontal: 8 }} />
                   </View>
                 )}
                 {picked && <Text style={s.small}>{picked.name}{picked.sizeBytes ? ` · ${formatFileSize(picked.sizeBytes)}` : ""}</Text>}
-                <Button variant="secondary" label={picked || (paper?.fileName && !removeFile) ? "Choose a different file" : "Choose a PDF or picture"} disabled={saving} onPress={() => void choose()} />
+                <Button variant="secondary" label={picked || (paper?.fileName && !removeFile) ? "Choose a different file" : "Choose a PDF or picture"} disabled={locking} onPress={() => void choose()} />
                 {mode === "read" && (
-                  <Field label="Or type the paper" value={body} onChangeText={(v) => { setBody(v); setError(""); }} placeholder="Type the paper here." multiline editable={!saving && contentReady} />
+                  <Field label="Or type the paper" value={body} onChangeText={(v) => { setBody(v); setError(""); }} placeholder="Type the paper here." multiline editable={!locking && contentReady} />
                 )}
               </View>
 
+              {mode === "online" && !locked && contentReady && aiOn && (
+                importing ? (
+                  <PaperImport
+                    session={session}
+                    subject={subjectName}
+                    className={classLabel}
+                    kind={kind}
+                    hasQuestions={questions.length > 0}
+                    onImported={applyImport}
+                    onBusy={setImportBusy}
+                    onClose={() => setImporting(false)}
+                  />
+                ) : (
+                  <Button variant="secondary" label="Import a paper with Bloom" disabled={locking || !subjectName || !classLabel} onPress={() => setImporting(true)} />
+                )
+              )}
+              {mode === "online" && (toCheck > 0 || importWarnings.length > 0) && (
+                <View accessibilityLiveRegion="polite" style={{ gap: 4, padding: 12, borderRadius: t.radius.lg, backgroundColor: t.status.warnBg }}>
+                  {toCheck > 0 && <Text style={{ fontSize: 12.5, fontWeight: "600", lineHeight: 18, color: t.status.warnInk }}>{flaggedQuestionsBanner(toCheck)}</Text>}
+                  {importWarnings.map((w, k) => <Text key={k} style={{ fontSize: 12.5, lineHeight: 18, color: t.status.warnInk }}>• {w}</Text>)}
+                </View>
+              )}
               {mode === "online" && (
                 contentReady
                   ? <QuestionEditor questions={questions} onChange={(q) => { setQuestions(q); setError(""); }} locked={locked} accent={session.accent} />
@@ -342,7 +395,7 @@ export function TeacherExamPaperEditor({ session, route }: { session: TeacherSes
                   disabled={cannotSave}
                   onPress={() => void save(false)}
                 />
-                <Button variant="quiet" tint={t.appSurface.inkMuted} label="Cancel" disabled={saving} onPress={() => nav.goBack()} />
+                <Button variant="quiet" tint={t.appSurface.inkMuted} label="Cancel" disabled={locking} onPress={() => nav.goBack()} />
               </View>
             </>
           )}
