@@ -52,8 +52,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # --ignore-scripts (FIG-1215): the signing keystore and passwords are
+      # written to disk in the very next steps, so no dependency may run code at
+      # install time before they exist. Only esbuild, fsevents and protobufjs
+      # have install scripts, and none of them is needed to build the app.
+      # ci.yml installs the same way.
       - name: Install dependencies (npm workspaces)
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # The app needs its release keystore (binary, base64-encoded),
       # its android/key.properties (the passwords/alias build.gradle reads —
