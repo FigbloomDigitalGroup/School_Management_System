@@ -126,9 +126,9 @@ select pg_temp.check('a resubmit changes the row in place: same id, same created
 select pg_temp.check('a plain second insert for the same learner and day is refused (unique key student_id, taken_on)',
   pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
     values (%L, %L, %L, %L, %L, '2020-03-06', 'late')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23505');
-select pg_temp.check('the same learner cannot have a second register that day under another class (the key ignores the class)',
+select pg_temp.check('the same learner cannot have a second register that day under another class: refused as not their class (FIG-1407), before the key (which ignores the class) is reached',
   pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
-    values (%L, %L, %L, %L, %L, '2020-03-06', 'late')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23505');
+    values (%L, %L, %L, %L, %L, '2020-03-06', 'late')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
 select pg_temp.info('so when a learner has changed class, whoever takes that day''s register second overwrites the first one''s mark and class_id');
 
 -- ---------------------------------------------------------------- what a row may hold
@@ -283,15 +283,22 @@ select pg_temp.check('changing a register leaves a trace: an audit event or a hi
   or exists (select 1 from information_schema.tables where table_name in ('attendance_history', 'attendance_audit', 'attendance_changes')),
   'QA10-TRACE FIG-1406');
 
--- ---------------------------------------------------------------- a learner filed in another class's register
--- The policy checks the class on the ROW (is the teacher assigned to it?) and the trigger checks the learner's school. Nothing checks
--- that the learner belongs to that class.
+-- ---------------------------------------------------------------- a learner filed in another class's register (FIG-1407)
+-- The policy checks the class on the ROW (is the teacher assigned to it?); attendance_class_is_learners_class checks that the learner belongs
+-- to that class. Without it a teacher could put a Form 1 East learner into the Form 2 West register, and the stray row (the key is learner and
+-- day) then stopped the learner's own teacher from taking that learner's register.
 select pg_temp.check('a teacher cannot file a learner of another class in their own class''s register',
   pg_temp.as_user(current_setting('t.teacher')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
-    values (%L, %L, %L, %L, %L, '2020-03-13', 'absent')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.teacher'))) like 'refused%',
-  'QA10-CLASS FIG-1407');
--- Whatever the row above did, make the stray row exist, so the next check shows what it does to the learner's own class teacher.
-select pg_temp.put(current_setting('t.kid_y')::uuid, current_setting('t.cx')::uuid, current_setting('t.term')::uuid, current_setting('t.teacher')::uuid, '2020-03-13', 'absent');
+    values (%L, %L, %L, %L, %L, '2020-03-13', 'absent')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.teacher'))) = 'refused 23514');
+select pg_temp.check('nor can the school admin: the rule is the database''s, not the policy''s',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-13', 'absent')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
+select pg_temp.check('and the refused rows were not saved',
+  (select count(*) from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-13') = 0);
+-- The learner's own register (their real class) goes in, as ever.
+select pg_temp.put(current_setting('t.kid_y')::uuid, current_setting('t.cy')::uuid, current_setting('t.term')::uuid, current_setting('t.teacher')::uuid, '2020-03-13', 'absent');
+select pg_temp.check('a saved row cannot be moved into another class than the learner''s',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update attendance set class_id = %L where student_id = %L and taken_on = %L', current_setting('t.cx'), current_setting('t.kid_y'), '2020-03-13')) = 'refused 23514');
 -- The teacher is now the teacher of the learner's real class (Form 1 East) only.
 delete from teaching_assignments where teacher_id = current_setting('t.teacher')::uuid and class_id = current_setting('t.cx')::uuid;
 update classes set class_teacher_id = null where id = current_setting('t.cx')::uuid;
@@ -300,9 +307,8 @@ create temp table qa_blocked as
       values (%L, %L, %L, %L, %L, '2020-03-13', 'present')
       on conflict (student_id, taken_on) do update set mark = excluded.mark, class_id = excluded.class_id$q$,
       current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.teacher'))) as outcome;
-select pg_temp.check('the learner''s own teacher can still take that learner''s register after a stray row for the day was filed under another class',
-  (select outcome from qa_blocked) = 'allowed', 'QA10-CLASS FIG-1407');
-select pg_temp.info('that teacher''s attempt to take their own learner''s register was: ' || (select outcome from qa_blocked) || ' (42501 is the row-level security refusal)');
+select pg_temp.check('the learner''s own teacher can take that learner''s register: no stray row can stand in the way any more',
+  (select outcome from qa_blocked) = 'allowed');
 
 -- ---------------------------------------------------------------- a row that names another school's class or term
 select pg_temp.check('the school admin cannot save a register row that points at another school''s class and term',

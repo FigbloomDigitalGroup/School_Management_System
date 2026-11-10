@@ -252,12 +252,15 @@ describe("changing a register", () => {
 // ---------------------------------------------------------------- 3. a learner in another class's register
 
 describe("a learner of another class", () => {
-  it.fails("QA10-CLASS FIG-1407 (open): a teacher cannot file a learner of another class in their own class's register", async () => {
+  it("QA10-CLASS FIG-1407: a teacher cannot file a learner of another class in their own class's register, and nothing is saved", async () => {
     const y = await addLearner("2", form1East);
     await actAsRole("teacher");
     const { error } = await supabase().from("attendance")
       .insert({ tenant_id: tenantId, student_id: y, class_id: form2West, term_id: termId, taken_by: teacher.userId, taken_on: "2019-02-04", mark: "absent" });
-    expect(error, "the database took a Form 1 East learner into the Form 2 West register").not.toBeNull();
+    expect(error?.code, "the database must not take a Form 1 East learner into the Form 2 West register").toBe("23514");
+    expect(error?.message).toMatch(/not in this class/);
+    const saved = await admin.client.from("attendance").select("id", { count: "exact", head: true }).eq("student_id", y).eq("taken_on", "2019-02-04");
+    expect(saved.count, "no stray row was saved").toBe(0);
   });
 });
 
