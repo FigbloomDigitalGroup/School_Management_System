@@ -310,6 +310,42 @@ create temp table qa_blocked as
 select pg_temp.check('the learner''s own teacher can take that learner''s register: no stray row can stand in the way any more',
   (select outcome from qa_blocked) = 'allowed');
 
+-- ---------------------------------------------------------------- a learner who moved class after the register was taken (FIG-1407)
+-- A register is taken for a class and reaches the server later (a phone with no signal on Friday, sent on Monday), and in between the learner was
+-- moved to another class. They WERE in that class on that day, so the row is right, and refusing it would refuse the whole register (it goes in one
+-- request). The database remembers each learner's most recent move (previous_class_id, class_since): a row is accepted for the learner's current
+-- class, or for the class they came from if the register is dated on or before the day they moved. Nothing else is.
+select set_config('t.cz', (select id::text from classes where tenant_id = current_setting('t.a')::uuid and id not in (current_setting('t.cx')::uuid, current_setting('t.cy')::uuid) order by name limit 1), true);
+update students set class_id = current_setting('t.cy')::uuid where id = current_setting('t.kid_x')::uuid;
+select pg_temp.check('moving a learner to another class remembers the class they came from and the day',
+  (select previous_class_id from students where id = current_setting('t.kid_x')::uuid) = current_setting('t.cx')::uuid
+  and (select class_since from students where id = current_setting('t.kid_x')::uuid) = school_today(current_setting('t.a')::uuid));
+select pg_temp.check('a register taken for the class they were in, and sent after they moved, still goes in (the learner was in that class that day)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-16', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'allowed');
+select pg_temp.check('their register in the class they are in now goes in too',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-17', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'allowed');
+select pg_temp.check('but a class they were never in is still refused, however old the date',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-18', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cz'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
+select pg_temp.check('a learner who has not moved is still held to their class: the class they came from is refused for a learner who never moved',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-19', 'present')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
+-- only the most recent move is remembered: moved again, the class before that one is no longer accepted
+update students set class_id = current_setting('t.cz')::uuid where id = current_setting('t.kid_x')::uuid;
+select pg_temp.check('only the most recent move is remembered: after a second move the class before the last one is refused again, and the last one is accepted',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-22', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514'
+  and pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-22', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'allowed');
+update students set full_name = full_name || ' ' where id = current_setting('t.kid_x')::uuid;
+select pg_temp.check('a change that is not a move of class leaves the remembered move alone',
+  (select previous_class_id from students where id = current_setting('t.kid_x')::uuid) = current_setting('t.cy')::uuid);
+
+select pg_temp.check('students has exactly one foreign key to classes: a second one makes every students -> classes(...) embed (the parent app, the lists) fail with "more than one relationship was found"',
+  (select count(*) from pg_constraint where conrelid = 'public.students'::regclass and confrelid = 'public.classes'::regclass and contype = 'f') = 1);
+
 -- ---------------------------------------------------------------- a row that names another school's class or term
 select pg_temp.check('the school admin cannot save a register row that points at another school''s class and term',
   pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)

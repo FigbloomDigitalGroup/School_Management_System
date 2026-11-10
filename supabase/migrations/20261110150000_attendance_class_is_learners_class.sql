@@ -9,9 +9,8 @@
 -- A before insert or update trigger on the class and learner columns now refuses a row whose class is not the learner's class (23514, in
 -- words, without naming the learner: the caller may not be allowed to see whose they are). It looks the learner up with the owner's rights,
 -- so a teacher's limited view of other classes cannot turn into a false refusal. Rows already in the table are not touched, and the history
--- of a learner who later changes class stays as it was: the trigger only fires when a row is written. (A register taken offline for a class,
--- sent after the learner has moved to another class, is refused when it reaches the server, and shows in the phone's list of registers that
--- could not be sent.)
+-- of a learner who later changes class stays as it was: the trigger only fires when a row is written. (A register taken for a class and sent
+-- after the learner moved to another class must still go in: the next migration, 20261110160000, remembers each learner's most recent move.)
 
 create or replace function attendance_class_is_learners_class() returns trigger
 language plpgsql

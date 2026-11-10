@@ -304,6 +304,23 @@ describe("a register held on the phone, sent for real", () => {
     return queue;
   };
 
+  it("FIG-1407: a register held on the phone for a class still goes out whole after one of its learners was moved to another class", async () => {
+    // Friday's register is taken with no signal and held. Before it is sent an admin moves one learner to the class they belong in. The register goes
+    // up as ONE request, so refusing that learner's row would have refused the whole class's register, and the phone could only discard it.
+    const D = "2019-02-20";
+    const queue = await phone();
+    const probe = await addLearner("moved", form2West);
+    const ids = [...roster.map((r) => r.id), probe];
+    await queue.enqueue("attendance", toRecords(newRegister(form2West, termId, ids, D), tenantId, teacher.userId));
+    const moved = await admin.client.from("students").update({ class_id: form1East }).eq("id", probe);
+    expect(moved.error).toBeNull();
+    expect(await queue.flush()).toEqual({ sent: 1, remaining: 0 });
+    expect(await queue.rejected(), "nothing was set aside").toHaveLength(0);
+    const rows = await rowsOn(D);
+    expect(rows, "every learner of the register is in it, the moved one too").toHaveLength(ids.length);
+    expect(rows.some((r) => r.student_id === probe)).toBe(true);
+  });
+
   it("the same held register queued twice goes out twice and leaves one row per learner", async () => {
     const D = "2019-02-09";
     const queue = await phone();
