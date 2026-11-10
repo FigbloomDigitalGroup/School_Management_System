@@ -337,9 +337,7 @@ select pg_temp.check('the ten made-up marks are what the counts below start from
 select pg_temp.check('the share of those ten that were here, the way the school screens count it (present + late), is 7 of 10 = 70%',
   (select count(*) filter (where mark in ('present', 'late')) from attendance where tenant_id = current_setting('t.k')::uuid and taken_on = current_date) = 7);
 select pg_temp.check('the group dashboard''s "present today" for the school (organization_tenant_summary.present_today) counts the 7 who were here, late arrivals included',
-  (select present_today from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = 7,
-  'QA10-GROUP FIG-1408');
-select pg_temp.info('present_today is ' || (select present_today from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid)
-  || ' for those ten (current_date is the UTC date, and only mark = present is counted)');
+  (select present_today from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = 7);
+-- (the summary's "today" is current_date, the UTC date, and it is refreshed when something is written: FIG-1444, a separate issue)
 
 rollback;
