@@ -46,7 +46,7 @@
  * Deploy: supabase functions deploy platform-sync --no-verify-jwt
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { describeKey, injectedServerKeys, matchesAnyKey } from "../_shared/serviceKeys.ts";
 import { PlatformClient, platformConfigFromEnv, PlatformError } from "../_shared/platformClient.ts";
 import { backfill, decisionWebhookUrl, eventWebhookUrl, processQueue, reconcile, staffBackfill } from "../_shared/platformSync.ts";

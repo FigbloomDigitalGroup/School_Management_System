@@ -26,7 +26,7 @@
  * login with no profile. A failed email never undoes the account.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { failure } from "../_shared/failure.ts";
 import { administersOrganization } from "../_shared/organizations.ts";
