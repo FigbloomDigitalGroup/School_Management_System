@@ -1,75 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * A stand-in for the Supabase client: tables in memory, `eq` filters, `order` and `range` really applied, inserts,
- * updates and deletes recorded, and a 1,000-row cap per request like PostgREST's, so paging is tested for real.
- */
-type Row = Record<string, unknown>;
-const MAX_ROWS = 1000;
-const db: { tables: Record<string, Row[]>; error: Record<string, string>; rpc: { data: unknown; error: string | null } } = {
-  tables: {}, error: {}, rpc: { data: null, error: null },
-};
-const calls: { inserts: { table: string; row: Row }[]; updates: { table: string; patch: Row; filters: [string, unknown][] }[]; deletes: { table: string; filters: [string, unknown][] }[]; rpc: { name: string; args: Row }[] } = {
-  inserts: [], updates: [], deletes: [], rpc: [],
-};
+import { fakeSupabase } from "./testing/fakeSupabase";
 
-function builder(table: string) {
-  const filters: [string, unknown][] = [];
-  let sortCol: string | null = null;
-  let window: [number, number] | null = null;
-  let op: { kind: "select" } | { kind: "insert"; row: Row } | { kind: "update"; patch: Row } | { kind: "delete" } = { kind: "select" };
-  const rows = () => {
-    let out = (db.tables[table] ?? []).filter((r) => filters.every(([c, v]) => r[c] === v));
-    if (sortCol) { const c = sortCol; out = [...out].sort((a, b) => String(a[c]).localeCompare(String(b[c]))); }
-    if (window) out = out.slice(window[0], window[1] + 1);
-    return out.slice(0, MAX_ROWS);
-  };
-  const settle = () => {
-    if (db.error[table]) return { data: null, error: { message: db.error[table] } };
-    if (op.kind === "insert") { calls.inserts.push({ table, row: op.row }); return { data: null, error: null }; }
-    if (op.kind === "update") { calls.updates.push({ table, patch: op.patch, filters: [...filters] }); return { data: null, error: null }; }
-    if (op.kind === "delete") { calls.deletes.push({ table, filters: [...filters] }); return { data: null, error: null }; }
-    return { data: rows(), error: null };
-  };
-  const proxy: unknown = new Proxy({}, {
-    get(_t, method: string) {
-      if (method === "then") return (resolve: (v: unknown) => unknown) => resolve(settle());
-      if (method === "maybeSingle") return () => {
-        const a = settle();
-        return Promise.resolve(a.error ? a : { data: (a.data as Row[])[0] ?? null, error: null });
-      };
-      return (...args: unknown[]) => {
-        if (method === "eq") filters.push([String(args[0]), args[1]]);
-        if (method === "order") sortCol = String(args[0]);
-        if (method === "range") window = [Number(args[0]), Number(args[1])];
-        if (method === "insert") op = { kind: "insert", row: args[0] as Row };
-        if (method === "update") op = { kind: "update", patch: args[0] as Row };
-        if (method === "delete") op = { kind: "delete" };
-        return proxy;
-      };
-    },
-  });
-  return proxy;
-}
+vi.mock("./supabase", async () => {
+  const { fakeSupabase } = await import("./testing/fakeSupabase");
+  return { supabase: () => fakeSupabase.client };
+});
 
-vi.mock("./supabase", () => ({
-  supabase: () => ({
-    from: (table: string) => builder(table),
-    rpc: (name: string, args: Row) => {
-      calls.rpc.push({ name, args });
-      return Promise.resolve(db.rpc.error ? { data: null, error: { message: db.rpc.error } } : { data: db.rpc.data, error: null });
-    },
-  }),
-}));
+const db = fakeSupabase;
+const calls = fakeSupabase.calls;
 
 import {
   billTerm, createFeeItem, deleteFeeItem, fetchBillingInputs, fetchCurrentInvoiceId, fetchSchoolYearGroups, fetchTermFeeItems, updateFeeItem,
 } from "./feeStructure";
 
-beforeEach(() => {
-  db.tables = {}; db.error = {}; db.rpc = { data: null, error: null };
-  calls.inserts.length = 0; calls.updates.length = 0; calls.deletes.length = 0; calls.rpc.length = 0;
-});
+beforeEach(() => fakeSupabase.reset());
 
 describe("reading the fee structure", () => {
   it("gives the school's distinct year groups, not one per class", async () => {
