@@ -252,12 +252,15 @@ describe("changing a register", () => {
 // ---------------------------------------------------------------- 3. a learner in another class's register
 
 describe("a learner of another class", () => {
-  it.fails("QA10-CLASS FIG-1407 (open): a teacher cannot file a learner of another class in their own class's register", async () => {
+  it("QA10-CLASS FIG-1407: a teacher cannot file a learner of another class in their own class's register, and nothing is saved", async () => {
     const y = await addLearner("2", form1East);
     await actAsRole("teacher");
     const { error } = await supabase().from("attendance")
       .insert({ tenant_id: tenantId, student_id: y, class_id: form2West, term_id: termId, taken_by: teacher.userId, taken_on: "2019-02-04", mark: "absent" });
-    expect(error, "the database took a Form 1 East learner into the Form 2 West register").not.toBeNull();
+    expect(error?.code, "the database must not take a Form 1 East learner into the Form 2 West register").toBe("23514");
+    expect(error?.message).toMatch(/not in this class/);
+    const saved = await admin.client.from("attendance").select("id", { count: "exact", head: true }).eq("student_id", y).eq("taken_on", "2019-02-04");
+    expect(saved.count, "no stray row was saved").toBe(0);
   });
 });
 
@@ -269,7 +272,7 @@ describe("a child's attendance figure, for this term", () => {
     return (data ?? []) as { mark: AttendanceMark }[];
   };
 
-  it.fails("QA10-PARENT FIG-1404 (open): ten absences in another term do not change the parent's 'this term' percentage or the days missed", async () => {
+  it("QA10-PARENT FIG-1404: ten absences in another term do not change the parent's 'this term' percentage or the days missed", async () => {
     await actAsRole("parent");
     const before = (await loadParentData(parent.userId)).children.find((c) => c.id === faith)!;
     expect(before.attendancePct, "the seed gives Faith attendance rows in the current term").not.toBeNull();
@@ -300,6 +303,23 @@ describe("a register held on the phone, sent for real", () => {
     queue.setUser(teacher.userId);
     return queue;
   };
+
+  it("FIG-1407: a register held on the phone for a class still goes out whole after one of its learners was moved to another class", async () => {
+    // Friday's register is taken with no signal and held. Before it is sent an admin moves one learner to the class they belong in. The register goes
+    // up as ONE request, so refusing that learner's row would have refused the whole class's register, and the phone could only discard it.
+    const D = "2019-02-20";
+    const queue = await phone();
+    const probe = await addLearner("moved", form2West);
+    const ids = [...roster.map((r) => r.id), probe];
+    await queue.enqueue("attendance", toRecords(newRegister(form2West, termId, ids, D), tenantId, teacher.userId));
+    const moved = await admin.client.from("students").update({ class_id: form1East }).eq("id", probe);
+    expect(moved.error).toBeNull();
+    expect(await queue.flush()).toEqual({ sent: 1, remaining: 0 });
+    expect(await queue.rejected(), "nothing was set aside").toHaveLength(0);
+    const rows = await rowsOn(D);
+    expect(rows, "every learner of the register is in it, the moved one too").toHaveLength(ids.length);
+    expect(rows.some((r) => r.student_id === probe)).toBe(true);
+  });
 
   it("the same held register queued twice goes out twice and leaves one row per learner", async () => {
     const D = "2019-02-09";
