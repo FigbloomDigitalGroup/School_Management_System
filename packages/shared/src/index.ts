@@ -86,6 +86,7 @@ export * from "./adminFees";
 export * from "./feeStructure";
 export * from "./adminFleet";
 export * from "./adminPeople";
+export * from "./peopleRoster";
 export * from "./adminSickBay";
 export * from "./coverage";
 export * from "./hrHandoff";
