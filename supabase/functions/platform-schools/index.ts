@@ -40,7 +40,7 @@
  *   supabase functions deploy platform-schools --no-verify-jwt
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { secretsMatch } from "../_shared/daraja.ts";
 
 export const MIN_SECRET_LENGTH = 32;
