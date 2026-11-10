@@ -59,11 +59,13 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   const isCbe = !!cls && rubricFor(tenant.country, cls.level) !== null;
 
   const exams = useAsync(() => (termId ? fetchTermExams(termId) : Promise.resolve([])), [termId]);
-  // Every exam with results out counts by default; options start from the class's grading scheme.
+  // Every exam with results out counts by default; options start from the class's grading scheme. The default is worked out from the exams
+  // of the term that is chosen, once they have arrived: useAsync keeps the previous term's list in `data` while the next one loads, so
+  // reading it before `loading` is false made the OLD term's exams the selection (FIG-1387).
   useEffect(() => { setExamIds(null); }, [termId]);
   useEffect(() => {
-    if (examIds === null && exams.data) setExamIds(exams.data.filter((e) => e.published).map((e) => e.id));
-  }, [exams.data, examIds]);
+    if (examIds === null && !exams.loading && exams.data) setExamIds(exams.data.filter((e) => e.published).map((e) => e.id));
+  }, [exams.data, exams.loading, examIds]);
   useEffect(() => { setOptions(defaultReportCardOptions(scheme)); }, [classId, scheme]);
 
   const cards = useAsync(
@@ -217,7 +219,7 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                   Each subject shows a column per exam and the average of the exams a learner sat. Preparing again updates the drafts and keeps comments; cards already sent to families stay as they were.
                 </p>
                 <div className="mt-3 text-[12px] font-medium text-ink-soft">Exams that count</div>
-                {exams.loading && !exams.data ? <p className="mt-1 text-[12.5px] text-ink-faint">Loading exams…</p> : !(exams.data ?? []).length ? (
+                {exams.loading ? <p className="mt-1 text-[12.5px] text-ink-faint">Loading exams…</p> : !(exams.data ?? []).length ? (
                   <p className="mt-1 text-[12.5px] text-ink-faint">
                     {isCbe ? "No exams this term. The report cards will carry this term's published CBE assessments and the core competencies." : "No exams this term. Set them up under Exams."}
                   </p>
@@ -254,7 +256,7 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                   <p className="mt-2 text-[11.5px] text-warn-ink">CBC report cards usually leave out position. It's on for this class.</p>
                 )}
                 <div className="mt-4">
-                  <Button variant="accent" disabled={!!busy || (!examIds?.length && !isCbe)} onClick={prepare}>
+                  <Button variant="accent" disabled={!!busy || exams.loading || (!examIds?.length && !isCbe)} onClick={prepare}>
                     {busy === "prepare" ? "Preparing…" : rows.length ? "Prepare again" : "Prepare report cards"}
                   </Button>
                 </div>

@@ -20,9 +20,11 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
  * real sendQueuedWrite against the local database.
  *
  * Every row it writes goes into a throwaway term ("QA10 reg ...", early 2019), or, for the parent's number, a second one ("QA10 old
- * ...", March and April 2019), or, for a register dated today, one around today ("QA10 now ..."): the database refuses a register
- * dated after today in the school's time zone or outside its term (FIG-1400), so the dates cannot be made up in the future. afterAll
- * deletes the terms, which takes their attendance with them, then the throwaway learners, and fails loudly if a delete did not work
+ * ...", March and April 2019), or, for a register dated today, the school's own current term: the database refuses a register
+ * dated after today in the school's time zone or outside its term (FIG-1400), so the dates cannot be made up in the future, and a
+ * throwaway term around today would overlap the current one, which a school's terms may not do (FIG-1432). afterAll deletes the two
+ * throwaway terms, which takes their attendance with them, deletes today's registers (never the current term), then the throwaway
+ * learners, and fails loudly if a delete did not work
  * (the QA 05 file's cleanup did not check, and once left 719 invoices behind). beforeAll sweeps anything an aborted run left. The
  * seeded Alliance registers (the first ten school days of the term, to 2026-09-11) are never touched. The screens are read in e2e/attendance.spec.ts; the database
  * rules are in supabase/rls-checks/attendance.sql.
@@ -112,18 +114,21 @@ beforeAll(async () => {
   const t = await admin.client.from("tenants").select("name, county, country, logo_url, accent").eq("id", tenantId).single();
   school = { name: t.data!.name as string, county: t.data!.county as string | null, country: t.data!.country as string, logoUrl: t.data!.logo_url as string | null, accent: t.data!.accent as string };
 
+  // Two throwaway terms in 2019, long before the school's own terms, so they follow the rule that a school's terms do not overlap or run out
+  // of order (FIG-1432). A register's date must fall inside its term, so today's registers go in the school's own current term, which
+  // already holds today: a throwaway term around today would overlap it and is refused. Only today's registers are cleaned up (afterAll),
+  // never the term.
   const throwaway = [
     ["reg", 2019, 1, "2019-01-05", "2019-02-28"],
     ["old", 2019, 2, "2019-03-05", "2019-04-28"],
-    ["now", 2019, 3, addDays(today(), -30), addDays(today(), 30)],
   ] as const;
   for (const [name, year, index, starts_on, ends_on] of throwaway) {
     const term = await admin.client.from("terms").insert({ tenant_id: tenantId, name: `QA10 ${name} ${run}`, year, index, starts_on, ends_on, is_current: false }).select("id").single();
     if (term.error) throw new Error(`could not make the ${name} term: ${term.error.message}`);
     if (name === "reg") termId = term.data.id as string;
-    else if (name === "old") oldTermId = term.data.id as string;
-    else nowTermId = term.data.id as string;
+    else oldTermId = term.data.id as string;
   }
+  nowTermId = currentTermId;
 
   await actAsRole("teacher");
   roster = (await fetchClassRoster(form2West)).map((s) => ({ id: s.id, full_name: s.full_name }));
@@ -135,7 +140,12 @@ beforeAll(async () => {
 afterAll(async () => {
   const errors: string[] = [];
   if (admin) {
-    for (const id of [termId, oldTermId, nowTermId].filter(Boolean)) {
+    // Today's registers this file took, in the school's own current term (deleting that term would take the whole term with it: never).
+    if (nowTermId) {
+      const { error } = await admin.client.from("attendance").delete().eq("tenant_id", tenantId).eq("term_id", nowTermId).eq("taken_on", today());
+      if (error) errors.push(`today's registers: ${error.message}`);
+    }
+    for (const id of [termId, oldTermId].filter(Boolean)) {
       const { error } = await admin.client.from("terms").delete().eq("id", id);
       if (error) errors.push(`term ${id}: ${error.message}`);
     }
@@ -143,8 +153,10 @@ afterAll(async () => {
       const { error } = await admin.client.from("students").delete().in("id", madeStudents);
       if (error) errors.push(`learners: ${error.message}`);
     }
-    const left = await admin.client.from("attendance").select("id", { count: "exact", head: true }).in("term_id", [termId, oldTermId, nowTermId].filter(Boolean));
+    const left = await admin.client.from("attendance").select("id", { count: "exact", head: true }).in("term_id", [termId, oldTermId].filter(Boolean));
     if (left.count) errors.push(`${left.count} attendance rows of the throwaway terms are still there`);
+    const leftToday = await admin.client.from("attendance").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("taken_on", today());
+    if (leftToday.count) errors.push(`${leftToday.count} of today's registers are still there`);
   }
   if (errors.length) throw new Error(`cleanup failed, run the file again to sweep: ${errors.join("; ")}`);
 }, 60_000);

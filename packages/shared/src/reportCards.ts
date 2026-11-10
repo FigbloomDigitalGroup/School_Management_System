@@ -269,11 +269,14 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
     sb.from("students").select("id, full_name, admission_no").eq("class_id", p.classId).eq("active", true).order("full_name")
       .returns<{ id: string; full_name: string; admission_no: string }[]>(),
     p.examIds.length
-      ? sb.from("exams").select("id, name, out_of, published_at").in("id", p.examIds)
+      ? sb.from("exams").select("id, name, out_of, published_at").eq("term_id", p.termId).in("id", p.examIds)
           .returns<{ id: string; name: string; out_of: number; published_at: string | null }[]>()
       : Promise.resolve({ data: [] as { id: string; name: string; out_of: number; published_at: string | null }[], error: null }),
   ]);
   for (const e of [tErr, cErr, lErr, eErr]) if (e) throw new Error(e.message);
+  // A card holds one term's marks. An exam of another term (a selection left over from the term that was on screen before, FIG-1387) is
+  // refused, not dropped: a card must never be stored with marks the office did not choose for this term.
+  if ((exams ?? []).length !== new Set(p.examIds).size) throw new Error("One of the chosen exams is not in this term. Choose this term's exams again.");
   const ids = (learners ?? []).map((l) => l.id);
   const scheme = gradingSchemeFor(p.school.country, cls!.level);
   // CBE classes are judged on a rubric (null for 8-4-4 Forms): their cards carry its key and the core competencies.
