@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initSupabase, supabase } from "../../packages/shared/src/supabase";
 import {
-  defaultReportCardOptions, fetchClassReportCards, fetchMyReportCards, fetchTermExams, prepareClassReportCards,
+  defaultReportCardOptions, fetchClassReportCards, fetchMyReportCards, fetchTermExams, fetchUnpublishedMarks, prepareClassReportCards,
   saveReportCardComments, saveReportCards, saveTeacherComment, setReportCardsPublished,
   type ReportCardData, type StoredReportCard,
 } from "../../packages/shared/src/reportCards";
@@ -43,7 +43,7 @@ let admin: SignedIn, teacher: SignedIn, parent: SignedIn, student: SignedIn, dri
 let tenantId = "", termId = "", exam1 = "", exam2 = "";
 let school: ReportCardData["school"];
 let faith = { id: "", classId: "" }, samuel = { id: "", classId: "" };
-let subject1 = "", subject2 = "", name1 = "", name2 = "";
+let subject1 = "", subject2 = "", subject3 = "", name1 = "", name2 = "", name3 = "";
 let others: string[] = []; // Aisha, Brian, Cheche, Dedan, Emma
 let preparedFaithClass: ReportCardData[] = [];
 let faithCard: StoredReportCard, samuelCard: StoredReportCard, aishaCard: StoredReportCard;
@@ -107,11 +107,13 @@ beforeAll(async () => {
   const ta = await teacher.client.from("teaching_assignments").select("class_id, subject_id").eq("teacher_id", teacher.userId);
   const taught = (cls: string) => new Set((ta.data ?? []).filter((r) => r.class_id === cls).map((r) => r.subject_id as string));
   subject1 = [...taught(faith.classId)].find((s) => taught(samuel.classId).has(s))!;
-  const second = await admin.client.from("subjects").select("id, name").eq("tenant_id", tenantId).neq("id", subject1).order("id").limit(1);
+  const second = await admin.client.from("subjects").select("id, name").eq("tenant_id", tenantId).neq("id", subject1).order("id").limit(2);
   subject2 = second.data![0]!.id as string;
-  const names = await admin.client.from("subjects").select("id, name").in("id", [subject1, subject2]);
+  subject3 = second.data![1]!.id as string; // entered for Faith but never published (FIG-1388)
+  const names = await admin.client.from("subjects").select("id, name").in("id", [subject1, subject2, subject3]);
   name1 = names.data!.find((s) => s.id === subject1)!.name as string;
   name2 = names.data!.find((s) => s.id === subject2)!.name as string;
+  name3 = names.data!.find((s) => s.id === subject3)!.name as string;
 
   const roster = await admin.client.from("students").select("id").eq("class_id", faith.classId).eq("active", true).neq("id", faith.id).order("id").limit(5);
   others = (roster.data ?? []).map((s) => s.id as string);
@@ -133,7 +135,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------- 1. the card is the gradebook's marks, worked out
 
 describe("report cards: from the gradebook's marks to the card", () => {
-  it("sets up the hand-worked marks, and publishes Samuel's class so that both exams count as 'results out'", async () => {
+  it("sets up the hand-worked marks, publishes Samuel's class and Faith's class (S1 and S2) so that both exams count as 'results out', and enters S3 for Faith without publishing it", async () => {
     const [aisha, brian, cheche, dedan, emma] = others as [string, string, string, string, string];
     await enter([
       mark(faith.id, exam1, subject1, 90), mark(faith.id, exam2, subject1, 70), mark(faith.id, exam1, subject2, 59), mark(faith.id, exam2, subject2, 60),
@@ -143,9 +145,11 @@ describe("report cards: from the gradebook's marks to the card", () => {
       mark(dedan, exam1, subject1, null, "missed"), mark(dedan, exam2, subject1, 50),
       mark(emma, exam1, subject1, 50), mark(emma, exam2, subject1, 50),
       mark(samuel.id, exam1, subject1, 66), mark(samuel.id, exam2, subject1, 64),
+      mark(faith.id, exam1, subject3, 77), // a draft: S3 is never published to Faith's class
     ]);
     await publishMarks(exam1, samuel.classId, subject1);
     await publishMarks(exam2, samuel.classId, subject1);
+    for (const subject of [subject1, subject2]) for (const exam of [exam1, exam2]) await publishMarks(exam, faith.classId, subject);
     await useAs("school_admin");
     const exams = await fetchTermExams(termId);
     expect(exams.map((e) => e.published), "what the screen ticks by default").toEqual([true, true]);
@@ -214,13 +218,24 @@ describe("report cards: from the gradebook's marks to the card", () => {
     samuelCard = await storedFor(samuel.classId, samuel.id);
   });
 
-  // KNOWN: the screen ticks every exam with "results out", and that is a fact about the exam, not about a class and subject. The cards
-  // are then worked out from every mark in the chosen exams, published to the class or not.
-  it.fails("FIG-1388 (open): a card carries only subjects whose marks were published to the class", async () => {
+  // FIG-1388: "results out" is a fact about the exam (any class and subject published), not about this class and subject. A card counts only
+  // the marks published to the class for that subject, the same rule as the family's Results screen.
+  it("FIG-1388: a card carries only the subjects whose marks were published to the class: S3 was entered for Faith but never published, so it is left off, and so is its effect on her mean and position", async () => {
     const faithCardData = cardFor(preparedFaithClass, faith.id);
     const published = await admin.client.from("mark_publications").select("subject_id").eq("class_id", faith.classId).in("exam_id", [exam1, exam2]);
-    expect(published.data, "nothing of Faith's class has been published").toHaveLength(0);
-    expect(faithCardData.subjects.map((s) => s.name), "so the card has no subject rows yet").toEqual([]);
+    expect(new Set((published.data ?? []).map((r) => r.subject_id)), "S1 and S2 are published to Faith's class, S3 is not").toEqual(new Set([subject1, subject2]));
+    const entered = await admin.client.from("marks").select("score").eq("student_id", faith.id).eq("subject_id", subject3).eq("exam_id", exam1).single();
+    expect(entered.data?.score, "S3 has a mark for Faith in the gradebook").toBe(77);
+    expect(faithCardData.subjects.map((s) => s.name), "so the card has S1 and S2 and no S3").toEqual([name1, name2].sort((x, y) => x.localeCompare(y)));
+    expect(faithCardData.summary, "a mean over S1 and S2 only: 77 would have moved it").toMatchObject({ subjectsSat: 2, total: 140, mean: 70 });
+  });
+
+  it("FIG-1388: the screen can say which marks a card leaves off: the subjects with marks the class has not published", async () => {
+    await useAs("school_admin");
+    const left = await fetchUnpublishedMarks(faith.classId, [exam1, exam2]);
+    expect(left.map((r) => [r.subjectName, r.examId])).toEqual([[name3, exam1]]);
+    expect(await fetchUnpublishedMarks(samuel.classId, [exam1, exam2]), "Samuel's class has nothing unpublished").toEqual([]);
+    expect(await fetchUnpublishedMarks(faith.classId, []), "no exams chosen, nothing to leave off").toEqual([]);
   });
 });
 
@@ -334,8 +349,6 @@ describe("sending report cards to families", () => {
   });
 
   it("the same numbers reach the family by both routes: the marks the class has published and the card", async () => {
-    await publishMarks(exam1, faith.classId, subject1);
-    await publishMarks(exam2, faith.classId, subject1);
     const marks = await parent.client.from("marks").select("exam_id, subject_id, score").eq("student_id", faith.id).in("exam_id", [exam1, exam2]);
     const seen = (e: string, s: string) => (marks.data ?? []).find((r) => r.exam_id === e && r.subject_id === s)?.score ?? null;
     await useAs("parent");
@@ -346,12 +359,15 @@ describe("sending report cards to families", () => {
     expect(s1).toMatchObject({ average: 80, grade: "A", points: 12 });
   });
 
-  // What FIG-1388 leaves behind: the family holds a subject's marks on the card that the class never published as marks.
-  it("(what the open defect leaves behind) the card shows the family S2 marks that the marks screen hides from them", async () => {
-    const marks = await parent.client.from("marks").select("score").eq("student_id", faith.id).eq("subject_id", subject2).in("exam_id", [exam1, exam2]);
-    expect(marks.data, "the marks screen: nothing for S2").toEqual([]);
+  // FIG-1388: what the family holds on the card is what their marks screen can show: S1 and S2 on both, S3 on neither.
+  it("what the card gives the family is what the marks screen shows them: S2 on both, and S3 (never published) on neither", async () => {
+    const marks = await parent.client.from("marks").select("subject_id, score").eq("student_id", faith.id).in("exam_id", [exam1, exam2]);
+    const onScreen = (s: string) => (marks.data ?? []).filter((r) => r.subject_id === s).map((r) => r.score);
+    expect(onScreen(subject3), "the marks screen: nothing for S3").toEqual([]);
+    expect(onScreen(subject2).sort(), "the marks screen: S2 is there").toEqual([59, 60]);
     await useAs("parent");
     const card = (await fetchMyReportCards([faith.id]))[0]!;
+    expect(card.data.subjects.find((s) => s.name === name3), "the card: no S3").toBeUndefined();
     expect(card.data.subjects.find((s) => s.name === name2)).toMatchObject({ scores: [59, 60], average: 60, grade: "B-" });
   });
 
@@ -401,15 +417,63 @@ describe("sending report cards to families", () => {
     expect((await storedFor(faith.classId, faith.id)).principalComment).toBe("Well done, Faith.");
   });
 
-  // KNOWN: only the screen's saveReportCards() leaves a sent card alone. The API lets the office rewrite the stored card in place,
-  // so the grade the family downloads changes with no withdrawal and no audit entry. (A signature would show it: see e_signatures.)
-  it.fails("FIG-1389 (open): a card that has gone out cannot be rewritten without a trace", async () => {
+  // FIG-1389: only the screen's saveReportCards() used to leave a sent card alone; the API let the office rewrite the stored card in place, so
+  // the grade the family downloads could change with no withdrawal and no audit entry. Now the figures of a card that is out are fixed (the
+  // office withdraws it first, which is logged), and a comment the office corrects on a sent card is logged.
+  it("FIG-1389: the marks and figures of a card that has gone out cannot be rewritten: refused, nothing changes, the family still holds the card as issued, and a refused change leaves no entry", async () => {
     await useAs("school_admin");
-    const before = (await auditFor(faithCard.id)).length;
-    const changed = { ...faithCard.data, summary: { ...faithCard.data.summary, mean: 99, grade: "A" } };
-    const edit = await admin.client.from("report_cards").update({ data: changed }).eq("id", faithCard.id);
-    const traced = edit.error !== null || (await auditFor(faithCard.id)).length > before;
-    await admin.client.from("report_cards").update({ data: faithCard.data }).eq("id", faithCard.id); // put it back
-    expect(traced, "the change was refused, or it left an audit entry").toBe(true);
+    const before = await storedFor(faith.classId, faith.id);
+    const entries = (await auditFor(faithCard.id)).length;
+    const changed = { ...before.data, summary: { ...before.data.summary, mean: 99, grade: "A" } };
+    const edit = await admin.client.from("report_cards").update({ data: changed }).eq("id", faithCard.id).select("id");
+    expect(edit.error?.code).toBe("23514");
+    expect(edit.error?.message).toMatch(/gone out to the family/);
+    expect((await storedFor(faith.classId, faith.id)).data, "the stored card").toEqual(before.data);
+    const asParent = await parent.client.from("report_cards").select("data").eq("id", faithCard.id).single();
+    expect(asParent.data?.data, "the card the family reads").toEqual(before.data);
+    expect(await auditFor(faithCard.id), "no entry for a change that did not happen").toHaveLength(entries);
+  });
+
+  it("FIG-1389: the office can still correct a comment on a card that has gone out, and the change is on the record (which comment, not the words); the same text again is not", async () => {
+    await useAs("school_admin");
+    const who = faithCard.data.learner.name;
+    const entries = (await auditFor(faithCard.id)).length;
+    await saveReportCardComments(faithCard.id, { principal: "Well done, Faith. Keep it up." });
+    expect((await storedFor(faith.classId, faith.id)).principalComment).toBe("Well done, Faith. Keep it up.");
+    const after = await auditFor(faithCard.id);
+    expect(after).toHaveLength(entries + 1);
+    expect(after.at(-1)).toBe(`Comment changed on the report card already sent for ${who}`);
+    const logged = await admin.client.from("audit_events").select("metadata, actor_id").eq("tenant_id", tenantId).contains("metadata", { report_card_id: faithCard.id }).like("event", "Comment changed%");
+    expect(logged.data!.at(-1)!.metadata).toMatchObject({ changed: ["principal_comment"] });
+    expect(JSON.stringify(logged.data), "the words of the comment are not copied into the audit log").not.toContain("Keep it up");
+    expect(logged.data!.at(-1)!.actor_id).toBe(admin.userId);
+    await saveReportCardComments(faithCard.id, { principal: "Well done, Faith. Keep it up." });
+    expect(await auditFor(faithCard.id), "the same text again").toHaveLength(entries + 1);
+  });
+
+  it("FIG-1389: a draft card is the office's own work: its comments and figures change without an entry", async () => {
+    await useAs("school_admin");
+    const entries = (await auditFor(aishaCard.id)).length; // Aisha's card was sent and withdrawn above, so it is a draft again
+    await saveReportCardComments(aishaCard.id, { principal: "A draft comment." });
+    const edit = await admin.client.from("report_cards").update({ data: aishaCard.data }).eq("id", aishaCard.id).select("id");
+    expect(edit.error).toBeNull();
+    expect(await auditFor(aishaCard.id)).toHaveLength(entries);
+  });
+
+  it("FIG-1389: withdrawing is the way to change a card that has gone out: it is logged, the figures can then be changed, and sending again is logged", async () => {
+    await useAs("school_admin");
+    const before = await storedFor(faith.classId, faith.id);
+    const who = faithCard.data.learner.name;
+    const entries = (await auditFor(faithCard.id)).length;
+    await setReportCardsPublished([faithCard.id], false);
+    const changed = { ...before.data, summary: { ...before.data.summary, mean: 99, grade: "A" } };
+    const edit = await admin.client.from("report_cards").update({ data: changed }).eq("id", faithCard.id).select("id");
+    expect(edit.error, "a withdrawn card is a draft again").toBeNull();
+    expect((await storedFor(faith.classId, faith.id)).data.summary.mean).toBe(99);
+    await admin.client.from("report_cards").update({ data: before.data }).eq("id", faithCard.id); // put the figures back
+    await setReportCardsPublished([faithCard.id], true);
+    const after = await auditFor(faithCard.id);
+    expect(after.slice(entries)).toEqual([`Report card withdrawn for ${who}`, `Report card published for ${who}`]);
+    expect((await storedFor(faith.classId, faith.id)).data, "the card is as it was issued").toEqual(before.data);
   });
 });
