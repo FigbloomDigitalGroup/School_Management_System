@@ -137,6 +137,33 @@ test.describe("the office prepares Form 2 West", () => {
     await expect(page.getByRole("button", { name: /Prepare/ })).toBeEnabled();
   });
 
+  // FIG-1388: a card counts only the marks published to the class for that subject (the family's Results screen shows the same), and the
+  // screen says which subjects it leaves off. One subject of Form 2 West is unpublished for this test and published again afterwards.
+  test("marks the class has not published are left off the cards, and the screen says which: the note names the subject and the 43 cards carry the other eight", async ({ page }) => {
+    const f = await facts();
+    const exam = (await db.from("exams").select("id").eq("tenant_id", f.tenantId).eq("name", EXAM).single()).data!.id as string;
+    const subjectName = f.subjects[0]!;
+    const subject = (await db.from("subjects").select("id").eq("tenant_id", f.tenantId).eq("name", subjectName).single()).data!.id as string;
+    const pub = (await db.from("mark_publications").select("*").eq("exam_id", exam).eq("class_id", f.classId).eq("subject_id", subject).single()).data!;
+    try {
+      expect((await db.from("mark_publications").delete().eq("exam_id", exam).eq("class_id", f.classId).eq("subject_id", subject)).error).toBeNull();
+      await signInAdmin(page);
+      await openOfficeScreen(page);
+      await expect(page.getByLabel(EXAM)).toBeChecked();
+      await expect(page.getByRole("note").filter({ hasText: "Left off these cards" })).toContainText(`${subjectName} (${EXAM})`);
+      await page.getByRole("button", { name: "Prepare report cards" }).click();
+      await expect(page.getByText("43 report cards prepared.")).toBeVisible({ timeout: 30000 });
+      const stored = (await db.from("report_cards").select("data").eq("term_id", f.termId).eq("class_id", f.classId)).data ?? [];
+      expect(stored).toHaveLength(43);
+      const onCards = new Set(stored.flatMap((c) => (c.data as { subjects: { name: string }[] }).subjects.map((s) => s.name)));
+      expect(onCards.has(subjectName), `${subjectName} is on a card although it was not published`).toBe(false);
+      expect(onCards.size, "the other eight subjects are on the cards").toBe(8);
+    } finally {
+      await db.from("mark_publications").upsert(pub, { onConflict: "exam_id,class_id,subject_id" });
+      await db.from("report_cards").delete().eq("term_id", f.termId).eq("class_id", f.classId);
+    }
+  });
+
   test("with the exam that has results out ticked, preparing makes one card per learner", async ({ page }) => {
     const f = await facts();
     expect(f.learners, "the seed: 43 learners with nine marks each").toHaveLength(43);
@@ -150,6 +177,7 @@ test.describe("the office prepares Form 2 West", () => {
     await expect(page.getByText("43 report cards prepared.")).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(`${CLASS} · 43 report cards`)).toBeVisible();
     expect((await db.from("report_cards").select("id", { count: "exact", head: true }).eq("term_id", f.termId).eq("class_id", f.classId)).count).toBe(43);
+    await expect(page.getByRole("note").filter({ hasText: "Left off these cards" }), "every subject is published, so nothing is left off").toHaveCount(0);
   });
 
   test("every learner's mean, grade and position on the screen is the hand-worked one", async ({ page }) => {

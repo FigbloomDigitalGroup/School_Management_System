@@ -262,7 +262,7 @@ export interface PrepareInput {
 /** Works out every active learner's card for one class and term. Reads only — saveReportCards() stores them. */
 export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCardData[]> {
   const sb = supabase();
-  const [{ data: term, error: tErr }, { data: cls, error: cErr }, { data: learners, error: lErr }, { data: exams, error: eErr }] = await Promise.all([
+  const [{ data: term, error: tErr }, { data: cls, error: cErr }, { data: learners, error: lErr }, { data: exams, error: eErr }, { data: pubs, error: pErr }] = await Promise.all([
     sb.from("terms").select("name, year, starts_on, ends_on").eq("id", p.termId).single<{ name: string; year: number; starts_on: string; ends_on: string }>(),
     sb.from("classes").select("name, level, class_teacher:profiles!classes_class_teacher_id_fkey(full_name)").eq("id", p.classId)
       .single<{ name: string; level: ClassLevel; class_teacher: { full_name: string } | null }>(),
@@ -272,8 +272,13 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
       ? sb.from("exams").select("id, name, out_of, published_at").eq("term_id", p.termId).in("id", p.examIds)
           .returns<{ id: string; name: string; out_of: number; published_at: string | null }[]>()
       : Promise.resolve({ data: [] as { id: string; name: string; out_of: number; published_at: string | null }[], error: null }),
+    // Which of the chosen exams' subjects have been published to THIS class (publishing is per exam, class and subject).
+    p.examIds.length
+      ? sb.from("mark_publications").select("exam_id, subject_id").eq("class_id", p.classId).in("exam_id", p.examIds)
+          .returns<{ exam_id: string; subject_id: string }[]>()
+      : Promise.resolve({ data: [] as { exam_id: string; subject_id: string }[], error: null }),
   ]);
-  for (const e of [tErr, cErr, lErr, eErr]) if (e) throw new Error(e.message);
+  for (const e of [tErr, cErr, lErr, eErr, pErr]) if (e) throw new Error(e.message);
   // A card holds one term's marks. An exam of another term (a selection left over from the term that was on screen before, FIG-1387) is
   // refused, not dropped: a card must never be stored with marks the office did not choose for this term.
   if ((exams ?? []).length !== new Set(p.examIds).size) throw new Error("One of the chosen exams is not in this term. Choose this term's exams again.");
@@ -299,6 +304,11 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
       : Promise.resolve(new Map<string, TermActivities>()),
   ]);
 
+  // A card counts only the marks published to the class for that subject, the same rule as the family's Results screen: a card that went
+  // out must not give families a mark their marks screen still hides, nor a mean or position worked out from it (FIG-1388).
+  const publishedPairs = new Set((pubs ?? []).map((r) => `${r.exam_id}|${r.subject_id}`));
+  const counted = marks.filter((m) => publishedPairs.has(`${m.exam_id}|${m.subject_id}`));
+
   // Columns in the order the exams went out, unpublished last, then by name.
   const ordered = [...(exams ?? [])].sort((a, b) =>
     (a.published_at ?? "~").localeCompare(b.published_at ?? "~") || a.name.localeCompare(b.name));
@@ -311,7 +321,7 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
     scheme,
     exams: ordered.map((e) => ({ id: e.id, name: e.name, outOf: e.out_of })),
     learners: (learners ?? []).map((l) => ({ id: l.id, name: l.full_name, admissionNo: l.admission_no })),
-    marks: marks.map((m) => ({
+    marks: counted.map((m) => ({
       studentId: m.student_id, examId: m.exam_id, subjectId: m.subject_id,
       subjectName: m.subjects?.name ?? "Subject", subjectCode: m.subjects?.code ?? "", score: m.score,
     })),
@@ -474,6 +484,39 @@ export async function fetchReportCardSetup(tenantId: string, classTeacherId?: st
 }
 
 /** A term's exams, oldest first, marking which have any results out. */
+/**
+ * The marks a class has entered that its families cannot see yet (FIG-1388): for each chosen exam, the subjects with a score for this
+ * class's learners that has not been published to the class. A report card counts only published marks, so these are left off; the Report
+ * cards screen lists them so the office can ask for them to be published and prepare again. A missed paper (no score) is not a mark.
+ */
+export async function fetchUnpublishedMarks(classId: string, examIds: string[]): Promise<{ examId: string; examName: string; subjectId: string; subjectName: string }[]> {
+  if (!examIds.length) return [];
+  const sb = supabase();
+  const { data: learners, error: lErr } = await sb.from("students").select("id").eq("class_id", classId).eq("active", true).returns<{ id: string }[]>();
+  if (lErr) throw new Error(lErr.message);
+  const ids = (learners ?? []).map((l) => l.id);
+  if (!ids.length) return [];
+  const [marks, pubs, exams] = await Promise.all([
+    fetchAllPages<{ exam_id: string; subject_id: string; subjects: { name: string } | null }>((from, to) =>
+      sb.from("marks").select("exam_id, subject_id, subjects(name)").in("exam_id", examIds).in("student_id", ids).not("score", "is", null)
+        .order("exam_id").order("student_id").order("subject_id").range(from, to)
+        .returns<{ exam_id: string; subject_id: string; subjects: { name: string } | null }[]>()),
+    sb.from("mark_publications").select("exam_id, subject_id").eq("class_id", classId).in("exam_id", examIds).returns<{ exam_id: string; subject_id: string }[]>(),
+    sb.from("exams").select("id, name").in("id", examIds).returns<{ id: string; name: string }[]>(),
+  ]);
+  if (pubs.error) throw new Error(pubs.error.message);
+  if (exams.error) throw new Error(exams.error.message);
+  const published = new Set((pubs.data ?? []).map((r) => `${r.exam_id}|${r.subject_id}`));
+  const examName = new Map((exams.data ?? []).map((e) => [e.id, e.name] as const));
+  const left = new Map<string, { examId: string; examName: string; subjectId: string; subjectName: string }>();
+  for (const m of marks) {
+    const key = `${m.exam_id}|${m.subject_id}`;
+    if (published.has(key) || left.has(key)) continue;
+    left.set(key, { examId: m.exam_id, examName: examName.get(m.exam_id) ?? "Exam", subjectId: m.subject_id, subjectName: m.subjects?.name ?? "Subject" });
+  }
+  return [...left.values()].sort((a, b) => a.examName.localeCompare(b.examName) || a.subjectName.localeCompare(b.subjectName));
+}
+
 export async function fetchTermExams(termId: string): Promise<{ id: string; name: string; outOf: number; published: boolean }[]> {
   const { data, error } = await supabase().from("exams").select("id, name, out_of, published_at").eq("term_id", termId)
     .returns<{ id: string; name: string; out_of: number; published_at: string | null }[]>();

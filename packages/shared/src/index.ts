@@ -39,6 +39,7 @@ export * from "./supabase";
 export * from "./demo";
 export * from "./organizations";
 export * from "./paging";
+export * from "./files";
 export * from "./edge";
 export * from "./mpesaPay";
 export * from "./paymentSms";

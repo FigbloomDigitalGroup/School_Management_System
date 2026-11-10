@@ -1,4 +1,4 @@
-import { examPaperFilePath, mimeForFile, paperImportPath, supabase, uploadFile, type UploadableFile } from "@figbloom/shared";
+import { deleteFiles, examPaperFilePath, mimeForFile, paperImportPath, publicFileUrl, uploadFile, type UploadableFile } from "@figbloom/shared";
 import { readPickedFile, type PickedFile } from "./pickFile";
 
 /**
@@ -19,7 +19,7 @@ export async function uploadAvatar(tenantId: string, teacherId: string, uri: str
   const path = `${tenantId}/avatars/${name}`;
   const file = await readPickedFile({ uri, name, mimeType: mimeType ?? mimeForFile({ name }) ?? "image/jpeg", sizeBytes: null });
   await uploadFile("public-assets", path, file, { upsert: true });
-  return supabase().storage.from("public-assets").getPublicUrl(path).data.publicUrl;
+  return publicFileUrl(path);
 }
 
 /**
@@ -55,5 +55,5 @@ export async function uploadPaperImportFiles(input: { tenantId: string; profileI
 
 /** Takes uploaded pages down again, for a request that never reached Bloom (Bloom deletes the ones it read). */
 export async function removePaperImportFiles(paths: string[]): Promise<void> {
-  if (paths.length) await supabase().storage.from("private-documents").remove(paths);
+  if (paths.length) await deleteFiles("private-documents", paths);
 }
