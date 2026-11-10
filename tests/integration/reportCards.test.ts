@@ -417,15 +417,63 @@ describe("sending report cards to families", () => {
     expect((await storedFor(faith.classId, faith.id)).principalComment).toBe("Well done, Faith.");
   });
 
-  // KNOWN: only the screen's saveReportCards() leaves a sent card alone. The API lets the office rewrite the stored card in place,
-  // so the grade the family downloads changes with no withdrawal and no audit entry. (A signature would show it: see e_signatures.)
-  it.fails("FIG-1389 (open): a card that has gone out cannot be rewritten without a trace", async () => {
+  // FIG-1389: only the screen's saveReportCards() used to leave a sent card alone; the API let the office rewrite the stored card in place, so
+  // the grade the family downloads could change with no withdrawal and no audit entry. Now the figures of a card that is out are fixed (the
+  // office withdraws it first, which is logged), and a comment the office corrects on a sent card is logged.
+  it("FIG-1389: the marks and figures of a card that has gone out cannot be rewritten: refused, nothing changes, the family still holds the card as issued, and a refused change leaves no entry", async () => {
     await useAs("school_admin");
-    const before = (await auditFor(faithCard.id)).length;
-    const changed = { ...faithCard.data, summary: { ...faithCard.data.summary, mean: 99, grade: "A" } };
-    const edit = await admin.client.from("report_cards").update({ data: changed }).eq("id", faithCard.id);
-    const traced = edit.error !== null || (await auditFor(faithCard.id)).length > before;
-    await admin.client.from("report_cards").update({ data: faithCard.data }).eq("id", faithCard.id); // put it back
-    expect(traced, "the change was refused, or it left an audit entry").toBe(true);
+    const before = await storedFor(faith.classId, faith.id);
+    const entries = (await auditFor(faithCard.id)).length;
+    const changed = { ...before.data, summary: { ...before.data.summary, mean: 99, grade: "A" } };
+    const edit = await admin.client.from("report_cards").update({ data: changed }).eq("id", faithCard.id).select("id");
+    expect(edit.error?.code).toBe("23514");
+    expect(edit.error?.message).toMatch(/gone out to the family/);
+    expect((await storedFor(faith.classId, faith.id)).data, "the stored card").toEqual(before.data);
+    const asParent = await parent.client.from("report_cards").select("data").eq("id", faithCard.id).single();
+    expect(asParent.data?.data, "the card the family reads").toEqual(before.data);
+    expect(await auditFor(faithCard.id), "no entry for a change that did not happen").toHaveLength(entries);
+  });
+
+  it("FIG-1389: the office can still correct a comment on a card that has gone out, and the change is on the record (which comment, not the words); the same text again is not", async () => {
+    await useAs("school_admin");
+    const who = faithCard.data.learner.name;
+    const entries = (await auditFor(faithCard.id)).length;
+    await saveReportCardComments(faithCard.id, { principal: "Well done, Faith. Keep it up." });
+    expect((await storedFor(faith.classId, faith.id)).principalComment).toBe("Well done, Faith. Keep it up.");
+    const after = await auditFor(faithCard.id);
+    expect(after).toHaveLength(entries + 1);
+    expect(after.at(-1)).toBe(`Comment changed on the report card already sent for ${who}`);
+    const logged = await admin.client.from("audit_events").select("metadata, actor_id").eq("tenant_id", tenantId).contains("metadata", { report_card_id: faithCard.id }).like("event", "Comment changed%");
+    expect(logged.data!.at(-1)!.metadata).toMatchObject({ changed: ["principal_comment"] });
+    expect(JSON.stringify(logged.data), "the words of the comment are not copied into the audit log").not.toContain("Keep it up");
+    expect(logged.data!.at(-1)!.actor_id).toBe(admin.userId);
+    await saveReportCardComments(faithCard.id, { principal: "Well done, Faith. Keep it up." });
+    expect(await auditFor(faithCard.id), "the same text again").toHaveLength(entries + 1);
+  });
+
+  it("FIG-1389: a draft card is the office's own work: its comments and figures change without an entry", async () => {
+    await useAs("school_admin");
+    const entries = (await auditFor(aishaCard.id)).length; // Aisha's card was sent and withdrawn above, so it is a draft again
+    await saveReportCardComments(aishaCard.id, { principal: "A draft comment." });
+    const edit = await admin.client.from("report_cards").update({ data: aishaCard.data }).eq("id", aishaCard.id).select("id");
+    expect(edit.error).toBeNull();
+    expect(await auditFor(aishaCard.id)).toHaveLength(entries);
+  });
+
+  it("FIG-1389: withdrawing is the way to change a card that has gone out: it is logged, the figures can then be changed, and sending again is logged", async () => {
+    await useAs("school_admin");
+    const before = await storedFor(faith.classId, faith.id);
+    const who = faithCard.data.learner.name;
+    const entries = (await auditFor(faithCard.id)).length;
+    await setReportCardsPublished([faithCard.id], false);
+    const changed = { ...before.data, summary: { ...before.data.summary, mean: 99, grade: "A" } };
+    const edit = await admin.client.from("report_cards").update({ data: changed }).eq("id", faithCard.id).select("id");
+    expect(edit.error, "a withdrawn card is a draft again").toBeNull();
+    expect((await storedFor(faith.classId, faith.id)).data.summary.mean).toBe(99);
+    await admin.client.from("report_cards").update({ data: before.data }).eq("id", faithCard.id); // put the figures back
+    await setReportCardsPublished([faithCard.id], true);
+    const after = await auditFor(faithCard.id);
+    expect(after.slice(entries)).toEqual([`Report card withdrawn for ${who}`, `Report card published for ${who}`]);
+    expect((await storedFor(faith.classId, faith.id)).data, "the card is as it was issued").toEqual(before.data);
   });
 });
