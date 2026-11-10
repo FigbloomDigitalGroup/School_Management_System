@@ -235,6 +235,9 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     const here = dashboardFor(d, date).perClass.get(form2West.id)!;
     await page.getByRole("button", { name: `${here.here} / ${here.total}` }).click();
     await expect(page.getByText("Form 2 West · who wasn't here")).toBeVisible();
+    // The dialog opens at once and fills in when the register has loaded, with placeholder rows until then. Read the list only once its first
+    // learner is on it (the check above is that at least one learner is away), not while the placeholders are showing.
+    await expect(page.getByRole("dialog").getByText(/^ADM /).first()).toBeVisible({ timeout: 20000 });
     const lines = await textLines(page);
     const t = lines.findIndex((l) => l.toLowerCase() === "form 2 west · who wasn't here");
     const shown: string[] = [];
