@@ -206,7 +206,7 @@ describe("the GitHub workflows", () => {
 
   // The release job installs, then writes the signing keystore and its passwords and builds the app people install. An install script
   // from a hijacked package runs on that machine first.
-  it.fails("QA14-RELEASE-INSTALL FIG-1458: the mobile release workflow installs with --ignore-scripts too", () => {
+  it("QA14-RELEASE-INSTALL FIG-1458: the mobile release workflow installs with --ignore-scripts too", () => {
     const lines = installs(WORKFLOWS[1]!);
     expect(lines.length).toBeGreaterThan(0);
     for (const l of lines) expect(l).toContain("--ignore-scripts");

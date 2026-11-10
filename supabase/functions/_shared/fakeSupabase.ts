@@ -31,7 +31,7 @@ function ilikeToRegExp(pattern: string): RegExp {
 /** What supabase-js answers to .single() / .maybeSingle() when the query matched more than one row. */
 const MULTIPLE_ROWS = "JSON object requested, multiple (or no) rows returned";
 
-type OpKind = "select" | "insert" | "update" | "delete";
+type OpKind = "select" | "insert" | "upsert" | "update" | "delete";
 
 type UniqueIndex = { cols: string[]; where?: (row: Row) => boolean };
 type FakeError = { message: string; code?: string };
@@ -121,6 +121,18 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
     this.payload = payload;
     return this;
   }
+  /**
+   * A row that matches an existing one on `onConflict` (comma-separated columns) replaces its
+   * fields; anything else is inserted. Without `onConflict` every row is inserted, since the
+   * fake does not know a table's primary key.
+   */
+  upsert(payload: Row | Row[], opts?: { onConflict?: string }) {
+    this.op = "upsert";
+    this.payload = payload;
+    this.conflictCols = opts?.onConflict ? opts.onConflict.split(",").map((c) => c.trim()) : [];
+    return this;
+  }
+  private conflictCols: string[] = [];
   update(payload: Row) {
     this.op = "update";
     this.payload = payload;
@@ -180,6 +192,19 @@ class FakeBuilder implements PromiseLike<{ data: Row[] | null; error: { message:
   private run(): { rows: Row[]; error: FakeError | null } {
     const err = this.table.consumeError(this.op ?? "select");
     if (err) return { rows: [], error: { message: err } };
+    if (this.op === "upsert") {
+      const payloads = Array.isArray(this.payload) ? this.payload : [this.payload!];
+      const written = payloads.map((p) => {
+        const hit = this.conflictCols.length ? this.table.rows.find((r) => this.conflictCols.every((c) => r[c] === p[c])) : undefined;
+        if (!hit) return this.table.insert(p);
+        Object.assign(hit, p);
+        return { ...hit };
+      });
+      if (written.some((r) => r === null)) {
+        return { rows: [], error: { code: "23505", message: "duplicate key value violates unique constraint" } };
+      }
+      return { rows: written as Row[], error: null };
+    }
     if (this.op === "insert") {
       const payloads = Array.isArray(this.payload) ? this.payload : [this.payload!];
       const inserted = payloads.map((p) => this.table.insert(p));
