@@ -4,6 +4,7 @@ import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { stopsInTravelOrder, type BusOnRoute, type Vehicle } from "@figbloom/shared";
 import { Tap } from "../ui/Tap";
 import { useTheme } from "../ui/ThemeContext";
+import { BusIcon } from "./BusIcon";
 import { DARK_MAP_STYLE } from "./mapStyle";
 
 interface LatLng { latitude: number; longitude: number }
@@ -116,10 +117,9 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
           </Marker>
         ))}
         {firstFix.current && (
-          <Marker ref={busMarker} coordinate={firstFix.current} title={bus.vehicle.plate_number} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: tint, borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: t.appSurface.ink, fontSize: 13 }}>🚌</Text>
-            </View>
+          // above the stop pins, so a bus waiting at a stop is not hidden under that stop's number
+          <Marker ref={busMarker} coordinate={firstFix.current} title={bus.vehicle.plate_number} anchor={{ x: 0.5, y: 0.5 }} zIndex={10}>
+            <BusIcon ring={tint} />
           </Marker>
         )}
       </MapView>
