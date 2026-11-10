@@ -85,13 +85,14 @@ select pg_temp.check('A4 no *_at column is a date, and no *_on or date column is
 -- A5 every reference to another row is a foreign key
 select pg_temp.check('A5 every uuid *_id column has a foreign key, except the two that are keyed by (doc_kind, doc_id) on purpose (signatures are evidence that outlives the document), '
   || 'the platform outbox''s local_id (an organisation''s or a school''s id: platform_links, platform_sync_queue) and event_id (an event''s own id, not a reference), '
-  || 'and the organisation a platform decision named (platform_webhook_deliveries: recorded even when Schools has no such organisation)',
+  || 'and the organisation a platform decision named (platform_webhook_deliveries: recorded even when Schools has no such organisation), '
+  || 'and the class a learner came from (students.previous_class_id: a plain uuid on purpose, because a second foreign key from students to classes makes every students -> classes(...) load fail as ambiguous: 20261110160000)',
   (select coalesce(string_agg(c.table_name || '.' || c.column_name, ',' order by c.table_name, c.column_name), '') from information_schema.columns c
     join pg_tables t on t.schemaname = c.table_schema and t.tablename = c.table_name
    where c.table_schema = 'public' and c.data_type = 'uuid' and c.column_name like '%\_id' and c.column_name <> 'id'
      and not exists (select 1 from pg_constraint k where k.contype = 'f' and k.conrelid = format('public.%I', c.table_name)::regclass
                       and (select attnum from pg_attribute where attrelid = k.conrelid and attname = c.column_name) = any (k.conkey)))
-  = 'platform_links.local_id,platform_sync_queue.event_id,platform_sync_queue.local_id,platform_webhook_deliveries.organization_id,signature_requests.doc_id,signatures.doc_id');
+  = 'platform_links.local_id,platform_sync_queue.event_id,platform_sync_queue.local_id,platform_webhook_deliveries.organization_id,signature_requests.doc_id,signatures.doc_id,students.previous_class_id');
 
 -- A6 every school-owned row has a school
 select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand, an org admin''s guide question in their organization console, which names the organization instead: 20261105200000, a platform outbox row registering an organisation or a school rather than a school''s staff event: 20261105620000)',
