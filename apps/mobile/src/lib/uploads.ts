@@ -1,5 +1,5 @@
-import { mimeForFile, supabase, uploadFile } from "@figbloom/shared";
-import { readPickedFile } from "./pickFile";
+import { examPaperFilePath, mimeForFile, supabase, uploadFile } from "@figbloom/shared";
+import { readPickedFile, type PickedFile } from "./pickFile";
 
 /**
  * Mobile's own upload path — web's apps/web/src/lib/uploads.ts takes a
@@ -20,4 +20,14 @@ export async function uploadAvatar(tenantId: string, teacherId: string, uri: str
   const file = await readPickedFile({ uri, name, mimeType: mimeType ?? mimeForFile({ name }) ?? "image/jpeg", sizeBytes: null });
   await uploadFile("public-assets", path, file, { upsert: true });
   return supabase().storage.from("public-assets").getPublicUrl(path).data.publicUrl;
+}
+
+/**
+ * An exam paper's PDF or picture (or the reference sheet that goes with an online paper), from the phone. Staff write it;
+ * families can read it once the paper opens. Same bucket and path as the website's upload.
+ */
+export async function uploadExamPaperFile(tenantId: string, paperId: string, picked: PickedFile): Promise<{ path: string; name: string }> {
+  const path = examPaperFilePath(tenantId, paperId, picked.name);
+  await uploadFile("private-documents", path, await readPickedFile(picked));
+  return { path, name: picked.name };
 }

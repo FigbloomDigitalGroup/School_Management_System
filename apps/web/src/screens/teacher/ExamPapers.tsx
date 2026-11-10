@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, blankQuestion, createExamPaper, deleteExamPaper,
+  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind,
+  createExamPaper, deleteExamPaper,
   fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, fromLocalInput, paperWindow, publishProblem, questionsToCheck, saveExamQuestions, savePaperBody,
+  fetchTeacherSubjectsForClass, fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
+  saveExamQuestions, savePaperBody, savedPaperPublishProblem,
   setPaperFile, setPaperPublished, supabase, toLocalInput, totalPoints, updateExamPaper, validatePaper,
   validateQuestions, windowLabel,
   type ExamPaperRow, type PaperImportDraft, type PaperKind, type PaperMode, type QuestionDraft, type QuestionKind, type ReviewQuestion,
@@ -84,9 +86,7 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
   async function togglePublish(p: ExamPaperRow) {
     try {
       if (!p.publishedAt) {
-        // The typed text isn't in the list row; only look it up when there's no file.
-        const hasContent = !!p.filePath || (p.mode === "read" && !!(await fetchPaperContent(p.id)).body);
-        const problem = publishProblem({ mode: p.mode, hasContent, questionCount: p.questionCount });
+        const problem = await savedPaperPublishProblem(p);
         if (problem) { toast(problem, "error"); return; }
       } else if (!(await confirmDialog({ title: `Unpublish "${p.title}"?`, body: `${p.className} won't see it any more.`, confirmLabel: "Unpublish" }))) return;
       await setPaperPublished(p.id, !p.publishedAt);
@@ -189,10 +189,8 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
 }
 
 function PaperBadge({ paper, now }: { paper: ExamPaperRow; now: number }) {
-  if (!paper.publishedAt) return <Badge tone="muted">Draft</Badge>;
-  if (paper.resultsReleasedAt) return <Badge tone="ok">Results out</Badge>;
-  const w = paperWindow(paper, now);
-  return w === "upcoming" ? <Badge tone="info">Published</Badge> : w === "open" ? <Badge tone="warn">Open now</Badge> : <Badge tone="muted">Closed</Badge>;
+  const { label, tone } = paperStatus(paper, now);
+  return <Badge tone={tone}>{label}</Badge>;
 }
 
 /** Tomorrow 08:00 on this device, as a `datetime-local` value: a sensible default opening time. */
@@ -450,16 +448,9 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
   const [importing, setImporting] = useState(startImport && !locked);
   const toCheck = questionsToCheck(questions);
   const set = (i: number, patch: Partial<ReviewQuestion>) => onChange(questions.map((q, j) => (j === i ? { ...q, ...patch } : q)));
-  const move = (i: number, by: number) => {
-    const next = [...questions];
-    const [q] = next.splice(i, 1);
-    next.splice(i + by, 0, q!);
-    onChange(next);
-  };
-  const changeKind = (i: number, kind: QuestionKind) => {
-    const q = questions[i]!;
-    set(i, { kind, options: kind === "choice" ? (q.options.length >= 2 ? q.options : ["", ""]) : [], correctOption: kind === "choice" ? q.correctOption : null });
-  };
+  const move = (i: number, by: number) => onChange(moveQuestion(questions, i, by));
+  const changeKind = (i: number, kind: QuestionKind) => onChange(questions.map((q, j) => (j === i ? changeQuestionKind(q, kind) : q)));
+  const withQuestion = (i: number, change: (q: ReviewQuestion) => ReviewQuestion) => onChange(questions.map((q, j) => (j === i ? change(q) : q)));
 
   return (
     <div>
@@ -541,21 +532,18 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
                       value={o}
                       onChange={(e) => set(i, { options: q.options.map((x, j) => (j === k ? e.target.value : x)) })}
                     />
-                    {!locked && q.options.length > 2 && (
+                    {!locked && canRemoveOption(q) && (
                       <button
                         type="button" className="px-1.5 text-[12px] text-ink-faint hover:text-ink" aria-label={`Remove option ${k + 1}`}
-                        onClick={() => set(i, {
-                          options: q.options.filter((_, j) => j !== k),
-                          correctOption: q.correctOption === k ? null : q.correctOption !== null && q.correctOption > k ? q.correctOption - 1 : q.correctOption,
-                        })}
+                        onClick={() => withQuestion(i, (x) => removeOption(x, k))}
                       >✕</button>
                     )}
                   </div>
                 ))}
                 <div className="flex items-center justify-between">
                   <span className="text-[11.5px] text-ink-faint">Tick the correct option.</span>
-                  {!locked && q.options.length < 8 && (
-                    <button type="button" className="text-[12px] font-semibold text-forest" onClick={() => set(i, { options: [...q.options, ""] })}>+ Add option</button>
+                  {!locked && canAddOption(q) && (
+                    <button type="button" className="text-[12px] font-semibold text-forest" onClick={() => withQuestion(i, addOption)}>+ Add option</button>
                   )}
                 </div>
               </div>
