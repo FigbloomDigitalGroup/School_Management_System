@@ -1,4 +1,4 @@
-import { examPaperFilePath, mimeForFile, supabase, uploadFile } from "@figbloom/shared";
+import { examPaperFilePath, mimeForFile, paperImportPath, supabase, uploadFile, type UploadableFile } from "@figbloom/shared";
 import { readPickedFile, type PickedFile } from "./pickFile";
 
 /**
@@ -30,4 +30,30 @@ export async function uploadExamPaperFile(tenantId: string, paperId: string, pic
   const path = examPaperFilePath(tenantId, paperId, picked.name);
   await uploadFile("private-documents", path, await readPickedFile(picked));
   return { path, name: picked.name };
+}
+
+/**
+ * The pages of a paper waiting for Bloom to read them: in the teacher's own folder of private-documents, where
+ * the ai-assist function reads them and deletes them once read. If one fails to go up, the ones that did are taken
+ * down again, so nothing is left waiting. Same folder and paths as the website's.
+ */
+export async function uploadPaperImportFiles(input: { tenantId: string; profileId: string; files: UploadableFile[] }): Promise<string[]> {
+  const paths: string[] = [];
+  try {
+    for (const [i, file] of input.files.entries()) {
+      const id = `${Date.now().toString(36)}-${i}-${Math.random().toString(36).slice(2, 8)}`;
+      const path = paperImportPath(input.tenantId, input.profileId, id, file.name);
+      await uploadFile("private-documents", path, file);
+      paths.push(path);
+    }
+    return paths;
+  } catch (err) {
+    await removePaperImportFiles(paths).catch(() => {});
+    throw err;
+  }
+}
+
+/** Takes uploaded pages down again, for a request that never reached Bloom (Bloom deletes the ones it read). */
+export async function removePaperImportFiles(paths: string[]): Promise<void> {
+  if (paths.length) await supabase().storage.from("private-documents").remove(paths);
 }

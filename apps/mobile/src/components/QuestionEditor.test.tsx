@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { Alert } from "react-native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { blankQuestion, type QuestionDraft } from "@figbloom/shared";
+import { blankQuestion, type QuestionDraft, type ReviewQuestion } from "@figbloom/shared";
 import { QuestionEditor } from "./QuestionEditor";
 
 // The icon library ships as untranspiled ES modules; the icons are not what this tests.
 jest.mock("lucide-react-native", () => new Proxy({}, { get: (_t, name) => (name === "__esModule" ? false : () => null) }));
 
-let latest: QuestionDraft[] = [];
-function Harness({ start = [], locked = false }: { start?: QuestionDraft[]; locked?: boolean }) {
-  const [questions, setQuestions] = useState<QuestionDraft[]>(start);
+let latest: ReviewQuestion[] = [];
+function Harness({ start = [], locked = false }: { start?: ReviewQuestion[]; locked?: boolean }) {
+  const [questions, setQuestions] = useState<ReviewQuestion[]>(start);
   latest = questions;
   return <QuestionEditor questions={questions} onChange={setQuestions} locked={locked} accent="forest" />;
 }
@@ -180,5 +180,53 @@ describe("a paper learners have already started", () => {
     await show({ start: [choice()], locked: true });
     fireEvent.press(screen.getByLabelText("Option A is correct"));
     expect(latest[0]!.correctOption).toBe(1);
+  });
+});
+
+describe("Bloom's notes on an imported question", () => {
+  const NOTE = "No answer was on the paper. Tick the correct option.";
+  const flagged = (over: Partial<ReviewQuestion> = {}): ReviewQuestion => ({ ...choice({ correctOption: null }), check: [NOTE], ...over });
+
+  it("shows what to check, under the question it is about", async () => {
+    await show({ start: [flagged()] });
+    expect(screen.getByText("Check this against the paper")).toBeTruthy();
+    expect(screen.getByText(`• ${NOTE}`)).toBeTruthy();
+  });
+
+  it("shows nothing for a question Bloom was sure of", async () => {
+    await show({ start: [choice()] });
+    expect(screen.queryByText("Check this against the paper")).toBeNull();
+    expect(screen.queryByText("Looks right")).toBeNull();
+  });
+
+  it("clears the notes of that question, and only that one, when Looks right is pressed", async () => {
+    await show({ start: [flagged({ prompt: "First" }), flagged({ prompt: "Second" })] });
+    fireEvent.press(screen.getAllByText("Looks right")[0]!);
+    expect(latest[0]!.check).toBeUndefined();
+    expect(latest[1]!.check).toEqual([NOTE]);
+    expect(screen.getAllByText("Check this against the paper")).toHaveLength(1);
+  });
+
+  it("keeps the notes while the question is edited: only Looks right clears them", async () => {
+    await show({ start: [flagged()] });
+    fireEvent.changeText(screen.getByLabelText("Question 1"), "A different question?");
+    fireEvent.press(screen.getByLabelText("Option A is correct"));
+    expect(latest[0]!.check).toEqual([NOTE]);
+  });
+
+  it("keeps them when the question is moved or its type is changed", async () => {
+    await show({ start: [flagged({ prompt: "First" }), written({ prompt: "Second" })] });
+    fireEvent.press(screen.getAllByText("Move down")[0]!);
+    expect(latest.map((q) => q.prompt)).toEqual(["Second", "First"]);
+    expect(latest[1]!.check).toEqual([NOTE]);
+    fireEvent.press(screen.getAllByText("Short answer")[1]!);
+    expect(latest[1]).toMatchObject({ prompt: "First", kind: "short" });
+    expect(latest[1]!.check).toEqual([NOTE]);
+  });
+
+  it("shows the notes but no Looks right button on a paper learners have started", async () => {
+    await show({ start: [flagged()], locked: true });
+    expect(screen.getByText(`• ${NOTE}`)).toBeTruthy();
+    expect(screen.queryByText("Looks right")).toBeNull();
   });
 });
