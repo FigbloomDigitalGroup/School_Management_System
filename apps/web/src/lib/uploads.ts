@@ -1,4 +1,4 @@
-import { examPaperFilePath, paperImportPath, privateDocumentUrl, supabase, type ParsedPaymentSms } from "@figbloom/shared";
+import { deleteFiles, examPaperFilePath, paperImportPath, privateDocumentUrl, publicFileUrl, storeFile, supabase, type ParsedPaymentSms } from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -18,15 +18,11 @@ function extOf(filename: string): string {
 }
 
 async function uploadToBucket(bucket: string, path: string, file: File): Promise<void> {
-  const { error } = await supabase().storage.from(bucket).upload(path, file, {
-    upsert: true,
-    contentType: file.type || undefined,
-  });
-  if (error) throw error;
+  await storeFile(bucket, path, file, file.type || "application/octet-stream", { upsert: true });
 }
 
 export function publicAssetUrl(path: string): string {
-  return supabase().storage.from("public-assets").getPublicUrl(path).data.publicUrl;
+  return publicFileUrl(path);
 }
 
 /** A signed, time-limited URL — private-documents has no public read. */
@@ -154,7 +150,7 @@ export async function uploadPaymentProof(input: {
     // The file went up but the proof was refused (most often a reused code). Staff
     // can take the file back out; a family can't delete from the bucket, so theirs
     // stays as an unlinked private file rather than a proof row with no evidence.
-    if (path) await supabase().storage.from("private-documents").remove([path]).catch(() => {});
+    if (path) await deleteFiles("private-documents", [path]).catch(() => {});
     throw error;
   }
 }
@@ -202,7 +198,7 @@ export async function uploadPaperImportFiles(input: { tenantId: string; profileI
 }
 
 export async function removePaperImportFiles(paths: string[]): Promise<void> {
-  if (paths.length) await supabase().storage.from("private-documents").remove(paths);
+  await deleteFiles("private-documents", paths);
 }
 
 /** An exam paper's PDF (or reference sheet). Staff write it; families can read it once the paper opens (private_docs_exam_papers_read). */

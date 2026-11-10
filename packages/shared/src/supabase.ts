@@ -13,8 +13,10 @@ export interface ClientConfig {
 }
 
 let client: SupabaseClient | null = null;
+let apiKey = "";
 
 export function initSupabase(cfg: ClientConfig): SupabaseClient {
+  apiKey = cfg.anonKey;
   client = createClient(cfg.url, cfg.anonKey, {
     auth: {
       persistSession: true,
@@ -29,6 +31,11 @@ export function initSupabase(cfg: ClientConfig): SupabaseClient {
 export function supabase(): SupabaseClient {
   if (!client) throw new Error("initSupabase() must run before supabase() — see apps/web/src/lib/client.ts");
   return client;
+}
+
+/** The public API key the client was made with (the files API passes it on to the database with the user's token). */
+export function supabaseApiKey(): string {
+  return apiKey;
 }
 
 /** Every tenant-scoped read goes through here so the filter is never forgotten. */

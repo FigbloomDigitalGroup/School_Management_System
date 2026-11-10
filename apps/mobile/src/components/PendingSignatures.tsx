@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Linking, Text, View } from "react-native";
 import {
-  CAPACITY_LABEL, fetchDocumentSignatures, fetchMySignatureRequests, signatureFor, signDocuments, supabase,
+  CAPACITY_LABEL, fetchDocumentSignatures, fetchMySignatureRequests, fileLink, signatureFor, signDocuments, supabase,
   type SignatureMark as Mark, type SignatureRequest, type StoredSignature,
 } from "@figbloom/shared";
 import { fileHash } from "../lib/signing";
@@ -39,9 +39,9 @@ export function PendingSignatures({ tint, onlyDocIds, compact }: { tint: string;
 
   async function open(r: SignatureRequest) {
     if (!r.filePath) return;
-    const { data, error } = await supabase().storage.from(r.bucket).createSignedUrl(r.filePath, 600);
-    if (error || !data) { setNote("Could not open the file."); return; }
-    await Linking.openURL(data.signedUrl).catch(() => setNote("Could not open the file."));
+    const url = await fileLink(r.bucket, r.filePath, 600).catch(() => null);
+    if (!url) { setNote("Could not open the file."); return; }
+    await Linking.openURL(url).catch(() => setNote("Could not open the file."));
   }
 
   async function sign(r: SignatureRequest, mark: Mark) {
