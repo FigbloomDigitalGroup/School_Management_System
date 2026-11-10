@@ -173,6 +173,12 @@ export function Attendance() {
     [reg],
   );
 
+  // The register can be submitted only when it holds the learners of the class that is open (FIG-1411). Until the roster arrives the page holds
+  // a register with nobody on it (built from the empty "no class yet" answer), and Submit used to work on that: "nobody on this roster, correct?"
+  // then saved nothing and said "register is in". The roster, the marks and the register must all belong to this class, and not be empty.
+  const registerReady = !!reg && !rosterLoading && !marksLoading && roster.length > 0 && roster.every((s) => s.id in reg.marks);
+  const classIsEmpty = !!reg && !rosterLoading && !marksLoading && roster.length === 0;
+
   function cycle(studentId: string) {
     setReg((r) => (r ? { ...r, marks: { ...r.marks, [studentId]: nextMark(r.marks[studentId] ?? "present") } } : r));
   }
@@ -190,7 +196,7 @@ export function Attendance() {
   }
 
   async function submit() {
-    if (!reg || saving) return;
+    if (!reg || saving || !registerReady) return;
     const warning = submitWarning(reg);
     if (warning && !confirming) { setConfirming(warning); return; }
     setConfirming(null);
@@ -429,15 +435,17 @@ export function Attendance() {
             <p className="text-[13px] text-ink-muted">{confirming}</p>
             <div className="flex gap-2">
               <Button onClick={() => setConfirming(null)}>Go back</Button>
-              <Button variant="primary" disabled={saving} onClick={() => { void submit(); }}>{saving ? "Saving…" : "Yes, submit"}</Button>
+              <Button variant="primary" disabled={saving || !registerReady} onClick={() => { void submit(); }}>{saving ? "Saving…" : "Yes, submit"}</Button>
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[12.5px] text-ink-muted">
-              Parents of absent learners are texted at 09:00, so a late arrival can still be corrected.
+              {classIsEmpty
+                ? "No learners are in this class yet, so there is no register to take."
+                : "Parents of absent learners are texted at 09:00, so a late arrival can still be corrected."}
             </p>
-            <Button variant="accent" disabled={saving} onClick={() => { void submit(); }} className="px-6 py-3 text-[15px]">
+            <Button variant="accent" disabled={saving || !registerReady} onClick={() => { void submit(); }} className="px-6 py-3 text-[15px]">
               {saving ? "Saving…" : "Submit register"}
             </Button>
           </div>

@@ -380,22 +380,21 @@ test.describe("teacher register", () => {
   });
 
 
-  test("KNOWN QA10-EMPTY FIG-1411 (open): a register cannot be submitted, and is not reported as in, before the class's learners have loaded", async ({ page }) => {
-    test.fail();
+  test("QA10-EMPTY FIG-1411: before the class's learners have loaded the register cannot be submitted, so an empty register is never reported as in; once they have, it can", async ({ page }) => {
     await signInWithId(page, SCHOOLS[0].name, "TC-0002", "Teacher");
     // A slow connection: the learners take six seconds to arrive. Until then the page holds a register with nobody on it.
     await page.route(/\/rest\/v1\/students/, async (route) => { await new Promise((r) => setTimeout(r, 6000)); await route.continue(); });
     await page.goto("/s/alliance/teacher/attendance");
-    await page.getByRole("button", { name: "Submit register" }).click();
-    const confirm = page.getByRole("button", { name: "Yes, submit" });
-    if (await confirm.isVisible({ timeout: 2000 }).catch(() => false)) {
-      table.push(["Teacher register", "confirmation shown before the learners load", "none (button off)", await page.getByText(/nobody on this roster/).innerText().catch(() => "asked")]);
-      await confirm.click();
-    }
-    await page.waitForTimeout(2500);
-    const reportedIn = await page.getByText("register is in").count();
-    table.push(["Teacher register", "'register is in' before the learners loaded", "not shown", reportedIn ? "shown, 0 learners saved" : "not shown"]);
-    expect(reportedIn, "an empty register was reported as in").toBe(0);
+    const submit = page.getByRole("button", { name: "Submit register" });
+    await expect(submit, "Submit is off while the learners are loading").toBeDisabled();
+    await submit.click({ force: true }); // a press on an off button does nothing
+    await expect(page.getByText(/nobody on this roster/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Yes, submit" })).toHaveCount(0);
+    await page.waitForTimeout(1000);
+    expect(await page.getByText("register is in").count(), "an empty register was reported as in").toBe(0);
+    table.push(["Teacher register", "Submit while the learners are loading", "off, nothing saved, not reported in", "off"]);
+    await expect(submit, "Submit comes on once the learners are there").toBeEnabled({ timeout: 20000 });
+    expect((await todayRows()).length, "nothing was saved").toBe(0);
   });
 
   /** The teacher is on the phone with no signal: Form 2 West's register goes in with one learner absent, and is held. */
