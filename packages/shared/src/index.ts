@@ -83,6 +83,7 @@ export * from "./adminAreas";
 export * from "./adminOverview";
 export * from "./adminAnnouncements";
 export * from "./adminFees";
+export * from "./feeStructure";
 export * from "./adminFleet";
 export * from "./adminPeople";
 export * from "./adminSickBay";
