@@ -217,16 +217,17 @@ select pg_temp.check('a register saved with no time of its own is stamped with t
 
 create temp table qa_s1 as select pg_temp.send(current_setting('t.teacher')::uuid, 'present', now() - interval '2 hours') as outcome;
 create temp table qa_s2 as select pg_temp.send(current_setting('t.admin')::uuid, 'absent', now() - interval '1 hour') as outcome;
-select pg_temp.check('the office''s correction, stamped later than the teacher''s register, replaces it',
+select pg_temp.check('the office''s correction, stamped later than the teacher''s register, replaces it, and the teacher is still the one who took the register (FIG-1406)',
   (select outcome from qa_s1) = 'allowed' and (select outcome from qa_s2) = 'allowed'
   and (select mark from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = 'absent'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = current_setting('t.teacher')::uuid
   and (select marked_at from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = now() - interval '1 hour');
 
 create temp table qa_s3 as select pg_temp.send(current_setting('t.teacher')::uuid, 'present', now() - interval '2 hours') as outcome;
 select pg_temp.check('the teacher''s register, held on a phone and sent later, is accepted without an error but does not replace the newer correction (mark, who took it and time all stay)',
   (select outcome from qa_s3) = 'allowed'
   and (select mark from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = 'absent'
-  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = current_setting('t.admin')::uuid
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = current_setting('t.teacher')::uuid
   and (select marked_at from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = now() - interval '1 hour');
 
 create temp table qa_s4 as select pg_temp.send(current_setting('t.teacher')::uuid, 'late', now() - interval '30 minutes') as outcome;
@@ -259,7 +260,6 @@ select pg_temp.check('no register in the database is stamped in the future',
 -- ---------------------------------------------------------------- changing a register: who may, and what is kept
 -- A seeded register of Form 2 West (the first ten school days of the term, to 2026-09-11). The teacher is its class teacher; the Form 1 East checks use
 -- a learner of a class the teacher is assigned to but is NOT the class teacher of.
-create temp table qa_audit_before as select count(*) as n from audit_events;
 select pg_temp.put(current_setting('t.kid_y')::uuid, current_setting('t.cy')::uuid, current_setting('t.term')::uuid, current_setting('t.admin')::uuid, '2020-03-10', 'present');
 -- (An action and the read that checks it go in separate statements: a subquery in the same statement runs before the action.)
 create temp table qa_rewrite as
@@ -268,20 +268,55 @@ select pg_temp.check('a teacher assigned to a class (not its class teacher) can 
   (select outcome from qa_rewrite) = 'allowed'
   and (select mark from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = 'absent');
 select pg_temp.info('who may rewrite a register: the school admin, any teacher assigned to the class for any subject, and its class teacher. There is no time limit: the screen only offers today, the API takes any date');
--- The screen's own write is an upsert that sends taken_by, so a correction replaces whoever took the register with whoever corrected it.
+-- The screen's own write is an upsert that sends taken_by. Until FIG-1406 a correction replaced whoever took the register with whoever
+-- corrected it. Now taken_by stays, and the audit log (20261104000000) names the one who changed the mark.
 create temp table qa_upsert as
   select pg_temp.as_user(current_setting('t.teacher')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
       values (%L, %L, %L, %L, %L, '2020-03-10', 'late')
       on conflict (student_id, taken_on) do update set mark = excluded.mark, taken_by = excluded.taken_by$q$,
       current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.teacher'))) as outcome;
-select pg_temp.check('the row still says who took the register after someone else corrected it (taken_by is not replaced by the editor)',
+select pg_temp.check('the row still says who took the register after someone else corrected it (taken_by is not replaced by the editor), and the correction itself went in (FIG-1406)',
   (select outcome from qa_upsert) = 'allowed'
-  and (select taken_by from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = current_setting('t.admin')::uuid,
-  'QA10-TRACE FIG-1406');
-select pg_temp.check('changing a register leaves a trace: an audit event or a history row (the table has neither, and no trigger writes one)',
-  (select count(*) from audit_events) > (select n from qa_audit_before)
-  or exists (select 1 from information_schema.tables where table_name in ('attendance_history', 'attendance_audit', 'attendance_changes')),
-  'QA10-TRACE FIG-1406');
+  and (select mark from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = 'late'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = current_setting('t.admin')::uuid);
+select pg_temp.check('the correction is in the audit log: who changed it, and the mark from and to, and the log does not say the taker changed (FIG-1406)',
+  exists (select 1 from audit_events e
+           where e.tenant_id = current_setting('t.a')::uuid and e.actor_id = current_setting('t.teacher')::uuid
+             and e.created_at >= now()  -- written in this transaction, not left by an earlier run
+             and e.event = 'Attendance: 1 record changed (mark)'
+             and jsonb_path_exists(e.metadata, '$.changes[*].changes.mark ? (@.from == "absent" && @.to == "late")')));
+
+-- The same register sent again by someone else is not an edit (FIG-1410's rule: nothing moved, so nothing changes and it keeps its time).
+-- The sender used to defeat that, because taken_by counted as a change.
+create function pg_temp.send_on(p_user uuid, p_on date, p_mark text, p_stamp timestamptz) returns text language sql as $$
+  select pg_temp.as_user(p_user, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark, marked_at)
+    values (%L, %L, %L, %L, %L, %L, %L, %L)
+    on conflict (student_id, taken_on) do update set mark = excluded.mark, taken_by = excluded.taken_by, marked_at = excluded.marked_at$q$,
+    current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), p_user, p_on, p_mark, p_stamp))
+$$;
+create temp table qa_t1 as select pg_temp.send_on(current_setting('t.teacher')::uuid, '2020-03-23', 'present', now() - interval '3 hours') as outcome;
+create temp table qa_t2 as select pg_temp.send_on(current_setting('t.admin')::uuid, '2020-03-23', 'present', now() - interval '3 hours') as outcome;
+select pg_temp.check('the same register sent again by someone else (same marks, same time) changes nothing: the teacher still took it, and it keeps its time (FIG-1406)',
+  (select outcome from qa_t1) = 'allowed' and (select outcome from qa_t2) = 'allowed'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = current_setting('t.teacher')::uuid
+  and (select marked_at from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = now() - interval '3 hours');
+
+create temp table qa_t3 as
+  select pg_temp.as_user(current_setting('t.admin')::uuid, format($q$update attendance set taken_by = %L where student_id = %L and taken_on = '2020-03-23'$q$,
+    current_setting('t.admin'), current_setting('t.kid_x'))) as outcome;
+select pg_temp.check('a signed-in user cannot put their own name on a register someone else took, even by changing taken_by directly (FIG-1406)',
+  (select outcome from qa_t3) = 'allowed'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = current_setting('t.teacher')::uuid);
+
+-- With nobody signed in (the service role, the database owner) taken_by can still be changed: it is how an account with registers on file
+-- is handed over before it can be removed (attendance.taken_by is on delete restrict).
+select set_config('request.jwt.claims', '', true);
+create temp table qa_t4 as
+  select pg_temp.run(format($q$update attendance set taken_by = %L where student_id = %L and taken_on = '2020-03-23'$q$,
+    current_setting('t.admin'), current_setting('t.kid_x'))) as outcome;
+select pg_temp.check('with nobody signed in, taken_by can still be changed: how an account with registers on file is handed over (FIG-1406)',
+  (select outcome from qa_t4) = 'allowed'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = current_setting('t.admin')::uuid);
 
 -- ---------------------------------------------------------------- a learner filed in another class's register (FIG-1407)
 -- The policy checks the class on the ROW (is the teacher assigned to it?); attendance_class_is_learners_class checks that the learner belongs
