@@ -1,3 +1,4 @@
+import { deleteFiles, fileLink } from "./files";
 import { supabase } from "./supabase";
 import { mimeForFile, safeFileName } from "./materials";
 import type { Role } from "./types";
@@ -271,15 +272,11 @@ export async function uploadChatBlob(tenantId: string, conversationId: string, f
 
 /** Takes back a file whose message never got sent. */
 export async function removeUnsentChatFile(path: string): Promise<void> {
-  await supabase().storage.from(CHAT_FILES_BUCKET).remove([path]);
+  await deleteFiles(CHAT_FILES_BUCKET, [path]);
 }
 
 export async function chatFileUrl(path: string, download?: string): Promise<string> {
-  const { data, error } = await supabase().storage
-    .from(CHAT_FILES_BUCKET)
-    .createSignedUrl(path, 3600, download ? { download } : undefined);
-  if (error) throw new Error(error.message);
-  return data.signedUrl;
+  return fileLink(CHAT_FILES_BUCKET, path, 3600, download);
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {
