@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { formatShortDate } from "@figbloom/shared";
+import { assignCoverage, fetchCoverageThisWeek, formatShortDate, type CoverageItem } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-import { assignCoverage, fetchCoverageThisWeek, type CoverageItem } from "../../lib/coverage";
 
 const keyFor = (item: Pick<CoverageItem, "date" | "classId" | "time">) => `${item.date}|${item.classId}|${item.time}`;
 

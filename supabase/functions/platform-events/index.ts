@@ -1,9 +1,9 @@
 /**
  * Events from the Figbloom platform's relay (SCHOOLS_HR_PHASE1_CONTRACT.md,
  * sections 1 and 3): another product's event, delivered to Schools because
- * Schools subscribes to it and is linked to the same customer. Today that is
- * one event, hr.employee.left: an exit for a Schools staff member was
- * completed in Figbloom HR, so Schools archives their account.
+ * Schools subscribes to it and is linked to the same customer: hr.employee.left
+ * (an exit for a Schools staff member was completed in Figbloom HR, so Schools
+ * archives their account), and hr.leave.approved / hr.leave.cancelled (below).
  *
  *   x-figbloom-event: hr.employee.left
  *   x-figbloom-delivery: <id, the same on every retry>
@@ -30,6 +30,17 @@
  *   but not applied.
  * - A signed event of another type is acknowledged (202) and ignored.
  *
+ * hr.leave.approved / hr.leave.cancelled (SCHOOLS_HR_LEAVE_CONTRACT.md, leave run by HR):
+ *   data: {application_id, external_id (the person), employee_number, leave_type, start_date, end_date, half_day,
+ *          days, status}; event.occurred_at orders events of one application.
+ * - The same checks (signature, school, person of that school, staff). Applied through platform_hr_leave_event()
+ *   (20261105800000): the person's leave_requests row for that application (source 'hr', unique per school) is
+ *   created or updated as approved, or cancelled, so cover planning, the affected lessons and the usual notices
+ *   run exactly as for leave the office approves. A date change (cancelled old + approved new, same application)
+ *   works in either order. Each delivery once, each application in order (an older event is 'stale'). Leave that
+ *   overlaps other approved leave of the person is refused (409 leave_overlaps, not recorded: a person looks at it).
+ * - Until PLATFORM_EVENTS_ENABLED and HR_LEAVE_ENABLED are both on: recorded and acknowledged, not applied.
+ *
  * Deployed with JWT verification off (the platform sends no Supabase JWT;
  * config.toml says so too). Register its address (PLATFORM_EVENTS_URL,
  * <public functions URL>/platform-events) with platform-sync
@@ -43,6 +54,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_BODY = 32 * 1024;
 export const STAFF_LEFT = "hr.employee.left";
+export const LEAVE_APPROVED = "hr.leave.approved";
+export const LEAVE_CANCELLED = "hr.leave.cancelled";
+const APPLICATION_ID = /^[A-Za-z0-9_.:-]{1,100}$/;
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
@@ -81,6 +95,7 @@ export async function handle(req: Request, { admin, secret, now = Date.now }: De
   const header = req.headers.get("x-figbloom-event");
   if (header && header !== type) return fail(400, "event_mismatch", "x-figbloom-event and event.type differ.");
 
+  if (type === LEAVE_APPROVED || type === LEAVE_CANCELLED) return await leaveEvent(admin, type, event, delivery);
   if (type !== STAFF_LEFT) {
     // signed by the platform, but nothing Schools handles: acknowledged so it isn't retried forever
     console.log(`platform-events: ignored ${type || "(no type)"} (delivery ${delivery})`);
@@ -132,6 +147,82 @@ export async function handle(req: Request, { admin, secret, now = Date.now }: De
       return fail(409, "not_staff", "That person is not a staff member.");
     default:
       return internal("apply hr.employee.left", `unexpected answer ${JSON.stringify(answer)}`);
+  }
+}
+
+const isDay = (v: unknown): v is string => typeof v === "string" && DAY.test(v) && !Number.isNaN(Date.parse(v));
+
+/** hr.leave.approved / hr.leave.cancelled: the person's leave in Schools, through platform_hr_leave_event(). */
+// deno-lint-ignore no-explicit-any
+async function leaveEvent(admin: Deps["admin"], type: string, event: any, delivery: string): Promise<Response> {
+  const data = event?.data ?? {};
+  const tenantId = event?.tenant_local_id;
+  const profileId = data.external_id;
+  const applicationId = typeof data.application_id === "number" ? String(data.application_id) : data.application_id;
+  const employeeNumber = typeof data.employee_number === "string" || typeof data.employee_number === "number" ? String(data.employee_number).slice(0, 100) : null;
+  const leaveType = typeof data.leave_type === "string" ? data.leave_type.slice(0, 100) : null;
+  const eventId = typeof event?.id === "string" ? event.id.slice(0, 200) : null;
+  const occurredAt = typeof event?.occurred_at === "string" && !Number.isNaN(Date.parse(event.occurred_at)) ? event.occurred_at : null;
+  const days = typeof data.days === "number" && Number.isFinite(data.days) && data.days >= 0 && data.days < 10_000 ? data.days
+    : typeof data.days === "string" && /^\d{1,4}(\.\d{1,2})?$/.test(data.days) ? Number(data.days) : null;
+  if (typeof tenantId !== "string" || !UUID.test(tenantId)) return fail(400, "invalid_tenant", "event.tenant_local_id must be a Schools school id.");
+  if (typeof profileId !== "string" || !UUID.test(profileId)) return fail(400, "invalid_person", "data.external_id must be a Schools person id.");
+  if (typeof applicationId !== "string" || !APPLICATION_ID.test(applicationId)) return fail(400, "invalid_application", "data.application_id is required.");
+  if (!isDay(data.start_date) || !isDay(data.end_date) || data.end_date < data.start_date) {
+    return fail(400, "invalid_dates", "data.start_date and data.end_date must be dates, YYYY-MM-DD, the start on or before the end.");
+  }
+  if (data.half_day !== undefined && data.half_day !== null && typeof data.half_day !== "boolean") {
+    return fail(400, "invalid_half_day", "data.half_day must be true or false.");
+  }
+
+  let enabled: boolean;
+  try { enabled = await eventsEnabled(admin); } catch (err) { return internal("read the switch-on setting", err); }
+
+  const { data: answer, error } = await admin.rpc("platform_hr_leave_event", {
+    p_delivery_id: delivery, p_event_id: eventId, p_event_type: type, p_tenant_id: tenantId, p_profile_id: profileId,
+    p_application_id: applicationId, p_employee_number: employeeNumber, p_leave_type: leaveType,
+    p_start: data.start_date, p_end: data.end_date, p_half_day: data.half_day === true, p_days: days,
+    p_occurred_at: occurredAt, p_apply: enabled,
+  });
+  if (error) return internal(`apply ${type}`, error);
+
+  const outcome = answer?.outcome;
+  const what = `${type} ${applicationId} for ${profileId} at school ${tenantId} (employee ${employeeNumber ?? "?"}, delivery ${delivery})`;
+  switch (outcome) {
+    case "not_enabled":
+      console.warn(`platform-events: ${what} received before switch-on (PLATFORM_EVENTS_ENABLED / HR_LEAVE_ENABLED off); recorded, not applied`);
+      return json({ ok: true, applied: false, reason: "events_not_enabled" });
+    case "approved":
+    case "updated":
+    case "cancelled":
+      console.log(`platform-events: ${what}: ${outcome}${answer.cover_removed ? ` (${answer.cover_removed} cover arrangement(s) undone)` : ""}`);
+      return json({ ok: true, applied: true, outcome, leave_request_id: answer.leave_request_id ?? null });
+    case "cancelled_unseen":
+      console.log(`platform-events: ${what}: cancelled before Schools saw it approved; kept as cancelled`);
+      return json({ ok: true, applied: true, outcome, leave_request_id: answer.leave_request_id ?? null });
+    case "already_approved":
+    case "already_cancelled":
+    case "stale":
+    case "duplicate":
+      console.log(`platform-events: ${what}: ${outcome}`);
+      return json({ ok: true, applied: false, outcome });
+    case "not_found":
+      console.warn(`platform-events: ${what}: no such person in Schools`);
+      return fail(404, "person_not_found", "Schools has no person with that id.");
+    case "tenant_mismatch":
+      console.error(`platform-events: ${what}: the person belongs to another school; refused`);
+      return fail(403, "tenant_mismatch", "That person does not belong to this school.");
+    case "not_staff":
+      console.error(`platform-events: ${what}: not a staff account; refused`);
+      return fail(409, "not_staff", "That person is not a staff member.");
+    case "person_mismatch":
+      console.error(`platform-events: ${what}: Schools has this application for another person; refused`);
+      return fail(409, "person_mismatch", "Schools has this application for another person.");
+    case "overlaps":
+      console.error(`platform-events: ${what}: overlaps approved leave ${answer.starts_on} to ${answer.ends_on} (${answer.source}); refused`);
+      return fail(409, "leave_overlaps", `The person already has approved leave from ${answer.starts_on} to ${answer.ends_on} in Schools.`);
+    default:
+      return internal(`apply ${type}`, `unexpected answer ${JSON.stringify(answer)}`);
   }
 }
 

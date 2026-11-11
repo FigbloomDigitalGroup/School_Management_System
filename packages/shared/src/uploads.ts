@@ -35,6 +35,13 @@ export function fileExtension(fileName: string): string {
 
 export const PRIVATE_DOCS_BUCKET = "private-documents";
 
+/** A signed, time-limited link to a file in the private bucket (it has no public read): a payment proof, a student's document. */
+export async function privateDocumentUrl(path: string, expiresInSeconds = 3600): Promise<string> {
+  const { data, error } = await supabase().storage.from(PRIVATE_DOCS_BUCKET).createSignedUrl(path, expiresInSeconds);
+  if (error) throw new Error(error.message);
+  return data.signedUrl;
+}
+
 /** Where a prescription photo lives: the child's own medical folder, which the database lets their guardians write (20261101300001). */
 export function prescriptionPath(tenantId: string, studentId: string, fileName: string, now: number = Date.now()): string {
   return `${tenantId}/medical/${studentId}/${now}-prescription.${fileExtension(safeFileName(fileName))}`;

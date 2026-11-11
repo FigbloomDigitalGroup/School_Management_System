@@ -11,7 +11,7 @@ import { assertLocalSupabaseUrl } from "./support/localGuard";
 /**
  * QA 12 (FIG-1245): school setup through the app's own functions and the public sign-in functions: which schools can sign in
  * by status (the decision the issue asks to record), what the timetable save does when it is refused part-way, what the
- * cover assignment tells a substitute, and why a grade changes when a class's level does. The database rules are in
+ * cover assignment tells a substitute, and why a class that has marks cannot change level (every grade is worked out from it). The database rules are in
  * supabase/rls-checks/school_setup.sql, the screens are in e2e/setup.spec.ts.
  *
  * Kijani Ridge's status is changed (as the platform admin, the way the console does) and put back in afterAll. Everything else
@@ -214,5 +214,36 @@ describe("a grade is worked out from the class's level every time it is shown", 
     table.push(["Grade of the same mark", "secondary / junior_secondary scale", "same", `${differing.length} of 101 marks differ, e.g. ${differing.slice(30, 33).join(", ")}`]);
     expect(secondary).not.toBe(junior);
     expect(differing.length).toBeGreaterThan(0);
+  });
+
+  it("QA12-REGRADE FIG-1435: so a class that already has marks cannot be moved to another level, and one with none still can", async () => {
+    const exam = (await admin.client.from("exams").select("id").eq("tenant_id", tenantId).limit(1).single()).data!.id as string;
+    const kid = await admin.client.from("students").insert({
+      tenant_id: tenantId, admission_no: `QA12-${run}-REGRADE`, full_name: "QA12 Regrade Learner", class_id: wipeClass, boarding: false, active: true, gender: "female",
+    }).select("id").single();
+    expect(kid.error).toBeNull();
+    const kidId = kid.data!.id as string;
+    try {
+      const given = await admin.client.from("marks").insert({ tenant_id: tenantId, exam_id: exam, student_id: kidId, subject_id: chemistry, entered_by: admin.userId, score: 72 });
+      expect(given.error).toBeNull();
+
+      const moved = await admin.client.from("classes").update({ level: "primary" }).eq("id", wipeClass).select();
+      expect(moved.error?.code).toBe("23514");
+      expect(moved.error?.message).toMatch(/already has marks/);
+      expect((await admin.client.from("classes").select("level").eq("id", wipeClass).single()).data?.level).toBe("secondary");
+
+      // The year within the level and the name are not a change of scale.
+      const yearAndName = await admin.client.from("classes").update({ form_level: 2, name: `QA12 ${run} wipe` }).eq("id", wipeClass).select();
+      expect(yearAndName.error).toBeNull();
+
+      // Once the learner has no marks the class can be corrected.
+      await admin.client.from("marks").delete().eq("student_id", kidId);
+      const corrected = await admin.client.from("classes").update({ level: "primary", form_level: 2 }).eq("id", wipeClass).select("level").single();
+      expect(corrected.error).toBeNull();
+      expect(corrected.data?.level).toBe("primary");
+    } finally {
+      await admin.client.from("marks").delete().eq("student_id", kidId);
+      await admin.client.from("students").delete().eq("id", kidId);
+    }
   });
 });

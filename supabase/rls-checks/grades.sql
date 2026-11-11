@@ -103,12 +103,59 @@ select pg_temp.check('class mean: exactly 84.5 goes up to 85 ((84 + 85) / 2, two
 select pg_temp.check('class mean: exactly 83.5 goes up to 84 ((83 + 84) / 2)', pg_temp.mean_of(83, 84, null, null) = 84);
 
 -- ---------------------------------------------------------------- higher education
--- A school exam mark is checked against its paper (marks_within_paper). A higher-ed mark is not checked against its assessment.
-select pg_temp.check('a higher-ed mark above its assessment''s total is refused by the database (a trigger or check on course_marks that looks at out_of)',
-  exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
-           where t.tgrelid = 'public.course_marks'::regclass and not t.tgisinternal and pg_get_functiondef(p.oid) ilike '%out_of%')
-  or exists (select 1 from pg_constraint c where c.conrelid = 'public.course_marks'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) ilike '%out_of%'),
-  'FIG-1377');
-select pg_temp.info('no higher-ed data is seeded (courses, sections, assessments), so the line above is read from the catalog, not driven with a mark');
+-- A school exam mark is checked against its paper (marks_within_paper); a higher-ed mark is checked against its assessment the same way
+-- (FIG-1377), and an assessment's total cannot be lowered under a mark it already has. No higher-ed data is seeded, so this makes its own
+-- course, section and two assessments (out of 100 and out of 50) inside the transaction. The triggers do not depend on the role, so it runs
+-- as the database owner.
+create function pg_temp.try(stmt text) returns text language plpgsql as $$
+begin execute stmt; return 'allowed'; exception when others then return 'refused ' || sqlstate; end $$;
+insert into semesters (id, tenant_id, name, year, index, starts_on, ends_on)
+  values ('00000000-0000-4000-8000-0000000000b1', current_setting('t.a')::uuid, 'QA9 semester', 2041, 1, '2041-01-10', '2041-05-30');
+insert into courses (id, tenant_id, code, name)
+  values ('00000000-0000-4000-8000-0000000000b2', current_setting('t.a')::uuid, 'QA9-101', 'QA9 course');
+insert into course_sections (id, tenant_id, course_id, semester_id, section_label)
+  values ('00000000-0000-4000-8000-0000000000b3', current_setting('t.a')::uuid, '00000000-0000-4000-8000-0000000000b2', '00000000-0000-4000-8000-0000000000b1', 'A');
+insert into course_assessments (id, tenant_id, course_section_id, name, weight_pct, out_of) values
+  ('00000000-0000-4000-8000-0000000000b4', current_setting('t.a')::uuid, '00000000-0000-4000-8000-0000000000b3', 'QA9 Midterm', 40, 100),
+  ('00000000-0000-4000-8000-0000000000b5', current_setting('t.a')::uuid, '00000000-0000-4000-8000-0000000000b3', 'QA9 Quiz', 10, 50);
+create function pg_temp.cmark(p_assessment text, p_n int, p_score text) returns text language sql as $$
+  select pg_temp.try(format('insert into course_marks (tenant_id, assessment_id, student_id, score, entered_by) values (%L, %L, %L, %s, %L)',
+    current_setting('t.a'), p_assessment, (select id from qa_kids where n = p_n), p_score, current_setting('t.admin')))
+$$;
+
+select pg_temp.check('a higher-ed mark above its assessment''s total is refused (125 out of 100)',
+  pg_temp.cmark('00000000-0000-4000-8000-0000000000b4', 1, '125') = 'refused 23514');
+select pg_temp.check('and so is one just over the line (100.5 out of 100: the column holds two decimals)',
+  pg_temp.cmark('00000000-0000-4000-8000-0000000000b4', 1, '100.5') = 'refused 23514');
+select pg_temp.check('a mark equal to the total, zero, and no score yet are accepted (100, 0 and blank out of 100)',
+  pg_temp.cmark('00000000-0000-4000-8000-0000000000b4', 1, '100') = 'allowed'
+  and pg_temp.cmark('00000000-0000-4000-8000-0000000000b4', 2, '0') = 'allowed'
+  and pg_temp.cmark('00000000-0000-4000-8000-0000000000b4', 3, 'null') = 'allowed');
+select pg_temp.check('an edit that takes a mark above the total is refused too (100 changed to 101)',
+  pg_temp.try(format('update course_marks set score = 101 where assessment_id = %L and student_id = %L', '00000000-0000-4000-8000-0000000000b4', (select id from qa_kids where n = 1))) = 'refused 23514');
+select pg_temp.check('a mark cannot be moved to a smaller assessment it would not fit in (100 into one out of 50)',
+  pg_temp.try(format('update course_marks set assessment_id = %L where assessment_id = %L and student_id = %L', '00000000-0000-4000-8000-0000000000b5', '00000000-0000-4000-8000-0000000000b4', (select id from qa_kids where n = 1))) = 'refused 23514');
+select pg_temp.check('the same assessment''s total is the limit for each: 50 is accepted out of 50 and 51 is refused',
+  pg_temp.cmark('00000000-0000-4000-8000-0000000000b5', 1, '50') = 'allowed' and pg_temp.cmark('00000000-0000-4000-8000-0000000000b5', 2, '51') = 'refused 23514');
+select pg_temp.check('an assessment''s total cannot be lowered under a mark it already has (a mark of 100: out of 100 to out of 99)',
+  pg_temp.try(format('update course_assessments set out_of = 99 where id = %L', '00000000-0000-4000-8000-0000000000b4')) = 'refused 23514');
+select pg_temp.check('but it can be raised, and lowered down to the highest mark (out of 120, then back to 100)',
+  pg_temp.try(format('update course_assessments set out_of = 120 where id = %L', '00000000-0000-4000-8000-0000000000b4')) = 'allowed'
+  and pg_temp.try(format('update course_assessments set out_of = 100 where id = %L', '00000000-0000-4000-8000-0000000000b4')) = 'allowed');
+select pg_temp.check('the refused marks were not stored (3 marks out of 100 and 1 out of 50)',
+  (select count(*) from course_marks where assessment_id = '00000000-0000-4000-8000-0000000000b4') = 3
+  and (select count(*) from course_marks where assessment_id = '00000000-0000-4000-8000-0000000000b5') = 1);
+
+-- the same through row-level security, as the signed-in school admin writing the way the app does
+select set_config('t.stmt_hi', format('insert into course_marks (tenant_id, assessment_id, student_id, score, entered_by) values (%L, %L, %L, 125, %L)',
+  current_setting('t.a'), '00000000-0000-4000-8000-0000000000b4', (select id from qa_kids where n = 4), current_setting('t.admin')), true);
+select set_config('t.stmt_ok', format('insert into course_marks (tenant_id, assessment_id, student_id, score, entered_by) values (%L, %L, %L, 88, %L)',
+  current_setting('t.a'), '00000000-0000-4000-8000-0000000000b4', (select id from qa_kids where n = 4), current_setting('t.admin')), true);
+grant execute on function pg_temp.try(text), pg_temp.check(text, boolean, text) to authenticated;
+select set_config('request.jwt.claims', json_build_object('sub', current_setting('t.admin'), 'role', 'authenticated')::text, true);
+set local role authenticated;
+select pg_temp.check('signed in as the school admin, 125 out of 100 is refused', pg_temp.try(current_setting('t.stmt_hi')) = 'refused 23514');
+select pg_temp.check('and a mark that fits (88 out of 100) is accepted, so the admin can still write marks', pg_temp.try(current_setting('t.stmt_ok')) = 'allowed');
+reset role;
 
 rollback;

@@ -64,6 +64,12 @@ export function isValidYear(level: ClassLevel, year: number): boolean {
   return Number.isInteger(year) && year >= min && year <= max;
 }
 
+/** A subject's first year after its last (Form 4 to Form 1) falls on no class. A blank end means no limit on that side, so only a range with
+ *  both ends can run backwards. The database refuses it too (subjects_years_in_order); this is for the screens to say so first, in words. */
+export function yearsBackwards(from: number | null | undefined, to: number | null | undefined): boolean {
+  return from != null && to != null && from > to;
+}
+
 /** The levels a school of this kind can create classes at. A secondary school
  *  runs junior and senior CBE alongside its last 8-4-4 Forms. */
 export function levelsForTenant(tenantLevel: Tenant["level"]): ClassLevel[] {

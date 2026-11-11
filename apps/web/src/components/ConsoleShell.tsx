@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, normalizeSlug, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { NAV, normalizeSlug, pageIsNotForInstitution, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
@@ -18,6 +18,17 @@ import { useToast } from "./ui/Toast";
 /** Opens the shell's Accessibility dialog from a page header. Null outside a
  *  ConsoleShell, where PageHead then shows no accessibility button. */
 const OpenAccessibility = createContext<(() => void) | null>(null);
+
+/** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
+export interface ShellAction {
+  key: string;
+  label: string;
+  icon: string;
+  title?: string;
+  /** Working on it: the entry is dimmed and says so. */
+  busy?: boolean;
+  onClick: () => void;
+}
 
 interface Props {
   role: Role;
@@ -45,6 +56,8 @@ interface Props {
   consoleSwitch?: { current: "own" | "admin"; ownLabel: string; ownTo: string; adminTo: string };
   /** The Figbloom guide (GuidePanel): a "Guide" button in the sidebar. Absent: no guide here. */
   guide?: GuideOptions;
+  /** Entries after the pages that open something else (useHrItem). */
+  sideActions?: ShellAction[];
 }
 
 /**
@@ -52,7 +65,7 @@ interface Props {
  * Expanded with labels by default and collapsible to icons — a support agent
  * hunting one school needs the labels; a bursar who lives here does not.
  */
-export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch, guide }: Props) {
+export function ConsoleShell({ role, user, aside, children, badges = {}, workspaceName, workspaceOptions, actingBanner, hiddenNav, consoleSwitch, guide, sideActions = [] }: Props) {
   // Start collapsed when the labelled sidebar would eat too much of a narrow
   // (or heavily zoomed) window; the person can still expand it.
   const [open, setOpen] = useState(() => window.innerWidth / uiZoom() >= 900);
@@ -76,16 +89,16 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // underlying capability doesn't matter (it's simply not built for course
   // sections yet). Gradebook is the exception: FIG-330 gave it a real
   // higher-ed branch (GpaGradebook), so it stays visible for both.
-  const higherEd = tenant?.institution_type === "higher_ed";
+  // Which screens each kind of institution has is one list in the shared package (institutionPages.ts); the router reads the same list, so a
+  // screen left out of the menu is also closed by its address (App.tsx InstitutionGate, FIG-1437). With no school open, it is read as K-12.
+  const institutionType = tenant?.institution_type ?? "k12";
   // Transport is meaningless for a fully-online tenant (FIG-358) — hidden
   // here, and the underlying routes are gated the same way in App.tsx, since
   // hiding a nav item alone never blocks the route itself.
   const online = tenant?.delivery_mode === "online";
-  const K12_ONLY_TEACHER_ROUTES = new Set(["teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework", "teacher/exams", "admin/papers", "student/exams", "admin/report-cards", "teacher/report-cards", "teacher/materials", "admin/materials", "student/materials", "parent/materials", "admin/performance", "teacher/performance"]);
   const items = NAV[role].filter((item) => {
     if (hiddenNav?.includes(item.to)) return false;
-    if (item.to === "admin/classes" || item.to === "admin/subjects" || item.to === "admin/exams" || K12_ONLY_TEACHER_ROUTES.has(item.to)) return !higherEd;
-    if (item.to === "admin/courses" || item.to === "teacher/sections") return higherEd;
+    if (pageIsNotForInstitution(item.to, institutionType)) return false;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
     // Only where the school has turned the study helper on (School settings -> AI).
     if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") return !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
@@ -234,6 +247,22 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             </NavLink>
           );
         })}
+        {sideActions.map((a) => (
+          <button
+            key={a.key}
+            type="button"
+            onClick={a.onClick}
+            disabled={a.busy}
+            aria-busy={a.busy || undefined}
+            title={a.title ?? a.label}
+            className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
+            style={{ height: 38 }}
+          >
+            <Icon name={a.icon} />
+            {open && <span className="flex-1 truncate text-body">{a.label}</span>}
+            {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
+          </button>
+        ))}
         </div>
 
         <div className="shrink-0 border-t border-white/10 pt-2">

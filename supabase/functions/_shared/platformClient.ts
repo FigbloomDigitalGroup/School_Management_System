@@ -70,6 +70,28 @@ export interface EventAnswer {
   deliveries?: number;
 }
 
+/** POST /handoffs (SCHOOLS_HR_HANDOFF_CONTRACT.md section 1): a one-time sign-in link into another product. */
+export interface HandoffBody {
+  /** The product to sign in to, e.g. "hr". */
+  target: string;
+  /** Schools' own id for the customer: the school's tenants.id. */
+  tenant_local_id: string;
+  person: {
+    /** Schools' id for the person: profiles.id. */
+    external_id: string;
+    name: string;
+    /** A real contact email, or null (never a synthetic sign-in address). */
+    email: string | null;
+    role: string;
+  };
+  return_to?: string;
+}
+
+export interface HandoffAnswer {
+  url: string;
+  expires_at: string;
+}
+
 export interface TenantAnswer {
   tenant_id?: string;
   id?: string;
@@ -134,6 +156,11 @@ export class PlatformClient {
     return this.call("POST", "/events", event);
   }
 
+  /** 409 target_not_enabled / target_not_linked / target_no_handoff_url when the target can't take the person; 404 for a school the platform doesn't know. */
+  createHandoff(body: HandoffBody): Promise<HandoffAnswer> {
+    return this.call("POST", "/handoffs", body);
+  }
+
   putEventWebhook(url: string | null): Promise<unknown> {
     return this.call("PUT", `/products/${PLATFORM_MODULE}/event-webhook`, { url });
   }
@@ -158,6 +185,11 @@ export class PlatformClient {
     const seconds = Number(data.expires_in) > 0 ? Number(data.expires_in) : 3600;
     this.token = { value: data.access_token, expiresAt: this.now() + seconds * 1000 };
     return this.token.value;
+  }
+
+  /** Drops the kept token, so the next accessToken() fetches a new one (another API answered 401 to it). */
+  forgetToken(): void {
+    this.token = null;
   }
 
   // ---------------------------------------------------------------- plumbing

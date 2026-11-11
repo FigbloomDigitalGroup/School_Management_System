@@ -1,3 +1,4 @@
+import { formatShortDate } from "./parentData";
 import { supabase } from "./supabase";
 
 export type LeaveStatus = "pending" | "approved" | "rejected" | "cancelled";
@@ -13,6 +14,8 @@ export interface LeaveRequest {
   reviewed_at: string | null;
   review_note: string | null;
   created_at: string;
+  /** 'hr': approved (or cancelled) in Figbloom HR and written by its event (20261105800000); 'schools': the office's */
+  source?: "schools" | "hr";
 }
 
 export interface LeaveRequestRow extends LeaveRequest {
@@ -57,6 +60,48 @@ export async function fetchAllLeaveRequests(tenantId: string): Promise<LeaveRequ
     .returns<(LeaveRequest & { profiles: { full_name: string } | null })[]>();
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({ ...r, teacherName: r.profiles?.full_name ?? "Unknown teacher" }));
+}
+
+export const LEAVE_STATUS_LABEL: Record<LeaveStatus, string> = {
+  pending: "Awaiting review", approved: "Approved", rejected: "Rejected", cancelled: "Cancelled",
+};
+
+export type LeaveTone = "ok" | "warn" | "muted";
+export const LEAVE_STATUS_TONE: Record<LeaveStatus, LeaveTone> = {
+  pending: "warn", approved: "ok", rejected: "muted", cancelled: "muted",
+};
+
+/** Requests awaiting review, and everything else (reviewed or withdrawn), each in the order given. */
+export function splitLeaveRequests<T extends Pick<LeaveRequest, "status">>(requests: readonly T[]): { pending: T[]; decided: T[] } {
+  return { pending: requests.filter((r) => r.status === "pending"), decided: requests.filter((r) => r.status !== "pending") };
+}
+
+/**
+ * Approves or rejects a request and tells the teacher in the app (the same `user`-audience notice a promotion sends), so
+ * nobody finds out only by asking. The decision is recorded first; if only the notice fails, the decision stands and
+ * `notifyError` says why the teacher was not told.
+ */
+export async function decideLeaveRequest(input: {
+  tenantId: string;
+  reviewerId: string;
+  request: Pick<LeaveRequestRow, "id" | "teacher_id" | "starts_on" | "ends_on">;
+  status: "approved" | "rejected";
+  note: string;
+}): Promise<{ notifyError: string | null }> {
+  const { tenantId, reviewerId, request: r, status, note } = input;
+  await reviewLeaveRequest(r.id, reviewerId, status, note);
+  const dates = `${formatShortDate(r.starts_on)} to ${formatShortDate(r.ends_on)}`;
+  const { error } = await supabase().from("announcements").insert({
+    tenant_id: tenantId,
+    author_id: reviewerId,
+    subject: status === "approved" ? "Your leave request was approved" : "Your leave request was not approved",
+    body: (status === "approved" ? `Your leave from ${dates} has been approved.` : `Your leave from ${dates} was not approved.`)
+      + (note.trim() ? ` Note: ${note.trim()}` : ""),
+    audience: { kind: "user", user_id: r.teacher_id },
+    channels: ["in_app"],
+    published_at: new Date().toISOString(),
+  });
+  return { notifyError: error?.message ?? null };
 }
 
 export async function reviewLeaveRequest(

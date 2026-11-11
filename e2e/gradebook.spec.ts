@@ -158,7 +158,7 @@ test.describe("teacher gradebook, one empty column", () => {
 
   // KNOWN FIG-1374 (open): the screen counts anything typed in a box as "entered", even a mark it has just refused. With
   // one such box the column is "complete", Publish is on, and the press saves the valid marks, drops the refused one and publishes
-  // the class with one learner missing (the server accepts that too: FIG-1375, in marksAndPublishing.test.ts).
+  // the class with one learner missing (the server now refuses it as well: FIG-1375, in marksAndPublishing.test.ts).
   // test.fail(): passes while the defect is there; when it is fixed it fails and tells you to remove test.fail().
   for (const typed of ["abc", "140", "72.5"]) {
     test(`FIG-1374: '${typed}' in one box does not make the column ready to publish`, async ({ page }) => {

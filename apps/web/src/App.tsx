@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
-import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { adminAccessFor, fetchMyOrganizations, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, roleLabel, showsAdminSwitch, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { adminAccessFor, fetchMyOrganizations, showsLeaveToApprove, showsStaffLeave, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, pageIsNotForInstitution, pageOfPath, roleLabel, showsAdminSwitch, showsMyHr, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
@@ -10,6 +10,9 @@ import { useQueueSync, useQueueUser } from "./lib/queue";
 import { Skeleton } from "./components/ui/Skeleton";
 import { useAsync } from "./lib/useAsync";
 import { useSession } from "./lib/useSession";
+import { useHrItem } from "./lib/useHrItem";
+import { useMyHrStatus } from "./lib/useMyHr";
+import { useHrLeaveAccess } from "./lib/useHrLeave";
 import { SessionCtx, useTenantSession } from "./lib/sessionContext";
 import { useOrgSession } from "./lib/useOrgSession";
 import { OrgSessionCtx, useOrgSessionCtx } from "./lib/orgSessionContext";
@@ -104,6 +107,9 @@ import { DriverTrip } from "./screens/driver/Trip";
 import { DriverProfile } from "./screens/driver/Profile";
 import { StaffAccount, StaffHome, StaffNotices, StaffVisitors } from "./screens/staff/Staff";
 import { StaffLoans } from "./screens/staff/Loans";
+import { MyHr } from "./screens/myhr/MyHr";
+import { HrLeave } from "./screens/leave/HrLeave";
+import { LeaveToApprove } from "./screens/leave/LeaveToApprove";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
 import { AdminAuditLog } from "./screens/admin/AuditLog";
@@ -242,6 +248,7 @@ function TenantRoutes() {
       <PasswordGate profile={session.profile}>
       <TenantTheme tenant={session.tenant}>
       <CallHost profileId={session.profile.id}>
+        <InstitutionGate>
         <Routes>
           <Route path="admin" element={<AdminShell page="admin"><AdminHome /></AdminShell>} />
           <Route path="admin/assistant" element={<AdminShell page="admin/assistant"><AdminAssistant /></AdminShell>} />
@@ -255,15 +262,17 @@ function TenantRoutes() {
           <Route path="admin/subjects" element={<AdminShell page="admin/subjects"><AdminSubjects /></AdminShell>} />
           <Route path="admin/courses" element={<AdminShell page="admin/courses"><AdminCourses /></AdminShell>} />
           <Route path="admin/reports" element={<AdminShell page="admin/reports"><AdminReports /></AdminShell>} />
-          <Route path="admin/performance" element={<AdminShell page="admin/performance"><K12Gate><Performance /></K12Gate></AdminShell>} />
+          <Route path="admin/performance" element={<AdminShell page="admin/performance"><Performance /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell page="admin/leave"><AdminLeave /></AdminShell>} />
+          <Route path="admin/leave-to-approve" element={<AdminShell page="admin/leave-to-approve"><LeaveToApprove /></AdminShell>} />
           <Route path="admin/inventory" element={<AdminShell page="admin/inventory"><AdminInventory /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell page="admin/exams"><AdminExams /></AdminShell>} />
-          <Route path="admin/papers" element={<AdminShell page="admin/papers"><K12Gate><ExamPapers admin /></K12Gate></AdminShell>} />
-          <Route path="admin/materials" element={<AdminShell page="admin/materials"><K12Gate><LearningMaterials admin /></K12Gate></AdminShell>} />
-          <Route path="admin/report-cards" element={<AdminShell page="admin/report-cards"><K12Gate><ReportCards /></K12Gate></AdminShell>} />
+          <Route path="admin/papers" element={<AdminShell page="admin/papers"><ExamPapers admin /></AdminShell>} />
+          <Route path="admin/materials" element={<AdminShell page="admin/materials"><LearningMaterials admin /></AdminShell>} />
+          <Route path="admin/report-cards" element={<AdminShell page="admin/report-cards"><ReportCards /></AdminShell>} />
           <Route path="admin/chats" element={<AdminShell page="admin/chats"><AdminChats /></AdminShell>} />
           <Route path="admin/account" element={<AdminShell page="admin/account"><AdminAccount /></AdminShell>} />
+          <Route path="admin/my-hr" element={<AdminShell page="admin/my-hr"><MyHr /></AdminShell>} />
           <Route path="admin/activities" element={<AdminShell page="admin/activities"><Activities admin /></AdminShell>} />
           <Route path="admin/visitors" element={<AdminShell page="admin/visitors"><AdminVisitors /></AdminShell>} />
           <Route path="admin/medical" element={<AdminShell page="admin/medical"><AdminMedical /></AdminShell>} />
@@ -281,12 +290,13 @@ function TenantRoutes() {
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
           <Route path="teacher/leave" element={<TeacherShell allow={["teacher"]}><TeacherLeave /></TeacherShell>} />
           <Route path="teacher/loans" element={<TeacherShell allow={["teacher"]}><StaffLoans /></TeacherShell>} />
+          <Route path="teacher/my-hr" element={<TeacherShell allow={["teacher"]}><MyHr /></TeacherShell>} />
           <Route path="teacher/items" element={<TeacherShell allow={["teacher"]}><TeacherItems /></TeacherShell>} />
           <Route path="teacher/homework" element={<TeacherShell allow={["teacher"]}><TeacherHomework /></TeacherShell>} />
-          <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><K12Gate><ExamPapers /></K12Gate></TeacherShell>} />
-          <Route path="teacher/materials" element={<TeacherShell allow={["teacher"]}><K12Gate><LearningMaterials /></K12Gate></TeacherShell>} />
-          <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><K12Gate><ReportCards teacher /></K12Gate></TeacherShell>} />
-          <Route path="teacher/performance" element={<TeacherShell allow={["teacher"]}><K12Gate><Performance teacher /></K12Gate></TeacherShell>} />
+          <Route path="teacher/exams" element={<TeacherShell allow={["teacher"]}><ExamPapers /></TeacherShell>} />
+          <Route path="teacher/materials" element={<TeacherShell allow={["teacher"]}><LearningMaterials /></TeacherShell>} />
+          <Route path="teacher/report-cards" element={<TeacherShell allow={["teacher"]}><ReportCards teacher /></TeacherShell>} />
+          <Route path="teacher/performance" element={<TeacherShell allow={["teacher"]}><Performance teacher /></TeacherShell>} />
           <Route path="teacher/buses" element={<TeacherShell allow={["teacher"]}><DeliveryModeGate><TeacherBuses /></DeliveryModeGate></TeacherShell>} />
           <Route path="teacher/chats" element={<TeacherShell allow={["teacher"]}><MyChats role="teacher" /></TeacherShell>} />
           <Route path="teacher/account" element={<TeacherShell allow={["teacher"]}><TeacherAccount /></TeacherShell>} />
@@ -298,7 +308,7 @@ function TenantRoutes() {
           <Route path="parent/fees" element={<ParentShell><ParentFees /></ParentShell>} />
           <Route path="parent/results" element={<ParentShell><ParentResults /></ParentShell>} />
           <Route path="parent/homework" element={<ParentShell><ParentHomework /></ParentShell>} />
-          <Route path="parent/materials" element={<ParentShell><K12Gate><ParentMaterials /></K12Gate></ParentShell>} />
+          <Route path="parent/materials" element={<ParentShell><ParentMaterials /></ParentShell>} />
           <Route path="parent/bus" element={<ParentShell><DeliveryModeGate><ParentBus /></DeliveryModeGate></ParentShell>} />
           <Route path="parent/inbox" element={<ParentShell><ParentInbox /></ParentShell>} />
           <Route path="parent/chats" element={<ParentShell><MyChats role="parent" /></ParentShell>} />
@@ -311,8 +321,8 @@ function TenantRoutes() {
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
           <Route path="student/timetable" element={<StudentShell><StudentTimetable /></StudentShell>} />
           <Route path="student/work" element={<StudentShell><StudentWork /></StudentShell>} />
-          <Route path="student/materials" element={<StudentShell><K12Gate><StudentMaterials /></K12Gate></StudentShell>} />
-          <Route path="student/exams" element={<StudentShell><K12Gate><StudentExams /></K12Gate></StudentShell>} />
+          <Route path="student/materials" element={<StudentShell><StudentMaterials /></StudentShell>} />
+          <Route path="student/exams" element={<StudentShell><StudentExams /></StudentShell>} />
           <Route path="student/results" element={<StudentShell><StudentResults /></StudentShell>} />
           <Route path="student/study-helper" element={<StudentShell><StudyHelper /></StudentShell>} />
           <Route path="student/fees" element={<StudentShell><StudentFees /></StudentShell>} />
@@ -330,7 +340,9 @@ function TenantRoutes() {
           <Route path="staff/notices" element={<StaffShell><StaffNotices /></StaffShell>} />
           <Route path="staff/chats" element={<StaffShell><MyChats role="staff" /></StaffShell>} />
           <Route path="staff/items" element={<StaffShell><TeacherItems /></StaffShell>} />
+          <Route path="staff/leave" element={<StaffShell><StaffLeave /></StaffShell>} />
           <Route path="staff/loans" element={<StaffShell><StaffLoans /></StaffShell>} />
+          <Route path="staff/my-hr" element={<StaffShell><MyHr /></StaffShell>} />
           <Route path="staff/account" element={<StaffShell><StaffAccount /></StaffShell>} />
           {/* the old gate and reception consoles (before 20261028100001), for a desk left open on one */}
           <Route path="gate" element={<Navigate to="../staff" replace />} />
@@ -338,6 +350,7 @@ function TenantRoutes() {
 
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </InstitutionGate>
       </CallHost>
       </TenantTheme>
       </PasswordGate>
@@ -428,12 +441,14 @@ function DeliveryModeGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Exam papers are set per class and subject, which a higher-ed tenant never
- *  has (it runs course sections), so the screens are K-12 only: hidden from
- *  the nav in ConsoleShell and gated here, since hiding alone never blocks the route. */
-function K12Gate({ children }: { children: ReactNode }) {
+/** Which screens each kind of institution has is one list (institutionPages.ts in the shared package); the sidebar leaves the other kind's
+ *  screens out of its menu and this guard closes their addresses, so a typed or bookmarked address cannot open them (FIG-1437). It sends the
+ *  person to their own home instead, as DeliveryModeGate does for transport on an online school. Hiding a menu item alone never blocks a route. */
+function InstitutionGate({ children }: { children: ReactNode }) {
   const session = useTenantSession();
-  if (session.tenant.institution_type === "higher_ed") {
+  const { pathname } = useLocation();
+  const page = pageOfPath(pathname, session.tenant.slug);
+  if (page !== null && pageIsNotForInstitution(page, session.tenant.institution_type)) {
     const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
     return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
   }
@@ -466,6 +481,11 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
     nav(org ? `/org/${org.slug}/schools/${session.tenant.id}` : "/signin");
   }
   const chatUnread = useChatUnread(session.tenant.id);
+  const hrItem = useHrItem(session);
+  // My HR in the admin console is the school's own admins' record as staff; anyone else has it in their own console
+  const myHrShown = showsMyHr(useMyHrStatus(session)) && session.profile.role === "school_admin" && !session.actingForTenant;
+  // leave applications waiting on this person in Figbloom HR: approvers, at a school whose leave is HR's
+  const approvalsShown = showsLeaveToApprove(useHrLeaveAccess(session));
   if (!mayOpenAdminPage(access, page)) {
     const effectiveRole: Role = session.actingForTenant ? "school_admin" : session.profile.role;
     return <Navigate to={homeRouteFor(effectiveRole, session.tenant.slug, session.tenant.institution_type)} replace />;
@@ -477,7 +497,11 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
       <ConsoleShell
         role="school_admin"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.actingForTenant ? "Org admin (acting)" : session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
-        hiddenNav={full ? undefined : NAV.school_admin.map((i) => i.to).filter((to) => !mayOpenAdminPage(access, to))}
+        hiddenNav={[
+          ...(full ? [] : NAV.school_admin.map((i) => i.to).filter((to) => !mayOpenAdminPage(access, to))),
+          ...(myHrShown ? [] : ["admin/my-hr"]),
+          ...(approvalsShown ? [] : ["admin/leave-to-approve"]),
+        ]}
         consoleSwitch={full ? undefined : {
           current: "admin",
           ownLabel: teacher ? roleLabel(session.tenant, "teacher") : "Staff",
@@ -490,6 +514,7 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
           onExit: () => void exitToOrganization(),
         } : undefined}
         badges={chatUnread ? { "admin/chats": String(chatUnread) } : {}}
+        sideActions={hrItem}
         guide={session.tenant.ai_enabled ? {
           tenantId: session.actingForTenant ? session.tenant.id : undefined,
           adminAreas: !full,
@@ -507,14 +532,19 @@ const AdminShell = ({ page, children }: { page: string; children: ReactNode }) =
 const StaffShell = ({ children }: { children: ReactNode }) => {
   const session = useTenantSession();
   const chatUnread = useChatUnread(session.tenant.id);
+  const hrItem = useHrItem(session);
+  const myHrShown = showsMyHr(useMyHrStatus(session));
+  // other staff had no leave page before HR: it shows only where the school's leave is HR's
+  const leaveShown = showsStaffLeave(useHrLeaveAccess(session));
   return (
     <RoleGate allow={["staff"]}>
       <ConsoleShell
         role="staff"
         user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Staff" }}
-        hiddenNav={session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]}
+        hiddenNav={[...(session.adminAreas.includes("visitors") ? [] : ["staff/visitors"]), ...(myHrShown ? [] : ["staff/my-hr"]), ...(leaveShown ? [] : ["staff/leave"])]}
         consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
         badges={chatUnread ? { "staff/chats": String(chatUnread) } : {}}
+        sideActions={hrItem}
         guide={session.tenant.ai_enabled ? {} : undefined}
       >
         {children}
@@ -546,6 +576,8 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     return () => { alive = false; window.clearInterval(id); unsubscribe(); };
   }, [session.profile.id, session.tenant.id]);
   const chatUnread = useChatUnread(session.tenant.id);
+  const hrItem = useHrItem(session);
+  const myHrShown = showsMyHr(useMyHrStatus(session));
 
   return (
     <RoleGate allow={allow}>
@@ -553,6 +585,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
       <TeacherNoticesProvider value={() => setUnread((n) => (n ? n - 1 : n))}>
         <ConsoleShell
           role="teacher"
+          hiddenNav={myHrShown ? [] : ["teacher/my-hr"]}
           user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? roleLabel(session.tenant, "teacher") }}
           consoleSwitch={showsAdminSwitch("teacher", session.adminAreas)
             ? { current: "own", ownLabel: roleLabel(session.tenant, "teacher"), ownTo: teacherHome(session.tenant), adminTo: "admin" }
@@ -561,6 +594,7 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
             ...(unread ? { "teacher/notices": String(unread) } : {}),
             ...(chatUnread ? { "teacher/chats": String(chatUnread) } : {}),
           }}
+          sideActions={hrItem}
           guide={session.tenant.ai_enabled ? {} : undefined}
         >
           <QueueNotice />
@@ -571,6 +605,15 @@ const TeacherShell = ({ allow, children }: { allow: Role[]; children: ReactNode 
     </RoleGate>
   );
 };
+
+/** Other staff's leave page: Figbloom HR's, where the school's leave is HR's (there was no Schools-only one for them). */
+function StaffLeave() {
+  const session = useTenantSession();
+  const access = useHrLeaveAccess(session);
+  if (!access) return <FullPageSkeleton />;
+  if (showsStaffLeave(access)) return <HrLeave />;
+  return <Navigate to={`/s/${session.tenant.slug}/staff`} replace />;
+}
 
 /** One "Gradebook" nav entry, two different screens underneath — K-12's letter-grade/class-mean model vs higher-ed's credit/GPA one (FIG-330). */
 function GradebookRouter() {
