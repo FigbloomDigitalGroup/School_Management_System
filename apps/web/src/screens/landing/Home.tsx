@@ -1,97 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import './Home.css';
 
-// const iconPaths: Record<string, ReactNode> = {
-//   users: (
-//     <>
-//       <circle cx="10" cy="8" r="3" />
-//       <path d="M3.5 19c.4-3.4 2.6-5.2 6.5-5.2s6.1 1.8 6.5 5.2" />
-//       <path d="M16 5.4a3 3 0 0 1 0 5.8M18 14c2 .7 3.1 2.3 3.4 5" />
-//     </>
-//   ),
-//   chart: (
-//     <>
-//       <path d="M4 20V12h4v8H4Zm6 0V7h4v13h-4Zm6 0V3h4v17h-4Z" />
-//     </>
-//   ),
-//   document: (
-//     <>
-//       <path d="M6 3h8l5 5v13H6V3Z" />
-//       <path d="M14 3v5h5M9 13h6m-6 4h6" />
-//     </>
-//   ),
-//   payment: (
-//     <>
-//       <rect x="3" y="6" width="18" height="13" rx="2" />
-//       <path d="M3 10h18m-14 5h3m7 4v2M7 19v2" />
-//       <circle cx="15.5" cy="14.5" r="2" />
-//     </>
-//   ),
-//   calendar: (
-//     <>
-//       <rect x="3" y="5" width="18" height="16" rx="2" />
-//       <path d="M7 3v4m10-4v4M3 10h18m-14 4h2m3 0h2m3 0h1m-11 4h2" />
-//     </>
-//   ),
-//   bus: (
-//     <>
-//       <path d="M5 17V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v11" />
-//       <path d="M5 11h14M8 15h.01M16 15h.01M7 20v-3m10 3v-3M5 17h14" />
-//     </>
-//   ),
-// };
-
-// const orbitFeatures = [
-//   { name: 'Attendance', icon: 'calendar', className: 'attendance' },
-//   { name: 'Bus tracking', icon: 'bus', className: 'bus-tracking' },
-//   { name: 'Kenyan curriculum', icon: 'document', className: 'curriculum' },
-//   { name: 'Fees payment', icon: 'payment', className: 'fees-payment' },
-//   { name: 'Communication', icon: 'users', className: 'communication' },
-// ];
-
-
-
-// function Icon({ name, className = '' }: { name: string; className?: string }) {
-//   return (
-//     <svg
-//       aria-hidden="true"
-//       className={className}
-//       viewBox="0 0 24 24"
-//       fill="none"
-//       stroke="currentColor"
-//       strokeWidth="1.8"
-//       strokeLinecap="round"
-//       strokeLinejoin="round"
-//     >
-//       {iconPaths[name]}
-//     </svg>
-//   );
-// }
-
-// function OrbitVisual() {
-//   return (
-//     <div className="orbit-visual" aria-hidden="true">
-//       <div className="orbit-ring orbit-ring-outer" />
-//       {/* <div className="orbit-ring orbit-ring-inner" /> */}
-//       <div className="orbit-center">
-//         <GraduationCap />
-//       </div>
-//       <div className="orbit-track">
-//         {orbitFeatures.map((feature) => (
-//           <div
-//             className={`orbit-item orbit-item-${feature.className}`}
-//             key={feature.name}
-//           >
-//             <div className="orbit-card">
-//               <Icon name={feature.icon} />
-//               <span>{feature.name}</span>
-//             </div>
-//           </div>
-//         ))}
-//       </div>
-//     </div>
-//   );
-// }
 
 /** Site header and navigation. Rendered by Landing, outside <main>, so it is the page's banner landmark. */
 export function SiteHeader() {
@@ -121,7 +30,7 @@ export function SiteHeader() {
 
         <div className="header-actions">
           <a className="login-link" href="/signin">Login</a>
-          <a className="header-demo-link" href="#contact">Get Started</a>
+          <a className="header-demo-link" href="/signup">Get Started</a>
         </div>
       </header>
     </div>
