@@ -182,6 +182,8 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     const here = dashboardFor(d, date).perClass.get(form2West.id)!;
     await page.getByRole("button", { name: `${here.here} / ${here.total}` }).click();
     await expect(page.getByText("Form 2 West · who wasn't here")).toBeVisible();
+    // R8-3: title paints before the learner list; wait for the first ADM line before reading (Run 9).
+    await expect(page.getByText(/^ADM /).first()).toBeVisible({ timeout: 30_000 });
     const lines = await textLines(page);
     const t = lines.findIndex((l) => l.toLowerCase() === "form 2 west · who wasn't here");
     const shown: string[] = [];
@@ -277,7 +279,8 @@ test.describe("parent Home: the child's attendance", () => {
     expect(mine.length, "the seed gives Faith ten days").toBe(10);
     await signInWithId(page, SCHOOLS[0].name, "PT-0002", "Parent");
     await page.goto("/s/alliance/parent");
-    await expect(page.getByText("Faith").first()).toBeVisible();
+    // R9-1: parent Home can exceed the default 5 s (FIG-1497); same 25 s allowance as other slow loads.
+    await expect(page.getByText("Faith").first()).toBeVisible({ timeout: 25_000 });
     const lines = await textLines(page);
     const card = after(lines, "Attendance", 2);
     same("Parent Home", "Faith: attendance %", `${Math.round((mine.filter((r) => isHere(r.mark)).length / mine.length) * 100)}%`, card[0]);
@@ -318,6 +321,8 @@ test.describe("teacher register", () => {
     await page.getByRole("listitem").nth(1).getByRole("button", { name: "Late" }).click();
     await page.getByRole("button", { name: "Submit register" }).click();
     await expect(page.getByText("register is in")).toBeVisible();
+    // R8-2: card reloads asynchronously after submit; wait for its "here" line before reading (Run 9).
+    await expect(page.getByText(/\d+\/\d+ here/).first()).toBeVisible({ timeout: 30_000 });
 
     const first = await todayRows();
     const roll = first.length;
