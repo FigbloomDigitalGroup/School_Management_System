@@ -4,7 +4,7 @@ import { saveClassTimetable, fetchClassTimetableSlots } from "../../packages/sha
 import { loginIdEmail } from "../../packages/shared/src/auth";
 import { gradeFor } from "../../packages/shared/src/grading";
 import { gradingSchemeFor } from "../../packages/shared/src/gradingSchemes";
-import { assignCoverage } from "../../apps/web/src/lib/coverage";
+import { assignCoverage } from "../../packages/shared/src/coverage";
 import { TEST_ROLES, anonClient, signInAs, type SignedIn, type TestRole } from "./support/signInAs";
 import { assertLocalSupabaseUrl } from "./support/localGuard";
 
