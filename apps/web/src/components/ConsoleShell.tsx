@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, normalizeSlug, pageIsNotForInstitution, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { NAV, groupNav, normalizeSlug, pageIsNotForInstitution, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
@@ -222,47 +222,64 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         )}
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
-        {items.map((it) => {
-          const to = hrefFor(it.to);
+        {/* Every page stays on show, under a heading for the kind of work it is: nothing folds away. Collapsed to icons, a thin line stands in for the heading. */}
+        {groupNav(items).map((section, i) => {
+          const links = section.items.map((it) => {
+            const to = hrefFor(it.to);
+            return (
+              <NavLink
+                key={it.to}
+                to={to}
+                end
+                title={it.label}
+                className={({ isActive }) =>
+                  [
+                    "hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5",
+                    open ? "" : "justify-center",
+                    isActive ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10",
+                  ].join(" ")
+                }
+                style={{ height: 38 }}
+              >
+                <Icon name={it.icon} />
+                {open && <span className="flex-1 truncate text-body">{it.label}</span>}
+                {open && badges[it.to] && (
+                  <span className="rounded-full bg-orange px-1.5 font-mono text-[10px] text-white">{badges[it.to]}</span>
+                )}
+              </NavLink>
+            );
+          });
+          if (!section.label) return <div key="top" className="flex flex-col gap-0.5">{links}</div>;
           return (
-            <NavLink
-              key={it.to}
-              to={to}
-              end
-              title={it.label}
-              className={({ isActive }) =>
-                [
-                  "hit flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5",
-                  open ? "" : "justify-center",
-                  isActive ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10",
-                ].join(" ")
-              }
-              style={{ height: 38 }}
-            >
-              <Icon name={it.icon} />
-              {open && <span className="flex-1 truncate text-body">{it.label}</span>}
-              {open && badges[it.to] && (
-                <span className="rounded-full bg-orange px-1.5 font-mono text-[10px] text-white">{badges[it.to]}</span>
-              )}
-            </NavLink>
+            <div key={section.label} role="group" aria-label={section.label} className="flex flex-col gap-0.5">
+              {open ? (
+                <div aria-hidden className="px-2.5 pb-0.5 pt-3.5 font-mono text-[10px] tracking-[0.12em] text-white/60">{section.label.toUpperCase()}</div>
+              ) : i > 0 && <div aria-hidden className="mx-2 my-1.5 border-t border-white/10" />}
+              {links}
+            </div>
           );
         })}
-        {sideActions.map((a) => (
-          <button
-            key={a.key}
-            type="button"
-            onClick={a.onClick}
-            disabled={a.busy}
-            aria-busy={a.busy || undefined}
-            title={a.title ?? a.label}
-            className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
-            style={{ height: 38 }}
-          >
-            <Icon name={a.icon} />
-            {open && <span className="flex-1 truncate text-body">{a.label}</span>}
-            {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
-          </button>
-        ))}
+        {sideActions.length > 0 && (
+          // Other Figbloom products: set apart, so they don't read as the last entry of the heading above.
+          <div className="mt-1 flex flex-col gap-0.5 border-t border-white/10 pt-1.5">
+            {sideActions.map((a) => (
+              <button
+                key={a.key}
+                type="button"
+                onClick={a.onClick}
+                disabled={a.busy}
+                aria-busy={a.busy || undefined}
+                title={a.title ?? a.label}
+                className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
+                style={{ height: 38 }}
+              >
+                <Icon name={a.icon} />
+                {open && <span className="flex-1 truncate text-body">{a.label}</span>}
+                {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
+              </button>
+            ))}
+          </div>
+        )}
         </div>
 
         <div className="shrink-0 border-t border-white/10 pt-2">
