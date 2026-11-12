@@ -32,6 +32,7 @@ export * from "./courseGrades";
 export * from "./fleet";
 export * from "./routePlanning";
 export * from "./routeTrace";
+export * from "./mapLook";
 export * from "./studentHealth";
 export * from "./healthConsent";
 export * from "./notificationPreferences";
