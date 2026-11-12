@@ -40,7 +40,9 @@ export function Modal({ open, onClose, eyebrow, title, blurb, footNote, children
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-8"
+      // The single column must be the window's width, not the panel's: a grid column sized to its content grows to the panel's own width, so
+      // maxWidth: 100% below was 100% of a column that had already grown and never capped it (FIG-1471). minmax(0, 1fr) fixes the column.
+      className="fixed inset-0 z-50 grid grid-cols-[minmax(0,1fr)] place-items-center p-3 sm:p-8"
       style={{ background: "rgba(12,26,18,0.5)" }}
     >
       <div
@@ -71,7 +73,7 @@ export function Modal({ open, onClose, eyebrow, title, blurb, footNote, children
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-page px-5 py-3.5">
           <span className="text-[12px] text-ink-faint">{footNote}</span>
-          <div className="flex gap-2.5">{actions}</div>
+          <div className="flex flex-wrap justify-end gap-2.5">{actions}</div>
         </footer>
       </div>
     </div>

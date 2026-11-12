@@ -78,10 +78,23 @@ with tm as (insert into terms (tenant_id, name, year, index, starts_on, ends_on,
 with tm as (insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
               values (current_setting('t.k')::uuid, 'QA10 March 2020', 2020, 1, '2020-03-01', '2020-03-31', false) returning id)
   select set_config('t.kterm20', (select id::text from tm), true);
-with tm as (insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
-              values (current_setting('t.a')::uuid, 'QA10 around today', 2021, 1,
-                      school_today(current_setting('t.a')::uuid) - 30, school_today(current_setting('t.a')::uuid) + 30, false) returning id)
-  select set_config('t.nowterm', (select id::text from tm), true);
+-- Around today: a term of the school's own that covers yesterday to tomorrow (the seeded current one, usually). Only when there is
+-- none is one made up, after the school's last term: since 20261105550000 a school's terms may not overlap or run out of order.
+select set_config('t.nowterm', coalesce(
+  (select id::text from terms where tenant_id = current_setting('t.a')::uuid
+      and starts_on <= school_today(current_setting('t.a')::uuid) - 1 and ends_on >= school_today(current_setting('t.a')::uuid) + 1
+    order by starts_on desc limit 1), ''), true);
+create function pg_temp.make_nowterm() returns text language plpgsql as $$
+declare v uuid;
+begin
+  insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
+  select current_setting('t.a')::uuid, 'QA10 around today', coalesce(max(year), 2020) + 1, 1,
+         school_today(current_setting('t.a')::uuid) - 30, school_today(current_setting('t.a')::uuid) + 30, false
+    from terms where tenant_id = current_setting('t.a')::uuid
+  returning id into v;
+  return v::text;
+end $$;
+select set_config('t.nowterm', pg_temp.make_nowterm(), true) where current_setting('t.nowterm') = '';
 
 select pg_temp.check('the seed has what these checks need (Alliance teacher, admin, term and two classes with learners; a Kijani Ridge class)',
   current_setting('t.teacher') <> '' and current_setting('t.admin') <> '' and current_setting('t.curterm') <> ''

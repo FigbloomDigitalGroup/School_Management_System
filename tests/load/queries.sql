@@ -37,7 +37,9 @@ rollback;
 
 \echo ##### P3b same save as postgres, org-summary triggers OFF for comparison
 begin;
-alter table attendance disable trigger refresh_org_summary_attendance;
+alter table attendance disable trigger refresh_org_summary_attendance_ins;
+alter table attendance disable trigger refresh_org_summary_attendance_upd;
+alter table attendance disable trigger refresh_org_summary_attendance_del;
 explain (analyze, buffers, costs off) insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
   select :'t', s.id, s.class_id, :'term', :'teacher', '2026-11-02', 'present' from students s where s.class_id = :'cls'
   on conflict (student_id, taken_on) do update set mark = excluded.mark, taken_by = excluded.taken_by;

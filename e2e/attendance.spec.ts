@@ -182,6 +182,8 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     const here = dashboardFor(d, date).perClass.get(form2West.id)!;
     await page.getByRole("button", { name: `${here.here} / ${here.total}` }).click();
     await expect(page.getByText("Form 2 West · who wasn't here")).toBeVisible();
+    // R8-3: title paints before the learner list; wait for the first ADM line before reading (Run 9).
+    await expect(page.getByText(/^ADM /).first()).toBeVisible({ timeout: 30_000 });
     const lines = await textLines(page);
     const t = lines.findIndex((l) => l.toLowerCase() === "form 2 west · who wasn't here");
     const shown: string[] = [];
@@ -206,8 +208,10 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
     expect(card[1]).toBe(`0 of ${d.classes.length} classes submitted`);
   });
 
-  test("KNOWN QA10-ARCHIVE FIG-1409 (open): a learner archived after the register is not counted on one side of 'here / on roll' and not the other", async ({ page }) => {
-    test.fail();
+  // FIG-1409 (QA10-ARCHIVE) was a known bug: "here" came from the day's register rows and "on roll" from active learners, so archiving a
+  // learner who was present moved only the second number. Fixed by FIG-1514 decision J: both numbers are now the day's counted register
+  // entries, so the archived learner still counts on both sides, as the register was taken. Normal assertion from here on.
+  test("QA10-ARCHIVE FIG-1409 (fixed by FIG-1514): a learner archived after the register still counts on both sides of 'here / on roll'", async ({ page }) => {
     const d = await school("kijani-ridge");
     const date = latestDate(d);
     const exp = dashboardFor(d, date);
@@ -223,10 +227,10 @@ test.describe("admin Dashboard: the card and the by-class list against the rows"
       const h = lines.findIndex((l) => l.toLowerCase().startsWith("attendance by class ·"));
       const start = lines.indexOf(target.c.name, h + 1);
       const shown = lines.slice(start + 1, start + 6).find((l) => /^\d+ \/ \d+$/.test(l));
-      // Either count the archived learner on both sides (here / on roll as it was) or on neither.
-      const asItWas = `${target.e.here} / ${target.e.total}`, withoutThem = `${target.e.here - 1} / ${target.e.total - 1}`;
-      table.push(["Dashboard kijani-ridge", `${target.c.name}: after archiving one learner who was present`, `${asItWas} or ${withoutThem}`, shown ?? "(missing)"]);
-      expect([asItWas, withoutThem]).toContain(shown);
+      // Decision J: the figure is the register as it was taken, so the archived learner counts on both sides.
+      const asItWas = `${target.e.here} / ${target.e.total}`;
+      table.push(["Dashboard kijani-ridge", `${target.c.name}: after archiving one learner who was present`, asItWas, shown ?? "(missing)"]);
+      expect(shown).toBe(asItWas);
     } finally {
       await db.from("students").update({ active: true }).eq("id", present.student_id);
     }
@@ -261,8 +265,7 @@ test.describe("admin Reports: the term's attendance against the rows", () => {
     await reportsMatch(page, SCHOOLS[0]);
   });
 
-  test("KNOWN QA10-REPORTS FIG-1402 (open): kijani-ridge, whose term has more than 1,000 register entries, is counted in full", async ({ page }) => {
-    test.fail();
+  test("QA10-REPORTS FIG-1402: kijani-ridge, whose term has more than 1,000 register entries, is counted in full", async ({ page }) => {
     await reportsMatch(page, SCHOOLS[1]);
   });
 });
@@ -276,7 +279,8 @@ test.describe("parent Home: the child's attendance", () => {
     expect(mine.length, "the seed gives Faith ten days").toBe(10);
     await signInWithId(page, SCHOOLS[0].name, "PT-0002", "Parent");
     await page.goto("/s/alliance/parent");
-    await expect(page.getByText("Faith").first()).toBeVisible();
+    // R9-1: parent Home can exceed the default 5 s (FIG-1497); same 25 s allowance as other slow loads.
+    await expect(page.getByText("Faith").first()).toBeVisible({ timeout: 25_000 });
     const lines = await textLines(page);
     const card = after(lines, "Attendance", 2);
     same("Parent Home", "Faith: attendance %", `${Math.round((mine.filter((r) => isHere(r.mark)).length / mine.length) * 100)}%`, card[0]);
@@ -317,6 +321,8 @@ test.describe("teacher register", () => {
     await page.getByRole("listitem").nth(1).getByRole("button", { name: "Late" }).click();
     await page.getByRole("button", { name: "Submit register" }).click();
     await expect(page.getByText("register is in")).toBeVisible();
+    // R8-2: card reloads asynchronously after submit; wait for its "here" line before reading (Run 9).
+    await expect(page.getByText(/\d+\/\d+ here/).first()).toBeVisible({ timeout: 30_000 });
 
     const first = await todayRows();
     const roll = first.length;

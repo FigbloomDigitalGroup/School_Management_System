@@ -1,4 +1,4 @@
-/** Domain types. Mirrors supabase/schema.sql — keep the two in step. */
+/** Domain types. They follow the database as supabase/migrations builds it (there is no other schema file): keep them in step with it. */
 
 export type Role = "super_admin" | "school_admin" | "teacher" | "parent" | "student" | "driver" | "org_admin" | "staff";
 
@@ -54,6 +54,8 @@ export interface Tenant {
   trial_ends_at: string | null;
   renews_on: string | null;
   organization_id: string | null;
+  /** The school's time zone (20261105100000); Africa/Nairobi when missing. Decides the register date and the morning/afternoon default. */
+  timezone?: string;
   created_at: string;
 }
 
@@ -68,7 +70,8 @@ export interface Organization {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
-  status: "pending" | "active" | "suspended";
+  /** "rejected": not approved on the Figbloom platform (20261104900000). Only "active" gives its admins access. */
+  status: "pending" | "active" | "suspended" | "rejected";
   created_at: string;
   created_by: string | null;
 }
@@ -96,6 +99,8 @@ export interface OrganizationTenantSummary {
   status: TenantStatus;
   active_students: number;
   present_today: number;
+  /** Learners present in today's afternoon register (FIG-1514, 20261106000200); 0 when the school takes none. */
+  present_today_pm?: number;
   fees_billed_cents: number;
   fees_collected_cents: number;
   updated_at: string;

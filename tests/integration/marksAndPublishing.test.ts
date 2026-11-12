@@ -41,7 +41,22 @@ const save = async (rows: Row[]) => {
   const b = office.length ? await admin.client.from("marks").upsert(office, { onConflict }) : { error: null as PostgrestError | null };
   return { error: a.error ?? b.error };
 };
-const publish = (classId: string, subjectId: string, as: SignedIn = actorFor(subjectId)) => as.client.rpc("publish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
+/** The server publishes a class and subject only when every active learner has an entry (FIG-1375). This gives each learner who has none a
+ *  missed paper (no score, absence "missed"), so a class with a few scores in it can be published; entries that exist are left as they are. */
+async function fillClass(classId: string, subjectId: string) {
+  const learners = await admin.client.from("students").select("id").eq("class_id", classId).eq("active", true);
+  if (learners.error) throw new Error(learners.error.message);
+  const rows = (learners.data ?? []).map((s) => mark(s.id as string, subjectId, null, { absence: "missed" }));
+  const res = await actorFor(subjectId).client.from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id", ignoreDuplicates: true });
+  if (res.error) throw new Error(`could not enter the rest of the class: ${res.error.message}`);
+}
+/** publish_marks exactly as it is, with whatever entries the class has. */
+const rawPublish = (classId: string, subjectId: string, as: SignedIn = actorFor(subjectId)) => as.client.rpc("publish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
+/** The class's other learners are entered as absent first, then published. */
+const publish = async (classId: string, subjectId: string, as: SignedIn = actorFor(subjectId)) => {
+  await fillClass(classId, subjectId);
+  return rawPublish(classId, subjectId, as);
+};
 const withdraw = (classId: string, subjectId: string) => actorFor(subjectId).client.rpc("unpublish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
 const code = (e: PostgrestError | null) => e?.code ?? null;
 
@@ -159,10 +174,16 @@ describe("marks entry: what the database accepts, field by field", () => {
     expect(res.error).not.toBeNull();
   });
 
-  // entered_by says who typed the mark. Nothing checks it is the person writing: a teacher can sign a mark with a colleague's name.
-  it.fails("FIG-1376 (open): a mark cannot be saved in someone else's name", async () => {
-    const res = await save([mark(roster[0]!, subject1, 33, { entered_by: admin.userId })]);
-    expect(res.error, "writing a mark as the school admin").not.toBeNull();
+  // entered_by says who typed the mark. The server sets it from the signed-in caller (FIG-1376), so a request cannot sign a mark with a
+  // colleague's name; with no caller (the service role, the seed) the value is left as sent.
+  it("FIG-1376: a mark is stored under the person who saved it, whatever \"entered by\" the request names", async () => {
+    const stored = async () => (await teacher.client.from("marks").select("entered_by, score").eq("exam_id", examId).eq("subject_id", subject1).eq("student_id", roster[0]!).single()).data;
+    const signedAsAdmin = await save([mark(roster[0]!, subject1, 33, { entered_by: admin.userId })]);
+    expect(signedAsAdmin.error).toBeNull();
+    expect(await stored(), "the teacher signed the school admin's name").toMatchObject({ entered_by: teacher.userId, score: 33 });
+    const corrected = await admin.client.from("marks").upsert(mark(roster[0]!, subject1, 34, { entered_by: teacher.userId }), { onConflict: "exam_id,student_id,subject_id" });
+    expect(corrected.error).toBeNull();
+    expect(await stored(), "the school admin corrected it, naming the teacher").toMatchObject({ entered_by: admin.userId, score: 34 });
   });
 });
 
@@ -270,17 +291,17 @@ describe("publication: per exam, class and subject", () => {
   // The Publish button stays disabled until every learner has an entry (web and phone). The database asks only that there is at
   // least one mark row, so the same class can be published from a script or a changed app with most of the roster missing, and
   // class_means_for_exam then averages the few that exist and shows parents a "class mean" of a handful of learners.
-  it.fails("FIG-1375 (open): the server refuses to publish a class and subject while learners of the class have no entry", async () => {
+  it("FIG-1375: the server refuses to publish a class and subject while learners of the class have no entry", async () => {
     // subject 2 for Faith's class has only two learners entered (84 and 85) out of a whole class
-    const res = await publish(faith.classId, subject2);
-    expect(res.error, "publishing 2 of the class").not.toBeNull();
+    const res = await rawPublish(faith.classId, subject2);
+    expect(code(res.error), "publishing 2 of the class").toBe("22023");
+    expect(res.error?.message).toMatch(/have no entry for .* yet/i);
+    expect((await means(faith.classId))[subject2], "nothing was published").toBeUndefined();
   });
 
-  it("(what the partial publication leaves behind) the class mean is the mean of the two entered, 84.5 rounded to 85", async () => {
-    // subject 2 is out for Faith's class if the defect above is still there; if it is fixed this test sees an empty set
-    const m = await means(faith.classId);
-    if (m[subject2] === undefined) return; // fixed: nothing published, nothing to check
-    expect(m[subject2]).toBe(85); // (84 + 85) / 2 = 84.5 -> 85
+  it("a missed paper counts as an entry: with the rest of the class entered as absent, subject 2 publishes, and the mean is of the two scores, 84.5 shown as 85", async () => {
+    expect((await publish(faith.classId, subject2)).error).toBeNull();
+    expect((await means(faith.classId))[subject2]).toBe(85); // (84 + 85) / 2 = 84.5 -> 85; the absent learners are not counted
     expect((await withdraw(faith.classId, subject2)).error).toBeNull();
   });
 

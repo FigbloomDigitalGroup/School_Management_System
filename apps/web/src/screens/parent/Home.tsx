@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { formatMoney, gradeFor, gradingSchemeFor, loadPublishedCbeResults, newestExamNote, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
+import { fetchEarlySignOutsForStudents, formatMoney, gradeFor, gradingSchemeFor, leftEarlyText, liveSignOutsByStudent, loadPublishedCbeResults, newestExamNote, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
+import { collectorLine } from "../../lib/earlySignOutView";
 import { cbeOverall } from "../../components/CbeResults";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
@@ -38,6 +39,11 @@ export function ParentHome() {
   const { data: cbeByStudent, loading: cbeLoading, error: cbeError } = useAsync(
     () => (child && cbeLearner ? loadPublishedCbeResults([child.id], tenant.country) : Promise.resolve(new Map<string, CbeLearningAreaResult[]>())),
     [child?.id, tenant.country, cbeLearner],
+  );
+  // Today's early sign-out for this child, if any (RLS lets a parent read their own child's). Never shows the collector's ID or phone.
+  const { data: signOutToday } = useAsync(
+    () => (child ? fetchEarlySignOutsForStudents([child.id]).then((rows) => liveSignOutsByStudent(rows).get(child.id) ?? null).catch(() => null) : Promise.resolve(null)),
+    [child?.id],
   );
   const cbe = cbeLearner && rubric ? cbeOverall((child && cbeByStudent?.get(child.id)) || [], rubric) : null;
 
@@ -128,6 +134,16 @@ export function ParentHome() {
                 </Button>
               )}
             </section>
+
+            {signOutToday && (
+              <div className="mt-4 rounded-lg border border-line bg-white p-4" role="status">
+                <div className="text-[13.5px] font-semibold">{child.first} {leftEarlyText(signOutToday)} today</div>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
+                  Collected by {collectorLine(signOutToday)}. If this was not expected, please call the school office.
+                </p>
+                {!!signOutToday.reason && <p className="mt-1 text-[12.5px] text-ink-muted">Reason: {signOutToday.reason}</p>}
+              </div>
+            )}
 
             <div className="mt-4">
               <StatRow stats={statCards} />

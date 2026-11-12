@@ -139,8 +139,7 @@ test.describe("Term dates", () => {
     expect((await db.from("terms").select("is_current").eq("id", term3).single()).data!.is_current).toBe(false);
   });
 
-  test("KNOWN QA12-ROLLOVER FIG-1427 (open): a new term the database refuses (Term 3 of 2026 again) leaves the school with its current term", async ({ page }) => {
-    test.fail();
+  test("QA12-ROLLOVER FIG-1427: a new term the database refuses (Term 3 of 2026 again) leaves the school with its current term", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 3, year: 2026, starts: "2026-12-01", ends: "2026-12-20" });
     await expect(page.getByText(/Could not create the term/)).toBeVisible({ timeout: 15000 });
@@ -150,8 +149,7 @@ test.describe("Term dates", () => {
     expect(cur.map((t) => t.id)).toEqual([term3]);
   });
 
-  test("KNOWN QA12-ROLLOVER FIG-1427 (open): a term that ends the day it starts is refused before the current term is switched off", async ({ page }) => {
-    test.fail();
+  test("QA12-ROLLOVER FIG-1427: a term that ends the day it starts is refused before the current term is switched off", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 1, year: 2027, starts: "2027-01-05", ends: "2027-01-05" });
     await expect(page.getByText(/Could not create the term|must be after the start date/)).toBeVisible({ timeout: 15000 });
@@ -161,14 +159,15 @@ test.describe("Term dates", () => {
     expect(cur.map((t) => t.id)).toEqual([term3]);
   });
 
-  test("KNOWN QA12-TERMS FIG-1432 (open): a new term that starts while the current term is still running is refused or warned about", async ({ page }) => {
-    test.fail();
+  test("QA12-TERMS FIG-1432: a new term that starts while the current term is still running is refused, in words, and the current term stays", async ({ page }) => {
     await openTermForm(page);
     await fillTerm(page, { term: 1, year: 2027, starts: "2026-10-01", ends: "2027-02-01" }); // Term 3, 2026 runs to 27 November
     await page.waitForTimeout(2500);
     const made = (await db.from("terms").select("id").eq("tenant_id", tenantId).eq("year", 2027).eq("index", 1)).data ?? [];
-    table.push(["Term dates", "start Term 1, 2027 on 1 October (Term 3 runs to 27 November)", "refused or warned", made.length ? "saved; Term 3 ended early" : "not saved"]);
+    table.push(["Term dates", "start Term 1, 2027 on 1 October (Term 3 runs to 27 November)", "refused; Term 3 stays current", made.length ? "saved; Term 3 ended early" : "not saved"]);
     expect(made, "the overlapping term was not saved").toHaveLength(0);
+    await expect(page.getByText(/overlaps or runs out of order with Term 3, 2026/)).toBeVisible();
+    expect((await currentTerms()).map((t) => t.id), "Term 3 is still the current term").toEqual([term3]);
   });
 });
 
@@ -241,6 +240,50 @@ test.describe("Classes", () => {
 });
 
 // ================================================================ the curriculum type decides the screens
+test.describe("Subjects", () => {
+  test("QA12-RANGE FIG-1436: a subject that starts in a later form than it ends in is refused in words (add form, saved subject, bulk add) and nothing is saved", async ({ page }) => {
+    const codes = ["QE2B", "QE2K"];
+    const subjectCount = async () => (await db.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)).count ?? 0;
+    const chemistry = async () => (await db.from("subjects").select("min_form_level, max_form_level").eq("tenant_id", tenantId).eq("code", "CHE").single()).data;
+    try {
+      await db.from("subjects").delete().eq("tenant_id", tenantId).in("code", codes);
+      await signIn(page, "principal@alliance.sc.ke");
+      await page.goto("/s/alliance/admin/subjects");
+      const heading = page.getByRole("heading", { name: "New subject" });
+      await expect(heading).toBeVisible({ timeout: 30000 });
+      const before = { n: await subjectCount(), chemistry: await chemistry() };
+      const told = (from: string, to: string) => page.getByText(new RegExp(`starts in ${from} but ends in ${to}`));
+
+      // the add form
+      const form = heading.locator("xpath=..");
+      await form.getByPlaceholder("e.g. Computer Studies").fill("QA12 E2E Backwards");
+      await form.getByPlaceholder("COMP", { exact: true }).fill("QE2B");
+      await form.getByLabel("From form").fill("4");
+      await form.getByLabel("To form").fill("1");
+      await form.getByRole("button", { name: "Add subject" }).click();
+      await expect(told("Form 4", "Form 1")).toBeVisible({ timeout: 10000 });
+      expect(await subjectCount(), "nothing was saved by the add form").toBe(before.n);
+
+      // a saved subject (Chemistry) edited the same way
+      const chem = page.locator("li").filter({ has: page.locator('input[aria-label="Subject code"][value="CHE"]') });
+      await chem.getByLabel("From form").fill("4");
+      await chem.getByLabel("To form").fill("1");
+      await chem.getByRole("button", { name: "Save" }).click();
+      await expect(told("Form 4", "Form 1")).toBeVisible({ timeout: 10000 });
+      expect(await chemistry(), "Chemistry's years are as they were").toEqual(before.chemistry);
+
+      // bulk add: one backwards line stops the whole batch, and the message names it
+      await page.getByRole("button", { name: "Bulk add multiple subjects" }).click();
+      await page.getByPlaceholder(/Computer Studies,COMP,1-2/).fill("QA12 E2E Fine,QE2K,1-2\nQA12 E2E Bulk,QE2B,4-1");
+      await page.getByRole("button", { name: "Add these subjects" }).click();
+      await expect(page.getByText(/Nothing was added\. These start in a later form than they end in: QA12 E2E Bulk \(Form 4 to Form 1\)/)).toBeVisible({ timeout: 10000 });
+      expect(await subjectCount(), "the whole batch was held back, including the line that was fine").toBe(before.n);
+    } finally {
+      await db.from("subjects").delete().eq("tenant_id", tenantId).in("code", codes);
+    }
+  });
+});
+
 test.describe("what a school's levels change on screen", () => {
   test("a one-level school (Alliance) lists classes by Form with no Level column; a school with PP, Grade and senior classes (Kijani Ridge) shows Level and Grade labels", async ({ page }) => {
     await openClasses(page);
@@ -317,8 +360,7 @@ test.describe("Cover on the admin Dashboard", () => {
     await expect(item(page)).toContainText("Wed 07:30");
   });
 
-  test("KNOWN QA12-COVER FIG-1434 (open): a teacher who is teaching another class at that time is not offered as the substitute", async ({ page }) => {
-    test.fail();
+  test("QA12-COVER FIG-1434: a teacher who is teaching another class at that time is not offered as the substitute", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin");
     await expect(item(page)).toBeVisible({ timeout: 30000 });
@@ -328,6 +370,8 @@ test.describe("Cover on the admin Dashboard", () => {
   });
 
   test("assigning the substitute tells them in the app, and the card says who covers", async ({ page }) => {
+    // The substitute was busy teaching Biology in Form 3 East at 07:30 (so not offered, above). Now they are free, they are offered.
+    expect((await db.from("teaching_assignments").delete().eq("teacher_id", subId)).error).toBeNull();
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin");
     await expect(item(page)).toBeVisible({ timeout: 30000 });
@@ -340,8 +384,7 @@ test.describe("Cover on the admin Dashboard", () => {
     expect(told[0]!.body).toContain("You're covering Chemistry");
   });
 
-  test("KNOWN QA12-COVER FIG-1434 (open): marking the slot a free period afterwards tells the substitute it is off", async ({ page }) => {
-    test.fail();
+  test("QA12-COVER FIG-1434: marking the slot a free period afterwards tells the substitute it is off", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin");
     await expect(item(page)).toBeVisible({ timeout: 30000 });
@@ -383,24 +426,35 @@ test.describe("a higher-education school", () => {
     expect(k12Courses).toBe(0);
   });
 
-  test("KNOWN QA12-ROUTES FIG-1437 (open): a K-12 screen is not reachable by its address on a higher-education school", async ({ page }) => {
-    test.fail();
+  const homeOf = (slug: string) => new RegExp(`/s/${slug}/admin/?$`);
+
+  test("QA12-ROUTES FIG-1437: a K-12 screen typed or bookmarked as an address sends a higher-education school's admin to their home, and the screens their own kind has still open", async ({ page }) => {
     await signIn(page, UNI_ADMIN);
-    await page.goto(`/s/${UNI_SLUG}/admin/classes`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-    const reachable = (await page.getByRole("button", { name: "Add class" }).count()) > 0; // two buttons match (header and empty state), so count, not isVisible
-    table.push(["Direct address", `/s/${UNI_SLUG}/admin/classes as a higher-ed admin`, "redirected, no Add class", `${page.url().replace(/^https?:\/\/[^/]+/, "")}; Add class ${reachable ? "shown" : "not shown"}`]);
-    expect(reachable, "the K-12 Classes screen opened for a university").toBe(false);
+    const found: string[] = [];
+    for (const screen of ["admin/classes", "admin/subjects", "admin/exams"]) {
+      await page.goto(`/s/${UNI_SLUG}/${screen}`);
+      await page.waitForURL(homeOf(UNI_SLUG), { timeout: 15000 }).catch(() => undefined); // stays on the address when the screen opens
+      found.push(`${screen} -> ${page.url().replace(/^https?:\/\/[^/]+/, "")}`);
+      expect(page.url(), `${screen} opened for a university`).toMatch(homeOf(UNI_SLUG));
+    }
+    table.push(["Direct address", "a higher-ed admin types admin/classes, admin/subjects, admin/exams", "redirected to their home", found.join("; ")]);
+    expect(await page.getByRole("button", { name: "Add class" }).count(), "no Add class on their home").toBe(0);
+    // their own kind of screen is not held back
+    await page.goto(`/s/${UNI_SLUG}/admin/courses`);
+    await expect(page.getByRole("button", { name: "Add semester" }).first()).toBeVisible({ timeout: 30000 });
+    expect(page.url()).toMatch(/\/admin\/courses$/);
   });
 
-  test("KNOWN QA12-ROUTES FIG-1437 (open): a higher-education screen is not reachable by its address on a K-12 school", async ({ page }) => {
-    test.fail();
+  test("QA12-ROUTES FIG-1437: a higher-education screen typed as an address sends a K-12 school's admin to their home, and the screens their own kind has still open", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await page.goto("/s/alliance/admin/courses");
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-    table.push(["Direct address", "/s/alliance/admin/courses as a K-12 admin", "redirected", `${page.url().replace(/^https?:\/\/[^/]+/, "")}`]);
-    expect(page.url(), "the courses screen opened for a K-12 school").not.toMatch(/\/admin\/courses$/);
+    await page.waitForURL(homeOf("alliance"), { timeout: 15000 }).catch(() => undefined);
+    table.push(["Direct address", "a K-12 admin types admin/courses", "redirected to their home", page.url().replace(/^https?:\/\/[^/]+/, "")]);
+    expect(page.url(), "the courses screen opened for a K-12 school").toMatch(homeOf("alliance"));
+    for (const screen of ["admin/classes", "admin/subjects", "admin/exams"]) {
+      await page.goto(`/s/alliance/${screen}`);
+      await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30000 });
+      expect(page.url(), `${screen} is still open for a K-12 school`).toMatch(new RegExp(`/${screen}$`));
+    }
   });
 });

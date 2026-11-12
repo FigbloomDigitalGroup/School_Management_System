@@ -32,7 +32,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 /** The code lines of a file: comment-only lines dropped, so a comment that names a danger is not read as using it. */
 const codeLines = (rel: string) => read(rel).split(/\r?\n/).map((text, i) => ({ n: i + 1, text })).filter(({ text }) => !/^\s*(\/\/|\/\*|\*)/.test(text));
 
-const CLIENT_SRC = ["apps/web/src", "apps/mobile/src", "apps/teacher-mobile/src", "packages/shared/src"];
+const CLIENT_SRC = ["apps/web/src", "apps/mobile/src", "packages/shared/src"];
 const clientFiles = () => CLIENT_SRC.flatMap((d) => sourceFiles(d));
 
 describe("HTML and code sinks", () => {
@@ -48,7 +48,7 @@ describe("HTML and code sinks", () => {
   });
 
   it("the phone apps load no web page inside the app (no WebView)", () => {
-    for (const f of sourceFiles("apps/mobile/src").concat(sourceFiles("apps/teacher-mobile/src"))) {
+    for (const f of sourceFiles("apps/mobile/src")) {
       expect(read(f), f).not.toMatch(/react-native-webview|WebView/);
     }
   });
@@ -108,13 +108,18 @@ describe("edge functions that need no sign-in", () => {
     "search-schools": "the school search before sign-in",
     "resolve-login-id": "login ID to email, before sign-in",
     "request-password-reset": "forgot password, before sign-in",
+    // server to server (Figbloom platform work, dev-staging #222-#227): no user session to send, each checks a secret of its own
+    "platform-schools": "the Figbloom console's backend (x-platform-secret against PLATFORM_CONSOLE_SECRET)",
+    "platform-decisions": "the Figbloom platform's decision webhook (HMAC signature against PLATFORM_WEBHOOK_SECRET)",
+    "platform-events": "the Figbloom platform's event relay, hr.employee.left (HMAC signature against PLATFORM_WEBHOOK_SECRET)",
+    "platform-sync": "pg_cron and staff (PLATFORM_SYNC_KEY, or an injected server key)",
   };
 
   const config = read("supabase/config.toml");
   const explicit = new Map<string, boolean>();
   for (const m of config.matchAll(/\[functions\.([a-z0-9-]+)\]\s*\r?\nverify_jwt\s*=\s*(true|false)/g)) explicit.set(m[1]!, m[2] === "true");
 
-  it("exactly these five functions are public, no more", () => {
+  it("exactly these functions are public, no more", () => {
     const open = [...explicit].filter(([, v]) => !v).map(([k]) => k).sort();
     expect(open).toEqual(Object.keys(PUBLIC).sort());
   });
@@ -127,6 +132,14 @@ describe("edge functions that need no sign-in", () => {
       const code = read(`supabase/functions/${d}/index.ts`);
       expect(/auth\.getUser|getUser\(/.test(code) || /SERVICE_ROLE|serviceRole/.test(code), `${d} checks who is calling`).toBe(true);
     }
+  });
+
+  it("the server-to-server public functions check a secret of their own, in constant time", () => {
+    expect(read("supabase/functions/platform-schools/index.ts")).toMatch(/PLATFORM_CONSOLE_SECRET[\s\S]*secretsMatch|secretsMatch[\s\S]*PLATFORM_CONSOLE_SECRET/);
+    expect(read("supabase/functions/platform-decisions/index.ts")).toMatch(/verifyFigbloomWebhook/);
+    expect(read("supabase/functions/platform-events/index.ts")).toMatch(/verifyFigbloomWebhook/);
+    expect(read("supabase/functions/_shared/platformWebhook.ts")).toMatch(/secretsMatch/);
+    expect(read("supabase/functions/platform-sync/index.ts")).toMatch(/matchesAnyKey/);
   });
 
   it("the public functions that reach the database limit how often one caller may ask", () => {
@@ -202,7 +215,7 @@ describe("the GitHub workflows", () => {
 
 describe("the phone apps' dependencies", () => {
   const major = (v: string) => Number(/(\d+)/.exec(v)?.[1]);
-  for (const app of ["apps/mobile", "apps/teacher-mobile"]) {
+  for (const app of ["apps/mobile"]) {
     // native-stack 5 is a React Navigation 5 package; navigation itself is on 7 (npm ls shows 5.0.5 beside native 7.3.18).
     it.fails(`QA14-NAV-PIN FIG-1463: ${app} uses the same major version of @react-navigation/native-stack as of @react-navigation/native`, () => {
       const deps = (JSON.parse(read(`${app}/package.json`)) as { dependencies: Record<string, string> }).dependencies;

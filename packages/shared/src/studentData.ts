@@ -1,11 +1,12 @@
 import { supabase } from "./supabase";
 import { formatShortDate, formatWhen, type Receipt } from "./parentData";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
-import type { Audience, ClassLevel, Payment } from "./types";
+import type { Audience, ClassLevel } from "./types";
 import { receiptRef } from "./fees";
 import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharges";
 import { audienceIncludes, type AudienceViewer } from "./audience";
 import { normaliseGuide } from "./homework";
+import { fetchPaidPayments } from "./paidPayments";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -126,13 +127,7 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
     term
       ? supabase().from("fee_items").select("id, name, amount_cents, applies_to, form_level, level").eq("term_id", term.id)
       : Promise.resolve({ data: [] as StudentFeeData["feeItems"] }),
-    supabase()
-      .from("payments")
-      .select("id, amount_cents, method, mpesa_receipt, reference, completed_at, created_at, fee_invoices!inner(student_id)")
-      .eq("fee_invoices.student_id", studentRow.id)
-      .eq("status", "success")
-      .order("completed_at", { ascending: false })
-      .returns<{ id: string; amount_cents: number; method: Payment["method"]; mpesa_receipt: string | null; reference: string | null; completed_at: string | null; created_at: string }[]>(),
+    fetchPaidPayments([studentRow.id]),
   ]);
 
   // Only the lines (the balance is the invoice's), so a failed read costs the detail, not the total.

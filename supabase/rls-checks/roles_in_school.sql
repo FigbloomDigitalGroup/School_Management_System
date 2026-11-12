@@ -126,6 +126,9 @@ begin
   -- the marks the attacks aim at (a row in a subject the teacher does not teach)
   insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by) values (tid, ex, stu, bad, 50, teacher) on conflict do nothing;
   insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by) values (tid, ex, stu, good, 50, teacher) on conflict do nothing;   -- so there is something to publish
+  -- the server publishes a class and subject only when every active learner has an entry (FIG-1375): the rest of the class has a missed paper
+  insert into marks (tenant_id, exam_id, student_id, subject_id, score, entered_by, absence)
+    select tid, ex, s.id, good, null, teacher, 'missed' from students s where s.class_id = cx and s.active on conflict do nothing;
 
   -- ---------------------------------------------------------------- teacher: marks, exams, fees, publish
   select count(*) into pre from marks where tenant_id = tid and subject_id = bad;

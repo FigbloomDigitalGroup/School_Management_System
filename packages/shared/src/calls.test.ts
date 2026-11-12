@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CALL_RING_SECONDS, callDuration, isRingExpired, liveClassNotice, liveClassSubtitle, liveClassTitle, otherParty, ringLeftMs } from "./calls";
+import { CALL_RING_SECONDS, callDuration, callOutcome, filterCallsByName, isRingExpired, liveClassNotice, liveClassSubtitle, liveClassTitle, otherParty, ringLeftMs } from "./calls";
 
 const at = (iso: string) => new Date(iso);
 
@@ -12,6 +12,36 @@ describe("isRingExpired", () => {
 
   it("never expires a call that was answered", () => {
     expect(isRingExpired({ status: "accepted", created_at: "2026-10-27T08:00:00Z" }, at("2026-10-27T09:00:00Z"))).toBe(false);
+  });
+});
+
+describe("callOutcome", () => {
+  const created_at = "2026-10-27T08:00:00Z";
+  it("says answered, in progress, missed and declined in words, with a tone for each", () => {
+    expect(callOutcome({ status: "ended", created_at })).toEqual({ label: "Answered", tone: "ok" });
+    expect(callOutcome({ status: "accepted", created_at })).toEqual({ label: "In progress", tone: "info" });
+    expect(callOutcome({ status: "missed", created_at })).toEqual({ label: "Missed", tone: "warn" });
+    expect(callOutcome({ status: "declined", created_at })).toEqual({ label: "Declined", tone: "muted" });
+  });
+  it("says ringing while it rings, and missed once it stopped ringing and nobody closed it", () => {
+    expect(callOutcome({ status: "ringing", created_at }, at("2026-10-27T08:00:10Z"))).toEqual({ label: "Ringing", tone: "info" });
+    expect(callOutcome({ status: "ringing", created_at }, at("2026-10-27T08:05:00Z"))).toEqual({ label: "Missed", tone: "warn" });
+  });
+});
+
+describe("filterCallsByName", () => {
+  const calls = [
+    { caller_name: "Mary Otieno", callee_name: "Ann Wanjiru" },
+    { caller_name: "Ann Wanjiru", callee_name: "Joel Kamau" },
+    { caller_name: "Ruth Njeri", callee_name: "Peter Mwangi" },
+  ];
+  it("finds the calls a person made or took, by any part of their name, in any case", () => {
+    expect(filterCallsByName(calls, "ANN")).toHaveLength(2);
+    expect(filterCallsByName(calls, " peter ")).toEqual([calls[2]]);
+    expect(filterCallsByName(calls, "nobody")).toEqual([]);
+  });
+  it("lists every call when the filter is blank", () => {
+    expect(filterCallsByName(calls, "")).toHaveLength(3);
   });
 });
 

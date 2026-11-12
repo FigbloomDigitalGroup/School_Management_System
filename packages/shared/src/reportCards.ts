@@ -5,6 +5,7 @@ import { gradingSchemeFor, rubricFor, type GradingSchemeId } from "./gradingSche
 import { loadPublishedCbeResults } from "./cbeData";
 import { fetchCompetencyRatings, ratedItems, type RatedItem } from "./competencies";
 import { loadTermActivities, type TermActivities } from "./activities";
+import { countAttendance, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays } from "./attendanceSession";
 import type { ClassLevel } from "./types";
 
 /**
@@ -288,7 +289,7 @@ export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCa
             .returns<{ student_id: string; exam_id: string; subject_id: string; score: number | null; subjects: { name: string; code: string } | null }[]>())
       : Promise.resolve([]),
     loadClassCbe(ids, p.school.country, p.termId),
-    p.options.showAttendance ? loadAttendance(ids, p.termId) : Promise.resolve(new Map()),
+    p.options.showAttendance ? loadAttendance(p.tenantId, ids, p.termId) : Promise.resolve(new Map()),
     p.options.showFees ? loadFees(ids, p.termId) : Promise.resolve(new Map()),
     rubric ? fetchCompetencyRatings(p.termId, ids) : Promise.resolve(new Map<string, Map<string, string>>()),
     p.options.showActivities
@@ -331,17 +332,23 @@ async function loadClassCbe(studentIds: string[], country: string, termId: strin
   }))]));
 }
 
-async function loadAttendance(studentIds: string[], termId: string): Promise<Map<string, { present: number; days: number }>> {
+/**
+ * Each learner's attendance for the term, counted in the school's current mode (FIG-1514): both registers, an afternoon absence of a
+ * learner signed out early left out. `days` is the number of counted units: register entries by session, learner-days by day.
+ */
+export async function loadAttendance(tenantId: string, studentIds: string[], termId: string): Promise<Map<string, { present: number; days: number }>> {
   if (!studentIds.length) return new Map();
-  const rows = await fetchAllPages<{ student_id: string; mark: string }>((from, to) =>
-    supabase().from("attendance").select("student_id, mark").eq("term_id", termId).in("student_id", studentIds)
-      .order("student_id").order("taken_on").range(from, to).returns<{ student_id: string; mark: string }[]>());
+  const [settings, entries, signOuts] = await Promise.all([
+    fetchAttendanceSettings(tenantId),
+    fetchSessionEntries({ studentIds, termId }),
+    fetchSignOutDays({ studentIds }),
+  ]);
   const out = new Map<string, { present: number; days: number }>();
-  for (const r of rows) {
-    const a = out.get(r.student_id) ?? { present: 0, days: 0 };
+  for (const u of countAttendance(entries, settings.percentage_mode, signOuts)) {
+    const a = out.get(u.student_id) ?? { present: 0, days: 0 };
     a.days += 1;
-    if (r.mark === "present" || r.mark === "late") a.present += 1;
-    out.set(r.student_id, a);
+    if (u.here) a.present += 1;
+    out.set(u.student_id, a);
   }
   return out;
 }

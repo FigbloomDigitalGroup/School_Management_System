@@ -83,20 +83,22 @@ select pg_temp.check('A4 no *_at column is a date, and no *_on or date column is
               and ((column_name ~ '_at$' and data_type = 'date') or ((column_name ~ '_on$' or column_name ~ '(^|_)date$') and data_type = 'timestamp with time zone'))));
 
 -- A5 every reference to another row is a foreign key
-select pg_temp.check('A5 every uuid *_id column has a foreign key, except the two that are keyed by (doc_kind, doc_id) on purpose (signatures are evidence that outlives the document)',
-  (select coalesce(string_agg(c.table_name || '.' || c.column_name, ',' order by c.table_name), '') from information_schema.columns c
+select pg_temp.check('A5 every uuid *_id column has a foreign key, except the two that are keyed by (doc_kind, doc_id) on purpose (signatures are evidence that outlives the document), '
+  || 'the platform outbox''s local_id (an organisation''s or a school''s id: platform_links, platform_sync_queue) and event_id (an event''s own id, not a reference), '
+  || 'and the organisation a platform decision named (platform_webhook_deliveries: recorded even when Schools has no such organisation)',
+  (select coalesce(string_agg(c.table_name || '.' || c.column_name, ',' order by c.table_name, c.column_name), '') from information_schema.columns c
     join pg_tables t on t.schemaname = c.table_schema and t.tablename = c.table_name
    where c.table_schema = 'public' and c.data_type = 'uuid' and c.column_name like '%\_id' and c.column_name <> 'id'
      and not exists (select 1 from pg_constraint k where k.contype = 'f' and k.conrelid = format('public.%I', c.table_name)::regclass
                       and (select attnum from pg_attribute where attrelid = k.conrelid and attname = c.column_name) = any (k.conkey)))
-  = 'signature_requests.doc_id,signatures.doc_id');
+  = 'platform_links.local_id,platform_sync_queue.event_id,platform_sync_queue.local_id,platform_webhook_deliveries.organization_id,signature_requests.doc_id,signatures.doc_id');
 
 -- A6 every school-owned row has a school
-select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand, an org admin''s guide question in their organization console, which names the organization instead: 20261105200000)',
+select pg_temp.check('A6 tenant_id is NOT NULL on every table that has it, except where a row can belong to no school (a platform admin or org admin profile, a platform audit event, an organization access log, an official strand, an org admin''s guide question in their organization console, which names the organization instead: 20261105200000, a platform outbox row registering an organisation or a school rather than a school''s staff event: 20261105620000)',
   (select coalesce(string_agg(table_name, ',' order by table_name), '') from information_schema.columns
     where table_schema = 'public' and column_name = 'tenant_id' and is_nullable = 'YES'
       and table_name in (select tablename from pg_tables where schemaname = 'public'))
-  = 'ai_usage,audit_events,organization_access_log,profiles,strands');
+  = 'ai_usage,audit_events,organization_access_log,platform_sync_queue,profiles,strands');
 
 -- A7 uniqueness per school
 create function pg_temp.has_unique(p_tbl text, p_cols text[]) returns boolean language sql as $$
@@ -116,6 +118,7 @@ select pg_temp.check('A7 ' || x.tbl || '(' || array_to_string(x.cols, ', ') || '
     ('fee_invoices', array['student_id', 'term_id'], ': one invoice per learner per term'),
     ('marks', array['exam_id', 'student_id', 'subject_id'], ': one mark per learner, exam and subject'),
     ('attendance', array['student_id', 'taken_on'], ': one register entry per learner per day'),
+    ('attendance_afternoon', array['student_id', 'taken_on'], ': one afternoon register entry per learner per day (FIG-1514; the offline queue upserts on it)'),
     ('guardians', array['profile_id', 'student_id'], ''),
     ('exams', array['term_id', 'name'], ''),
     ('teaching_assignments', array['class_id', 'subject_id'], ': one teacher per class and subject'),
@@ -128,6 +131,25 @@ select pg_temp.info('A7 no unique key on fee_items(name) per term: two items wit
 select pg_temp.info('A8 delete rules over every foreign key: ' || (select string_agg(r || ' ' || n, ', ' order by n desc) from
   (select case confdeltype when 'c' then 'CASCADE' when 'n' then 'SET NULL' when 'r' then 'RESTRICT' when 'a' then 'NO ACTION' else 'OTHER' end as r, count(*) as n
      from pg_constraint where contype = 'f' and connamespace = 'public'::regnamespace group by 1) d));
+
+-- A9 an index the hot reads need (QA 18). The Dashboard's "latest register date" (FIG-1496) reads the newest taken_on of one school's
+-- term; without an index in that order it read and checked every row of the term (20.7 s at 1,512 learners, cut off at 8 s).
+create function pg_temp.has_index_starting(p_tbl text, p_cols text[], p_partial_ok boolean default true) returns boolean language sql as $$
+  select exists (
+    select 1 from pg_index i
+     where i.indrelid = ('public.' || quote_ident(p_tbl))::regclass and i.indisvalid and (p_partial_ok or i.indpred is null)
+       and (select array_agg(a.attname::text order by k.ord) from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum
+             where k.ord <= cardinality(p_cols)) = p_cols);
+$$;
+select pg_temp.check('A9 attendance has an index that starts tenant_id, term_id, taken_on (the Dashboard''s latest register date stops at the first entry)',
+  pg_temp.has_index_starting('attendance', array['tenant_id', 'term_id', 'taken_on']));
+-- FIG-1497: a parent's payments are reached through their children's invoices (payments by invoice), and a learner's own login by profile_id.
+-- Without them every payment of every school, and every learner of the platform, was read and permission-checked (12.1 s at 1,512 learners).
+select pg_temp.check('A9 payments has an index that starts invoice_id (a family''s payments are found from their invoices, not by reading every payment)',
+  pg_temp.has_index_starting('payments', array['invoice_id'], false)); -- a whole index: the older one on pending payments only does not count
+select pg_temp.check('A9 students has an index that starts profile_id (the rule "a learner reads their own payments" no longer reads every learner)',
+  pg_temp.has_index_starting('students', array['profile_id']));
 
 -- ---------------------------------------------------------------- B. rows that point at nothing, or at another school
 -- A foreign key only proves the parent exists, wherever it lives. For every single-column foreign key between two tables that both
@@ -373,12 +395,14 @@ begin
   select count(*) into live_n from students where tenant_id = current_setting('t.k')::uuid and active;
   perform pg_temp.check('C6 adding a learner moves the organization summary by one (' || before_n || ' to ' || after_add || ')', after_add = before_n + 1);
   perform pg_temp.check('C6 removing the learner puts it back (' || after_del || '), and it equals the live count (' || live_n || ')', after_del = before_n and after_del = live_n);
-  -- a school leaving its organization drops out of the summary, and rejoining brings it back
+  -- a school leaving its organization drops out of the summary, and rejoining brings it back. Since 20261104920000 every school has
+  -- an organization, so leaving one means moving to an organization of its own.
   declare org uuid;
   begin
     select organization_id into org from tenants where id = current_setting('t.k')::uuid;
-    update tenants set organization_id = null where id = current_setting('t.k')::uuid;
-    perform pg_temp.check('C6 a school that leaves its organization drops out of the group''s summary (its row is kept with no organization)', not exists (select 1 from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid and organization_id is not null));
+    update tenants set organization_id = create_school_own_organization('QA15 own organization', 'qa15-own-org', 'Nairobi', null)
+     where id = current_setting('t.k')::uuid;
+    perform pg_temp.check('C6 a school that leaves its organization drops out of the group''s summary', not exists (select 1 from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid and organization_id = org));
     update tenants set organization_id = org where id = current_setting('t.k')::uuid;
     perform pg_temp.check('C6 and has one again, with the right learner count, when it rejoins',
       (select active_students from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = live_n);
@@ -386,15 +410,28 @@ begin
 end $$;
 select pg_temp.summary_case();
 
+-- FIG-1499: the group summary is recounted once per statement, not once per row. A row trigger recounted the school 42 times for a
+-- register and 1,512 times for a whole school's learners (1,690 ms against 4.9 ms); and every recount kept the school's one summary row
+-- locked until the transaction ended, so teachers saving at the same moment queued behind each other.
+select pg_temp.check('C6 no row-level trigger on attendance, students or fee_invoices recounts the group summary (FIG-1499)',
+  not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+               where not t.tgisinternal and t.tgrelid in ('attendance'::regclass, 'students'::regclass, 'fee_invoices'::regclass)
+                 and p.proname like 'trg_refresh_org_summary%' and (t.tgtype & 1) = 1));
+select pg_temp.check('C6 each of the three tables has a statement trigger for insert, update and delete that refreshes it (9 in all)',
+  (select count(*) from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+    where not t.tgisinternal and t.tgrelid in ('attendance'::regclass, 'students'::regclass, 'fee_invoices'::regclass)
+      and p.proname = 'trg_refresh_org_summary_statement' and (t.tgtype & 3) = 0
+      and (t.tgtype & 4) + (t.tgtype & 8) + (t.tgtype & 16) in (4, 8, 16)) = 9);
+
 -- ---------------------------------------------------------------- D. the login number
 -- next_login_number is "one past the highest number in profiles": it reads, it does not reserve. Two requests at the same moment
 -- read the same highest number and are handed the same number. The unique keys then make the later one fail (nothing is
 -- duplicated), but that one fails with a raw error. Two calls before either has inserted its profile show it without any timing luck.
 select pg_temp.check('D1 two calls for the same school and role give different numbers (so two simultaneous account creations cannot be handed the same one)',
-  next_login_number(current_setting('t.a')::uuid, 'student') <> next_login_number(current_setting('t.a')::uuid, 'student'), 'QA15-LOGIN-NUMBER FIG-1468');
+  next_login_number(current_setting('t.a')::uuid, 'student') <> next_login_number(current_setting('t.a')::uuid, 'student'));
 select pg_temp.check('D1 the function is volatile or takes a lock or a sequence (it is STABLE and reads max+1)',
   (select provolatile <> 's' from pg_proc where oid = 'next_login_number'::regproc) or position('nextval' in pg_get_functiondef('next_login_number'::regproc)) > 0
-  or position('lock' in lower(pg_get_functiondef('next_login_number'::regproc))) > 0, 'QA15-LOGIN-NUMBER FIG-1468');
+  or position('lock' in lower(pg_get_functiondef('next_login_number'::regproc))) > 0);
 select pg_temp.check('D1 login IDs are unique per school, so a clash can fail but never duplicate (profiles: tenant_id, login_id; auth email is unique too)',
   pg_temp.has_unique('profiles', array['tenant_id', 'login_id']));
 

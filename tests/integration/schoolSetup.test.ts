@@ -4,14 +4,14 @@ import { saveClassTimetable, fetchClassTimetableSlots } from "../../packages/sha
 import { loginIdEmail } from "../../packages/shared/src/auth";
 import { gradeFor } from "../../packages/shared/src/grading";
 import { gradingSchemeFor } from "../../packages/shared/src/gradingSchemes";
-import { assignCoverage } from "../../apps/web/src/lib/coverage";
+import { assignCoverage } from "../../packages/shared/src/coverage";
 import { TEST_ROLES, anonClient, signInAs, type SignedIn, type TestRole } from "./support/signInAs";
 import { assertLocalSupabaseUrl } from "./support/localGuard";
 
 /**
  * QA 12 (FIG-1245): school setup through the app's own functions and the public sign-in functions: which schools can sign in
  * by status (the decision the issue asks to record), what the timetable save does when it is refused part-way, what the
- * cover assignment tells a substitute, and why a grade changes when a class's level does. The database rules are in
+ * cover assignment tells a substitute, and why a class that has marks cannot change level (every grade is worked out from it). The database rules are in
  * supabase/rls-checks/school_setup.sql, the screens are in e2e/setup.spec.ts.
  *
  * Kijani Ridge's status is changed (as the platform admin, the way the console does) and put back in afterAll. Everything else
@@ -76,13 +76,13 @@ afterAll(async () => {
     if (now.data?.status !== "active") errors.push(`Kijani Ridge is ${now.data?.status}`);
   }
   if (admin) {
-    const notes = await admin.client.from("announcements").delete().eq("tenant_id", tenantId).like("subject", `Covering % QA12 ${run}%`);
+    const notes = await admin.client.from("announcements").delete().eq("tenant_id", tenantId).like("subject", `%QA12 ${run}%`);
     if (notes.error) errors.push(`removing the cover messages: ${notes.error.message}`);
     const gone = await admin.client.from("classes").delete().eq("id", wipeClass);
     if (gone.error) errors.push(`removing the throwaway class: ${gone.error.message}`);
     const left = await admin.client.from("classes").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).like("name", "QA12 %");
     if (left.count) errors.push(`${left.count} QA12 classes are still there`);
-    const msgs = await admin.client.from("announcements").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).like("subject", `Covering % QA12 ${run}%`);
+    const msgs = await admin.client.from("announcements").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).like("subject", `%QA12 ${run}%`);
     if (msgs.count) errors.push(`${msgs.count} cover messages are still there`);
   }
   if (table.length) console.log("\n" + table.map((r) => r.join(" | ")).join("\n"));
@@ -162,7 +162,7 @@ describe("saving a class's timetable", () => {
     expect(refused).toMatch(/check constraint|violates/i);
   });
 
-  it.fails("QA12-TIMETABLE FIG-1431: a refused save leaves the class's old timetable as it was (the save deletes every period first, then inserts, in two requests)", () => {
+  it("QA12-TIMETABLE FIG-1431: a refused save leaves the class's old timetable as it was (one database call, so the delete is undone with the insert)", () => {
     expect(kept).toBe(3);
   });
 });
@@ -173,7 +173,7 @@ describe("assigning cover", () => {
   // The substitute is TC-0002 (so the test can read what the substitute sees); the "absent" teacher is the admin's profile, which is all
   // the database needs: any two profiles of the school. The slot is a throwaway class's, a date far in the future.
   const item = () => ({ date: "2041-03-03", classId: wipeClass, className: `QA12 ${run} wipe`, subjectId: chemistry, subjectName: "Chemistry", time: "08:00", absentTeacherId: admin.userId });
-  const mine = async () => ((await teacher.client.from("announcements").select("subject, body").like("subject", `Covering % QA12 ${run}%`)).data ?? []) as { subject: string; body: string }[];
+  const mine = async () => ((await teacher.client.from("announcements").select("subject, body").like("subject", `%QA12 ${run}%`)).data ?? []) as { subject: string; body: string }[];
   let afterFree: { subject: string; body: string }[] = [];
 
   it("the substitute is told in the app when cover is assigned to them", async () => {
@@ -193,7 +193,7 @@ describe("assigning cover", () => {
     table.push(["Cover changed to a free period", "what the earlier substitute can read", "told it is off", `${afterFree.length} message(s): ${afterFree.map((m) => m.body.slice(0, 22)).join(" / ")}`]);
   });
 
-  it.fails("QA12-COVER FIG-1434: a substitute who was told they are covering is told when the cover is taken away", () => {
+  it("QA12-COVER FIG-1434: a substitute who was told they are covering is told when the cover is taken away", () => {
     const stillCovering = afterFree.some((m) => /You're covering/.test(m.body));
     const toldItIsOff = afterFree.some((m) => /no longer|not covering|cancel|withdrawn|free period/i.test(m.subject + " " + m.body));
     expect(!stillCovering || toldItIsOff).toBe(true);
@@ -214,5 +214,36 @@ describe("a grade is worked out from the class's level every time it is shown", 
     table.push(["Grade of the same mark", "secondary / junior_secondary scale", "same", `${differing.length} of 101 marks differ, e.g. ${differing.slice(30, 33).join(", ")}`]);
     expect(secondary).not.toBe(junior);
     expect(differing.length).toBeGreaterThan(0);
+  });
+
+  it("QA12-REGRADE FIG-1435: so a class that already has marks cannot be moved to another level, and one with none still can", async () => {
+    const exam = (await admin.client.from("exams").select("id").eq("tenant_id", tenantId).limit(1).single()).data!.id as string;
+    const kid = await admin.client.from("students").insert({
+      tenant_id: tenantId, admission_no: `QA12-${run}-REGRADE`, full_name: "QA12 Regrade Learner", class_id: wipeClass, boarding: false, active: true, gender: "female",
+    }).select("id").single();
+    expect(kid.error).toBeNull();
+    const kidId = kid.data!.id as string;
+    try {
+      const given = await admin.client.from("marks").insert({ tenant_id: tenantId, exam_id: exam, student_id: kidId, subject_id: chemistry, entered_by: admin.userId, score: 72 });
+      expect(given.error).toBeNull();
+
+      const moved = await admin.client.from("classes").update({ level: "primary" }).eq("id", wipeClass).select();
+      expect(moved.error?.code).toBe("23514");
+      expect(moved.error?.message).toMatch(/already has marks/);
+      expect((await admin.client.from("classes").select("level").eq("id", wipeClass).single()).data?.level).toBe("secondary");
+
+      // The year within the level and the name are not a change of scale.
+      const yearAndName = await admin.client.from("classes").update({ form_level: 2, name: `QA12 ${run} wipe` }).eq("id", wipeClass).select();
+      expect(yearAndName.error).toBeNull();
+
+      // Once the learner has no marks the class can be corrected.
+      await admin.client.from("marks").delete().eq("student_id", kidId);
+      const corrected = await admin.client.from("classes").update({ level: "primary", form_level: 2 }).eq("id", wipeClass).select("level").single();
+      expect(corrected.error).toBeNull();
+      expect(corrected.data?.level).toBe("primary");
+    } finally {
+      await admin.client.from("marks").delete().eq("student_id", kidId);
+      await admin.client.from("students").delete().eq("id", kidId);
+    }
   });
 });

@@ -134,7 +134,9 @@ export function parents() {
     reqs.push(["p07_marks_one_exam", "GET", "/rest/v1/marks?select=score,subject_id,subjects(name)&exam_id=eq." + n.exam + "&student_id=eq." + k.id]);
   }
   reqs.push(["p08_fee_items", "GET", "/rest/v1/fee_items?select=id,name,amount_cents,applies_to,form_level,level&term_id=eq." + termId]);
-  reqs.push(["p09_payments", "GET", "/rest/v1/payments?select=id,amount_cents,method,mpesa_receipt,reference,msisdn,completed_at,created_at,fee_invoices!inner(student_id)&fee_invoices.student_id=in.(" + ids + ")&status=eq.success&order=completed_at.desc"]);
+  // Starts from the children's invoices and has the database fetch each one's payments (packages/shared/src/paidPayments.ts, FIG-1497); the older
+  // shape, payments with the invoice embedded, made PostgREST permission-check every payment of every school first.
+  reqs.push(["p09_payments", "GET", "/rest/v1/fee_invoices?select=student_id,payments!inner(id,amount_cents,method,mpesa_receipt,reference,msisdn,completed_at,created_at)&student_id=in.(" + ids + ")&payments.status=eq.success"]);
   reqs.push(["p10_announcements", "GET", "/rest/v1/announcements?select=id,subject,body,audience,published_at,created_at,profiles!announcements_author_id_fkey(full_name,role)&order=created_at.desc"]);
   reqs.push(["p11_reads", "GET", "/rest/v1/announcement_reads?select=announcement_id&profile_id=eq." + me.id]);
   batch(reqs, me.token).forEach(mark);

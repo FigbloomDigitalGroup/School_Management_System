@@ -4,12 +4,19 @@ import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
   isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
   supabase, fetchHealthFlagsForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
-  type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type Register,
+  adminAccessFor, fetchEarlySignOutsForStudents, liveSignOutsByStudent, markWithSignOut, mayRecordEarlySignOut, mayVoidEarlySignOut,
+  voidEarlySignOut, leftEarlyText,
+  fetchAttendanceSettings, sessionAt, sessionsOffered, REGISTER_TABLE, SESSION_LABEL,
+  type AttendanceSession, type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type EarlySignOut, type Register,
 } from "@figbloom/shared";
+import { EarlySignOutModal } from "../../components/attendance/EarlySignOutModal";
+import { SessionSwitch } from "../../components/attendance/SessionSwitch";
+import { collectorLine, leftEarlyLabel, liveSignOutRows } from "../../lib/earlySignOutView";
 import { HealthChip, flagsById } from "../../components/learners/Health";
 import { Badge } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { promptDialog } from "../../components/ui/Confirm";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useToast } from "../../components/ui/Toast";
 import { queue } from "../../lib/queue";
@@ -29,7 +36,9 @@ interface ClassProgress {
 /** Today's state across every class this teacher has, not just the one
  *  they're looking at — what the "your classes today" cards on the
  *  confirmation screen are built from. */
-async function fetchClassProgress(classes: Pick<ClassGroup, "id" | "name">[]): Promise<Map<string, ClassProgress>> {
+async function fetchClassProgress(
+  classes: Pick<ClassGroup, "id" | "name">[], session: AttendanceSession, timeZone?: string,
+): Promise<Map<string, ClassProgress>> {
   const classIds = classes.map((c) => c.id);
   const out = new Map<string, ClassProgress>();
   if (classIds.length === 0) return out;
@@ -37,8 +46,8 @@ async function fetchClassProgress(classes: Pick<ClassGroup, "id" | "name">[]): P
   const [{ data: studentRows, error: e1 }, { data: attRows, error: e2 }] = await Promise.all([
     supabase().from("students").select("id, class_id").eq("active", true).in("class_id", classIds)
       .returns<{ id: string; class_id: string }[]>(),
-    supabase().from("attendance").select("class_id, mark, note, created_at, students(full_name)")
-      .in("class_id", classIds).eq("taken_on", today())
+    supabase().from(REGISTER_TABLE[session]).select("class_id, mark, note, created_at, students(full_name)")
+      .in("class_id", classIds).eq("taken_on", today(timeZone))
       .returns<{ class_id: string; mark: AttendanceMark; note: string | null; created_at: string; students: { full_name: string } | null }[]>(),
   ]);
   if (e1) throw new Error(e1.message);
@@ -79,12 +88,25 @@ const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day
 export function Attendance() {
   const online = useOnline();
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
+  const access = adminAccessFor(profile.role, adminAreas, actingForTenant);
 
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data: term, loading: termLoading } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
   const [params] = useSearchParams();
+
+  // FIG-1514: the school's settings decide whether there is an afternoon register. A failed read gives the defaults (morning only).
+  const { data: settings } = useAsync(() => fetchAttendanceSettings(tenant.id), [tenant.id]);
+  const [chosenSession, setChosenSession] = useState<AttendanceSession | null>(null);
+  // The default is fixed when the screen opens: re-reading the clock on every render would flip a register being marked at 11:59 to
+  // the afternoon at 12:00 and drop the unsaved marks. The teacher switches by hand.
+  const [openedAt] = useState(() => new Date());
+  // null until the settings are known, so the marks below are not read for the wrong register.
+  const offered = settings ? sessionsOffered(settings) : null;
+  const session: AttendanceSession | null = !settings || !offered ? null
+    : chosenSession && offered.includes(chosenSession) ? chosenSession
+    : sessionAt(settings.afternoon_enabled, tenant.timezone, openedAt);
 
   const [classId, setClassId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -117,8 +139,8 @@ export function Attendance() {
     [classId],
   );
   const { data: todayMarks, loading: marksLoading } = useAsync(
-    () => (classId ? fetchTodayAttendanceMarks(classId) : Promise.resolve([])),
-    [classId],
+    () => (classId && session ? fetchTodayAttendanceMarks(classId, session, tenant.timezone) : Promise.resolve([])),
+    [classId, session, tenant.timezone],
   );
   const roster = rosterData ?? [];
   // Allergies and conditions, so a teacher sees them while marking. A failed read just shows no chips.
@@ -133,28 +155,75 @@ export function Attendance() {
     [classId],
   );
 
+  // Today's early sign-outs for this class (FIG-1513 stage A), shown beside the mark. A failed read shows none.
+  const [signOutKey, setSignOutKey] = useState(0);
+  // All of today's rows for the class (voided included) and the latest live one per learner, from one fetch.
+  const { data: signOutData } = useAsync<{ rows: EarlySignOut[]; latest: Map<string, EarlySignOut> }>(
+    () => (rosterData?.length
+      ? fetchEarlySignOutsForStudents(rosterData.map((s) => s.id))
+        .then((rows) => ({ rows, latest: liveSignOutsByStudent(rows) }))
+        .catch(() => ({ rows: [], latest: new Map<string, EarlySignOut>() }))
+      : Promise.resolve({ rows: [], latest: new Map<string, EarlySignOut>() })),
+    [rosterData, signOutKey],
+  );
+  const signOuts = signOutData?.latest;
+  const signOutRows = signOutData?.rows;
+  const [signingOut, setSigningOut] = useState<{ id: string; name: string; mark: AttendanceMark } | null>(null);
+  const [voidingId, setVoidingId] = useState<string | null>(null);
+
+  /** Voids a sign-out made by mistake; void_early_sign_out() decides who may and its refusal is shown as it comes. */
+  async function voidSignOut(s: EarlySignOut) {
+    const reason = await promptDialog({
+      title: `Void ${s.student_name}'s sign-out?`,
+      body: "It stays on record, marked void, with your reason. Use it only for a sign-out made by mistake.",
+      label: "Reason",
+      required: true,
+      confirmLabel: "Void sign-out",
+    });
+    if (reason === null) return;
+    setVoidingId(s.id);
+    try {
+      await voidEarlySignOut(s.id, reason);
+      toast("Sign-out voided.");
+      setSignOutKey((k) => k + 1);
+    } catch (err) {
+      toast(`Could not void the sign-out: ${err instanceof Error ? err.message : "something went wrong"}`, "error");
+    } finally {
+      setVoidingId(null);
+    }
+  }
+
   const [reg, setReg] = useState<Register | null>(null);
 
   useEffect(() => {
-    if (!classId || !term?.id || !rosterData || !todayMarks) return;
-    const base = newRegister(classId, term.id, rosterData.map((s) => s.id));
+    if (!classId || !session || !term?.id || !rosterData || !todayMarks) return;
+    const base = newRegister(classId, term.id, rosterData.map((s) => s.id), today(tenant.timezone));
     for (const row of todayMarks) {
       if (row.student_id in base.marks) base.marks[row.student_id] = row.mark;
     }
     setReg(base);
-  }, [classId, term?.id, rosterData, todayMarks]);
+  }, [classId, session, term?.id, rosterData, todayMarks, tenant.timezone]);
 
   // A register already taken today (by this teacher, earlier, or from another
   // device) should open straight to the "already in" screen, not the roster.
   // marksLoading guards against judging by the outgoing class's stale marks
   // before the new class's have actually loaded.
   useEffect(() => {
-    if (!classId || marksLoading || !todayMarks) return;
+    if (!classId || !session || marksLoading || !todayMarks) return;
     setSubmitted(todayMarks.length > 0);
-  }, [classId, marksLoading, todayMarks]);
+  }, [classId, session, marksLoading, todayMarks]);
 
   function switchClass(id: string) {
     setClassId(id);
+    setSubmitted(null);
+    setReg(null);
+  }
+
+  /** Another register of the same day: what was in progress for this one is dropped, and the other's state is read afresh. */
+  function switchSession(next: AttendanceSession) {
+    if (next === session) return;
+    setChosenSession(next);
+    setConfirming(null);
     setSubmitted(null);
     setReg(null);
   }
@@ -164,8 +233,8 @@ export function Attendance() {
   // waiting for a remount.
   const [progressReloadKey, setProgressReloadKey] = useState(0);
   const { data: classProgress } = useAsync(
-    () => fetchClassProgress(classesData),
-    [classesData, progressReloadKey],
+    () => (session ? fetchClassProgress(classesData, session, tenant.timezone) : Promise.resolve(new Map<string, ClassProgress>())),
+    [classesData, progressReloadKey, session, tenant.timezone],
   );
 
   const counts = useMemo(
@@ -182,32 +251,33 @@ export function Attendance() {
   }
 
   /** Keeps the register on this device and says so. It sends itself once there is signal. */
-  async function holdOnDevice(r: Register) {
-    await queue.enqueue("attendance", toRecords(r, tenant.id, profile.id));
+  async function holdOnDevice(r: Register, s: AttendanceSession) {
+    // The morning register is still queued as "attendance", exactly as before; the afternoon one as "attendance_afternoon".
+    await queue.enqueue(REGISTER_TABLE[s], toRecords(r, tenant.id, profile.id));
     setHeld((await queue.pending()).length);
     setSubmitted(true);
     toast("Saved on this phone. It will send itself when you have signal.");
   }
 
   async function submit() {
-    if (!reg || saving) return;
+    if (!reg || !session || saving) return;
     const warning = submitWarning(reg);
     if (warning && !confirming) { setConfirming(warning); return; }
     setConfirming(null);
     setSaving(true);
     try {
       if (!online) {
-        await holdOnDevice(reg);
+        await holdOnDevice(reg, session);
         return;
       }
       // "Online" only means the browser has a network, not that the school's server
       // answered, so say the register is in only once it really is.
       try {
-        await writeAttendance(reg, tenant.id, profile.id);
+        await writeAttendance(reg, tenant.id, profile.id, session);
       } catch (err) {
         if (!isRetryable(err)) throw err;
         // No answer or a server in trouble: don't lose the register, hold it.
-        await holdOnDevice(reg);
+        await holdOnDevice(reg, session);
         return;
       }
       setSubmitted(true);
@@ -224,6 +294,10 @@ export function Attendance() {
   }
 
   const cls = classesData.find((c) => c.id === classId);
+  // The class teacher, or a holder of the attendance area, may sign a learner out; record_early_sign_out() enforces the same.
+  const canSignOut = mayRecordEarlySignOut(access, !!cls && cls.class_teacher_id === profile.id);
+  // Every live sign-out of the class today, in the order they left (display only, for the "register is in" screen), so an earlier one can be voided too.
+  const leftEarlyToday = liveSignOutRows(signOutRows ?? []);
 
   // Loaded and empty, as opposed to still loading: a sentence, not a skeleton
   // that never resolves. A register needs both a class and an open term.
@@ -242,7 +316,7 @@ export function Attendance() {
     );
   }
 
-  if (classesLoading || !cls || submitted === null) {
+  if (classesLoading || !cls || !session || !offered || submitted === null) {
     return (
       <div className="min-h-screen bg-page p-6">
         <TableSkeleton rows={8} />
@@ -256,7 +330,9 @@ export function Attendance() {
         <header className="flex flex-wrap items-center gap-3 border-b border-line bg-white px-6 py-4">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ok-bg text-lg text-ok-ink">✓</span>
           <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold">{cls.name} register is in</div>
+            <div className="text-[15px] font-semibold">
+              {cls.name} {offered.length > 1 ? `${SESSION_LABEL[session].toLowerCase()} ` : ""}register is in
+            </div>
             <div className="mt-0.5 truncate text-[12px] text-ink-muted">
               {/* The register (term + roster) can still be loading behind an
                   already-submitted day — don't report it as 0/0/0. */}
@@ -266,9 +342,36 @@ export function Attendance() {
                 : "parents of absent learners get an SMS at 09:00, not immediately"}
             </div>
           </div>
+          {offered.length > 1 && <SessionSwitch value={session} options={offered} onChange={switchSession} />}
           <Button variant="primary" onClick={() => setSubmitted(false)}>Correct a mark</Button>
           <AccessibilityButton />
         </header>
+
+        {leftEarlyToday.length > 0 && (
+          <section className="mx-6 mt-6 rounded-xl border border-line bg-white p-4" aria-label="Left early today">
+            <div className="mb-2 font-mono text-micro tracking-[0.12em] text-ink-faint">LEFT EARLY TODAY · {cls.name}</div>
+            <ul className="grid gap-1.5">
+              {leftEarlyToday.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{s.student_name}</span>
+                    <span className="text-ink-muted"> · {leftEarlyText(s)} · collected by {collectorLine(s)}</span>
+                  </span>
+                  {mayVoidEarlySignOut(access, s.recorded_by, profile.id) && (
+                    <Button
+                      variant="danger"
+                      disabled={!online || voidingId === s.id}
+                      title={online ? "Void a sign-out made by mistake" : "Voiding needs a connection"}
+                      onClick={() => void voidSignOut(s)}
+                    >
+                      {voidingId === s.id ? "Voiding…" : "Void"}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <div className="px-6 py-6">
           <div className="mb-3 font-mono text-micro tracking-[0.12em] text-ink-faint">YOUR CLASSES TODAY</div>
@@ -347,6 +450,7 @@ export function Attendance() {
                 {classesData.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               {rosterLoading ? <Skeleton className="h-3 w-20" /> : <span className="text-[13px] text-ink-muted">{roster.length} learners</span>}
+              {offered.length > 1 && <SessionSwitch value={session} options={offered} onChange={switchSession} />}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -376,6 +480,7 @@ export function Attendance() {
           {roster.map((s, i) => {
             const mark = reg.marks[s.id] ?? "present";
             const style = MARK_STYLE[mark];
+            const signOut = signOuts?.get(s.id);
             return (
               <li key={s.id}>
                 <div className="flex items-center gap-3 border-b border-line-soft bg-white px-5" style={{ minHeight: 56 }}>
@@ -386,6 +491,30 @@ export function Attendance() {
                     <div className="font-mono text-[10.5px] text-ink-faint">ADM {s.admission_no}</div>
                   </button>
                   {sickBay?.get(s.id) && <Badge tone="warn">{CLASS_SICK_BAY_LABEL[sickBay.get(s.id)!]}</Badge>}
+                  {signOut && (
+                    <>
+                      <Badge tone="info">{leftEarlyLabel(signOut)}</Badge>
+                      {mayVoidEarlySignOut(access, signOut.recorded_by, profile.id) && (
+                        <Button
+                          variant="danger"
+                          disabled={!online || voidingId === signOut.id}
+                          title={online ? "Void a sign-out made by mistake" : "Voiding needs a connection"}
+                          onClick={() => void voidSignOut(signOut)}
+                        >
+                          {voidingId === signOut.id ? "Voiding…" : "Void"}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {canSignOut && (
+                    <Button
+                      disabled={!online}
+                      title={online ? "Record that this learner left school early" : "Signing out needs a connection"}
+                      onClick={() => setSigningOut({ id: s.id, name: s.full_name, mark })}
+                    >
+                      {signOut ? "Sign out again" : "Sign out early"}
+                    </Button>
+                  )}
                   <HealthChip flags={healthFlags?.get(s.id) ?? null} name={s.full_name} />
                   <div role="group" aria-label={`Mark for ${s.full_name}`} className="flex shrink-0 gap-1.5">
                     {(["present", "absent", "late"] as AttendanceMark[]).map((k) => {
@@ -409,7 +538,7 @@ export function Attendance() {
                       );
                     })}
                   </div>
-                  <span className="hidden w-16 shrink-0 text-right text-[11.5px] sm:block" style={{ color: style.ink }}>
+                  <span className="hidden w-16 shrink-0 text-right text-[11.5px] sm:block" style={{ color: style.ink }} title={markWithSignOut(MARK_LABEL[mark], signOut)}>
                     {MARK_LABEL[mark]}
                   </span>
                 </div>
@@ -443,6 +572,17 @@ export function Attendance() {
           </div>
         )}
       </footer>
+
+      {signingOut && (
+        <EarlySignOutModal
+          studentId={signingOut.id}
+          studentName={signingOut.name}
+          className={cls.name}
+          todayMark={signingOut.mark}
+          onClose={() => setSigningOut(null)}
+          onRecorded={() => setSignOutKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }

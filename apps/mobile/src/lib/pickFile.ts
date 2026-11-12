@@ -18,6 +18,13 @@ export type FileSource = "camera" | "gallery" | "document";
 export const PDF_OR_IMAGE: string[] = [types.pdf, types.images];
 /** Anything, for a chat: the chat then checks the type against what its storage takes. */
 export const ANY_FILE: string[] = [types.allFiles];
+/** What Figbloom HR takes with a leave application (LEAVE_DOCUMENT_TYPES in shared): a PDF, a photo, a Word document. */
+export const LEAVE_DOCUMENT_FILES: string[] = [types.pdf, types.images, types.doc, types.docx];
+
+export interface PickOptions {
+  /** Shrinks a photo so neither side is longer than this many pixels: a phone's camera photo can be several MB, a leave document may not. */
+  maxPixels?: number;
+}
 
 /**
  * Gets one file from the phone, from the system's own camera, photo picker or
@@ -28,15 +35,15 @@ export const ANY_FILE: string[] = [types.allFiles];
  * until it is granted, so it is asked for first. iOS says why in Info.plist.)
  * null when they back out. `documentTypes` only narrows the file browser.
  */
-export async function pickFile(source: FileSource, documentTypes: string[] = PDF_OR_IMAGE): Promise<PickedFile | null> {
+export async function pickFile(source: FileSource, documentTypes: string[] = PDF_OR_IMAGE, { maxPixels }: PickOptions = {}): Promise<PickedFile | null> {
   if (source === "document") return pickDocument(documentTypes);
   if (source === "camera" && Platform.OS === "android") {
     const granted = await PermissionsAndroid.request("android.permission.CAMERA");
     if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error("Allow the camera in your phone's settings to take a photo here.");
   }
   const result = source === "camera"
-    ? await launchCamera({ mediaType: "photo", quality: 0.8, saveToPhotos: false })
-    : await launchImageLibrary({ mediaType: "photo", quality: 0.8, selectionLimit: 1 });
+    ? await launchCamera({ mediaType: "photo", quality: 0.8, saveToPhotos: false, maxWidth: maxPixels, maxHeight: maxPixels })
+    : await launchImageLibrary({ mediaType: "photo", quality: 0.8, selectionLimit: 1, maxWidth: maxPixels, maxHeight: maxPixels });
   if (result.didCancel) return null;
   if (result.errorCode === "camera_unavailable") throw new Error("This phone has no camera the app can use.");
   if (result.errorCode) throw new Error(result.errorMessage ?? (source === "camera" ? "Could not open the camera." : "Could not open your photos."));
@@ -97,4 +104,20 @@ function readLocalBlob(uri: string): Promise<Blob> {
 /** Reads the picked file into what the shared upload helpers take. */
 export async function readPickedFile(file: PickedFile): Promise<UploadableFile> {
   return { blob: await readLocalBlob(file.uri), name: file.name, mimeType: file.mimeType };
+}
+
+/**
+ * The picked file as base64 (no "data:...;base64," prefix), for a call that carries the file in its JSON body
+ * (a leave document going to HR), with its size from the bytes actually read: the phone's own idea of the size
+ * can be missing.
+ */
+export async function readPickedBase64(file: PickedFile): Promise<{ base64: string; size: number }> {
+  const blob = await readLocalBlob(file.uri);
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+    reader.onerror = () => reject(new Error("Could not read that file. Choose it again."));
+    reader.readAsDataURL(blob);
+  });
+  return { base64, size: blob.size };
 }

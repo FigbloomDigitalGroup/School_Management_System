@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchAllPages, formatMoney, parseShillings, planTermBilling, supabase, type ClassLevel, type FeeItem, type Term } from "@figbloom/shared";
+import {
+  PAYMENT_METHODS, fetchAllPages, formatMoney, learnerNameOf, paymentFormStart, planTermBilling, readPaymentEntry, recordPayment, searchPayableInvoices, supabase,
+  type ClassLevel, type FeeItem, type PayableInvoice, type PaymentMethodValue, type ProofToConfirm, type Term,
+} from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { SelectField, TextField } from "../../components/ui/Field";
@@ -126,57 +129,6 @@ export function BillTermModal({ term, feeItems, tenantId, country, onClose, onBi
 
 // ---------------------------------------------------------------- record a payment
 
-export interface PayableInvoice {
-  id: string;
-  studentName: string;
-  cls: string;
-  balanceCents: number;
-}
-
-/** A parent's proof being confirmed: an uploaded file, a pasted confirmation SMS, or both. */
-export interface ProofToConfirm {
-  id: string;
-  fileName: string | null;
-  note: string | null;
-  smsText?: string | null;
-  /** Read from the pasted SMS; they fill the form, and the bursar checks them against the statement. */
-  code?: string | null;
-  amountCents?: number | null;
-  method?: "mpesa" | "bank" | null;
-}
-
-const METHODS = [
-  { value: "cash", label: "Cash", refLabel: "Receipt book number", refHint: "Optional for cash." },
-  { value: "mpesa", label: "M-Pesa to the school's paybill/till", refLabel: "M-Pesa receipt", refHint: "The code on the confirmation SMS, e.g. SFC1234ABC. Each receipt can only be recorded once." },
-  { value: "bank", label: "Bank deposit or transfer", refLabel: "Slip or transaction number", refHint: "As printed on the deposit slip." },
-  { value: "cheque", label: "Cheque", refLabel: "Cheque number", refHint: "Record it once the cheque has cleared." },
-] as const;
-type Method = (typeof METHODS)[number]["value"];
-
-interface InvoiceSearchRow {
-  id: string;
-  total_cents: number;
-  paid_cents: number;
-  students: { full_name: string; admission_no: string; classes: { name: string } | null } | null;
-}
-
-async function searchInvoices(termId: string, q: string): Promise<PayableInvoice[]> {
-  const term = q.replace(/[%,()]/g, " ").trim();
-  const { data, error } = await supabase().from("fee_invoices")
-    .select("id, total_cents, paid_cents, students!inner(full_name, admission_no, classes(name))")
-    .eq("term_id", termId)
-    .or(`full_name.ilike.%${term}%,admission_no.ilike.%${term}%`, { referencedTable: "students" })
-    .limit(8)
-    .returns<InvoiceSearchRow[]>();
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => ({
-    id: r.id,
-    studentName: r.students ? `${r.students.full_name} · ${r.students.admission_no}` : "Unknown learner",
-    cls: r.students?.classes?.name ?? "—",
-    balanceCents: Math.max(r.total_cents - r.paid_cents, 0),
-  }));
-}
-
 /**
  * The one way the office credits an invoice outside the M-Pesa prompt: cash
  * at the bursar's window, a bank slip, a cheque, or M-Pesa paid straight to
@@ -198,10 +150,10 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
   const [results, setResults] = useState<PayableInvoice[]>([]);
   const [searching, setSearching] = useState(false);
   // A pasted SMS fills the form in; never more than the balance, which record_payment would refuse anyway.
-  const [amount, setAmount] = useState(() =>
-    proof?.amountCents ? String(Math.min(proof.amountCents, preset?.balanceCents ?? proof.amountCents) / 100) : "");
-  const [method, setMethod] = useState<Method>(proof?.method ?? (proof ? "bank" : "cash"));
-  const [reference, setReference] = useState(proof?.code ?? "");
+  const start = paymentFormStart(proof, preset?.balanceCents);
+  const [amount, setAmount] = useState(start.amount);
+  const [method, setMethod] = useState<PaymentMethodValue>(start.method);
+  const [reference, setReference] = useState(start.reference);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -211,35 +163,23 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
     if (q.length < 2) { setResults([]); return; }
     setSearching(true);
     const timer = setTimeout(() => {
-      searchInvoices(termId, q).then(setResults).catch(() => setResults([])).finally(() => setSearching(false));
+      searchPayableInvoices(termId, q).then(setResults).catch(() => setResults([])).finally(() => setSearching(false));
     }, 250);
     return () => clearTimeout(timer);
   }, [query, invoice, termId]);
 
-  const m = METHODS.find((x) => x.value === method)!;
-  // whole shillings (FIG-1334), except exactly what's still owed, so a balance left with cents can be cleared
-  const parsedAmount = parseShillings(amount);
-  const typed = Math.round(parseFloat(amount.replace(/[\s,]/g, "")) * 100);
-  const cents = parsedAmount.ok ? parsedAmount.cents : invoice && typed === invoice.balanceCents ? typed : NaN;
+  const m = PAYMENT_METHODS.find((x) => x.value === method)!;
 
   async function save() {
     if (!invoice) return;
     setError("");
-    if (!parsedAmount.ok && !Number.isFinite(cents)) { setError(parsedAmount.message); return; }
-    if (!Number.isFinite(cents) || cents <= 0) { setError("Enter the amount received."); return; }
-    if (cents > invoice.balanceCents) { setError(`That is more than the ${formatMoney(invoice.balanceCents, country)} still owed.`); return; }
-    if (method !== "cash" && !reference.trim()) { setError(`Enter the ${m.refLabel.toLowerCase()}.`); return; }
+    // whole shillings (FIG-1334), except exactly what's still owed, so a balance left with cents can be cleared
+    const entry = readPaymentEntry({ amount, method, reference, balanceCents: invoice.balanceCents, country });
+    if (!entry.ok) { setError(entry.message); return; }
     setSaving(true);
     try {
-      const { error: rpcError } = await supabase().rpc("record_payment", {
-        p_invoice_id: invoice.id,
-        p_amount_cents: cents,
-        p_method: method,
-        p_reference: reference.trim() || null,
-        p_proof_id: proof?.id ?? null,
-      });
-      if (rpcError) throw new Error(rpcError.message);
-      onRecorded(`${formatMoney(cents, country)} recorded for ${invoice.studentName.split(" · ")[0]}`);
+      await recordPayment({ invoiceId: invoice.id, cents: entry.cents, method, reference, proofId: proof?.id });
+      onRecorded(`${formatMoney(entry.cents, country)} recorded for ${learnerNameOf(invoice.studentName)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not record the payment.");
     } finally {
@@ -312,8 +252,8 @@ export function RecordPaymentModal({ termId, country, invoice: preset, proof, on
         {proof?.note && <p className="rounded-md bg-sunken px-3 py-2 text-[12.5px] text-ink-muted">Parent's note: {proof.note}</p>}
 
         <TextField id="pay-amount" label="Amount received" inputMode="decimal" mono placeholder="e.g. 15000" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <SelectField id="pay-method" label="How it was paid" value={method} onChange={(e) => setMethod(e.target.value as Method)}
-          options={METHODS.map((x) => ({ value: x.value, label: x.label }))} />
+        <SelectField id="pay-method" label="How it was paid" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethodValue)}
+          options={PAYMENT_METHODS.map((x) => ({ value: x.value, label: x.label }))} />
         <TextField id="pay-ref" label={m.refLabel} mono value={reference} onChange={(e) => setReference(e.target.value)} hint={error ? undefined : m.refHint} error={error || undefined} />
       </div>
     </Modal>

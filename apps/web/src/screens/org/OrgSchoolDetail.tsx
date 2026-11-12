@@ -89,6 +89,9 @@ export function OrgSchoolDetail() {
           stats={[
             { label: "Active students", value: school.active_students.toLocaleString() },
             { label: "Present today", value: school.present_today.toLocaleString(), sub: school.active_students > 0 ? `${Math.round((school.present_today / school.active_students) * 100)}% of enrolled` : undefined },
+            ...((school.present_today_pm ?? 0) > 0
+              ? [{ label: "Present this afternoon", value: (school.present_today_pm ?? 0).toLocaleString(), sub: school.active_students > 0 ? `${Math.round(((school.present_today_pm ?? 0) / school.active_students) * 100)}% of enrolled` : undefined }]
+              : []),
             // organization_tenant_summary has no country column yet — every
             // school in an org is Kenyan today (the selector is locked to
             // Kenya), so this is safe; a cross-country org is a real

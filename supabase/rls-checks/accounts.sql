@@ -57,8 +57,8 @@ select pg_temp.expect_error('a second account in a school cannot take a login ID
   format('update profiles set login_id = (select login_id from profiles where tenant_id = %L and login_id like ''TC-%%'' order by login_id limit 1) where tenant_id = %L and login_id like ''BD-%%'' and id = (select id from profiles where tenant_id = %L and login_id like ''BD-%%'' order by login_id limit 1)',
          current_setting('t.a'), current_setting('t.a'), current_setting('t.a')), '23505');
 
--- next_login_number is "the highest number among the role's current accounts, plus one". The expectations below are worked out from
--- the rows, so they hold whatever numbers the seed happens to use.
+-- next_login_number hands out "one above the highest number in use, or above the last number it handed out", and reserves it (FIG-1468).
+-- The expectations below are worked out from the rows, so they hold whatever numbers the seed happens to use.
 create temp table qa_numbers (stage text, n int);
 select set_config('t.top', (select id::text from profiles where tenant_id = current_setting('t.a')::uuid and role = 'teacher' and login_id ~ '[0-9]+$' order by substring(login_id from '[0-9]+$')::int desc limit 1), true);
 select set_config('t.topn', (select substring(login_id from '[0-9]+$')::int::text from profiles where id = current_setting('t.top')::uuid), true);
@@ -68,11 +68,11 @@ select pg_temp.check('the next teacher number is one above the highest existing 
     where tenant_id = current_setting('t.a')::uuid and role = 'teacher' and login_id ~ '[0-9]+$'));
 update profiles set login_id = 'RETIRED-X' where id = current_setting('t.top')::uuid;   -- as if the newest teacher's account had been deleted
 insert into qa_numbers select 'after', next_login_number(current_setting('t.a')::uuid, 'teacher');
-select pg_temp.check('once the newest account is removed the next number is one above the highest REMAINING one (1 if none are left)',
-  (select n from qa_numbers where stage = 'after') = coalesce((select max(substring(login_id from '[0-9]+$')::int) + 1 from profiles
-    where tenant_id = current_setting('t.a')::uuid and role = 'teacher' and login_id ~ '[0-9]+$'), 1));
-select pg_temp.info(format('login IDs are recycled: the newest teacher was number %s; once that account is removed the next teacher is given number %s, so an old ID card, message or audit line naming the old ID can now mean someone else',
-  current_setting('t.topn'), (select n from qa_numbers where stage = 'after')));
+select pg_temp.check('a number that was handed out is not handed out again: the call after the first gets the number above it, though the newest account was removed in between',
+  (select n from qa_numbers where stage = 'after') = (select n from qa_numbers where stage = 'now') + 1);
+select pg_temp.check(format('login IDs are not recycled: the newest teacher was number %s; once that account is removed the next teacher is given number %s, so an old ID card, message or audit line naming the old ID cannot mean someone else',
+  current_setting('t.topn'), (select n from qa_numbers where stage = 'after')),
+  (select n from qa_numbers where stage = 'after') > current_setting('t.topn')::int);
 select pg_temp.info('no database rule makes a phone number unique: duplicates are possible unless a function refuses them (the account functions are tested separately)');
 
 -- ---------------------------------------------------------------- suspending a school

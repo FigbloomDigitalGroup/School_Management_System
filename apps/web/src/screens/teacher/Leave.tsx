@@ -10,6 +10,8 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { confirmDialog } from "../../components/ui/Confirm";
+import { useHrLeaveAccess } from "../../lib/useHrLeave";
+import { HrLeave } from "../leave/HrLeave";
 
 const STATUS_TONE: Record<LeaveStatus, "ok" | "warn" | "muted"> = {
   pending: "warn", approved: "ok", rejected: "muted", cancelled: "muted",
@@ -19,12 +21,24 @@ const STATUS_LABEL: Record<LeaveStatus, string> = {
 };
 
 /**
+ * The leave page: through Figbloom HR at a school whose leave is HR's (HR_LEAVE_ENABLED and HR on for the school:
+ * hr_leave_access(), 20261105800000), where the school's own form below is hidden; the school's own form, exactly
+ * as before, everywhere else. Nothing shows until the answer is in, so neither form flashes up first.
+ */
+export function TeacherLeave() {
+  const session = useTenantSession();
+  const access = useHrLeaveAccess(session);
+  if (!access) return <div className="px-7 py-6"><TableSkeleton rows={4} /></div>;
+  return access.status === "available" ? <HrLeave /> : <SchoolsLeave />;
+}
+
+/**
  * A teacher's own leave history plus a form to request more — the principal
  * reviews everything from Admin → Leave requests. Nothing here touches the
  * timetable yet (that's the next phase); this is just the request/approve
  * record itself.
  */
-export function TeacherLeave() {
+function SchoolsLeave() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
