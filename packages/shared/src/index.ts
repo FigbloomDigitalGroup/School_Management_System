@@ -83,6 +83,7 @@ export * from "./inventory";
 export * from "./feeCharges";
 export * from "./otherStaff";
 export * from "./adminAreas";
+export * from "./navGroups";
 export * from "./adminOverview";
 export * from "./adminAnnouncements";
 export * from "./adminFees";
