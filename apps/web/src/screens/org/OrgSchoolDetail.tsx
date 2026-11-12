@@ -4,6 +4,7 @@ import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, s
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
+import { SchoolAdmins } from "../../components/SchoolAdmins";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -100,6 +101,10 @@ export function OrgSchoolDetail() {
             },
           ]}
         />
+
+        <div className="mt-5 max-w-[760px]">
+          <SchoolAdmins tenantId={school.tenant_id} tenantName={school.name} />
+        </div>
 
         <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
           "Open school console" gives you the same access this school's own admin has — its students, staff, fees,
