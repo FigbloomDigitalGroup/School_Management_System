@@ -18,15 +18,24 @@
  *
  * Since 20261031000000 a teacher or other staff member holding the people
  * admin area may remove teachers, drivers and other staff too; removing an
- * administrator stays with full admins.
+ * administrator stays with full admins, and so does removing anyone who holds
+ * admin areas of their own (a bursar, a deputy): the same line
+ * reset-user-password draws, since taking out a colleague with more access
+ * than a people-area holder's is no small thing.
+ *
+ * Who did it is written to the audit log by name. The database already logs
+ * the deleted profile, but a service-role write has no signed-in user, so that
+ * line says "System"; the entry made here says who removed whom.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { administersOrganization } from "../_shared/organizations.ts";
-import { holdsArea } from "../_shared/adminAreas.ts";
+import { holdsAnyArea, holdsArea } from "../_shared/adminAreas.ts";
 
 const REMOVABLE_ROLES = new Set(["teacher", "driver", "staff", "school_admin"]);
+
+const ROLE_WORD: Record<string, string> = { teacher: "Teacher", driver: "Driver", staff: "Staff member", school_admin: "Administrator" };
 
 interface Body {
   tenant_id: string;
@@ -47,7 +56,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (!user) return json({ error: "Unauthorized" }, 401);
 
   const { data: callerProfile } = await admin
-    .from("profiles").select("role, tenant_id").eq("id", user.id).maybeSingle();
+    .from("profiles").select("role, tenant_id, full_name").eq("id", user.id).maybeSingle();
   if (!["super_admin", "org_admin", "school_admin", "teacher", "staff"].includes(callerProfile?.role)) {
     return json({ error: "Only Figbloom staff, an organization's own admin, or the school's office, can remove a staff account." }, 403);
   }
@@ -60,7 +69,7 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   if (profile_id === user.id) return json({ error: "You can't remove your own account this way." }, 400);
 
   const { data: tenant, error: tenantErr } = await admin
-    .from("tenants").select("id, organization_id").eq("id", tenant_id).maybeSingle();
+    .from("tenants").select("id, name, organization_id").eq("id", tenant_id).maybeSingle();
   if (tenantErr || !tenant) return json({ error: "That school could not be found." }, 404);
 
   let authorized = callerProfile.role === "super_admin";
@@ -77,12 +86,16 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
   }
 
   const { data: target } = await admin.from("profiles")
-    .select("id, tenant_id, role, full_name").eq("id", profile_id).maybeSingle();
+    .select("id, tenant_id, role, full_name, login_id").eq("id", profile_id).maybeSingle();
   if (!target || target.tenant_id !== tenant_id || !REMOVABLE_ROLES.has(target.role)) {
     return json({ error: "That staff member does not belong to this school." }, 400);
   }
   if (viaPeopleArea && target.role === "school_admin") {
     return json({ error: "Only a full admin can remove an administrator." }, 403);
+  }
+  // Fails closed, like reset-user-password: a lookup error answers "yes, they hold some".
+  if (viaPeopleArea && await holdsAnyArea(admin, target.id)) {
+    return json({ error: "Only a full admin can remove someone who has admin access of their own." }, 403);
   }
 
   const { error: deleteProfileErr } = await admin.from("profiles").delete().eq("id", profile_id);
@@ -95,15 +108,31 @@ export async function handle(req: Request, { admin, asUser }: Deps): Promise<Res
     }, blocked ? 409 : 500);
   }
 
+  // The removal is real by now and cannot be undone, so a failure to write the
+  // record is reported, not a reason to refuse: the person on screen is told.
+  const actorSuffix = callerProfile.role === "super_admin" ? "Figbloom" : callerProfile.role === "org_admin" ? "org admin"
+    : callerProfile.role === "school_admin" ? "school admin" : "people";
+  const { error: auditErr } = await admin.from("audit_events").insert({
+    tenant_id,
+    actor_label: callerProfile.full_name ? `${callerProfile.full_name} · ${actorSuffix}` : `Unknown · ${actorSuffix}`,
+    event: `${ROLE_WORD[target.role] ?? "Staff member"} ${target.full_name}${target.login_id ? ` (${target.login_id})` : ""} removed from ${tenant.name}`,
+    category: "provisioning",
+  });
+  const warnings: string[] = [];
+  if (auditErr) {
+    console.error("delete-account: could not write the audit entry:", auditErr.message);
+    warnings.push(`${target.full_name} was removed, but the removal could not be written to the audit log`);
+  }
+
   const { error: deleteUserErr } = await admin.auth.admin.deleteUser(profile_id);
   if (deleteUserErr) {
     // The record they'll see on every screen is already gone; the login
     // itself failing to delete is a lesser, cleanup-later problem, not one
     // worth reporting as if nothing happened.
-    return json({ ok: true, warning: `${target.full_name} was removed, but their login could not be fully deleted: ${deleteUserErr.message}` });
+    warnings.push(`${target.full_name} was removed, but their login could not be fully deleted: ${deleteUserErr.message}`);
   }
 
-  return json({ ok: true });
+  return warnings.length ? json({ ok: true, warning: warnings.join(". ") }) : json({ ok: true });
 }
 
 if (import.meta.main) {
