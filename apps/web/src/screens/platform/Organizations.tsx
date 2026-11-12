@@ -1,11 +1,13 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
-  createOrganization, fetchOrganizations, inviteOrgAdmin, type NewOrganizationInput, type OrgAdminInviteResult,
+  createOrganization, fetchOrganizations, inviteOrgAdmin, removeOrgAdmin, type NewOrganizationInput, type OrgAdminInviteResult,
 } from "../../lib/platformAdmin";
+import { orgAdminRemovedNote, removeOrgAdminQuestion } from "../../lib/adminAccounts";
 import { platformDecisionsEnabled, supabase, type Organization, type Tenant } from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { confirmDialog } from "../../components/ui/Confirm";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { Modal } from "../../components/ui/Modal";
@@ -147,6 +149,22 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
   const tenantsLoading = tenantsFetching && !tenants;
   const adminsLoading = adminsFetching && !admins;
   const [invitingAdmin, setInvitingAdmin] = useState(false);
+  const [removingAdmin, setRemovingAdmin] = useState<string | null>(null);
+
+  async function removeAdmin(admin: OrgAdminRow) {
+    if (!(await confirmDialog({ ...removeOrgAdminQuestion(admin.full_name, organization.name), danger: true }))) return;
+    setRemovingAdmin(admin.id);
+    try {
+      const r = await removeOrgAdmin({ organization_id: organization.id, profile_id: admin.id });
+      toast(orgAdminRemovedNote(r, admin.full_name, organization.name));
+      setReloadKey((k) => k + 1);
+      onChanged();
+    } catch (err) {
+      toast(err instanceof Error ? `Could not remove ${admin.full_name}: ${err.message}` : `Could not remove ${admin.full_name}.`, "error");
+    } finally {
+      setRemovingAdmin(null);
+    }
+  }
 
   // One-click approve (FIG-375) — a self-registered org (FIG-370/371) sits
   // 'pending' until this fires; once active, tenant_write_org_admin (FIG-369)
@@ -240,8 +258,11 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
             ) : (
               <div className="overflow-hidden rounded-lg border border-line">
                 {(admins ?? []).map((a) => (
-                  <div key={a.id} className="border-b border-line-soft px-3.5 py-2.5 last:border-0">
-                    <Cell sub={a.email ?? undefined}>{a.full_name}</Cell>
+                  <div key={a.id} className="flex items-center gap-3 border-b border-line-soft px-3.5 py-2.5 last:border-0">
+                    <div className="min-w-0 flex-1"><Cell sub={a.email ?? undefined}>{a.full_name}</Cell></div>
+                    <Button className="!text-warn-ink" disabled={removingAdmin === a.id} onClick={() => void removeAdmin(a)} aria-label={`Remove ${a.full_name}`}>
+                      {removingAdmin === a.id ? "Removing…" : "Remove"}
+                    </Button>
                   </div>
                 ))}
               </div>

@@ -239,6 +239,30 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<DeleteAc
   return data as DeleteAccountResult;
 }
 
+export interface SchoolAdmin {
+  id: string;
+  full_name: string;
+  email: string | null;
+  staff_title: string | null;
+}
+
+/**
+ * A school's administrators (role school_admin). Figbloom staff read every
+ * profile and an organization's admins read their schools' (profile_admin_manage,
+ * which also lets the school's own admin read them; this list is shown to the first two).
+ */
+export async function fetchSchoolAdmins(tenantId: string): Promise<SchoolAdmin[]> {
+  const { data, error } = await supabase()
+    .from("profiles")
+    .select("id, full_name, email, staff_title")
+    .eq("tenant_id", tenantId)
+    .eq("role", "school_admin")
+    .order("full_name")
+    .returns<SchoolAdmin[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
 // ---------------------------------------------------------------- organizations (FIG-331)
 
 export interface NewOrganizationInput {
@@ -322,6 +346,44 @@ export async function inviteOrgAdmin(input: OrgAdminInviteInput): Promise<OrgAdm
   }
   if (data && "error" in data) throw new Error(data.error);
   return data as OrgAdminInviteResult;
+}
+
+export interface RemoveOrgAdminInput {
+  organization_id: string;
+  profile_id: string;
+}
+
+export interface RemoveOrgAdminResult {
+  ok: true;
+  /** False when they still administer another organization (their login stays) or the account could not be deleted. */
+  removedAccount: boolean;
+  warning?: string;
+}
+
+/**
+ * Takes an org admin out of one organization (the remove-org-admin edge
+ * function). Like inviteOrgAdmin it needs the service-role key: the link row is
+ * writable only by Figbloom staff, and the login is theirs to delete only there.
+ */
+export async function removeOrgAdmin(input: RemoveOrgAdminInput): Promise<RemoveOrgAdminResult> {
+  const { data, error } = await supabase().functions.invoke<RemoveOrgAdminResult | { error: string }>(
+    "remove-org-admin",
+    { body: input },
+  );
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = (await ctx.json()) as { error?: string };
+        if (body?.error) throw new Error(body.error);
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
+    }
+    throw new Error(error.message);
+  }
+  if (data && "error" in data) throw new Error(data.error);
+  return data as RemoveOrgAdminResult;
 }
 
 export interface NewMyOrganizationInput {

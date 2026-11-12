@@ -4,6 +4,7 @@ import { formatMoney, formatShortDate, supabase, tenantPath, type Organization, 
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
+import { SchoolAdmins } from "../../components/SchoolAdmins";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
@@ -228,6 +229,10 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
               {(organizations ?? []).map((o: Organization) => <option key={o.id} value={o.id}>{o.name}</option>)}
               <option value={OWN_ORGANIZATION}>A new organization of its own</option>
             </select>}
+          </div>
+
+          <div className="mt-4">
+            <SchoolAdmins tenantId={tenant.id} tenantName={tenant.name} />
           </div>
 
           {/* Daily active users and role adoption stay illustrative — they need real
