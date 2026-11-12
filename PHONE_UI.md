@@ -36,7 +36,7 @@ This covers how the phone app (`apps/mobile`: parent, student, driver and teache
 - `Appearance.setColorScheme` (React Native) sets Android's night mode for the app, so `Alert` dialogs and text-selection handles follow the pick (seen on the emulator: the dialog is dark). The on-screen keyboard does not: it follows the phone's own setting, which an app cannot override. This needs `AppTheme` to be DayNight (`res/values/styles.xml`), which is why that theme changed.
 - `res/values/colors.xml` and `res/values-night/colors.xml` define `app_page`, the window background, so there is no light seam under a screen transition or the keyboard.
 - React Navigation's own colours (transition page, tab bar card and edge) come from `NAV_THEME` in `navigation.tsx`.
-- The parent app's bus map uses `components/mapStyle.ts` (a warm night style) in dark.
+- The bus map uses `components/mapStyle.ts` (a warm night style) in dark. That is the road map only: satellite photos, when a person switches to them, look the same in both schemes.
 - The teacher charts' palette is `components/charts/tokens.ts` (`VIZ`, `BAND_COLORS`), per scheme.
 - Following the phone: the app remembers what the phone was set to before it overrode it, so going from Dark back to "Same as phone" is instant instead of waiting for Android to report it.
 

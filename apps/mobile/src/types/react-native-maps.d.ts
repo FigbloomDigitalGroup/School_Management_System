@@ -25,6 +25,12 @@ export interface MapViewProps {
   style?: StyleProp<ViewStyle>;
   /** A Google Maps style (Android and Google-provider iOS): the dark theme passes a night style. */
   customMapStyle?: MapStyleElement[];
+  /** "hybrid" is satellite photos with the road and place names on. A custom style only applies to "standard". */
+  mapType?: "standard" | "satellite" | "hybrid" | "terrain";
+  /** Google's live traffic, drawn over the roads. */
+  showsTraffic?: boolean;
+  /** Keeps the map's own furniture (compass, Google logo) and what it centres on clear of anything drawn over its edges, in dp. */
+  mapPadding?: { top: number; right: number; bottom: number; left: number };
   initialRegion?: Region;
   region?: Region;
   pitchEnabled?: boolean;
@@ -32,6 +38,8 @@ export interface MapViewProps {
   scrollEnabled?: boolean;
   zoomEnabled?: boolean;
   toolbarEnabled?: boolean;
+  /** Fires once Google's map has loaded. On Android a map type set before this (other than the one the map is made with) is dropped. */
+  onMapReady?: () => void;
   /** Fires while a finger drags the map (not when the map is moved from code). */
   onPanDrag?: () => void;
   children?: ReactNode;
