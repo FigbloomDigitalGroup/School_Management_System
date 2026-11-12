@@ -1,0 +1,650 @@
+openapi: 3.1.0
+info:
+  title: FigBloom Replacement API
+  version: 0.1.0
+  description: |
+    P1-A (FIG-1573) identity, tenancy and RBAC contracts.
+    Authorization is server-enforced. Client-supplied role or permission lists
+    are never accepted as evidence of access.
+servers:
+  - url: http://127.0.0.1:4100
+    description: Local development
+tags:
+  - name: health
+  - name: auth
+  - name: tenancy
+  - name: org
+  - name: rbac
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness
+      operationId: health
+      x-figbloom-authz: public
+      responses:
+        "200":
+          description: Service is up
+  /v1/health:
+    get:
+      tags: [health]
+      summary: Versioned liveness
+      operationId: healthV1
+      x-figbloom-authz: public
+      responses:
+        "200":
+          description: Service is up
+  /v1/auth/login/email:
+    post:
+      tags: [auth]
+      summary: Email + password login (admin / org / super)
+      operationId: loginEmail
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/auth/login/login-id:
+    post:
+      tags: [auth]
+      summary: School + login_id + password login
+      operationId: loginLoginId
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: requestBody.tenantId
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId, loginId, password]
+              properties:
+                tenantId: { type: string, format: uuid }
+                loginId: { type: string }
+                password: { type: string }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke current session
+      operationId: logout
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Current user, memberships and authz role
+      operationId: authMe
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      responses:
+        "200":
+          description: >-
+            Identity snapshot. `authz` is null when the session's school is no
+            longer usable (membership archived, school suspended); the caller can
+            then still list memberships and call select-tenant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/auth/select-tenant:
+    post:
+      tags: [auth]
+      summary: Set active tenant on the session (membership required)
+      operationId: selectTenant
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: requestBody.tenantId
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenantId]
+              properties:
+                tenantId: { type: string, format: uuid }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Active tenant updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SelectTenantResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/auth/password/change:
+    post:
+      tags: [auth]
+      summary: Change password (authenticated; required when must_change_password)
+      operationId: changePassword
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: none
+      description: >
+        Allowed even when must_change_password is true. Verifies the current
+        password, enforces policy, clears the flag, revokes other sessions, and
+        keeps the current session. Passwords are never written to the audit log.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasswordChangeResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/tenants/{tenantId}:
+    get:
+      tags: [tenancy]
+      summary: Read tenant (same-tenant only)
+      operationId: getTenant
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [tenant.read]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Tenant record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantRecord" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/rbac/permissions:
+    get:
+      tags: [rbac]
+      summary: Effective permissions for the active tenant context
+      operationId: getPermissions
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [rbac.permissions.read]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Permission set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermissionSet" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/resources/learners:
+    get:
+      tags: [tenancy]
+      summary: Representative learner resource predicate (P1-A)
+      operationId: checkLearnerResource
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.learner.read]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Access granted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerResourceAccess" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/org/schools:
+    get:
+      tags: [org]
+      summary: Aggregate member-school summaries for the caller's organizations (R2-05)
+      description: >
+        Organization-level aggregate visibility only. Does not grant school-admin
+        or learner record access. Requires org.tenants.read.
+      operationId: listOrgSchools
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [org.tenants.read]
+      x-figbloom-tenantScope: none
+      responses:
+        "200":
+          description: Member school summaries
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgSchoolList" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/rbac/org-delegations:
+    get:
+      tags: [rbac]
+      summary: List org-admin school delegations for the active school
+      operationId: listOrgDelegations
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [rbac.org_delegations.read]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      responses:
+        "200":
+          description: Delegation rows
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgDelegationList" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [rbac]
+      summary: Grant school-scoped permissions to an org_admin (R2-05)
+      operationId: grantOrgDelegations
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [rbac.org_delegations.manage]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delegateUserId, permissionCodes]
+              properties:
+                delegateUserId: { type: string, format: uuid }
+                permissionCodes:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgDelegationGrantResult" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [rbac]
+      summary: Revoke school-scoped org_admin delegations (R2-05)
+      operationId: revokeOrgDelegations
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [rbac.org_delegations.manage]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delegateUserId]
+              properties:
+                delegateUserId: { type: string, format: uuid }
+                permissionCodes:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrgDelegationRevokeResult" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/rbac/staff-areas:
+    put:
+      tags: [rbac]
+      summary: Replace staff admin areas (audited)
+      operationId: setStaffAreas
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [rbac.staff_areas.manage]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, areas]
+              properties:
+                userId: { type: string, format: uuid }
+                areas:
+                  type: array
+                  items: { type: string }
+      responses:
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "200":
+          description: Areas updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffAreasResult" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  parameters:
+    TenantHeader:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      description: >-
+        Optional request-scoped school. Never an authority: it is honoured only
+        when the caller holds a school membership, active organisation-admin
+        reach or platform super-admin, re-checked on every request. Must be a
+        UUID (400 otherwise). Absent: the session's active school applies.
+      schema: { type: string, format: uuid }
+  responses:
+    ValidationError:
+      description: Malformed or oversized request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid session
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Authenticated but not authorized (default deny)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource or membership does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: >-
+        Auth token bucket exhausted (capacity 5, +2 tokens per 5 s, cost 1 per
+        attempt, per IP first then per account). Retry-After is omitted when the
+        request cost exceeds capacity (waiting cannot help for that cost).
+      headers:
+        Retry-After:
+          description: Whole seconds until the request would be admitted (omitted when cost > capacity)
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Ok:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+    PublicUser:
+      type: object
+      required: [id, full_name, email, must_change_password, platform_role]
+      properties:
+        id: { type: string, format: uuid }
+        full_name: { type: string }
+        email: { type: [string, "null"] }
+        must_change_password: { type: boolean }
+        platform_role: { type: [string, "null"] }
+    LoginResponse:
+      type: object
+      required: [token, expiresAt, user, activeTenantId]
+      properties:
+        token:
+          type: string
+          description: Opaque bearer token, returned once; only its SHA-256 is stored.
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/PublicUser" }
+        activeTenantId: { type: [string, "null"], format: uuid }
+    SelectTenantResponse:
+      type: object
+      required: [activeTenantId, activeOrganizationId]
+      properties:
+        activeTenantId: { type: [string, "null"], format: uuid }
+        activeOrganizationId: { type: [string, "null"], format: uuid }
+    PasswordChangeResponse:
+      type: object
+      required: [ok, user]
+      properties:
+        ok: { type: boolean }
+        user: { $ref: "#/components/schemas/PublicUser" }
+    Me:
+      type: object
+      required: [user, session, memberships, authz]
+      properties:
+        user: { $ref: "#/components/schemas/PublicUser" }
+        session:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            activeTenantId: { type: [string, "null"], format: uuid }
+            expiresAt: { type: string, format: date-time }
+        memberships:
+          type: array
+          items:
+            type: object
+            properties:
+              tenantId: { type: string, format: uuid }
+              role: { type: string }
+              loginId: { type: [string, "null"] }
+              tenantStatus: { type: string }
+        authz:
+          type: [object, "null"]
+          properties:
+            role: { type: string }
+            tenantId: { type: [string, "null"], format: uuid }
+            isSuperAdmin: { type: boolean }
+    TenantRecord:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        status: { type: string }
+        timezone: { type: string }
+        organizationId: { type: string, format: uuid }
+    PermissionSet:
+      type: object
+      required:
+        [
+          role,
+          tenantId,
+          mayAdminister,
+          isOrgAdminForTenant,
+          isSuperAdmin,
+          delegatedPermissions,
+          actingVia,
+          permissions,
+        ]
+      description: >-
+        The single source a client may use to decide which actions and
+        navigation to SHOW. It is a UX hint only; every endpoint re-checks the
+        same permission server-side. R2-05: org admins do not automatically
+        mayAdminister; school powers appear only via delegatedPermissions.
+      properties:
+        role: { type: string }
+        tenantId: { type: string, format: uuid }
+        mayAdminister: { type: boolean }
+        isOrgAdminForTenant: { type: boolean }
+        isSuperAdmin: { type: boolean }
+        delegatedPermissions: { type: array, items: { type: string } }
+        actingVia: { type: string }
+        permissions: { type: array, items: { type: string } }
+    OrgSchoolList:
+      type: object
+      required: [schools]
+      properties:
+        schools:
+          type: array
+          items:
+            type: object
+            required: [id, name, slug, status, organizationId]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              slug: { type: string }
+              status: { type: string }
+              organizationId: { type: string, format: uuid }
+              organizationName: { type: string }
+              organizationSlug: { type: string }
+    OrgDelegationList:
+      type: object
+      required: [tenantId, items]
+      properties:
+        tenantId: { type: string, format: uuid }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              delegateUserId: { type: string, format: uuid }
+              permissionCode: { type: string }
+              grantedBy: { type: string, format: uuid }
+              createdAt: { type: string, format: date-time }
+              revokedAt: { type: [string, "null"], format: date-time }
+    OrgDelegationGrantResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        tenantId: { type: string, format: uuid }
+        delegateUserId: { type: string, format: uuid }
+        granted: { type: array, items: { type: string } }
+    OrgDelegationRevokeResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        tenantId: { type: string, format: uuid }
+        delegateUserId: { type: string, format: uuid }
+        revoked: { type: array, items: { type: string } }
+    StaffAreasResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        userId: { type: string, format: uuid }
+        areas: { type: array, items: { type: string } }
+    LearnerResourceAccess:
+      type: object
+      required: [tenantId, resource, access]
+      properties:
+        tenantId: { type: string, format: uuid }
+        resource: { type: string, enum: [learners] }
+        access: { type: string, enum: [granted] }
+        note: { type: string }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, internal_error]
+            message:
+              type: string

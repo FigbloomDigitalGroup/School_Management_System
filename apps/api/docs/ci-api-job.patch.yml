@@ -1,0 +1,63 @@
+# APPLY-READY snippet for .github/workflows/ci.yml (D-2 / FIG-1573)
+# Status: OPEN — TEAM APPROVAL. Do not merge without authorization.
+#
+# Insert as a sibling job next to checks / edge-functions / database-and-browser.
+# Conventions matched to existing CI:
+#   - needs: security-scan (scan never skipped)
+#   - pinned action SHAs (same as checks job)
+#   - node-version: 22
+#   - npm ci --ignore-scripts
+#   - no production secrets; DATABASE_URL points at the job's Postgres service only
+#
+# Notes:
+#   - @figbloom/api is already in workspaces via apps/*
+#   - API vitest suite is the integration/security suite (requires Postgres + migrate)
+#   - There is no separate apps/api lint script; eslint is run via the root flat config
+#   - Root `npm run lint` already covers apps/api when the checks job runs; this job
+#     also lints apps/api so API PRs fail even if someone later excludes the package
+
+  api:
+    name: API (figbloom_api)
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: figbloom_api
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d figbloom_api"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway service DB only — never a hosted / developer laptop URL.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/figbloom_api
+      AUTH_RATE_CAPACITY: "1000"
+      AUTH_RATE_REFILL: "1000"
+      API_TRUST_PROXY_HOPS: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (lockfile)
+        run: npm ci --ignore-scripts
+      - name: API typecheck
+        run: npm run typecheck --workspace @figbloom/api
+      - name: API lint (root eslint flat config)
+        run: npx eslint "apps/api/src/**/*.ts" "apps/api/test/**/*.ts"
+      - name: API migrate (real runner)
+        run: npm run migrate --workspace @figbloom/api
+      - name: API tests (unit + integration against service Postgres)
+        run: npm run test --workspace @figbloom/api
+      - name: OpenAPI validation
+        run: npm run openapi:check --workspace @figbloom/api
