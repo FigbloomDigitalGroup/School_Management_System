@@ -251,9 +251,11 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           });
           if (!section.label) return <div key="top" className="flex flex-col gap-0.5">{links}</div>;
           return (
-            <div key={section.label} role="group" aria-label={section.label} className="flex flex-col gap-0.5">
+            // Not a labelled group (role="group" aria-label): getByLabel("Class") and the like match a label by substring, and a heading
+            // called "Timetable & classes" or "School" would answer to a form field's name. The heading is plain text, read in order.
+            <div key={section.label} className="flex flex-col gap-0.5">
               {open ? (
-                <div aria-hidden className="px-2.5 pb-0.5 pt-3.5 font-mono text-[10px] tracking-[0.12em] text-white/60">{section.label.toUpperCase()}</div>
+                <div className="px-2.5 pb-0.5 pt-3.5 font-mono text-[10px] tracking-[0.12em] text-white/60">{section.label.toUpperCase()}</div>
               ) : i > 0 && <div aria-hidden className="mx-2 my-1.5 border-t border-white/10" />}
               {links}
             </div>
