@@ -528,6 +528,13 @@ test.describe("student", () => {
   test("a student never sees a class position", async ({ page }) => {
     // The console nav renders NavLinks (role "link"), not buttons.
     await page.getByRole("link", { name: /Results/ }).click();
+    // The desktop student screens show "Loading…" until the learner's whole picture is in (StudentDataProvider: homework,
+    // hand-ins, exams, notices), then the CBE results. Those reads are slow (FIG-1497: the permission checks run once per row;
+    // FIG-1500), 4 to 10 s on a local database that has been used for a while, so wait for that real state to end, with the
+    // same allowance as the next test, rather than racing a fixed 5 s. Then the page must show results, not an error.
+    await expect(page).toHaveURL(/\/s\/alliance\/student\/results$/); // on the Results screen first, so "hidden" cannot mean "not rendered yet"
+    await expect(page.getByRole("heading", { name: "Loading…" })).toBeHidden({ timeout: 25_000 });
+    await expect(page.getByText(/Could not load/)).toHaveCount(0);
     // Every subject row also says "...class mean of N", so this is scoped to the
     // one-off blurb rather than a broad match that hits all of them (or neither,
     // if results haven't been published for this student yet).
