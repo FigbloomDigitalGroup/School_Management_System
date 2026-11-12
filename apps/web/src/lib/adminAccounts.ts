@@ -1,11 +1,9 @@
 /**
- * The words around adding and removing administrators: what the confirm box
- * says before an account is taken away, and what the toast says after. Kept
- * out of the screens so what a person is told about someone losing access is
- * one thing, tested, rather than a sentence in each of three places.
+ * The words around adding and removing a school's administrators: what the
+ * confirm box says before an account is taken away, and the title a new
+ * administrator gets. Kept out of the screen so what a person is told about
+ * someone losing access is one thing, and tested.
  */
-
-import type { RemoveOrgAdminResult } from "./platformAdmin";
 
 export interface Question {
   title: string;
@@ -25,23 +23,6 @@ export function removeSchoolAdminQuestion(name: string, schoolName: string, only
     ].join(""),
     confirmLabel: "Remove administrator",
   };
-}
-
-/** Before an organization admin is removed from one organization. */
-export function removeOrgAdminQuestion(name: string, organizationName: string): Question {
-  return {
-    title: `Remove ${name}?`,
-    body: `They lose access to ${organizationName} and all its schools straight away. If it is the only organization they administer, their login is deleted too. This can't be undone, but they can be invited again.`,
-    confirmLabel: "Remove admin",
-  };
-}
-
-/** The toast after an organization admin was removed: says whether their login went too, or why it stayed. */
-export function orgAdminRemovedNote(result: Pick<RemoveOrgAdminResult, "removedAccount" | "warning">, name: string, organizationName: string): string {
-  if (result.warning) return result.warning;
-  return result.removedAccount
-    ? `${name} removed, and their login deleted.`
-    : `${name} removed from ${organizationName}. They also administer another organization, so their login stays.`;
 }
 
 /**

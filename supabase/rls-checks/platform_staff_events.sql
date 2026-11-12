@@ -248,9 +248,7 @@ select pg_temp.check('restored before left was sent: one row, created again (HR 
   and (select banned_until is null and not (raw_app_meta_data ? 'archived_staff') from auth.users where id = '00000000-0000-4000-8000-00000000f0a2'));
 select pg_temp.flush();
 
--- removed outright (delete-account): left. delete-account runs as the service role, whose token carries no user: drop the
--- school admin's claims left behind by the step above (staff_account_removal.sql: a signed-in caller may not delete staff directly).
-select set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+-- removed outright (delete-account): left
 delete from profiles where id = '00000000-0000-4000-8000-00000000f0a4';
 select pg_temp.check('removing a staff member queues left (the row keeps the school)',
   (pg_temp.staff_row('00000000-0000-4000-8000-00000000f0a4')).event = 'left'

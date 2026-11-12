@@ -348,44 +348,6 @@ export async function inviteOrgAdmin(input: OrgAdminInviteInput): Promise<OrgAdm
   return data as OrgAdminInviteResult;
 }
 
-export interface RemoveOrgAdminInput {
-  organization_id: string;
-  profile_id: string;
-}
-
-export interface RemoveOrgAdminResult {
-  ok: true;
-  /** False when they still administer another organization (their login stays) or the account could not be deleted. */
-  removedAccount: boolean;
-  warning?: string;
-}
-
-/**
- * Takes an org admin out of one organization (the remove-org-admin edge
- * function). Like inviteOrgAdmin it needs the service-role key: the link row is
- * writable only by Figbloom staff, and the login is theirs to delete only there.
- */
-export async function removeOrgAdmin(input: RemoveOrgAdminInput): Promise<RemoveOrgAdminResult> {
-  const { data, error } = await supabase().functions.invoke<RemoveOrgAdminResult | { error: string }>(
-    "remove-org-admin",
-    { body: input },
-  );
-  if (error) {
-    const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = (await ctx.json()) as { error?: string };
-        if (body?.error) throw new Error(body.error);
-      } catch (e) {
-        if (e instanceof Error && e.message) throw e;
-      }
-    }
-    throw new Error(error.message);
-  }
-  if (data && "error" in data) throw new Error(data.error);
-  return data as RemoveOrgAdminResult;
-}
-
 export interface NewMyOrganizationInput {
   name: string;
   slug: string;
