@@ -9,7 +9,11 @@ import { assertSameTenant } from "../../modules/tenancy/context.js";
 import {
   addGuardianLink,
   createGuardian,
+  codePointLength,
   getGuardianById,
+  GUARDIAN_EMAIL_MAX_LENGTH,
+  GUARDIAN_EMAIL_PATTERN,
+  GUARDIAN_NAME_MAX_LENGTH,
   GUARDIAN_NAME_PATTERN,
   GUARDIAN_PHONE_PATTERN,
   listGuardiansForLearner,
@@ -30,10 +34,21 @@ const LinkSchema = z
 
 const CreateGuardianSchema = z
   .object({
-    full_name: z.string().min(1).max(120).regex(new RegExp(GUARDIAN_NAME_PATTERN)),
+    // Length in Unicode code points (what OpenAPI maxLength means), not UTF-16 units.
+    full_name: z
+      .string()
+      .min(1)
+      .regex(new RegExp(GUARDIAN_NAME_PATTERN))
+      .refine((v) => codePointLength(v) <= GUARDIAN_NAME_MAX_LENGTH),
     phone: Phone.nullable().optional(),
     alt_phone: Phone.nullable().optional(),
-    email: z.string().max(254).email().nullable().optional(),
+    // The published pattern is the whole rule (no separate .email()), so schema and backend agree.
+    email: z
+      .string()
+      .max(GUARDIAN_EMAIL_MAX_LENGTH)
+      .regex(new RegExp(GUARDIAN_EMAIL_PATTERN))
+      .nullable()
+      .optional(),
     learners: z.array(LinkSchema).min(1).max(20),
   })
   .strict();

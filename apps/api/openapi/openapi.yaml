@@ -953,7 +953,10 @@ components:
       type: object
       description: >
         Values are validated as sent, without trimming. Send names and numbers already
-        trimmed: no leading or trailing whitespace.
+        trimmed: no leading or trailing whitespace. Lengths (minLength / maxLength) are
+        counted in Unicode code points, as JSON Schema defines them, so a supplementary
+        character such as an emoji counts as one. Accepted content is stored unchanged:
+        no normalization is applied.
       required: [full_name, learners]
       additionalProperties: false
       properties:
@@ -972,7 +975,14 @@ components:
           minLength: 5
           maxLength: 32
           pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
-        email: { type: [string, "null"], format: email, maxLength: 254 }
+        email:
+          type: [string, "null"]
+          maxLength: 254
+          # The pattern is the authoritative rule and is exactly what the backend enforces.
+          # format: email alone is advisory (many validators ignore it) and is looser, so it
+          # is kept only as a hint for tooling.
+          format: email
+          pattern: '^(?!\.)(?!.*\.\.)([A-Za-z0-9_''+\-.]*)[A-Za-z0-9_+\-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$'
         learners:
           type: array
           minItems: 1

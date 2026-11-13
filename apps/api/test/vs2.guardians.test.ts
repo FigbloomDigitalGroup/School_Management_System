@@ -5,7 +5,12 @@ import type pg from "pg";
 import { parse as parseYaml } from "yaml";
 import { createTestApp, type FixtureIds } from "./support.js";
 import { assertErrorShape } from "../src/openapi/contractAssert.js";
-import { GUARDIAN_NAME_PATTERN, GUARDIAN_PHONE_PATTERN } from "../src/modules/directory/guardians.js";
+import { z } from "zod";
+import {
+  GUARDIAN_EMAIL_PATTERN,
+  GUARDIAN_NAME_PATTERN,
+  GUARDIAN_PHONE_PATTERN,
+} from "../src/modules/directory/guardians.js";
 
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
@@ -1056,10 +1061,12 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     const props = spec.components.schemas.CreateGuardianRequest.properties;
     const phoneRule = props.phone!;
     const nameRule = props.full_name!;
+    // JSON Schema counts minLength / maxLength in Unicode code points, not UTF-16 units.
+    const cp = (value: string) => Array.from(value).length;
     const accepts = (rule: { pattern?: string; minLength?: number; maxLength?: number }, value: string) =>
       new RegExp(rule.pattern!).test(value) &&
-      value.length >= (rule.minLength ?? 0) &&
-      value.length <= (rule.maxLength ?? Infinity);
+      cp(value) >= (rule.minLength ?? 0) &&
+      cp(value) <= (rule.maxLength ?? Infinity);
 
     const phoneSamples = [
       "0712345678",
@@ -1084,7 +1091,23 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       if (res.statusCode !== 201) expect(res.statusCode, `phone ${JSON.stringify(value)}`).toBe(400);
     }
 
-    const nameSamples = ["A", "Jane Kamau", " A", "Jane ", "   ", "x".repeat(120), "x".repeat(121)];
+    const smile = String.fromCodePoint(0x1f600); // one code point, two UTF-16 units
+    const nameSamples = [
+      "A",
+      "Jane Kamau",
+      " A",
+      "Jane ",
+      "   ",
+      "x".repeat(120),
+      "x".repeat(121),
+      smile.repeat(61), // 61 code points, 122 UTF-16 units: the original mismatch
+      smile.repeat(120), // exactly at the limit
+      smile.repeat(121), // one over
+      smile.repeat(60) + "x".repeat(60), // mixed, at the limit
+      smile.repeat(60) + "x".repeat(61), // mixed, one over
+      "x".repeat(119) + smile, // astral character in the last position, at the limit
+      "x".repeat(120) + smile, // one over
+    ];
     for (const value of nameSamples) {
       const res = await postGuardian(adminToken, ids.tenantA, {
         full_name: value,
@@ -1093,5 +1116,98 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       expect(res.statusCode === 201, `name ${JSON.stringify(value)}`).toBe(accepts(nameRule, value));
       if (res.statusCode !== 201) expect(res.statusCode, `name ${JSON.stringify(value)}`).toBe(400);
     }
+  });
+
+  it("published email rule is what the backend enforces, and does not weaken zod's email check", async () => {
+    const spec = parseYaml(readFileSync(join(process.cwd(), "openapi/openapi.yaml"), "utf8")) as {
+      components: {
+        schemas: {
+          CreateGuardianRequest: {
+            properties: { email: { pattern?: string; maxLength?: number; format?: string } };
+          };
+        };
+      };
+    };
+    const emailRule = spec.components.schemas.CreateGuardianRequest.properties.email;
+    expect(emailRule.pattern).toBe(GUARDIAN_EMAIL_PATTERN);
+    expect(emailRule.maxLength).toBe(254);
+
+    const domain = "@example.com";
+    const samples = [
+      "jane.kamau@example.com",
+      "a+b@x.co",
+      "o'brien@example.org",
+      "a_b-c@sub.example.co.ke",
+      "nope",
+      "",
+      " jane@example.com",
+      "jane@example.com ",
+      "jane@example.com\n",
+      "jane@@example.com",
+      ".jane@example.com",
+      "ja..ne@example.com",
+      "jane.@example.com",
+      "jane@example",
+      "jane@example.c",
+      "jane@-example.com",
+      "jane doe@example.com",
+      "jane@exámple.com",
+      "a".repeat(254 - domain.length) + domain, // 254: at the limit
+      "a".repeat(255 - domain.length) + domain, // 255: one over
+    ];
+    const zodEmail = z.string().email();
+    for (const value of samples) {
+      const publishedAccepts = new RegExp(emailRule.pattern!).test(value) && value.length <= emailRule.maxLength!;
+      // The backend must not accept anything zod's own email check refuses (no weakening).
+      if (new RegExp(emailRule.pattern!).test(value)) {
+        expect(zodEmail.safeParse(value).success, `zod .email() on ${JSON.stringify(value)}`).toBe(true);
+      } else {
+        expect(zodEmail.safeParse(value).success, `zod .email() on ${JSON.stringify(value)}`).toBe(false);
+      }
+      const res = await postGuardian(adminToken, ids.tenantA, {
+        full_name: "Email Probe",
+        email: value,
+        learners: [{ learner_id: learnerA2, relationship: "guardian" }],
+      });
+      expect(res.statusCode === 201, `email ${JSON.stringify(value)}`).toBe(publishedAccepts);
+      if (res.statusCode !== 201) expect(res.statusCode, `email ${JSON.stringify(value)}`).toBe(400);
+    }
+  });
+
+  it("counts name length in code points and stores accepted names unchanged", async () => {
+    const smile = String.fromCodePoint(0x1f600);
+    const accepted = smile.repeat(61) + " Kamau"; // 67 code points (128 UTF-16 units: over 120 if counted wrongly)
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: accepted,
+      learners: [{ learner_id: learnerA2, relationship: "guardian" }],
+    });
+    expect(created.statusCode).toBe(201);
+    const gid = created.json().guardian.id as string;
+    const read = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/guardians/${gid}`,
+      headers: bearer(adminToken, ids.tenantA),
+    });
+    expect(read.json().guardian.full_name).toBe(accepted); // no normalization, no truncation
+    const stored = await ctx.pool.query<{ n: number; same: boolean }>(
+      `SELECT char_length(full_name)::int AS n, full_name = $2 AS same FROM guardians WHERE id = $1`,
+      [gid, accepted],
+    );
+    expect(stored.rows[0]).toEqual({ n: Array.from(accepted).length, same: true });
+
+    const atLimit = smile.repeat(120);
+    const ok = await postGuardian(adminToken, ids.tenantA, {
+      full_name: atLimit,
+      learners: [{ learner_id: learnerA2, relationship: "guardian" }],
+    });
+    expect(ok.statusCode).toBe(201);
+
+    const over = await postGuardian(adminToken, ids.tenantA, {
+      full_name: smile.repeat(121),
+      learners: [{ learner_id: learnerA2, relationship: "guardian" }],
+    });
+    expect(over.statusCode).toBe(400);
+    expect(over.json().error.code).toBe("validation_error");
+    expect(assertErrorShape(over.json())).toEqual([]);
   });
 });

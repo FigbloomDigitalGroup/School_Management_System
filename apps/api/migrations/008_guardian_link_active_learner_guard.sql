@@ -24,7 +24,9 @@ BEGIN
   FOR SHARE;
 
   IF NOT FOUND OR v_active IS NOT TRUE THEN
-    -- SQLSTATE P0002 is mapped to the same 404 as an unknown learner by the API.
+    -- SQLSTATE P0002 is a plain database error. The HTTP 404 ("Learner not found", same as an
+    -- unknown learner) is produced by the API layer, which catches P0002 and maps it. Any other
+    -- caller that writes guardian_links directly sees the raw P0002 error, not an HTTP status.
     RAISE EXCEPTION 'learner is not an active learner of this school'
       USING ERRCODE = 'P0002';
   END IF;

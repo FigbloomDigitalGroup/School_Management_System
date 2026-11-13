@@ -15,6 +15,29 @@ export const GUARDIAN_RELATIONSHIPS: readonly GuardianRelationship[] = ["mother"
 export const GUARDIAN_PHONE_PATTERN = "^[0-9+()\\-][0-9+()\\-\\s]{3,30}[0-9+()\\-]$";
 export const GUARDIAN_NAME_PATTERN = "^\\S([\\s\\S]*\\S)?$";
 
+/**
+ * Same acceptance set as zod 3.25's built-in `.email()` (case-insensitive flag written out as
+ * explicit ranges, so the published OpenAPI `pattern` needs no flags). The backend uses this
+ * pattern alone, so the published schema describes exactly what is accepted. A test compares it
+ * with zod's own `.email()` on sample values so the backend is not weakened.
+ */
+export const GUARDIAN_EMAIL_PATTERN =
+  "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-.]*)[A-Za-z0-9_+\\-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$";
+
+export const GUARDIAN_NAME_MAX_LENGTH = 120;
+export const GUARDIAN_EMAIL_MAX_LENGTH = 254;
+
+/**
+ * Length is counted in Unicode code points, the way JSON Schema `minLength` / `maxLength` count
+ * it (and the way Postgres `char_length` counts it). `String.prototype.length` counts UTF-16
+ * code units and would count one supplementary character (an emoji, for example) as two.
+ */
+export function codePointLength(value: string): number {
+  let n = 0;
+  for (const _ of value) n += 1;
+  return n;
+}
+
 export interface GuardianLinkInput {
   learner_id: string;
   relationship: GuardianRelationship;
@@ -158,7 +181,7 @@ async function withGuardianTenantScope<T>(
  * whether a learner id exists or is archived.
  * F-4: this precheck alone is not enough under concurrency. The database guard
  * (migration 008, guardian_links_active_learner) locks the learner row and refuses the
- * insert with SQLSTATE P0002, which mapLearnerGuardError() turns into the same 404.
+ * insert with SQLSTATE P0002, which mapLinkWriteError() turns into the same 404.
  */
 async function assertActiveLearnersInTenant(
   client: pg.PoolClient,
@@ -204,7 +227,7 @@ export interface CreateGuardianInput {
 export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput): Promise<PublicCreatedGuardian> {
   const full_name = input.full_name.trim();
   if (!full_name) throw validationError("Full name is required");
-  if (full_name.length > 120) throw validationError("Full name is too long");
+  if (codePointLength(full_name) > GUARDIAN_NAME_MAX_LENGTH) throw validationError("Full name is too long");
   if (!Array.isArray(input.learners) || input.learners.length === 0) {
     throw validationError("A guardian must be linked to at least one learner");
   }

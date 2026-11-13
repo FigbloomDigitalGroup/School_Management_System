@@ -4,7 +4,7 @@
 > **Boundary:** backend contract only — do **not** treat this as authorization to edit `apps/web` or `apps/mobile` in the rebuild programme.  
 > **Status:** IMPLEMENTED (scoped) — VS-2 only; School Directory module is **not** complete. Independent review findings F-1–F-6 remediated.  
 > **OpenAPI:** `apps/api/openapi/openapi.yaml` (tag `directory`)  
-> **Last updated:** 2026-11-13 (review remediation, Prompt 2: F-1 to F-6; migration 008)
+> **Last updated:** 2026-11-13 (low-finding fixes: code-point name length, email pattern; deferred limitations recorded)  
 
 ---
 
@@ -42,9 +42,9 @@ Parent self-service access to their own children is **not** part of VS-2.
 
 | Field | Required | Notes |
 |---|---|---|
-| `full_name` | Yes | 1–120 chars; no leading or trailing whitespace (pattern `^\S([\s\S]*\S)?$`) |
+| `full_name` | Yes | 1–120 **Unicode code points** (one emoji counts as one, matching JSON Schema `maxLength` and Postgres `char_length`); no leading or trailing whitespace (pattern `^\S([\s\S]*\S)?$`). Stored exactly as sent: no normalization, no truncation |
 | `phone`, `alt_phone` | No | Pattern `^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$` (5–32 chars; digits, `+ ( ) -` and spaces; no leading or trailing space) |
-| `email` | No | Valid email, max 254, no surrounding whitespace. Contact metadata only |
+| `email` | No | Max 254 chars; must match the published OpenAPI `pattern` (ASCII, no whitespace, no leading dot, no `..`, domain with a 2+ letter TLD). The pattern is the whole backend rule (same acceptance set as zod 3.25 `.email()`); `format: email` in the schema is only a hint. Contact metadata only |
 | `learners` | Yes | 1–20 items; each `{ learner_id, relationship, is_primary_payer? }` |
 
 **Values are validated as sent, not trimmed (F-5).** A padded value such as `" 0712345678"` is refused with `400`, which is what the published pattern says. Clients should trim input before sending.
@@ -121,8 +121,21 @@ Shape: `{ "error": { "code", "message" } }`; no SQL or stack traces.
 | F-4 | Archived learners cannot receive new links: app precheck plus DB trigger (migration 008). Test: an archive that commits during a link request makes the link `404`; the trigger refuses the insert as owner and as `figbloom_app` |
 | F-5 | OpenAPI phone, `alt_phone` and `full_name` use `pattern`, `minLength`, `maxLength`. The same patterns are exported from `modules/directory/guardians.ts` and the backend uses them. Test sends sample values through the endpoint and checks each accept/refuse result against the published pattern |
 | F-6 | `area.people` no longer implies `resource.guardian.*`; org-admin delegations must name `resource.guardian.*` explicitly (tests: `area.people` alone is refused; explicit delegation works) |
+| F-5 follow-up (low review findings) | `full_name` length is counted in code points on both sides (backend `codePointLength`, OpenAPI `maxLength`); the OpenAPI `email` carries the exact backend `pattern`. Tests: boundary names (ASCII, 61/120/121 supplementary characters, mixed) and email samples compared with the published pattern and with zod's own `.email()` (no weakening); a round-trip test checks an emoji name is stored unchanged |
 
 **Concurrency tests:** concurrent guardian creation (two parallel creates: both succeed, each with exactly one link); concurrent link creates (one `201`, one `409`); concurrent direct inserts (one row); archive-versus-link race (see F-4).
+
+## Accepted limitations and deferred items
+
+Decided and recorded for this slice. None of these is a defect to fix in VS-2.
+
+- **Duplicate guardian person records are permitted.** There is no uniqueness rule on name, phone or email, and none is planned in VS-2. Only the guardian–learner relationship is unique. Identity resolution, deduplication and merging are future product functionality. Two concurrent identical creates both succeed.
+- **Guardian-not-found and learner-not-found responses are distinguishable on the link path.** `POST .../guardians/{guardianId}/links` returns `404 Guardian not found` or `404 Learner not found`. A caller with `resource.guardian.write` could therefore learn whether a guardian UUID exists in their own tenant. Accepted as low risk (UUIDs are not guessable; same tenant only). Unknown, foreign and archived *learners* remain indistinguishable. A broader error-contract change is out of scope.
+- **Guardian contact reads are not separately audited.** Creates and links write audit events; `GET` guardian and `GET .../learners/{id}/guardians` do not. Read auditing for personal data is a cross-cutting audit-policy decision, not a one-off for this slice.
+- **Migration 008 needs deployment verification against an existing database.** It was applied only by the test suite, which resets `figbloom_api` and runs every migration from scratch. Applying it to a database that already holds guardian and learner data has not been verified. It is forward-only; manual rollback is `DROP TRIGGER guardian_links_active_learner ON guardian_links; DROP FUNCTION guardian_links_active_learner_guard();`.
+- **Migration 008 was edited after its first commit (comment only).** The migration runner refuses a changed, already-applied migration (checksum). The earlier commits were never pushed, but any database that applied the first version of 008 (for example by running `npm run migrate` between `8df77a0` and the comment fix) will report a checksum mismatch and must be reset or have its recorded checksum updated by a human. The test database is reset on every run and is not affected.
+- **Runtime RLS is not verified.** The live API connects as the database owner; RLS on `guardians` and `guardian_links` is proven only with `SET LOCAL ROLE figbloom_app` tests. This stays with FIG-1605.
+- **Pattern engines.** The published `pattern` values are ECMAScript regular expressions. A validator that uses different `$` semantics (for example one that lets `$` match before a trailing newline) may accept a value with a trailing newline that this API refuses.
 
 ## Deferred (not in VS-2)
 
