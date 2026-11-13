@@ -24,20 +24,30 @@ export const MIGRATE_EXIT = {
   reconcileNeeded: 3,
 } as const;
 
-/** Canonical form: replace CRLF with LF only. Lone CR and other bytes are preserved. */
+/**
+ * Canonical form: replace CRLF (`\r\n`) with LF once.
+ * Lone / stray `\r` (including CR immediately before a later CRLF collapse) are preserved.
+ * Callers must hash the result with {@link hashCanonicalSql} — do not re-canonicalize
+ * before hashing (double-canonicalization would hide `\r\r\n` → `\n`).
+ */
 export function canonicalizeSql(sql: string): string {
   return sql.replace(/\r\n/g, "\n");
 }
 
-/** SHA-256 of the canonical LF form (utf8). */
+/** SHA-256 of an already-canonical string (no further newline rewriting). */
+export function hashCanonicalSql(canonicalSql: string): string {
+  return createHash("sha256").update(canonicalSql, "utf8").digest("hex");
+}
+
+/** SHA-256 of the single-pass canonical LF form of raw file text. */
 export function checksumSql(sql: string): string {
-  return createHash("sha256").update(canonicalizeSql(sql), "utf8").digest("hex");
+  return hashCanonicalSql(canonicalizeSql(sql));
 }
 
 /** Hash of the same logical content re-encoded with CRLF (legacy Windows checkout). */
 export function legacyCrlfChecksumFromCanonical(canonicalSql: string): string {
-  const lf = canonicalizeSql(canonicalSql);
-  const crlf = lf.replace(/\n/g, "\r\n");
+  // Expect a once-canonicalized string; do not collapse residual CR via a second pass.
+  const crlf = canonicalSql.replace(/\n/g, "\r\n");
   return createHash("sha256").update(crlf, "utf8").digest("hex");
 }
 
@@ -178,26 +188,44 @@ function listMigrationFiles(migrationsDir: string): string[] {
     .sort();
 }
 
-function readCanonicalSql(migrationsDir: string, file: string): string {
-  return canonicalizeSql(readFileSync(join(migrationsDir, file), "utf8"));
+function readRawMigrationSql(migrationsDir: string, file: string): string {
+  return readFileSync(join(migrationsDir, file), "utf8");
 }
 
+/**
+ * Atomically upgrade a legacy CRLF checksum and append the audit row.
+ * AD-14: reconciliation is never silent — UPDATE + INSERT commit together or not at all.
+ */
 async function reconcileLegacyChecksum(
   client: import("pg").PoolClient,
   file: string,
   prior: string,
   canonicalSum: string,
 ): Promise<void> {
-  await client.query(`UPDATE schema_migrations SET checksum = $2 WHERE id = $1`, [
-    file,
-    canonicalSum,
-  ]);
-  await client.query(
-    `INSERT INTO schema_migration_checksum_audit
-      (migration_id, old_checksum, new_checksum, reason, reconciled_by)
-     VALUES ($1, $2, $3, $4, CURRENT_USER)`,
-    [file, prior, canonicalSum, LEGACY_CRLF_RECONCILE_REASON],
-  );
+  await client.query("BEGIN");
+  try {
+    await client.query(`UPDATE schema_migrations SET checksum = $2 WHERE id = $1`, [
+      file,
+      canonicalSum,
+    ]);
+    await client.query(
+      `INSERT INTO schema_migration_checksum_audit
+        (migration_id, old_checksum, new_checksum, reason, reconciled_by)
+       VALUES ($1, $2, $3, $4, CURRENT_USER)`,
+      [file, prior, canonicalSum, LEGACY_CRLF_RECONCILE_REASON],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      /* ignore rollback errors; surface the original failure */
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Legacy CRLF reconciliation for ${file} failed and was rolled back: ${message}`,
+    );
+  }
   console.warn(
     `[migrate] reconciled legacy CRLF checksum for ${file}: ${prior} -> ${canonicalSum} ` +
       `(reason=${LEGACY_CRLF_RECONCILE_REASON})`,
@@ -247,8 +275,9 @@ export async function runMigrations(
       }
 
       for (const file of files) {
-        const canonicalSql = readCanonicalSql(migrationsDir, file);
-        const sum = checksumSql(canonicalSql);
+        // Single CRLF→LF pass only, then hash those exact bytes (H-1 / AD-14).
+        const canonicalSql = canonicalizeSql(readRawMigrationSql(migrationsDir, file));
+        const sum = hashCanonicalSql(canonicalSql);
         const prior = byId.get(file);
 
         if (prior === undefined) {
