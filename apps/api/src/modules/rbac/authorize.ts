@@ -94,6 +94,7 @@ export async function loadEffectivePermissions(
   if (areas === "all") {
     for (const area of ADMIN_AREAS) perms.add(`area.${area}`);
     perms.add("resource.learner.read");
+    perms.add("resource.learner.write");
     perms.add("tenant.read");
     perms.add("rbac.staff_areas.manage");
     perms.add("rbac.school_roles.manage");
@@ -101,14 +102,21 @@ export async function loadEffectivePermissions(
     perms.add("rbac.org_delegations.read");
   } else {
     for (const area of areas) perms.add(`area.${area}`);
-    if (areas.has("people")) perms.add("resource.learner.read");
+    // School-office people area implies directory learner read/write (VS-1).
+    if (areas.has("people")) {
+      perms.add("resource.learner.read");
+      perms.add("resource.learner.write");
+    }
   }
 
   if (ctx.isOrgAdminForTenant && ctx.tenantId && !mayAdminister(ctx)) {
     const delegated = await loadDelegatedPermissionCodes(db, ctx.userId, ctx.tenantId);
     for (const code of delegated) perms.add(code);
-    // Delegation of area.people implies learner read if not already explicit.
-    if (delegated.has("area.people")) perms.add("resource.learner.read");
+    // Delegation of area.people implies learner read/write if not already explicit.
+    if (delegated.has("area.people")) {
+      perms.add("resource.learner.read");
+      perms.add("resource.learner.write");
+    }
   }
 
   return perms;

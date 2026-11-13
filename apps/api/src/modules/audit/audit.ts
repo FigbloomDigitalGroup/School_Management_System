@@ -15,7 +15,8 @@ export type SecurityEventType =
   | "rbac.org_delegation.revoked"
   | "rbac.permission.denied"
   | "identity.external.linked"
-  | "rate_limit.denied";
+  | "rate_limit.denied"
+  | "directory.learner.created";
 
 export async function recordSecurityEvent(
   db: Db,

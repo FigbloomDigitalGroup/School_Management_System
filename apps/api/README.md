@@ -1,13 +1,18 @@
-# `@figbloom/api` — replacement modular monolith (P1-A)
+# `@figbloom/api` — replacement modular monolith
 
-Node.js + TypeScript service implementing **FIG-1573 / P1-A: Identity, Tenancy and RBAC Foundation**.
+Node.js + TypeScript service for the FigBloom replacement backend.
+
+**Shipped slices**
+
+- **P1-A / FIG-1573:** Identity, tenancy and RBAC foundation
+- **VS-1:** Learner directory create/read (`POST/GET /v1/tenants/:tenantId/learners…`)
 
 - Managed PostgreSQL (local isolated DB `figbloom_api`)
 - Opaque sessions (token hash in Postgres — no Redis)
 - Server-enforced tenancy and RBAC (default deny)
 - Versioned REST under `/v1` + OpenAPI in `openapi/openapi.yaml`
 
-Does **not** replace existing web/mobile or the Supabase stack. Dual-run until Phase 9.
+Does **not** replace existing web/mobile or the Supabase stack. Client integration uses OpenAPI handoffs (see `docs/VS1-LEARNER-DIRECTORY-HANDOFF.md`).
 
 ## Setup
 

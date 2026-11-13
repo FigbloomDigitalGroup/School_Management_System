@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: FigBloom Replacement API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    P1-A (FIG-1573) identity, tenancy and RBAC contracts.
+    FigBloom replacement modular monolith contracts.
+    Includes P1-A identity/tenancy/RBAC and VS-1 learner directory create/read.
     Authorization is server-enforced. Client-supplied role or permission lists
     are never accepted as evidence of access.
 servers:
@@ -15,6 +16,7 @@ tags:
   - name: tenancy
   - name: org
   - name: rbac
+  - name: directory
 paths:
   /health:
     get:
@@ -270,6 +272,81 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/learners:
+    post:
+      tags: [directory]
+      summary: Create a learner in the school directory (VS-1)
+      description: >
+        Creates a learner record for the path tenant. Requires resource.learner.write
+        (school_admin, or staff/teacher with area.people, or an equivalent org-admin
+        delegation). Tenant id in the path must match the session / X-Tenant-Id context.
+        Class assignment, guardians, health and import are out of scope for VS-1.
+      operationId: createLearner
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.learner.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLearnerRequest" }
+      responses:
+        "201":
+          description: Learner created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/learners/{learnerId}:
+    get:
+      tags: [directory]
+      summary: Retrieve a learner by id (VS-1)
+      description: >
+        Returns a learner owned by the path tenant. Requires resource.learner.read.
+        Cross-tenant ids return 404 (not found) when the row is not in the caller's tenant.
+      operationId: getLearner
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.learner.read]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: learnerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Learner record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/org/schools:
     get:
       tags: [org]
@@ -462,6 +539,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Resource conflict (for example duplicate admission number)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     RateLimited:
       description: >-
         Auth token bucket exhausted (capacity 5, +2 tokens per 5 s, cost 1 per
@@ -635,6 +718,62 @@ components:
         resource: { type: string, enum: [learners] }
         access: { type: string, enum: [granted] }
         note: { type: string }
+    CreateLearnerRequest:
+      type: object
+      required: [admission_no, full_name, gender]
+      properties:
+        admission_no:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: School admission number (unique per tenant; People terminology)
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        gender:
+          type: string
+          enum: [male, female]
+        boarding:
+          type: boolean
+          default: false
+        date_of_birth:
+          type: [string, "null"]
+          format: date
+          description: Optional YYYY-MM-DD
+    Learner:
+      type: object
+      required:
+        [
+          id,
+          tenantId,
+          admission_no,
+          full_name,
+          gender,
+          boarding,
+          date_of_birth,
+          active,
+          archived_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        admission_no: { type: string }
+        full_name: { type: string }
+        gender: { type: string, enum: [male, female] }
+        boarding: { type: boolean }
+        date_of_birth: { type: [string, "null"], format: date }
+        active: { type: boolean }
+        archived_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    LearnerResponse:
+      type: object
+      required: [learner]
+      properties:
+        learner: { $ref: "#/components/schemas/Learner" }
     Error:
       type: object
       required: [error]

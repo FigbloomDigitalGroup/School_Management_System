@@ -16,6 +16,7 @@ export const DELEGABLE_PERMISSIONS: ReadonlySet<string> = new Set([
   "rbac.staff_areas.manage",
   "rbac.school_roles.manage",
   "resource.learner.read",
+  "resource.learner.write",
   ...ADMIN_AREAS.map((a) => `area.${a}`),
 ]);
 
