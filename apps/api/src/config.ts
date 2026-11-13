@@ -5,7 +5,32 @@ import { z } from "zod";
 import { parseCidr } from "./http/ip.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const apiRoot = resolve(__dirname, "..");
+
+/**
+ * Resolve the `@figbloom/api` package root from `src/` or `dist/` layouts
+ * (FIG-1610 / P2-01: migrations must resolve after compile).
+ */
+function resolveApiRoot(startDir: string = __dirname): string {
+  let dir = startDir;
+  for (let i = 0; i < 8; i++) {
+    const pkgPath = resolve(dir, "package.json");
+    const migrations = resolve(dir, "migrations");
+    if (existsSync(pkgPath) && existsSync(migrations)) {
+      try {
+        const name = JSON.parse(readFileSync(pkgPath, "utf8")).name as string | undefined;
+        if (name === "@figbloom/api") return dir;
+      } catch {
+        /* keep walking */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(__dirname, "..");
+}
+
+const apiRoot = resolveApiRoot();
 
 /** Load apps/api/.env if present without printing values. */
 function loadDotEnv(): void {

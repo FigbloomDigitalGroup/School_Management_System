@@ -11,6 +11,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "migrate": "tsx src/db/migrate.ts",
+    "migrate:verify": "tsx src/db/migrate.ts --verify",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty",
     "test": "vitest run",
     "test:watch": "vitest",
