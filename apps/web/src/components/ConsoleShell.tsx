@@ -19,6 +19,28 @@ import { useToast } from "./ui/Toast";
  *  ConsoleShell, where PageHead then shows no accessibility button. */
 const OpenAccessibility = createContext<(() => void) | null>(null);
 
+/** Which sidebar headings this person has folded away. Kept on this browser, per person and per console (a teacher's own console and their
+ *  admin one have different headings), because it is a way of reading the menu, not data about them. */
+const collapsedKey = (userId: string, role: Role) => `figbloom.nav.collapsed.${userId}.${role}`;
+
+function readCollapsed(key: string): string[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCollapsed(key: string, labels: string[]) {
+  try {
+    if (labels.length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(labels));
+  } catch {
+    // Private window or blocked storage: the folds just don't outlast the page.
+  }
+}
+
 /** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
 export interface ShellAction {
   key: string;
@@ -72,6 +94,8 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const [changingPw, setChangingPw] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const foldKey = collapsedKey(user.id, role);
+  const [collapsed, setCollapsed] = useState(() => readCollapsed(foldKey));
   const [guideOpen, setGuideOpenState] = useState(() => !!guide && guideWasOpen(user.id));
   const setGuideOpen = (v: boolean) => { setGuideOpenState(v); rememberGuideOpen(user.id, v); };
   const location = useLocation();
@@ -121,6 +145,15 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   const here = location.pathname.startsWith(prefix) ? location.pathname.slice(prefix.length).replace(/\/$/, "") : "";
   const herePage = items.find((i) => i.to === here) ? here : items.filter((i) => here.startsWith(`${i.to}/`)).map((i) => i.to).sort((a, b) => b.length - a.length)[0] ?? "";
   const guideHost: GuideHost | null = guide ? { role, userId: user.id, items, here: herePage, hrefFor, options: guide } : null;
+  const sections = groupNav(items);
+  // Going to a page (a link in the page, the guide, the address bar) opens the heading it sits under, so the menu never hides where you are.
+  // Folding that heading yourself, while you stay on the page, is left alone: this runs only when the page's heading changes.
+  const hereHeading = sections.find((s) => s.items.some((i) => i.to === herePage))?.label ?? null;
+  useEffect(() => {
+    if (hereHeading) setCollapsed((c) => (c.includes(hereHeading) ? c.filter((l) => l !== hereHeading) : c));
+  }, [hereHeading]);
+  useEffect(() => writeCollapsed(foldKey, collapsed), [foldKey, collapsed]);
+  const toggleHeading = (label: string) => setCollapsed((c) => (c.includes(label) ? c.filter((l) => l !== label) : [...c, label]));
   // The School assistant page hosts the chat itself, so the panel stays out of its way there.
   const guideInPage = herePage === "admin/assistant";
   // A page opened from the School assistant offers the way back to it.
@@ -222,8 +255,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         )}
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
-        {/* Every page stays on show, under a heading for the kind of work it is: nothing folds away. Collapsed to icons, a thin line stands in for the heading. */}
-        {groupNav(items).map((section, i) => {
+        {/* Each heading folds its pages away and opens them again; they all start open. Collapsed to icons, a thin line stands in for the
+            heading and every page stays on show, since an icon is the only way to reach it. */}
+        {sections.map((section, i) => {
           const links = section.items.map((it) => {
             const to = hrefFor(it.to);
             return (
@@ -250,14 +284,36 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
             );
           });
           if (!section.label) return <div key="top" className="flex flex-col gap-0.5">{links}</div>;
+          const label = section.label;
+          const folded = open && collapsed.includes(label);
+          const listId = `nav-section-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+          // Folded away, a page's badge (unread, waiting) would go with it: the heading carries a dot instead.
+          const flagged = folded && section.items.some((it) => badges[it.to]);
           return (
             // Not a labelled group (role="group" aria-label): getByLabel("Class") and the like match a label by substring, and a heading
-            // called "Timetable & classes" or "School" would answer to a form field's name. The heading is plain text, read in order.
-            <div key={section.label} className="flex flex-col gap-0.5">
+            // called "Timetable & classes" or "School" would answer to a form field's name. The heading is a button named by its own text.
+            <div key={label} className="flex flex-col gap-0.5">
               {open ? (
-                <div className="px-2.5 pb-0.5 pt-3.5 font-mono text-[10px] tracking-[0.12em] text-white/60">{section.label.toUpperCase()}</div>
+                <button
+                  type="button"
+                  onClick={() => toggleHeading(label)}
+                  aria-expanded={!folded}
+                  aria-controls={folded ? undefined : listId}
+                  className="hit mt-2.5 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left font-mono text-[10px] tracking-[0.12em] text-white/60 hover:bg-white/10 hover:text-white"
+                >
+                  <span className="min-w-0 flex-1 truncate">{label.toUpperCase()}</span>
+                  {flagged && (
+                    <>
+                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange" />
+                      <span className="sr-only">, something here needs a look</span>
+                    </>
+                  )}
+                  <svg aria-hidden width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 transition-transform duration-150 ${folded ? "-rotate-90" : ""}`}>
+                    <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
               ) : i > 0 && <div aria-hidden className="mx-2 my-1.5 border-t border-white/10" />}
-              {links}
+              {!folded && <div id={listId} className="flex flex-col gap-0.5">{links}</div>}
             </div>
           );
         })}

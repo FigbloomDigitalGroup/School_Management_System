@@ -351,7 +351,8 @@ test.describe("teacher", () => {
   });
   test("the gradebook says whether this class's marks are out, and lets the teacher withdraw them", async ({ page }) => {
     await page.goto("/s/alliance/teacher/gradebook");
-    await page.getByLabel("Class").selectOption({ label: "Form 2 West" });
+    // exact: getByLabel matches by substring, so "Class" alone would also match any other label with that word in it.
+    await page.getByLabel("Class", { exact: true }).selectOption({ label: "Form 2 West" });
     await page.getByLabel("Exam").selectOption({ label: "Mock 1" });
     // The seed publishes Mock 1 for Form 2 West, one class and subject at a time.
     await expect(page.getByText("Published to parents")).toBeVisible();

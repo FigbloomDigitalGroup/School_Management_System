@@ -76,9 +76,9 @@ describe("the console menus", () => {
     expect(first?.items.map((i) => i.to)).toEqual(["admin", "admin/assistant"]);
   });
 
-  it("keep a bursar's pages together under Money", () => {
-    const money = groupNav(NAV.school_admin).find((s) => s.label === "Money");
-    expect(money?.items.map((i) => i.to)).toEqual(["admin/fees", "admin/study-helper"]);
+  it("keep a bursar's pages together under Finance", () => {
+    const finance = groupNav(NAV.school_admin).find((s) => s.label === "Finance");
+    expect(finance?.items.map((i) => i.to)).toEqual(["admin/fees", "admin/study-helper"]);
   });
 
   it("never repeat a page within one menu", () => {

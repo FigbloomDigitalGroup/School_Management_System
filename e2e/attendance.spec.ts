@@ -341,7 +341,8 @@ test.describe("teacher register", () => {
     await page.goto("/s/alliance/teacher/attendance");
     await expect(page.getByText("Everyone starts present")).toBeVisible();
     // The register opens on the teacher's first class; choose the one these tests are worked out for.
-    await page.getByLabel("Class").selectOption({ label: "Form 2 West" });
+    // exact: getByLabel matches by substring, so "Class" alone would also match any other label with that word in it.
+    await page.getByLabel("Class", { exact: true }).selectOption({ label: "Form 2 West" });
     await expect(page.getByText("Everyone starts present")).toBeVisible();
     await expect(page.getByText(/^43 learners$/)).toBeVisible();
   };
