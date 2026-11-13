@@ -6,13 +6,14 @@ Node.js + TypeScript service for the FigBloom replacement backend.
 
 - **P1-A / FIG-1573:** Identity, tenancy and RBAC foundation
 - **VS-1:** Learner directory create/read (`POST/GET /v1/tenants/:tenantId/learners…`)
+- **VS-2:** Guardian directory create/read and learner links (`POST/GET /v1/tenants/:tenantId/guardians…`, `GET …/learners/:learnerId/guardians`)
 
 - Managed PostgreSQL (local isolated DB `figbloom_api`)
 - Opaque sessions (token hash in Postgres — no Redis)
 - Server-enforced tenancy and RBAC (default deny)
 - Versioned REST under `/v1` + OpenAPI in `openapi/openapi.yaml`
 
-Does **not** replace existing web/mobile or the Supabase stack. Client integration uses OpenAPI handoffs (see `docs/VS1-LEARNER-DIRECTORY-HANDOFF.md`).
+Does **not** replace existing web/mobile or the Supabase stack. Client integration uses OpenAPI handoffs (see `docs/VS1-LEARNER-DIRECTORY-HANDOFF.md`, `docs/VS2-GUARDIAN-DIRECTORY-HANDOFF.md`).
 
 ## Setup
 
