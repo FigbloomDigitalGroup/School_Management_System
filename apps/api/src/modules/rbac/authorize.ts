@@ -95,6 +95,8 @@ export async function loadEffectivePermissions(
     for (const area of ADMIN_AREAS) perms.add(`area.${area}`);
     perms.add("resource.learner.read");
     perms.add("resource.learner.write");
+    perms.add("resource.guardian.read");
+    perms.add("resource.guardian.write");
     perms.add("tenant.read");
     perms.add("rbac.staff_areas.manage");
     perms.add("rbac.school_roles.manage");
@@ -106,6 +108,8 @@ export async function loadEffectivePermissions(
     if (areas.has("people")) {
       perms.add("resource.learner.read");
       perms.add("resource.learner.write");
+      perms.add("resource.guardian.read");
+      perms.add("resource.guardian.write");
     }
   }
 
@@ -116,6 +120,8 @@ export async function loadEffectivePermissions(
     if (delegated.has("area.people")) {
       perms.add("resource.learner.read");
       perms.add("resource.learner.write");
+      perms.add("resource.guardian.read");
+      perms.add("resource.guardian.write");
     }
   }
 
