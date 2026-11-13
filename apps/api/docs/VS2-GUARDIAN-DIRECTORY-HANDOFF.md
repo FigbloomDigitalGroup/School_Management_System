@@ -4,7 +4,7 @@
 > **Boundary:** backend contract only — do **not** treat this as authorization to edit `apps/web` or `apps/mobile` in the rebuild programme.  
 > **Status:** IMPLEMENTED (scoped) — VS-2 only; School Directory module is **not** complete. Independent review findings F-1–F-6 remediated.  
 > **OpenAPI:** `apps/api/openapi/openapi.yaml` (tag `directory`)  
-> **Last updated:** 2026-11-13
+> **Last updated:** 2026-11-13 (review remediation, Prompt 2: F-1 to F-6; migration 008)
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Method | Path | Permission | Success |
 |---|---|---|---|
-| `POST` | `/v1/tenants/{tenantId}/guardians` | `resource.guardian.write` **and** `resource.learner.read` | `201` `{ guardian }` (with `links`) |
+| `POST` | `/v1/tenants/{tenantId}/guardians` | `resource.guardian.write` **and** `resource.learner.read` | `201` `{ guardian: { id, tenantId, links } }` (**no contact fields**) |
 | `GET` | `/v1/tenants/{tenantId}/guardians/{guardianId}` | `resource.guardian.read` | `200` `{ guardian }` (**contact fields only** — no `links`) |
 | `POST` | `/v1/tenants/{tenantId}/guardians/{guardianId}/links` | `resource.guardian.write` **and** `resource.learner.read` | `201` `{ link }` |
 | `GET` | `/v1/tenants/{tenantId}/learners/{learnerId}/guardians` | `resource.guardian.read` **and** `resource.learner.read` | `200` `{ guardians: [...] }` |
@@ -42,16 +42,18 @@ Parent self-service access to their own children is **not** part of VS-2.
 
 | Field | Required | Notes |
 |---|---|---|
-| `full_name` | Yes | 1–120 chars |
-| `phone`, `alt_phone` | No | Pattern `^[0-9+()\-\s]{5,32}$` (OpenAPI `pattern` / `minLength` / `maxLength`) |
-| `email` | No | Valid email, max 254. Contact metadata only |
+| `full_name` | Yes | 1–120 chars; no leading or trailing whitespace (pattern `^\S([\s\S]*\S)?$`) |
+| `phone`, `alt_phone` | No | Pattern `^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$` (5–32 chars; digits, `+ ( ) -` and spaces; no leading or trailing space) |
+| `email` | No | Valid email, max 254, no surrounding whitespace. Contact metadata only |
 | `learners` | Yes | 1–20 items; each `{ learner_id, relationship, is_primary_payer? }` |
 
-`relationship` is `mother` \| `father` \| `guardian`. `is_primary_payer` defaults to `false` and is **stored only**; at-most-one-payer enforcement is deferred. Unknown body fields are rejected (`400`). The guardian and all its initial links are created in **one transaction**: if any step fails nothing is stored. A guardian cannot be created without a learner. Learner ids are normalized before duplicate detection (case-only duplicates → `400`). Archived learners cannot receive new relationships (`400`).
+**Values are validated as sent, not trimmed (F-5).** A padded value such as `" 0712345678"` is refused with `400`, which is what the published pattern says. Clients should trim input before sending.
+
+`relationship` is `mother` \| `father` \| `guardian`. `is_primary_payer` defaults to `false` and is **stored only**; at-most-one-payer enforcement is deferred. Unknown body fields are rejected (`400`). The guardian and all its initial links are created in **one transaction**: if any step fails nothing is stored. A guardian cannot be created without a learner. Learner ids are normalized before duplicate detection (case-only duplicates → `400`). Archived learners cannot receive new relationships: they get the same `404` as an unknown learner.
 
 ## Responses
 
-`POST` create `guardian`: `id`, `tenantId`, `full_name`, `phone`, `alt_phone`, `email`, `created_at`, `updated_at`, `links[]` (`id`, `guardianId`, `learnerId`, `relationship`, `is_primary_payer`, `created_at`).
+`POST` create `guardian`: `id`, `tenantId`, `links[]` (`id`, `guardianId`, `learnerId`, `relationship`, `is_primary_payer`, `created_at`). **Contact fields are not echoed back** (F-2, F-6): a caller with only `resource.guardian.write` receives no name, phone or email. Read them with `GET .../guardians/{guardianId}` (needs `resource.guardian.read`).
 
 `GET` guardian: contact fields only — **no** `links` / linked learner identifiers (F-2). Use `GET .../learners/{id}/guardians` for relationships of a known learner.
 
@@ -63,10 +65,10 @@ Shape: `{ "error": { "code", "message" } }`; no SQL or stack traces.
 
 | HTTP | `code` | Typical cause |
 |---|---|---|
-| 400 | `validation_error` | Missing/invalid fields, no learner, same learner twice (incl. case-only), archived learner |
+| 400 | `validation_error` | Missing/invalid fields (including padded phone, name or email), no learner, same learner twice (incl. case-only) |
 | 401 | `unauthorized` | No/invalid session |
 | 403 | `forbidden` | Missing permission, path tenant mismatch, no tenant context |
-| 404 | `not_found` | Guardian or learner not in this tenant. Unknown ids and other tenants' ids give the **same** response, so records cannot be enumerated |
+| 404 | `not_found` | Guardian or learner not in this tenant, **or an archived learner**. Unknown ids, other tenants' ids and archived learners give the **same** response (`Learner not found`), so records and archive status cannot be probed (F-3) |
 | 409 | `conflict` | The guardian is already linked to that learner (including under concurrent races; DB unique constraint is authoritative) |
 | 500 | `internal_error` | Unexpected; generic body |
 
@@ -82,6 +84,8 @@ Shape: `{ "error": { "code", "message" } }`; no SQL or stack traces.
 - FORCE RLS for `figbloom_app` on both tables; app role has `SELECT, INSERT` only (no UPDATE/DELETE/TRUNCATE).
 - Learner deletes are `RESTRICT`; deleting a guardian (owner-level only) cascades its links.
 - Routes set `app.tenant_id` / `app.user_id` per directory transaction.
+- Migration `008_guardian_link_active_learner_guard.sql` (F-4): trigger `guardian_links_active_learner` on `guardian_links` (insert, and update of `learner_id` / `tenant_id`). It runs as a `SECURITY DEFINER` function owned by the table owner, takes `FOR SHARE` on the learner row, and refuses an archived or missing learner with SQLSTATE `P0002`. The API maps `P0002` to `404`. It is a database rule, so it holds for any writer and for `figbloom_app` after FIG-1605.
+- **Why a trigger and not an application lock:** `figbloom_app` has only `SELECT, INSERT` on `learners`, and a row lock `FOR SHARE` requires `UPDATE` privilege. An application-level `FOR SHARE` therefore fails for the runtime role. The application keeps a plain precheck (clean `404`); the trigger is what closes the race.
 
 ### Runtime isolation vs RLS proof (FIG-1605)
 
@@ -94,8 +98,10 @@ Shape: `{ "error": { "code", "message" } }`; no SQL or stack traces.
 | Postgres RLS policies on `guardians` / `guardian_links` | Policies exist (FORCE RLS) | Migration 007 |
 | RLS enforcement as `figbloom_app` | **Not on the live app connection** while the API still connects as DB owner | Proven only via `SET LOCAL ROLE figbloom_app` in tests |
 | Least-privilege grants (`SELECT, INSERT` only) as runtime role | Depends on connecting as `figbloom_app` | Same `SET ROLE` tests |
+| Archived-learner guard (migration 008 trigger) | **Active** on every writer, because it is a database rule (runs as owner via `SECURITY DEFINER`) | API tests (owner path, `SET ROLE figbloom_app` path, concurrent archive race) |
+| Concurrent duplicate links | **Active**: `guardian_links_guardian_learner_uniq` | API tests (concurrent API requests and concurrent direct inserts) |
 
-**Remaining (FIG-1605):** wire the live API pool to `figbloom_app` (or equivalent non-owner role) so RLS and table grants apply on every request. Until then, do not claim production least-privilege DB role isolation for guardians. Do not treat VS-2 as closing FIG-1605.
+**Remaining (FIG-1605):** wire the live API pool to `figbloom_app` (or equivalent non-owner role) so RLS and table grants apply on every request. Until then, do not claim production least-privilege DB role isolation for guardians: the RLS policies on `guardians` and `guardian_links` are proven only by `SET LOCAL ROLE figbloom_app` tests, not on the live connection. The archived-learner guard does not depend on FIG-1605. Do not treat VS-2 as closing FIG-1605.
 
 ## Mapping to existing People flows
 
@@ -109,12 +115,14 @@ Shape: `{ "error": { "code", "message" } }`; no SQL or stack traces.
 
 | ID | Fix |
 |---|---|
-| F-1 | Normalize learner ids before duplicate detection → `400` |
-| F-2 | `GET` guardian returns contact fields only (no linked learner ids) |
-| F-3 | Create/link also require `resource.learner.read` |
-| F-4 | Archived / inactive learners rejected for new links (`400`) |
-| F-5 | OpenAPI phone/`alt_phone` use `pattern`, `minLength`, `maxLength` |
-| F-6 | `area.people` no longer implies `resource.guardian.*` |
+| F-1 | Normalize learner ids before duplicate detection → `400`. Tests: case-only duplicate on create (`400`, nothing stored); upper-case id on link to an existing link (`409`) |
+| F-2 | `GET` guardian returns contact fields only (no linked learner ids). Create no longer echoes contact fields back (test: create response has no name, phone or email) |
+| F-3 | Create/link also require `resource.learner.read`. Archived and unknown learners return the same `404` body (test compares the two bodies) |
+| F-4 | Archived learners cannot receive new links: app precheck plus DB trigger (migration 008). Test: an archive that commits during a link request makes the link `404`; the trigger refuses the insert as owner and as `figbloom_app` |
+| F-5 | OpenAPI phone, `alt_phone` and `full_name` use `pattern`, `minLength`, `maxLength`. The same patterns are exported from `modules/directory/guardians.ts` and the backend uses them. Test sends sample values through the endpoint and checks each accept/refuse result against the published pattern |
+| F-6 | `area.people` no longer implies `resource.guardian.*`; org-admin delegations must name `resource.guardian.*` explicitly (tests: `area.people` alone is refused; explicit delegation works) |
+
+**Concurrency tests:** concurrent guardian creation (two parallel creates: both succeed, each with exactly one link); concurrent link creates (one `201`, one `409`); concurrent direct inserts (one row); archive-versus-link race (see F-4).
 
 ## Deferred (not in VS-2)
 
