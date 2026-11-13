@@ -136,7 +136,10 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(fetched.statusCode).toBe(200);
     expect(fetched.json().guardian.id).toBe(g.id);
-    expect(fetched.json().guardian.links).toHaveLength(1);
+    expect(fetched.json().guardian.full_name).toBe("Jane Kamau");
+    // F-2: guardian read returns contact fields only — no linked learner ids.
+    expect(fetched.json().guardian.links).toBeUndefined();
+    expect(JSON.stringify(fetched.json())).not.toMatch(new RegExp(learnerA1, "i"));
 
     const users = await ctx.pool.query(`SELECT count(*)::int AS n FROM users WHERE full_name = 'Jane Kamau'`);
     expect(users.rows[0].n).toBe(0);
@@ -164,12 +167,13 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     expect(link.statusCode).toBe(201);
     expect(link.json().link.learnerId).toBe(learnerA3);
 
-    const fetched = await ctx.app.inject({
+    const listed = await ctx.app.inject({
       method: "GET",
-      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}`,
+      url: `/v1/tenants/${ids.tenantA}/learners/${learnerA3}/guardians`,
       headers: bearer(adminToken, ids.tenantA),
     });
-    expect(fetched.json().guardian.links).toHaveLength(3);
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().guardians.map((x: { full_name: string }) => x.full_name)).toEqual(["Peter Kamau"]);
   });
 
   it("lists the guardians of a learner", async () => {
@@ -204,7 +208,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     expect(none.json().guardians).toEqual([]);
   });
 
-  it("staff with area.people can create and read; without it they cannot", async () => {
+  it("area.people alone does not grant guardian contact access (F-6)", async () => {
     const grant = await ctx.app.inject({
       method: "PUT",
       url: "/v1/rbac/staff-areas",
@@ -213,17 +217,33 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(grant.statusCode).toBe(200);
 
-    const created = await postGuardian(teacherToken, ids.tenantA, {
+    // VS-1 learner access still works via area.people.
+    const learnerOk = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/learners/${learnerA1}`,
+      headers: bearer(teacherToken, ids.tenantA),
+    });
+    expect(learnerOk.statusCode).toBe(200);
+
+    const seeded = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "People Area Seed",
+      learners: [{ learner_id: learnerA1, relationship: "guardian" }],
+    });
+    expect(seeded.statusCode).toBe(201);
+    const gid = seeded.json().guardian.id as string;
+
+    const deniedCreate = await postGuardian(teacherToken, ids.tenantA, {
       full_name: "Staff Created",
       learners: [{ learner_id: learnerA1, relationship: "guardian" }],
     });
-    expect(created.statusCode).toBe(201);
-    const read = await ctx.app.inject({
+    expect(deniedCreate.statusCode).toBe(403);
+
+    const deniedRead = await ctx.app.inject({
       method: "GET",
-      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}`,
+      url: `/v1/tenants/${ids.tenantA}/guardians/${gid}`,
       headers: bearer(teacherToken, ids.tenantA),
     });
-    expect(read.statusCode).toBe(200);
+    expect(deniedRead.statusCode).toBe(403);
 
     await ctx.app.inject({
       method: "PUT",
@@ -231,17 +251,6 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       headers: bearer(adminToken, ids.tenantA),
       payload: { userId: ids.teacherA, areas: [] },
     });
-    const denied = await postGuardian(teacherToken, ids.tenantA, {
-      full_name: "Should Fail",
-      learners: [{ learner_id: learnerA1, relationship: "guardian" }],
-    });
-    expect(denied.statusCode).toBe(403);
-    const deniedRead = await ctx.app.inject({
-      method: "GET",
-      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}`,
-      headers: bearer(teacherToken, ids.tenantA),
-    });
-    expect(deniedRead.statusCode).toBe(403);
   });
 
   it("refuses unauthorized access on every operation with safe bodies", async () => {
@@ -341,8 +350,49 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(dupInBody.statusCode).toBe(400);
 
+    // F-1: case-only duplicate learner ids must also return 400 (not 404).
+    const dupCase = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Twice Case",
+      learners: [
+        { learner_id: learnerA1.toLowerCase(), relationship: "mother" },
+        { learner_id: learnerA1.toUpperCase(), relationship: "father" },
+      ],
+    });
+    expect(dupCase.statusCode).toBe(400);
+    expect(dupCase.json().error.code).toBe("validation_error");
+
     const after = await ctx.pool.query(`SELECT count(*)::int AS n FROM guardians WHERE tenant_id = $1`, [ids.tenantA]);
     expect(after.rows[0].n).toBe(before.rows[0].n);
+  });
+
+  it("refuses new guardian links to archived learners (F-4)", async () => {
+    const archivedId = await createLearner(adminToken, ids.tenantA, "7099", "Archived Learner");
+    await ctx.pool.query(
+      `UPDATE learners SET active = false, archived_at = now() WHERE id = $1 AND tenant_id = $2`,
+      [archivedId, ids.tenantA],
+    );
+
+    const createOnArchived = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Archive Blocked",
+      learners: [{ learner_id: archivedId, relationship: "mother" }],
+    });
+    expect(createOnArchived.statusCode).toBe(400);
+    expect(createOnArchived.json().error.code).toBe("validation_error");
+    expect(String(createOnArchived.json().error.message)).toMatch(/archived/i);
+
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Active Then Archive Link",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    expect(created.statusCode).toBe(201);
+    const linkArchived = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}/links`,
+      headers: bearer(adminToken, ids.tenantA),
+      payload: { learner_id: archivedId, relationship: "guardian" },
+    });
+    expect(linkArchived.statusCode).toBe(400);
+    expect(linkArchived.json().error.code).toBe("validation_error");
   });
 
   it("refuses cross-tenant link attempts and leaves no guardian behind", async () => {
@@ -638,7 +688,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     }
   });
 
-  it("org_admin needs a delegation for guardian access", async () => {
+  it("org_admin needs explicit guardian (+ learner read) delegation; area.people is not enough", async () => {
     const orgToken = await loginEmail(ctx.app, "orgadmin@example.com");
     const denied = await postGuardian(orgToken, ids.tenantA, {
       full_name: "Org Denied",
@@ -646,7 +696,37 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(denied.statusCode).toBe(403);
 
-    const grant = await ctx.app.inject({
+    // F-6: area.people alone must not unlock guardian contact details.
+    const peopleOnly = await ctx.app.inject({
+      method: "POST",
+      url: "/v1/rbac/org-delegations",
+      headers: bearer(adminToken, ids.tenantA),
+      payload: {
+        delegateUserId: ids.orgAdmin,
+        permissionCodes: ["area.people"],
+      },
+    });
+    expect(peopleOnly.statusCode).toBe(200);
+    const stillDenied = await postGuardian(orgToken, ids.tenantA, {
+      full_name: "Org People Only",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    expect(stillDenied.statusCode).toBe(403);
+
+    // Clear area.people so learner.read is not implied for the next check.
+    const revokePeople = await ctx.app.inject({
+      method: "DELETE",
+      url: "/v1/rbac/org-delegations",
+      headers: bearer(adminToken, ids.tenantA),
+      payload: {
+        delegateUserId: ids.orgAdmin,
+        permissionCodes: ["area.people"],
+      },
+    });
+    expect(revokePeople.statusCode).toBe(200);
+
+    // F-3: guardian.write without learner.read must not probe learner existence.
+    const writeOnly = await ctx.app.inject({
       method: "POST",
       url: "/v1/rbac/org-delegations",
       headers: bearer(adminToken, ids.tenantA),
@@ -655,28 +735,110 @@ describe("VS-2 guardian directory create/read and learner links", () => {
         permissionCodes: ["resource.guardian.write"],
       },
     });
+    expect(writeOnly.statusCode).toBe(200);
+    const missingLearnerRead = await postGuardian(orgToken, ids.tenantA, {
+      full_name: "Org Write Only",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    expect(missingLearnerRead.statusCode).toBe(403);
+
+    const grant = await ctx.app.inject({
+      method: "POST",
+      url: "/v1/rbac/org-delegations",
+      headers: bearer(adminToken, ids.tenantA),
+      payload: {
+        delegateUserId: ids.orgAdmin,
+        permissionCodes: ["resource.guardian.read", "resource.learner.read"],
+      },
+    });
     expect(grant.statusCode).toBe(200);
     const created = await postGuardian(orgToken, ids.tenantA, {
       full_name: "Org Created",
       learners: [{ learner_id: learnerA1, relationship: "mother" }],
     });
     expect(created.statusCode).toBe(201);
-    const readDenied = await ctx.app.inject({
+    const readOk = await ctx.app.inject({
       method: "GET",
       url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}`,
       headers: bearer(orgToken, ids.tenantA),
     });
-    expect(readDenied.statusCode).toBe(403);
+    expect(readOk.statusCode).toBe(200);
+    expect(readOk.json().guardian.links).toBeUndefined();
+  });
+
+  it("database unique constraint wins under concurrent link creates", async () => {
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Concurrent Guardian",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    expect(created.statusCode).toBe(201);
+    const gid = created.json().guardian.id as string;
+
+    const [a, b] = await Promise.all([
+      ctx.app.inject({
+        method: "POST",
+        url: `/v1/tenants/${ids.tenantA}/guardians/${gid}/links`,
+        headers: bearer(adminToken, ids.tenantA),
+        payload: { learner_id: learnerA2, relationship: "father" },
+      }),
+      ctx.app.inject({
+        method: "POST",
+        url: `/v1/tenants/${ids.tenantA}/guardians/${gid}/links`,
+        headers: bearer(adminToken, ids.tenantA),
+        payload: { learner_id: learnerA2, relationship: "guardian" },
+      }),
+    ]);
+    const codes = [a.statusCode, b.statusCode].sort();
+    expect(codes).toEqual([201, 409]);
+    const links = await ctx.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM guardian_links WHERE guardian_id = $1 AND learner_id = $2`,
+      [gid, learnerA2],
+    );
+    expect(links.rows[0]!.n).toBe(1);
+  });
+
+  it("database unique constraint wins under concurrent direct inserts", async () => {
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Concurrent Insert Guardian",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    const gid = created.json().guardian.id as string;
+    const learnerA4 = await createLearner(adminToken, ids.tenantA, "7004", "Concurrent Learner");
+
+    const results = await Promise.allSettled([
+      ctx.pool.query(
+        `INSERT INTO guardian_links (tenant_id, guardian_id, learner_id, relationship)
+         VALUES ($1, $2, $3, 'mother')`,
+        [ids.tenantA, gid, learnerA4],
+      ),
+      ctx.pool.query(
+        `INSERT INTO guardian_links (tenant_id, guardian_id, learner_id, relationship)
+         VALUES ($1, $2, $3, 'father')`,
+        [ids.tenantA, gid, learnerA4],
+      ),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toBe(1);
+    expect(rejected).toHaveLength(1);
+    expect(String((rejected[0] as PromiseRejectedResult).reason)).toMatch(/guardian_links_guardian_learner_uniq|duplicate key/i);
+
+    const links = await ctx.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM guardian_links WHERE guardian_id = $1 AND learner_id = $2`,
+      [gid, learnerA4],
+    );
+    expect(links.rows[0]!.n).toBe(1);
   });
 
   it("OpenAPI documents the VS-2 operations with authZ metadata", () => {
     const spec = parseYaml(readFileSync(join(process.cwd(), "openapi/openapi.yaml"), "utf8")) as {
       paths: Record<string, Record<string, Record<string, unknown>>>;
+      components: { schemas: Record<string, { properties?: Record<string, unknown>; pattern?: string }> };
     };
     const cases: Array<[string, "get" | "post", string[]]> = [
-      ["/v1/tenants/{tenantId}/guardians", "post", ["resource.guardian.write"]],
+      ["/v1/tenants/{tenantId}/guardians", "post", ["resource.guardian.write", "resource.learner.read"]],
       ["/v1/tenants/{tenantId}/guardians/{guardianId}", "get", ["resource.guardian.read"]],
-      ["/v1/tenants/{tenantId}/guardians/{guardianId}/links", "post", ["resource.guardian.write"]],
+      ["/v1/tenants/{tenantId}/guardians/{guardianId}/links", "post", ["resource.guardian.write", "resource.learner.read"]],
       [
         "/v1/tenants/{tenantId}/learners/{learnerId}/guardians",
         "get",
@@ -692,5 +854,15 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       const fastifyUrl = path.replace(/\{(\w+)\}/g, ":$1");
       expect(routes.some((r) => r.method === method.toUpperCase() && r.url === fastifyUrl)).toBe(true);
     }
+
+    // F-5: phone rules are machine-readable constraints, not description-only.
+    const createSchema = spec.components.schemas.CreateGuardianRequest as {
+      properties: { phone: { pattern?: string; minLength?: number; maxLength?: number }; alt_phone: { pattern?: string } };
+    };
+    expect(createSchema.properties.phone.pattern).toBe("^[0-9+()\\-\\s]{5,32}$");
+    expect(createSchema.properties.phone.minLength).toBe(5);
+    expect(createSchema.properties.phone.maxLength).toBe(32);
+    expect(createSchema.properties.alt_phone.pattern).toBe("^[0-9+()\\-\\s]{5,32}$");
+    expect(spec.components.schemas.GuardianContact).toBeTruthy();
   });
 });
