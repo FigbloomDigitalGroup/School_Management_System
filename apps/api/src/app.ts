@@ -9,6 +9,7 @@ import { registerRbacRoutes } from "./http/routes/rbac.js";
 import { registerOrgRoutes } from "./http/routes/org.js";
 import { registerResourceRoutes } from "./http/routes/resources.js";
 import { registerLearnerRoutes } from "./http/routes/learners.js";
+import { registerGuardianRoutes } from "./http/routes/guardians.js";
 
 export interface RouteEntry {
   method: string;
@@ -67,6 +68,7 @@ export async function buildApp(config: AppConfig, pool: pg.Pool) {
   await registerRbacRoutes(app, pool);
   await registerResourceRoutes(app, pool);
   await registerLearnerRoutes(app, pool);
+  await registerGuardianRoutes(app, pool);
 
   return app;
 }
