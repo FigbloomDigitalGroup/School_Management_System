@@ -22,7 +22,8 @@ export interface PublicGuardianLink {
   created_at: string;
 }
 
-export interface PublicGuardian {
+/** Contact fields only — used for GET so linked learner ids are not exposed (F-2). */
+export interface PublicGuardianContact {
   id: string;
   tenantId: string;
   full_name: string;
@@ -31,6 +32,10 @@ export interface PublicGuardian {
   email: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Create response includes the links just written (caller supplied the learner ids). */
+export interface PublicGuardian extends PublicGuardianContact {
   links: PublicGuardianLink[];
 }
 
@@ -83,7 +88,7 @@ function mapLink(row: LinkRow): PublicGuardianLink {
   };
 }
 
-function mapGuardian(row: GuardianRow, links: PublicGuardianLink[]): PublicGuardian {
+function mapGuardianContact(row: GuardianRow): PublicGuardianContact {
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -93,8 +98,11 @@ function mapGuardian(row: GuardianRow, links: PublicGuardianLink[]): PublicGuard
     email: row.email,
     created_at: isoStamp(row.created_at),
     updated_at: isoStamp(row.updated_at),
-    links,
   };
+}
+
+function mapGuardian(row: GuardianRow, links: PublicGuardianLink[]): PublicGuardian {
+  return { ...mapGuardianContact(row), links };
 }
 
 const GUARDIAN_COLS = `id, tenant_id, full_name, phone, alt_phone, email, created_at, updated_at`;
@@ -106,12 +114,17 @@ function cleanOptional(value: string | null | undefined): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+/** UUID strings compare case-insensitively in Postgres; normalize before Set checks (F-1). */
+function normalizeLearnerId(id: string): string {
+  return id.trim().toLowerCase();
+}
+
 function validateLink(link: GuardianLinkInput): { learner_id: string; relationship: GuardianRelationship; primary: boolean } {
   if (!GUARDIAN_RELATIONSHIPS.includes(link.relationship)) {
     throw validationError("Relationship must be mother, father or guardian");
   }
   return {
-    learner_id: link.learner_id,
+    learner_id: normalizeLearnerId(link.learner_id),
     relationship: link.relationship,
     primary: link.is_primary_payer === true,
   };
@@ -129,18 +142,25 @@ async function withGuardianTenantScope<T>(
   });
 }
 
-/** Every id must be a learner of this tenant; unknown and foreign ids are indistinguishable. */
-async function assertLearnersInTenant(
+/**
+ * Every id must be an active learner of this tenant.
+ * Unknown and foreign ids → 404 (indistinguishable).
+ * Archived / inactive learners cannot receive new guardian relationships (F-4).
+ */
+async function assertActiveLearnersInTenant(
   client: pg.PoolClient,
   tenantId: string,
   learnerIds: string[],
 ): Promise<void> {
-  const found = await client.query<{ id: string }>(
-    `SELECT id FROM learners WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
+  const found = await client.query<{ id: string; active: boolean }>(
+    `SELECT id, active FROM learners WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
     [tenantId, learnerIds],
   );
   if (found.rowCount !== new Set(learnerIds).size) {
     throw notFound("Learner not found");
+  }
+  if (found.rows.some((r) => !r.active)) {
+    throw validationError("Archived learners cannot receive new guardian relationships");
   }
 }
 
@@ -182,7 +202,7 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
       pool,
       { tenantId: input.tenantId, userId: input.actorUserId },
       async (client) => {
-        await assertLearnersInTenant(client, input.tenantId, ids);
+        await assertActiveLearnersInTenant(client, input.tenantId, ids);
 
         const inserted = await client.query<GuardianRow>(
           `INSERT INTO guardians (tenant_id, full_name, phone, alt_phone, email, created_by)
@@ -232,7 +252,7 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
 export async function getGuardianById(
   pool: pg.Pool,
   input: { tenantId: string; guardianId: string; actorUserId: string },
-): Promise<PublicGuardian> {
+): Promise<PublicGuardianContact> {
   const result = await withGuardianTenantScope(
     pool,
     { tenantId: input.tenantId, userId: input.actorUserId },
@@ -243,13 +263,8 @@ export async function getGuardianById(
       );
       const guardian = g.rows[0];
       if (!guardian) return null;
-      const l = await client.query<LinkRow>(
-        `SELECT ${LINK_COLS} FROM guardian_links
-         WHERE guardian_id = $1 AND tenant_id = $2
-         ORDER BY created_at, id`,
-        [input.guardianId, input.tenantId],
-      );
-      return mapGuardian(guardian, l.rows.map(mapLink));
+      // F-2: do not return linked learner ids on guardian read.
+      return mapGuardianContact(guardian);
     },
   );
   if (!result) throw notFound("Guardian not found");
@@ -277,7 +292,7 @@ export async function addGuardianLink(
           input.tenantId,
         ]);
         if (g.rowCount !== 1) throw notFound("Guardian not found");
-        await assertLearnersInTenant(client, input.tenantId, [link.learner_id]);
+        await assertActiveLearnersInTenant(client, input.tenantId, [link.learner_id]);
 
         const row = await client.query<LinkRow>(
           `INSERT INTO guardian_links

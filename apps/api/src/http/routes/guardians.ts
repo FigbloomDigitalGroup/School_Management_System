@@ -55,6 +55,8 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: pg.Pool
     uuidParam(params.tenantId, "tenantId");
     assertSameTenant(auth.authz.tenantId, params.tenantId);
     await requirePermission(pool, auth.authz, "resource.guardian.write", { ip: clientIp(request) });
+    // Learner existence must not be probeable via guardian.write alone (F-3).
+    await requirePermission(pool, auth.authz, "resource.learner.read", { ip: clientIp(request) });
 
     const parsed = CreateGuardianSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -99,6 +101,7 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: pg.Pool
     uuidParam(params.guardianId, "guardianId");
     assertSameTenant(auth.authz.tenantId, params.tenantId);
     await requirePermission(pool, auth.authz, "resource.guardian.write", { ip: clientIp(request) });
+    await requirePermission(pool, auth.authz, "resource.learner.read", { ip: clientIp(request) });
 
     const parsed = LinkSchema.safeParse(request.body);
     if (!parsed.success) {
