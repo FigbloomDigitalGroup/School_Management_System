@@ -135,8 +135,8 @@ export const NAV: Record<Role, NavItem[]> = {
     { to: "admin/materials", label: "Learning materials", icon: "book", group: "Teaching & learning" },
     { to: "admin/report-cards", label: "Report cards", icon: "receipt", group: "Teaching & learning" },
     { to: "admin/performance", label: "Performance", icon: "chart", group: "Teaching & learning" },
-    { to: "admin/fees", label: "Fees", icon: "receipt", group: "Money" },
-    { to: "admin/study-helper", label: "Bloom study helper", icon: "chat", group: "Money" },
+    { to: "admin/fees", label: "Fees", icon: "receipt", group: "Finance" },
+    { to: "admin/study-helper", label: "Bloom study helper", icon: "chat", group: "Finance" },
     { to: "admin/announcements", label: "Announcements", icon: "megaphone", group: "Communication" },
     { to: "admin/chats", label: "Chats", icon: "chat", group: "Communication" },
     { to: "admin/visitors", label: "Visitors", icon: "people", group: "Campus" },
@@ -176,7 +176,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   parent: [
     { to: "parent", label: "Home", icon: "home" },
-    { to: "parent/fees", label: "Fees", icon: "receipt", group: "Money" },
+    { to: "parent/fees", label: "Fees", icon: "receipt", group: "Finance" },
     { to: "parent/results", label: "Results", icon: "chart", group: "Learning" },
     { to: "parent/homework", label: "Homework", icon: "pencil", group: "Learning" },
     { to: "parent/materials", label: "Learning materials", icon: "book", group: "Learning" },
@@ -201,7 +201,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { to: "student/notices", label: "Notices", icon: "bell", group: "School life" },
     { to: "student/chats", label: "Chats", icon: "chat", group: "School life" },
     { to: "student/items", label: "My items", icon: "box", group: "School life" },
-    { to: "student/fees", label: "Fees", icon: "receipt", group: "Money" },
+    { to: "student/fees", label: "Fees", icon: "receipt", group: "Finance" },
   ],
   // A driver's screen is a single full-screen page (start/end trip), not a
   // console — this exists only so Record<Role, ...> stays exhaustive.
