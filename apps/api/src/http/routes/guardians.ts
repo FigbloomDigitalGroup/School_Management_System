@@ -10,14 +10,15 @@ import {
   addGuardianLink,
   createGuardian,
   getGuardianById,
+  GUARDIAN_NAME_PATTERN,
+  GUARDIAN_PHONE_PATTERN,
   listGuardiansForLearner,
 } from "../../modules/directory/guardians.js";
 
 const Relationship = z.enum(["mother", "father", "guardian"]);
-const Phone = z
-  .string()
-  .trim()
-  .regex(/^[0-9+()\-\s]{5,32}$/);
+// F-5: the same patterns as the OpenAPI schema. Values are NOT trimmed before checking,
+// so a padded value is refused here exactly where the published pattern refuses it.
+const Phone = z.string().regex(new RegExp(GUARDIAN_PHONE_PATTERN));
 
 const LinkSchema = z
   .object({
@@ -29,10 +30,10 @@ const LinkSchema = z
 
 const CreateGuardianSchema = z
   .object({
-    full_name: z.string().trim().min(1).max(120),
+    full_name: z.string().min(1).max(120).regex(new RegExp(GUARDIAN_NAME_PATTERN)),
     phone: Phone.nullable().optional(),
     alt_phone: Phone.nullable().optional(),
-    email: z.string().trim().email().max(254).nullable().optional(),
+    email: z.string().max(254).email().nullable().optional(),
     learners: z.array(LinkSchema).min(1).max(20),
   })
   .strict();

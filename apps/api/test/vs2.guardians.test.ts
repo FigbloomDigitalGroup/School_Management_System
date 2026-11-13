@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type pg from "pg";
 import { parse as parseYaml } from "yaml";
 import { createTestApp, type FixtureIds } from "./support.js";
 import { assertErrorShape } from "../src/openapi/contractAssert.js";
+import { GUARDIAN_NAME_PATTERN, GUARDIAN_PHONE_PATTERN } from "../src/modules/directory/guardians.js";
 
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
@@ -31,6 +33,20 @@ function bearer(token: string, tenantId?: string): Record<string, string> {
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
   if (tenantId) headers["x-tenant-id"] = tenantId;
   return headers;
+}
+
+/** Waits until some backend is blocked on a lock, so a race test knows its request reached the lock. */
+async function waitForLockWaiter(pool: pg.Pool, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const r = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_stat_activity
+       WHERE wait_event_type = 'Lock' AND datname = current_database()`,
+    );
+    if (r.rows[0]!.n > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("no request waited on a lock: the active-learner check does not lock the learner row");
 }
 
 describe("VS-2 guardian directory create/read and learner links", () => {
@@ -115,10 +131,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(created.statusCode).toBe(201);
     const g = created.json().guardian;
-    expect(g.full_name).toBe("Jane Kamau");
     expect(g.tenantId).toBe(ids.tenantA);
-    expect(g.phone).toBe("0712 345 678");
-    expect(g.alt_phone).toBeNull();
     expect(g.links).toHaveLength(1);
     expect(g.links[0]).toMatchObject({
       learnerId: learnerA1,
@@ -126,6 +139,11 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       is_primary_payer: true,
       guardianId: g.id,
     });
+    // F-2 / F-6: create echoes no contact details back to the caller.
+    expect(g.full_name).toBeUndefined();
+    expect(g.phone).toBeUndefined();
+    expect(g.email).toBeUndefined();
+    expect(JSON.stringify(g)).not.toMatch(/jane\.kamau|0712 345 678|Jane Kamau/);
     // No auth identity is created or exposed.
     expect(JSON.stringify(g)).not.toMatch(/password|user_id|login/i);
 
@@ -137,6 +155,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     expect(fetched.statusCode).toBe(200);
     expect(fetched.json().guardian.id).toBe(g.id);
     expect(fetched.json().guardian.full_name).toBe("Jane Kamau");
+    expect(fetched.json().guardian.phone).toBe("0712 345 678");
     // F-2: guardian read returns contact fields only — no linked learner ids.
     expect(fetched.json().guardian.links).toBeUndefined();
     expect(JSON.stringify(fetched.json())).not.toMatch(new RegExp(learnerA1, "i"));
@@ -372,27 +391,179 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       [archivedId, ids.tenantA],
     );
 
+    // F-3: archived and unknown learners produce the same response, so existence cannot be probed.
+    const unknownId = "00000000-0000-4000-8000-00000000f003";
     const createOnArchived = await postGuardian(adminToken, ids.tenantA, {
       full_name: "Archive Blocked",
       learners: [{ learner_id: archivedId, relationship: "mother" }],
     });
-    expect(createOnArchived.statusCode).toBe(400);
-    expect(createOnArchived.json().error.code).toBe("validation_error");
-    expect(String(createOnArchived.json().error.message)).toMatch(/archived/i);
+    const createOnUnknown = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Archive Blocked",
+      learners: [{ learner_id: unknownId, relationship: "mother" }],
+    });
+    expect(createOnArchived.statusCode).toBe(404);
+    expect(createOnArchived.json()).toEqual(createOnUnknown.json());
+    expect(createOnUnknown.statusCode).toBe(404);
 
     const created = await postGuardian(adminToken, ids.tenantA, {
       full_name: "Active Then Archive Link",
       learners: [{ learner_id: learnerA1, relationship: "mother" }],
     });
     expect(created.statusCode).toBe(201);
+    const guardianPath = `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}/links`;
     const linkArchived = await ctx.app.inject({
       method: "POST",
-      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}/links`,
+      url: guardianPath,
       headers: bearer(adminToken, ids.tenantA),
       payload: { learner_id: archivedId, relationship: "guardian" },
     });
-    expect(linkArchived.statusCode).toBe(400);
-    expect(linkArchived.json().error.code).toBe("validation_error");
+    const linkUnknown = await ctx.app.inject({
+      method: "POST",
+      url: guardianPath,
+      headers: bearer(adminToken, ids.tenantA),
+      payload: { learner_id: unknownId, relationship: "guardian" },
+    });
+    expect(linkArchived.statusCode).toBe(404);
+    expect(linkArchived.json()).toEqual(linkUnknown.json());
+    expect(JSON.stringify(linkArchived.json())).not.toMatch(/archiv/i);
+  });
+
+  it("treats learner ids that differ only in letter case as duplicates (F-1)", async () => {
+    const before = await ctx.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM guardians WHERE full_name = 'Case Dup Guardian' AND tenant_id = $1`,
+      [ids.tenantA],
+    );
+    const dup = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Case Dup Guardian",
+      learners: [
+        { learner_id: learnerA1, relationship: "mother" },
+        { learner_id: learnerA1.toUpperCase(), relationship: "father" },
+      ],
+    });
+    expect(dup.statusCode).toBe(400);
+    expect(dup.json().error.code).toBe("validation_error");
+    const after = await ctx.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM guardians WHERE full_name = 'Case Dup Guardian' AND tenant_id = $1`,
+      [ids.tenantA],
+    );
+    expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
+
+    // The link route normalizes too: an upper-case id for an existing link is a clean conflict.
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Case Link Guardian",
+      learners: [{ learner_id: learnerA2, relationship: "mother" }],
+    });
+    const linkDup = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}/links`,
+      headers: bearer(adminToken, ids.tenantA),
+      payload: { learner_id: learnerA2.toUpperCase(), relationship: "father" },
+    });
+    expect(linkDup.statusCode).toBe(409);
+    expect(linkDup.json().error.code).toBe("conflict");
+  });
+
+  it("concurrent guardian creation: each request is all-or-nothing and nothing is duplicated", async () => {
+    const [a, b] = await Promise.all([
+      postGuardian(adminToken, ids.tenantA, {
+        full_name: "Parallel Guardian One",
+        learners: [{ learner_id: learnerA2, relationship: "mother" }],
+      }),
+      postGuardian(adminToken, ids.tenantA, {
+        full_name: "Parallel Guardian Two",
+        learners: [{ learner_id: learnerA2, relationship: "father" }],
+      }),
+    ]);
+    expect([a.statusCode, b.statusCode]).toEqual([201, 201]);
+    const idA = a.json().guardian.id as string;
+    const idB = b.json().guardian.id as string;
+    expect(idA).not.toBe(idB);
+    const rows = await ctx.pool.query<{ id: string; n: number }>(
+      `SELECT g.id, count(l.id)::int AS n
+       FROM guardians g LEFT JOIN guardian_links l ON l.guardian_id = g.id
+       WHERE g.id = ANY($1::uuid[])
+       GROUP BY g.id`,
+      [[idA, idB]],
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows.every((r) => r.n === 1)).toBe(true);
+  });
+
+  it("an archive that commits during a link request wins the race (F-4)", async () => {
+    const target = await createLearner(adminToken, ids.tenantA, "7050", "Race Learner");
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Race Guardian",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    const gid = created.json().guardian.id as string;
+
+    const archiver = await ctx.pool.connect();
+    try {
+      await archiver.query("BEGIN");
+      await archiver.query(
+        `UPDATE learners SET active = false, archived_at = now() WHERE id = $1 AND tenant_id = $2`,
+        [target, ids.tenantA],
+      );
+      const linkP = ctx.app.inject({
+        method: "POST",
+        url: `/v1/tenants/${ids.tenantA}/guardians/${gid}/links`,
+        headers: bearer(adminToken, ids.tenantA),
+        payload: { learner_id: target, relationship: "guardian" },
+      });
+      try {
+        await waitForLockWaiter(ctx.pool);
+      } finally {
+        await archiver.query("COMMIT");
+      }
+      const res = await linkP;
+      expect(res.statusCode).toBe(404);
+      const n = await ctx.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM guardian_links WHERE guardian_id = $1 AND learner_id = $2`,
+        [gid, target],
+      );
+      expect(n.rows[0]!.n).toBe(0);
+    } finally {
+      archiver.release();
+    }
+  });
+
+  it("the database refuses a link to an archived learner even when the application check is skipped (F-4)", async () => {
+    const target = await createLearner(adminToken, ids.tenantA, "7051", "Guard Learner");
+    const created = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Guard Guardian",
+      learners: [{ learner_id: learnerA1, relationship: "mother" }],
+    });
+    const gid = created.json().guardian.id as string;
+    await ctx.pool.query(
+      `UPDATE learners SET active = false, archived_at = now() WHERE id = $1 AND tenant_id = $2`,
+      [target, ids.tenantA],
+    );
+    const insert = `INSERT INTO guardian_links (tenant_id, guardian_id, learner_id, relationship)
+                    VALUES ($1, $2, $3, 'guardian')`;
+
+    // Owner path.
+    await expect(ctx.pool.query(insert, [ids.tenantA, gid, target])).rejects.toMatchObject({ code: "P0002" });
+
+    // Application role path, with the tenant context the directory transactions set.
+    const client = await ctx.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `SELECT set_config('app.tenant_id', $1, true), set_config('app.user_id', $2, true), set_config('app.authz_mode', '', true)`,
+        [ids.tenantA, ids.adminA],
+      );
+      await client.query("SET LOCAL ROLE figbloom_app");
+      await expect(client.query(insert, [ids.tenantA, gid, target])).rejects.toMatchObject({ code: "P0002" });
+    } finally {
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
+    }
+
+    const n = await ctx.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM guardian_links WHERE guardian_id = $1 AND learner_id = $2`,
+      [gid, target],
+    );
+    expect(n.rows[0]!.n).toBe(0);
   });
 
   it("refuses cross-tenant link attempts and leaves no guardian behind", async () => {
@@ -658,6 +829,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       await client.query("ROLLBACK TO SAVEPOINT sp_cross");
 
       // A link may not join a tenant-A guardian to a tenant-B learner even with tenant A's id.
+      // The F-4 guard runs before the composite foreign key and refuses it first; either refusal is acceptable.
       const gA = await client.query<{ id: string }>(`SELECT id FROM guardians WHERE full_name = 'RLS Visible A'`);
       await client.query("SAVEPOINT sp_fk");
       await expect(
@@ -666,7 +838,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
            VALUES ($1, $2, $3, 'mother')`,
           [ids.tenantA, gA.rows[0]!.id, learnerB1],
         ),
-      ).rejects.toThrow(/guardian_links_learner_fk/);
+      ).rejects.toThrow(/guardian_links_learner_fk|not an active learner/);
       await client.query("ROLLBACK TO SAVEPOINT sp_fk");
     } finally {
       try {
@@ -855,14 +1027,71 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       expect(routes.some((r) => r.method === method.toUpperCase() && r.url === fastifyUrl)).toBe(true);
     }
 
-    // F-5: phone rules are machine-readable constraints, not description-only.
+    // F-5: phone and name rules are machine-readable constraints, not description-only.
     const createSchema = spec.components.schemas.CreateGuardianRequest as {
-      properties: { phone: { pattern?: string; minLength?: number; maxLength?: number }; alt_phone: { pattern?: string } };
+      properties: {
+        full_name: { pattern?: string; minLength?: number; maxLength?: number };
+        phone: { pattern?: string; minLength?: number; maxLength?: number };
+        alt_phone: { pattern?: string; minLength?: number; maxLength?: number };
+      };
     };
-    expect(createSchema.properties.phone.pattern).toBe("^[0-9+()\\-\\s]{5,32}$");
+    expect(createSchema.properties.phone.pattern).toBe(GUARDIAN_PHONE_PATTERN);
     expect(createSchema.properties.phone.minLength).toBe(5);
     expect(createSchema.properties.phone.maxLength).toBe(32);
-    expect(createSchema.properties.alt_phone.pattern).toBe("^[0-9+()\\-\\s]{5,32}$");
+    expect(createSchema.properties.alt_phone.pattern).toBe(GUARDIAN_PHONE_PATTERN);
+    expect(createSchema.properties.full_name.pattern).toBe(GUARDIAN_NAME_PATTERN);
     expect(spec.components.schemas.GuardianContact).toBeTruthy();
+  });
+
+  it("published phone and name rules agree with the backend on the same values (F-5)", async () => {
+    const spec = parseYaml(readFileSync(join(process.cwd(), "openapi/openapi.yaml"), "utf8")) as {
+      components: {
+        schemas: {
+          CreateGuardianRequest: {
+            properties: Record<string, { pattern?: string; minLength?: number; maxLength?: number }>;
+          };
+        };
+      };
+    };
+    const props = spec.components.schemas.CreateGuardianRequest.properties;
+    const phoneRule = props.phone!;
+    const nameRule = props.full_name!;
+    const accepts = (rule: { pattern?: string; minLength?: number; maxLength?: number }, value: string) =>
+      new RegExp(rule.pattern!).test(value) &&
+      value.length >= (rule.minLength ?? 0) &&
+      value.length <= (rule.maxLength ?? Infinity);
+
+    const phoneSamples = [
+      "0712345678",
+      "0712 345 678",
+      "+254 712-345-678",
+      "(020) 123",
+      "12345",
+      "1234",
+      " 0712345678",
+      "0712345678 ",
+      "     ",
+      "07123456789012345678901234567890123",
+      "abc",
+    ];
+    for (const value of phoneSamples) {
+      const res = await postGuardian(adminToken, ids.tenantA, {
+        full_name: "Phone Probe",
+        phone: value,
+        learners: [{ learner_id: learnerA2, relationship: "guardian" }],
+      });
+      expect(res.statusCode === 201, `phone ${JSON.stringify(value)}`).toBe(accepts(phoneRule, value));
+      if (res.statusCode !== 201) expect(res.statusCode, `phone ${JSON.stringify(value)}`).toBe(400);
+    }
+
+    const nameSamples = ["A", "Jane Kamau", " A", "Jane ", "   ", "x".repeat(120), "x".repeat(121)];
+    for (const value of nameSamples) {
+      const res = await postGuardian(adminToken, ids.tenantA, {
+        full_name: value,
+        learners: [{ learner_id: learnerA2, relationship: "guardian" }],
+      });
+      expect(res.statusCode === 201, `name ${JSON.stringify(value)}`).toBe(accepts(nameRule, value));
+      if (res.statusCode !== 201) expect(res.statusCode, `name ${JSON.stringify(value)}`).toBe(400);
+    }
   });
 });

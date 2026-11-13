@@ -7,6 +7,14 @@ import { recordSecurityEvent } from "../audit/audit.js";
 export type GuardianRelationship = "mother" | "father" | "guardian";
 export const GUARDIAN_RELATIONSHIPS: readonly GuardianRelationship[] = ["mother", "father", "guardian"];
 
+/**
+ * Contact and name rules, shared with the OpenAPI schema (`CreateGuardianRequest`) and
+ * checked for agreement in tests (F-5). Values are validated exactly as sent: no trimming,
+ * so the published pattern and the backend accept the same strings.
+ */
+export const GUARDIAN_PHONE_PATTERN = "^[0-9+()\\-][0-9+()\\-\\s]{3,30}[0-9+()\\-]$";
+export const GUARDIAN_NAME_PATTERN = "^\\S([\\s\\S]*\\S)?$";
+
 export interface GuardianLinkInput {
   learner_id: string;
   relationship: GuardianRelationship;
@@ -34,8 +42,13 @@ export interface PublicGuardianContact {
   updated_at: string;
 }
 
-/** Create response includes the links just written (caller supplied the learner ids). */
-export interface PublicGuardian extends PublicGuardianContact {
+/**
+ * Create response: id and the links just written. Contact fields are deliberately not echoed
+ * back, so a caller with only resource.guardian.write never receives contact details (F-2, F-6).
+ */
+export interface PublicCreatedGuardian {
+  id: string;
+  tenantId: string;
   links: PublicGuardianLink[];
 }
 
@@ -101,10 +114,6 @@ function mapGuardianContact(row: GuardianRow): PublicGuardianContact {
   };
 }
 
-function mapGuardian(row: GuardianRow, links: PublicGuardianLink[]): PublicGuardian {
-  return { ...mapGuardianContact(row), links };
-}
-
 const GUARDIAN_COLS = `id, tenant_id, full_name, phone, alt_phone, email, created_at, updated_at`;
 const LINK_COLS = `id, guardian_id, learner_id, relationship, is_primary_payer, created_at`;
 
@@ -143,9 +152,13 @@ async function withGuardianTenantScope<T>(
 }
 
 /**
- * Every id must be an active learner of this tenant.
- * Unknown and foreign ids → 404 (indistinguishable).
- * Archived / inactive learners cannot receive new guardian relationships (F-4).
+ * Application precheck: every id must be an active learner of this tenant.
+ *
+ * F-3: unknown, foreign and archived learners get the same 404, so a caller cannot tell
+ * whether a learner id exists or is archived.
+ * F-4: this precheck alone is not enough under concurrency. The database guard
+ * (migration 008, guardian_links_active_learner) locks the learner row and refuses the
+ * insert with SQLSTATE P0002, which mapLearnerGuardError() turns into the same 404.
  */
 async function assertActiveLearnersInTenant(
   client: pg.PoolClient,
@@ -156,16 +169,24 @@ async function assertActiveLearnersInTenant(
     `SELECT id, active FROM learners WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
     [tenantId, learnerIds],
   );
-  if (found.rowCount !== new Set(learnerIds).size) {
+  if (found.rowCount !== new Set(learnerIds).size || found.rows.some((r) => !r.active)) {
     throw notFound("Learner not found");
-  }
-  if (found.rows.some((r) => !r.active)) {
-    throw validationError("Archived learners cannot receive new guardian relationships");
   }
 }
 
 function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === "23505";
+}
+
+function isInactiveLearnerViolation(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === "P0002";
+}
+
+/** Maps the database guard and the unique key to the API's safe errors. */
+function mapLinkWriteError(err: unknown): unknown {
+  if (isUniqueViolation(err)) return conflict("This guardian is already linked to that learner");
+  if (isInactiveLearnerViolation(err)) return notFound("Learner not found");
+  return err;
 }
 
 export interface CreateGuardianInput {
@@ -180,7 +201,7 @@ export interface CreateGuardianInput {
 }
 
 /** Guardian + its initial learner links in one transaction. */
-export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput): Promise<PublicGuardian> {
+export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput): Promise<PublicCreatedGuardian> {
   const full_name = input.full_name.trim();
   if (!full_name) throw validationError("Full name is required");
   if (full_name.length > 120) throw validationError("Full name is too long");
@@ -238,14 +259,11 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
           ip: input.ip ?? null,
         });
 
-        return mapGuardian(guardian, savedLinks);
+        return { id: guardian.id, tenantId: guardian.tenant_id, links: savedLinks };
       },
     );
   } catch (err) {
-    if (isUniqueViolation(err)) {
-      throw conflict("This guardian is already linked to that learner");
-    }
-    throw err;
+    throw mapLinkWriteError(err);
   }
 }
 
@@ -316,10 +334,7 @@ export async function addGuardianLink(
       },
     );
   } catch (err) {
-    if (isUniqueViolation(err)) {
-      throw conflict("This guardian is already linked to that learner");
-    }
-    throw err;
+    throw mapLinkWriteError(err);
   }
 }
 

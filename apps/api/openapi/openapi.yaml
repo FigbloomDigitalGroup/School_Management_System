@@ -357,8 +357,9 @@ paths:
         learner of the path tenant. Requires resource.guardian.write and
         resource.learner.read. A guardian is a person record only: no login account is
         created and no user is bound (provisioning is deferred). Archived learners cannot
-        receive new guardian relationships. Duplicate learner ids in one request (including
-        case-only differences) return 400.
+        receive new guardian relationships and get the same 404 as unknown learners.
+        Duplicate learner ids in one request (including case-only differences) return 400.
+        The response returns the guardian id and links only, not the contact fields.
       operationId: createGuardian
       security: [{ bearerAuth: [] }]
       x-figbloom-authz: permission
@@ -380,7 +381,7 @@ paths:
           description: Guardian created with links
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/GuardianResponse" }
+              schema: { $ref: "#/components/schemas/CreatedGuardianResponse" }
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -436,7 +437,7 @@ paths:
       description: >
         Requires resource.guardian.write and resource.learner.read. The guardian and the
         learner must both belong to the path tenant; the learner must be active
-        (404 for unknown/foreign, 400 for archived). A duplicate guardian-learner link
+        (404 for unknown, foreign or archived: the same response for all three). A duplicate guardian-learner link
         returns 409.
       operationId: addGuardianLink
       security: [{ bearerAuth: [] }]
@@ -950,20 +951,27 @@ components:
           description: Stored only; single-payer enforcement is deferred.
     CreateGuardianRequest:
       type: object
+      description: >
+        Values are validated as sent, without trimming. Send names and numbers already
+        trimmed: no leading or trailing whitespace.
       required: [full_name, learners]
       additionalProperties: false
       properties:
-        full_name: { type: string, minLength: 1, maxLength: 120 }
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: '^\S([\s\S]*\S)?$'
         phone:
           type: [string, "null"]
           minLength: 5
           maxLength: 32
-          pattern: '^[0-9+()\-\s]{5,32}$'
+          pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
         alt_phone:
           type: [string, "null"]
           minLength: 5
           maxLength: 32
-          pattern: '^[0-9+()\-\s]{5,32}$'
+          pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
         email: { type: [string, "null"], format: email, maxLength: 254 }
         learners:
           type: array
@@ -992,20 +1000,23 @@ components:
         email: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
-    Guardian:
-      allOf:
-        - $ref: "#/components/schemas/GuardianContact"
-        - type: object
-          required: [links]
-          properties:
-            links:
-              type: array
-              items: { $ref: "#/components/schemas/GuardianLink" }
-    GuardianResponse:
+    CreatedGuardian:
+      description: >
+        Returned by create. Contact fields are not echoed back (F-2, F-6): a caller who
+        can create a guardian but cannot read guardian contacts gets no contact details.
+      type: object
+      required: [id, tenantId, links]
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/GuardianLink" }
+    CreatedGuardianResponse:
       type: object
       required: [guardian]
       properties:
-        guardian: { $ref: "#/components/schemas/Guardian" }
+        guardian: { $ref: "#/components/schemas/CreatedGuardian" }
     GuardianContactResponse:
       type: object
       required: [guardian]
