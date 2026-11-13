@@ -347,6 +347,162 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/guardians:
+    post:
+      tags: [directory]
+      summary: Create a guardian linked to existing learners (VS-2)
+      description: >
+        Creates a guardian directory record and its initial learner links in one
+        transaction. At least one learner is required; every learner must belong to the
+        path tenant. Requires resource.guardian.write. A guardian is a person record only:
+        no login account is created and no user is bound (provisioning is deferred).
+      operationId: createGuardian
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.guardian.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateGuardianRequest" }
+      responses:
+        "201":
+          description: Guardian created with links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/guardians/{guardianId}:
+    get:
+      tags: [directory]
+      summary: Retrieve a guardian with learner links (VS-2)
+      description: >
+        Requires resource.guardian.read. A guardian id that is not in the path tenant
+        returns 404.
+      operationId: getGuardian
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.guardian.read]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Guardian record with links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/guardians/{guardianId}/links:
+    post:
+      tags: [directory]
+      summary: Link an existing guardian to another learner (VS-2)
+      description: >
+        Requires resource.guardian.write. The guardian and the learner must both belong
+        to the path tenant (404 otherwise). A duplicate guardian-learner link returns 409.
+      operationId: addGuardianLink
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.guardian.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuardianLinkRequest" }
+      responses:
+        "201":
+          description: Link created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianLinkResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/learners/{learnerId}/guardians:
+    get:
+      tags: [directory]
+      summary: List the guardians of a learner (VS-2)
+      description: >
+        Requires resource.guardian.read and resource.learner.read. A learner id that is
+        not in the path tenant returns 404.
+      operationId: listLearnerGuardians
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.guardian.read, resource.learner.read]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: learnerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Guardians linked to the learner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerGuardiansResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/org/schools:
     get:
       tags: [org]
@@ -774,6 +930,88 @@ components:
       required: [learner]
       properties:
         learner: { $ref: "#/components/schemas/Learner" }
+    GuardianLinkRequest:
+      type: object
+      required: [learner_id, relationship]
+      additionalProperties: false
+      properties:
+        learner_id: { type: string, format: uuid }
+        relationship: { type: string, enum: [mother, father, guardian] }
+        is_primary_payer:
+          type: boolean
+          default: false
+          description: Stored only; single-payer enforcement is deferred.
+    CreateGuardianRequest:
+      type: object
+      required: [full_name, learners]
+      additionalProperties: false
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 120 }
+        phone: { type: [string, "null"], description: "5-32 chars: digits, +, (), -, spaces" }
+        alt_phone: { type: [string, "null"] }
+        email: { type: [string, "null"], format: email, maxLength: 254 }
+        learners:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: "#/components/schemas/GuardianLinkRequest" }
+    GuardianLink:
+      type: object
+      required: [id, guardianId, learnerId, relationship, is_primary_payer, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        guardianId: { type: string, format: uuid }
+        learnerId: { type: string, format: uuid }
+        relationship: { type: string, enum: [mother, father, guardian] }
+        is_primary_payer: { type: boolean }
+        created_at: { type: string, format: date-time }
+    Guardian:
+      type: object
+      required: [id, tenantId, full_name, phone, alt_phone, email, created_at, updated_at, links]
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        full_name: { type: string }
+        phone: { type: [string, "null"] }
+        alt_phone: { type: [string, "null"] }
+        email: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/GuardianLink" }
+    GuardianResponse:
+      type: object
+      required: [guardian]
+      properties:
+        guardian: { $ref: "#/components/schemas/Guardian" }
+    GuardianLinkResponse:
+      type: object
+      required: [link]
+      properties:
+        link: { $ref: "#/components/schemas/GuardianLink" }
+    LearnerGuardian:
+      type: object
+      required:
+        [id, tenantId, full_name, phone, alt_phone, email, linkId, relationship, is_primary_payer, created_at]
+      properties:
+        id: { type: string, format: uuid, description: Guardian id }
+        tenantId: { type: string, format: uuid }
+        full_name: { type: string }
+        phone: { type: [string, "null"] }
+        alt_phone: { type: [string, "null"] }
+        email: { type: [string, "null"] }
+        linkId: { type: string, format: uuid }
+        relationship: { type: string, enum: [mother, father, guardian] }
+        is_primary_payer: { type: boolean }
+        created_at: { type: string, format: date-time, description: When the link was made }
+    LearnerGuardiansResponse:
+      type: object
+      required: [guardians]
+      properties:
+        guardians:
+          type: array
+          items: { $ref: "#/components/schemas/LearnerGuardian" }
     Error:
       type: object
       required: [error]
