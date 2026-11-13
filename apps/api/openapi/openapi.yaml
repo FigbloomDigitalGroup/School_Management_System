@@ -353,13 +353,16 @@ paths:
       summary: Create a guardian linked to existing learners (VS-2)
       description: >
         Creates a guardian directory record and its initial learner links in one
-        transaction. At least one learner is required; every learner must belong to the
-        path tenant. Requires resource.guardian.write. A guardian is a person record only:
-        no login account is created and no user is bound (provisioning is deferred).
+        transaction. At least one learner is required; every learner must be an active
+        learner of the path tenant. Requires resource.guardian.write and
+        resource.learner.read. A guardian is a person record only: no login account is
+        created and no user is bound (provisioning is deferred). Archived learners cannot
+        receive new guardian relationships. Duplicate learner ids in one request (including
+        case-only differences) return 400.
       operationId: createGuardian
       security: [{ bearerAuth: [] }]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.guardian.write]
+      x-figbloom-permissions: [resource.guardian.write, resource.learner.read]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -391,9 +394,11 @@ paths:
   /v1/tenants/{tenantId}/guardians/{guardianId}:
     get:
       tags: [directory]
-      summary: Retrieve a guardian with learner links (VS-2)
+      summary: Retrieve a guardian contact record (VS-2)
       description: >
-        Requires resource.guardian.read. A guardian id that is not in the path tenant
+        Requires resource.guardian.read. Returns contact fields only — linked learner
+        identifiers are not included. Use GET .../learners/{learnerId}/guardians to see
+        relationships for a known learner. A guardian id that is not in the path tenant
         returns 404.
       operationId: getGuardian
       security: [{ bearerAuth: [] }]
@@ -412,10 +417,10 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         "200":
-          description: Guardian record with links
+          description: Guardian contact record (no linked learner ids)
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/GuardianResponse" }
+              schema: { $ref: "#/components/schemas/GuardianContactResponse" }
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -429,12 +434,14 @@ paths:
       tags: [directory]
       summary: Link an existing guardian to another learner (VS-2)
       description: >
-        Requires resource.guardian.write. The guardian and the learner must both belong
-        to the path tenant (404 otherwise). A duplicate guardian-learner link returns 409.
+        Requires resource.guardian.write and resource.learner.read. The guardian and the
+        learner must both belong to the path tenant; the learner must be active
+        (404 for unknown/foreign, 400 for archived). A duplicate guardian-learner link
+        returns 409.
       operationId: addGuardianLink
       security: [{ bearerAuth: [] }]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.guardian.write]
+      x-figbloom-permissions: [resource.guardian.write, resource.learner.read]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -947,8 +954,16 @@ components:
       additionalProperties: false
       properties:
         full_name: { type: string, minLength: 1, maxLength: 120 }
-        phone: { type: [string, "null"], description: "5-32 chars: digits, +, (), -, spaces" }
-        alt_phone: { type: [string, "null"] }
+        phone:
+          type: [string, "null"]
+          minLength: 5
+          maxLength: 32
+          pattern: '^[0-9+()\-\s]{5,32}$'
+        alt_phone:
+          type: [string, "null"]
+          minLength: 5
+          maxLength: 32
+          pattern: '^[0-9+()\-\s]{5,32}$'
         email: { type: [string, "null"], format: email, maxLength: 254 }
         learners:
           type: array
@@ -965,9 +980,9 @@ components:
         relationship: { type: string, enum: [mother, father, guardian] }
         is_primary_payer: { type: boolean }
         created_at: { type: string, format: date-time }
-    Guardian:
+    GuardianContact:
       type: object
-      required: [id, tenantId, full_name, phone, alt_phone, email, created_at, updated_at, links]
+      required: [id, tenantId, full_name, phone, alt_phone, email, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         tenantId: { type: string, format: uuid }
@@ -977,14 +992,25 @@ components:
         email: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
-        links:
-          type: array
-          items: { $ref: "#/components/schemas/GuardianLink" }
+    Guardian:
+      allOf:
+        - $ref: "#/components/schemas/GuardianContact"
+        - type: object
+          required: [links]
+          properties:
+            links:
+              type: array
+              items: { $ref: "#/components/schemas/GuardianLink" }
     GuardianResponse:
       type: object
       required: [guardian]
       properties:
         guardian: { $ref: "#/components/schemas/Guardian" }
+    GuardianContactResponse:
+      type: object
+      required: [guardian]
+      properties:
+        guardian: { $ref: "#/components/schemas/GuardianContact" }
     GuardianLinkResponse:
       type: object
       required: [link]
