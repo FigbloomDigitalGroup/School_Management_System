@@ -105,23 +105,20 @@ export async function loadEffectivePermissions(
   } else {
     for (const area of areas) perms.add(`area.${area}`);
     // School-office people area implies directory learner read/write (VS-1).
+    // Guardian contact access is NOT implied: requires explicit resource.guardian.* (VS-2 / F-6).
     if (areas.has("people")) {
       perms.add("resource.learner.read");
       perms.add("resource.learner.write");
-      perms.add("resource.guardian.read");
-      perms.add("resource.guardian.write");
     }
   }
 
   if (ctx.isOrgAdminForTenant && ctx.tenantId && !mayAdminister(ctx)) {
     const delegated = await loadDelegatedPermissionCodes(db, ctx.userId, ctx.tenantId);
     for (const code of delegated) perms.add(code);
-    // Delegation of area.people implies learner read/write if not already explicit.
+    // Delegation of area.people implies learner read/write only — not guardian contact details.
     if (delegated.has("area.people")) {
       perms.add("resource.learner.read");
       perms.add("resource.learner.write");
-      perms.add("resource.guardian.read");
-      perms.add("resource.guardian.write");
     }
   }
 
