@@ -23,12 +23,20 @@ Does **not** replace existing web/mobile or the Supabase stack. Client integrati
 docker exec supabase_db_figbloom psql -U postgres -c "CREATE DATABASE figbloom_api"
 ```
 
-2. Copy `env.example` → `.env` and set `DATABASE_URL` to that database.
-3. Install and migrate:
+2. Copy `env.example` → `.env` (gitignored; never commit it) and set **two different** connection strings. They are not interchangeable:
+
+| Variable | Used by | Login role | Notes |
+|---|---|---|---|
+| `MIGRATION_DATABASE_URL` | `npm run migrate`, `migrate:verify` | Migrator / table owner (for example the local `postgres` role) | Direct or session-mode connection only. Never `figbloom_app`. Never a transaction-mode pooler (`pgbouncer=true` is refused). |
+| `DATABASE_URL` | the API process | `figbloom_app` | Created `NOLOGIN` by migration 004. After the first migration give it a secret with `ALTER ROLE figbloom_app LOGIN PASSWORD '...'` run as the migrator, and put that password only in your untracked `.env`. |
+
+   Each entrypoint reads only its own variable and fails closed when it is absent or wrong: `migrate` stops with `MIGRATION_DATABASE_URL is required` (it does **not** fall back to `DATABASE_URL`) or when that URL connects as the runtime role; the API refuses to start unless `DATABASE_URL` connects as `RUNTIME_ROLE` and the live role passes the startup assertions (`docs/RUNTIME-DATABASE-SECURITY.md`). `figbloom_app` is a cluster-wide role: the test suite enables `LOGIN` with a random password and resets it afterwards, so do not run two suites against one cluster at once.
+3. Install, migrate (as the migrator), provision the runtime login, then run the API:
 
 ```bash
 npm install --workspace @figbloom/api
 npm run migrate --workspace @figbloom/api
+# one-time, as the migrator: ALTER ROLE figbloom_app LOGIN PASSWORD '<your local secret>'
 npm run dev --workspace @figbloom/api
 ```
 
