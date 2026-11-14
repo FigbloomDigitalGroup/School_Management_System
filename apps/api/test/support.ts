@@ -133,6 +133,8 @@ export async function createTestApp(): Promise<{
   pool: pg.Pool;
   /** Application pool. The app under test uses only this login (figbloom_app). */
   runtimePool: pg.Pool;
+  /** Runtime URL used for the application pool (password is per-run random). */
+  runtimeUrl: string;
   app: Awaited<ReturnType<typeof buildApp>>;
   ids: FixtureIds;
 }> {
@@ -194,5 +196,5 @@ export async function createTestApp(): Promise<{
     return originalEnd();
   };
 
-  return { config, pool, runtimePool, app, ids };
+  return { config, pool, runtimePool, runtimeUrl, app, ids };
 }

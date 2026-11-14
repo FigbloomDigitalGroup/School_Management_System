@@ -81,7 +81,7 @@ describe("FIG-1573 audit regression suite", () => {
     it("ships the programme defaults: capacity 5, +2 per 5s", async () => {
       const { loadConfig } = await import("../src/config.js");
       const c = loadConfig({
-        DATABASE_URL: "postgresql://x@127.0.0.1/figbloom_api",
+        DATABASE_URL: "postgresql://figbloom_app@127.0.0.1/figbloom_api",
       } as NodeJS.ProcessEnv);
       expect(c.authRateCapacity).toBe(5);
       expect(c.authRateRefill).toBe(2);

@@ -163,6 +163,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         "The cap is not a production sizing recommendation; derive pool size from the database connection budget.",
     );
   }
+
+  // DATABASE_URL must be the dedicated runtime login, never the migrator/owner.
+  let databaseUser: string;
+  try {
+    databaseUser = decodeURIComponent(new URL(config.databaseUrl).username);
+  } catch {
+    throw new Error("Invalid API config: DATABASE_URL is not a valid URL");
+  }
+  if (!databaseUser) {
+    throw new Error("Invalid API config: DATABASE_URL must include the runtime role as the username");
+  }
+  if (databaseUser !== config.runtimeRole) {
+    throw new Error(
+      `Invalid API config: DATABASE_URL user (${databaseUser}) must equal RUNTIME_ROLE (${config.runtimeRole}). ` +
+        "Use MIGRATION_DATABASE_URL for the migrator/owner connection.",
+    );
+  }
+
   return config;
 }
 

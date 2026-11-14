@@ -50,23 +50,23 @@ describe("FIG-1573 Session-2 remediation (R2)", () => {
   describe("R2-01 / R2-02 proxy trust and IP normalization", () => {
     it("rejects legacy API_TRUST_PROXY=true and incomplete hop/CIDR pairs", () => {
       expect(() =>
-        loadConfig({ DATABASE_URL: "postgresql://x@127.0.0.1/figbloom_api", API_TRUST_PROXY: "true" } as NodeJS.ProcessEnv),
+        loadConfig({ DATABASE_URL: "postgresql://figbloom_app@127.0.0.1/figbloom_api", API_TRUST_PROXY: "true" } as NodeJS.ProcessEnv),
       ).toThrow(/API_TRUST_PROXY=true is no longer supported/);
       expect(() =>
         loadConfig({
-          DATABASE_URL: "postgresql://x@127.0.0.1/figbloom_api",
+          DATABASE_URL: "postgresql://figbloom_app@127.0.0.1/figbloom_api",
           API_TRUST_PROXY_HOPS: "1",
         } as NodeJS.ProcessEnv),
       ).toThrow(/requires API_TRUST_PROXY_CIDRS/);
       expect(() =>
         loadConfig({
-          DATABASE_URL: "postgresql://x@127.0.0.1/figbloom_api",
+          DATABASE_URL: "postgresql://figbloom_app@127.0.0.1/figbloom_api",
           API_TRUST_PROXY_CIDRS: "10.0.0.0/8",
         } as NodeJS.ProcessEnv),
       ).toThrow(/HOPS is 0/);
       expect(() =>
         loadConfig({
-          DATABASE_URL: "postgresql://x@127.0.0.1/figbloom_api",
+          DATABASE_URL: "postgresql://figbloom_app@127.0.0.1/figbloom_api",
           API_TRUST_PROXY_HOPS: "1",
           API_TRUST_PROXY_CIDRS: "not-a-cidr",
         } as NodeJS.ProcessEnv),

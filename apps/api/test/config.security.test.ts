@@ -11,6 +11,22 @@ describe("runtime and migration config", () => {
     expect(() => loadConfig({ ...base, POOL_MAX: String(POOL_MAX_CAP + 1) })).toThrow(/POOL_MAX/);
   });
 
+  it("refuses DATABASE_URL when the username is not the runtime role", () => {
+    expect(() =>
+      loadConfig({
+        ...base,
+        DATABASE_URL: "postgresql://postgres:local@127.0.0.1:58322/figbloom_api",
+      }),
+    ).toThrow(/DATABASE_URL user \(postgres\) must equal RUNTIME_ROLE/);
+    expect(() =>
+      loadConfig({
+        ...base,
+        DATABASE_URL: "postgresql://figbloom_app:local@127.0.0.1:58322/figbloom_api",
+        RUNTIME_ROLE: "other_runtime",
+      }),
+    ).toThrow(/must equal RUNTIME_ROLE/);
+  });
+
   it("requires MIGRATION_DATABASE_URL and refuses the runtime role and a transaction pooler", () => {
     expect(() => loadMigrationConfig({})).toThrow(/MIGRATION_DATABASE_URL/);
     expect(() =>
