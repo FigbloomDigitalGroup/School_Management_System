@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { z } from "zod/v4";
+import { uuidString } from "../schemas.js";
 import type { AppPool } from "../../db/pool.js";
 import { recordSecurityEvent } from "../../modules/audit/audit.js";
 import { ADMIN_AREAS, isAdminArea, mayHoldAdminAreas } from "../../modules/identity/roles.js";
@@ -20,17 +21,17 @@ import { forbidden, notFound, validationError } from "../errors.js";
 import { withTenantRequest } from "../tenantRequest.js";
 
 const SetAreasSchema = z.object({
-  userId: z.string().uuid(),
+  userId: uuidString,
   areas: z.array(z.string().max(32)).max(32),
 });
 
 const DelegationGrantSchema = z.object({
-  delegateUserId: z.string().uuid(),
+  delegateUserId: uuidString,
   permissionCodes: z.array(z.string().min(1).max(64)).min(1).max(64),
 });
 
 const DelegationRevokeSchema = z.object({
-  delegateUserId: z.string().uuid(),
+  delegateUserId: uuidString,
   permissionCodes: z.array(z.string().min(1).max(64)).max(64).optional(),
 });
 

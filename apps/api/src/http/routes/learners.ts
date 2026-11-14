@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { z } from "zod/v4";
+import { uuidString } from "../schemas.js";
 import type { AppPool } from "../../db/pool.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import { createLearner, getLearnerById } from "../../modules/directory/learners.js";
@@ -16,7 +17,7 @@ const CreateLearnerSchema = z.object({
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 });
 
-const UuidParam = z.string().uuid();
+const UuidParam = uuidString;
 
 /**
  * VS-1 School Directory — learner create/read.

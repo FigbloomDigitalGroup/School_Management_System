@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { z } from "zod/v4";
+import { loginEmailString, uuidString } from "../schemas.js";
 import type { AppConfig } from "../../config.js";
 import type { AppPool } from "../../db/pool.js";
 import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
@@ -20,18 +21,18 @@ import { assertPasswordChangeNotRequired } from "../middleware/authContext.js";
 
 // Bounded inputs: nothing oversized reaches the rate limiter, the DB or scrypt (AUD-13).
 const EmailLoginSchema = z.object({
-  email: z.string().email().max(254),
+  email: loginEmailString,
   password: z.string().min(1).max(256),
 });
 
 const LoginIdSchema = z.object({
-  tenantId: z.string().uuid(),
+  tenantId: uuidString,
   loginId: z.string().min(1).max(32),
   password: z.string().min(1).max(256),
 });
 
 const SelectTenantSchema = z.object({
-  tenantId: z.string().uuid(),
+  tenantId: uuidString,
 });
 
 const ChangePasswordSchema = z.object({

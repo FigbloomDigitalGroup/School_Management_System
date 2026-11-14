@@ -5,7 +5,7 @@ import type pg from "pg";
 import { parse as parseYaml } from "yaml";
 import { createTestApp, type FixtureIds } from "./support.js";
 import { assertErrorShape } from "../src/openapi/contractAssert.js";
-import { z } from "zod";
+import { z } from "zod/v4";
 import {
   GUARDIAN_EMAIL_PATTERN,
   GUARDIAN_NAME_PATTERN,
@@ -1155,7 +1155,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       "a".repeat(254 - domain.length) + domain, // 254: at the limit
       "a".repeat(255 - domain.length) + domain, // 255: one over
     ];
-    const zodEmail = z.string().email();
+    const zodEmail = z.email();
     for (const value of samples) {
       const publishedAccepts = new RegExp(emailRule.pattern!).test(value) && value.length <= emailRule.maxLength!;
       // The backend must not accept anything zod's own email check refuses (no weakening).

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { z } from "zod/v4";
+import { uuidString } from "../schemas.js";
 import type { AppPool } from "../../db/pool.js";
 import { clientIp } from "../clientIp.js";
 import { forbidden, validationError } from "../errors.js";
@@ -24,36 +25,32 @@ const Relationship = z.enum(["mother", "father", "guardian"]);
 // so a padded value is refused here exactly where the published pattern refuses it.
 const Phone = z.string().regex(new RegExp(GUARDIAN_PHONE_PATTERN));
 
-const LinkSchema = z
-  .object({
-    learner_id: z.string().uuid(),
-    relationship: Relationship,
-    is_primary_payer: z.boolean().optional(),
-  })
-  .strict();
+const LinkSchema = z.strictObject({
+  learner_id: uuidString,
+  relationship: Relationship,
+  is_primary_payer: z.boolean().optional(),
+});
 
-const CreateGuardianSchema = z
-  .object({
-    // Length in Unicode code points (what OpenAPI maxLength means), not UTF-16 units.
-    full_name: z
-      .string()
-      .min(1)
-      .regex(new RegExp(GUARDIAN_NAME_PATTERN))
-      .refine((v) => codePointLength(v) <= GUARDIAN_NAME_MAX_LENGTH),
-    phone: Phone.nullable().optional(),
-    alt_phone: Phone.nullable().optional(),
-    // The published pattern is the whole rule (no separate .email()), so schema and backend agree.
-    email: z
-      .string()
-      .max(GUARDIAN_EMAIL_MAX_LENGTH)
-      .regex(new RegExp(GUARDIAN_EMAIL_PATTERN))
-      .nullable()
-      .optional(),
-    learners: z.array(LinkSchema).min(1).max(20),
-  })
-  .strict();
+const CreateGuardianSchema = z.strictObject({
+  // Length in Unicode code points (what OpenAPI maxLength means), not UTF-16 units.
+  full_name: z
+    .string()
+    .min(1)
+    .regex(new RegExp(GUARDIAN_NAME_PATTERN))
+    .refine((v) => codePointLength(v) <= GUARDIAN_NAME_MAX_LENGTH),
+  phone: Phone.nullable().optional(),
+  alt_phone: Phone.nullable().optional(),
+  // The published pattern is the whole rule (no separate .email()), so schema and backend agree.
+  email: z
+    .string()
+    .max(GUARDIAN_EMAIL_MAX_LENGTH)
+    .regex(new RegExp(GUARDIAN_EMAIL_PATTERN))
+    .nullable()
+    .optional(),
+  learners: z.array(LinkSchema).min(1).max(20),
+});
 
-const UuidParam = z.string().uuid();
+const UuidParam = uuidString;
 
 function uuidParam(value: string, name: string): void {
   if (!UuidParam.safeParse(value).success) throw validationError(`${name} must be a UUID`);
