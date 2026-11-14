@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { parseCidr } from "./http/ip.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { loginEmailString, uuidString } from "../schemas.js";
 import type { AppConfig } from "../../config.js";
 import type { AppPool } from "../../db/pool.js";

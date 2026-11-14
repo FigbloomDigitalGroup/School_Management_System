@@ -5,7 +5,7 @@ import type pg from "pg";
 import { parse as parseYaml } from "yaml";
 import { createTestApp, type FixtureIds } from "./support.js";
 import { assertErrorShape } from "../src/openapi/contractAssert.js";
-import { z } from "zod/v4";
+import { z } from "zod";
 import {
   GUARDIAN_EMAIL_PATTERN,
   GUARDIAN_NAME_PATTERN,

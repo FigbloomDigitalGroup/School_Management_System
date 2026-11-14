@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 /**
  * One authoritative definition of the identifier and e-mail shapes the API
