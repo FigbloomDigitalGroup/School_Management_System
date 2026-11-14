@@ -5,6 +5,7 @@ export type ErrorCode =
   | "validation_error"
   | "rate_limited"
   | "conflict"
+  | "service_unavailable"
   | "internal_error";
 
 export class AppError extends Error {
@@ -57,12 +58,48 @@ export function rateLimited(
   return new AppError(429, "rate_limited", message, true, retryAfterSeconds);
 }
 
+export function serviceUnavailable(
+  message = "Service temporarily unavailable",
+  retryAfterSeconds = 1,
+): AppError {
+  return new AppError(503, "service_unavailable", message, true, retryAfterSeconds);
+}
+
+/** Transient database failures. The client sees a stable 503, never the driver text. */
+const TRANSIENT_SQLSTATE = new Set([
+  "55P03", // lock_not_available
+  "57014", // query_canceled (statement_timeout)
+  "25P03", // idle_in_transaction_session_timeout
+  "40001", // serialization_failure
+  "40P01", // deadlock_detected
+  "08000",
+  "08001",
+  "08003",
+  "08006",
+  "53300", // too_many_connections
+  "57P01",
+  "57P03",
+]);
+
 /** Client-safe body — never include SQL, stack traces, or internal details. */
-export function toClientError(err: unknown): { statusCode: number; body: { error: { code: ErrorCode; message: string } } } {
+export function toClientError(err: unknown): {
+  statusCode: number;
+  body: { error: { code: ErrorCode; message: string } };
+  retryAfterSeconds?: number;
+} {
   if (err instanceof AppError) {
     return {
       statusCode: err.statusCode,
       body: { error: { code: err.code, message: err.expose ? err.message : "Request failed" } },
+      retryAfterSeconds: err.retryAfterSeconds,
+    };
+  }
+  const sqlstate = (err as { code?: unknown } | null)?.code;
+  if (typeof sqlstate === "string" && TRANSIENT_SQLSTATE.has(sqlstate)) {
+    return {
+      statusCode: 503,
+      body: { error: { code: "service_unavailable", message: "Service temporarily unavailable" } },
+      retryAfterSeconds: 1,
     };
   }
   // Fastify's own client errors (malformed JSON, wrong content type, body too

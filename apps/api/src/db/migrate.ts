@@ -2,13 +2,29 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadConfig } from "../config.js";
-import { closePool, createPool } from "./pool.js";
+import { loadMigrationConfig } from "../config.js";
+import { createPool } from "./pool.js";
 
 /** Advisory lock key namespace for figbloom API migrations (stable int). */
 export const MIGRATION_LOCK_KEY = 157301;
 
 export const LEGACY_CRLF_RECONCILE_REASON = "legacy-crlf-reconciliation";
+
+/** Distinct from legacy CRLF reconciliation. NULL checksums are never silent. */
+export const NULL_CHECKSUM_BACKFILL_REASON = "null-checksum-backfill";
+
+/** Bound for pg_try_advisory_lock retries. Exit code 2 on expiry. */
+export const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 15_000;
+
+export class MigrationLockTimeoutError extends Error {
+  readonly exitCode = 2;
+  constructor(timeoutMs: number) {
+    super(
+      `Migration lock acquisition timed out after ${timeoutMs}ms (another migrate may be running).`,
+    );
+    this.name = "MigrationLockTimeoutError";
+  }
+}
 
 /**
  * Exit codes for the migrate CLI (FIG-1610).
@@ -89,6 +105,8 @@ export interface MigrationRunOptions {
   reconcile?: boolean;
   /** Override migrations directory (tests). */
   migrationsDir?: string;
+  /** Advisory-lock wait. Default 15s. Expiry throws MigrationLockTimeoutError (exit 2). */
+  lockTimeoutMs?: number;
 }
 
 export interface MigrationRunResult {
@@ -97,6 +115,8 @@ export interface MigrationRunResult {
   reconciled: string[];
   reconcileCandidates: string[];
   verified: string[];
+  /** NULL checksums backfilled with an audit row (not silent). */
+  backfilled: string[];
 }
 
 async function ensureBootstrap(client: import("pg").PoolClient): Promise<void> {
@@ -160,17 +180,36 @@ async function ensureBootstrap(client: import("pg").PoolClient): Promise<void> {
   `);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+/**
+ * Session-level advisory lock on a dedicated connection.
+ * Retries pg_try_advisory_lock until lockTimeoutMs. Never blocks forever.
+ * The connection must be direct or session-mode: a transaction-mode pooler
+ * can hand the session (and the lock) to another client.
+ */
 async function withMigrationLock<T>(
   client: import("pg").PoolClient,
   fn: () => Promise<T>,
+  timeoutMs: number,
 ): Promise<T> {
-  const locked = await client.query<{ locked: boolean }>(
-    `SELECT pg_try_advisory_lock($1) AS locked`,
-    [MIGRATION_LOCK_KEY],
-  );
-  if (!locked.rows[0]?.locked) {
-    await client.query(`SELECT pg_advisory_lock($1)`, [MIGRATION_LOCK_KEY]);
+  const started = Date.now();
+  let locked = false;
+  while (Date.now() - started <= timeoutMs) {
+    const attempt = await client.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_lock($1) AS locked`,
+      [MIGRATION_LOCK_KEY],
+    );
+    if (attempt.rows[0]?.locked) {
+      locked = true;
+      break;
+    }
+    if (Date.now() - started >= timeoutMs) break;
+    await sleep(50);
   }
+  if (!locked) throw new MigrationLockTimeoutError(timeoutMs);
   try {
     return await fn();
   } finally {
@@ -246,6 +285,7 @@ export async function runMigrations(
   const mode: MigrationRunMode = options.mode ?? "apply";
   const reconcile = options.reconcile === true || mode === "apply";
   const migrationsDir = options.migrationsDir ?? resolveMigrationsDir();
+  const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS;
 
   const client = await pool.connect();
   const applied: string[] = [];
@@ -253,8 +293,18 @@ export async function runMigrations(
   const reconciled: string[] = [];
   const reconcileCandidates: string[] = [];
   const verified: string[] = [];
+  const backfilled: string[] = [];
 
   try {
+    const who = await client.query<{ current_user: string }>(`SELECT current_user::text AS current_user`);
+    if (who.rows[0]?.current_user === "figbloom_app") {
+      const refused = new Error(
+        "migrate refused: this connection is the runtime role figbloom_app. " +
+          "Use MIGRATION_DATABASE_URL, a direct or session-mode migrator connection.",
+      );
+      (refused as { exitCode?: number }).exitCode = 2;
+      throw refused;
+    }
     await withMigrationLock(client, async () => {
       await ensureBootstrap(client);
 
@@ -275,7 +325,7 @@ export async function runMigrations(
       }
 
       for (const file of files) {
-        // Single CRLF→LF pass only, then hash those exact bytes (H-1 / AD-14).
+        // Single CRLF→LF pass only, then hash those exact bytes (M-1 stray CR / AD-14).
         const canonicalSql = canonicalizeSql(readRawMigrationSql(migrationsDir, file));
         const sum = hashCanonicalSql(canonicalSql);
         const prior = byId.get(file);
@@ -306,13 +356,39 @@ export async function runMigrations(
         if (prior == null) {
           if (mode === "verify" && !reconcile) {
             throw new Error(
-              `Migration ${file} has a NULL checksum; re-run migrate (apply) to backfill the canonical hash.`,
+              `Migration ${file} has a NULL checksum. Run migrate apply to backfill the canonical hash. ` +
+                `Apply writes an audit row with reason ${NULL_CHECKSUM_BACKFILL_REASON} and does not backfill silently.`,
             );
           }
-          await client.query(
-            `UPDATE schema_migrations SET checksum = $2 WHERE id = $1 AND checksum IS NULL`,
-            [file, sum],
+          await client.query("BEGIN");
+          try {
+            const updated = await client.query(
+              `UPDATE schema_migrations SET checksum = $2 WHERE id = $1 AND checksum IS NULL`,
+              [file, sum],
+            );
+            if ((updated.rowCount ?? 0) !== 1) {
+              throw new Error(`NULL checksum backfill for ${file} matched no row`);
+            }
+            await client.query(
+              `INSERT INTO schema_migration_checksum_audit
+                (migration_id, old_checksum, new_checksum, reason, reconciled_by)
+               VALUES ($1, $2, $3, $4, CURRENT_USER)`,
+              [file, "(null)", sum, NULL_CHECKSUM_BACKFILL_REASON],
+            );
+            await client.query("COMMIT");
+          } catch (err) {
+            try {
+              await client.query("ROLLBACK");
+            } catch {
+              /* preserve the original failure */
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            throw new Error(`NULL checksum backfill for ${file} failed and was rolled back: ${message}`);
+          }
+          console.warn(
+            `[migrate] backfilled NULL checksum for ${file} -> ${sum} (reason=${NULL_CHECKSUM_BACKFILL_REASON})`,
           );
+          backfilled.push(file);
           skipped.push(file);
           verified.push(file);
           continue;
@@ -355,12 +431,12 @@ export async function runMigrations(
         END
         $revoke$
       `);
-    });
+    }, lockTimeoutMs);
   } finally {
     client.release();
   }
 
-  return { applied, skipped, reconciled, reconcileCandidates, verified };
+  return { applied, skipped, reconciled, reconcileCandidates, verified, backfilled };
 }
 
 /** @deprecated Prefer runMigrations; kept for call-site clarity in verify CLI. */
@@ -398,10 +474,19 @@ function parseCliArgs(argv: string[]): { mode: MigrationRunMode; reconcile: bool
 
 async function main(): Promise<void> {
   const { mode, reconcile } = parseCliArgs(process.argv);
-  const config = loadConfig();
-  const pool = createPool(config);
+  const migration = loadMigrationConfig();
+  const pool = createPool({
+    connectionString: migration.migrationDatabaseUrl,
+    max: 1,
+    applicationName: "figbloom-migrate",
+    connectionTimeoutMillis: 2_000,
+  });
   try {
-    const result = await runMigrations(pool, { mode, reconcile });
+    const result = await runMigrations(pool, {
+      mode,
+      reconcile,
+      lockTimeoutMs: migration.migrationLockTimeoutMs,
+    });
     if (mode === "verify") {
       if (result.reconcileCandidates.length > 0 && !reconcile) {
         console.error(
@@ -425,14 +510,17 @@ async function main(): Promise<void> {
       console.log(`reconciled ${result.reconciled.length} legacy CRLF checksum(s)`);
     }
   } finally {
-    await closePool();
+    await pool.end();
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(err instanceof Error ? err.message : err);
-    process.exitCode = MIGRATE_EXIT.failure;
+    const code = (err as { exitCode?: number }).exitCode;
+    process.exitCode = code === 2 || err instanceof MigrationLockTimeoutError
+      ? MIGRATE_EXIT.usage
+      : MIGRATE_EXIT.failure;
   });
 }
 

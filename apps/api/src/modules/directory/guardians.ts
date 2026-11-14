@@ -1,6 +1,4 @@
-import type pg from "pg";
-import { withTransaction } from "../../db/pool.js";
-import { setTenantContext } from "../../db/tenantContext.js";
+import type { Db } from "../../db/pool.js";
 import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 
@@ -162,18 +160,6 @@ function validateLink(link: GuardianLinkInput): { learner_id: string; relationsh
   };
 }
 
-/** Tenant-scoped transaction; sets app.tenant_id / app.user_id for hybrid RLS. */
-async function withGuardianTenantScope<T>(
-  pool: pg.Pool,
-  input: { tenantId: string; userId: string },
-  fn: (client: pg.PoolClient) => Promise<T>,
-): Promise<T> {
-  return withTransaction(pool, async (client) => {
-    await setTenantContext(client, { tenantId: input.tenantId, userId: input.userId, mode: "app" });
-    return fn(client);
-  });
-}
-
 /**
  * Application precheck: every id must be an active learner of this tenant.
  *
@@ -184,11 +170,11 @@ async function withGuardianTenantScope<T>(
  * insert with SQLSTATE P0002, which mapLinkWriteError() turns into the same 404.
  */
 async function assertActiveLearnersInTenant(
-  client: pg.PoolClient,
+  db: Db,
   tenantId: string,
   learnerIds: string[],
 ): Promise<void> {
-  const found = await client.query<{ id: string; active: boolean }>(
+  const found = await db.query<{ id: string; active: boolean }>(
     `SELECT id, active FROM learners WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
     [tenantId, learnerIds],
   );
@@ -224,7 +210,7 @@ export interface CreateGuardianInput {
 }
 
 /** Guardian + its initial learner links in one transaction. */
-export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput): Promise<PublicCreatedGuardian> {
+export async function createGuardian(db: Db, input: CreateGuardianInput): Promise<PublicCreatedGuardian> {
   const full_name = input.full_name.trim();
   if (!full_name) throw validationError("Full name is required");
   if (codePointLength(full_name) > GUARDIAN_NAME_MAX_LENGTH) throw validationError("Full name is too long");
@@ -242,13 +228,10 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
   const email = cleanOptional(input.email);
 
   try {
-    return await withGuardianTenantScope(
-      pool,
-      { tenantId: input.tenantId, userId: input.actorUserId },
-      async (client) => {
-        await assertActiveLearnersInTenant(client, input.tenantId, ids);
+    return await (async () => {
+        await assertActiveLearnersInTenant(db, input.tenantId, ids);
 
-        const inserted = await client.query<GuardianRow>(
+        const inserted = await db.query<GuardianRow>(
           `INSERT INTO guardians (tenant_id, full_name, phone, alt_phone, email, created_by)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING ${GUARDIAN_COLS}`,
@@ -259,7 +242,7 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
 
         const savedLinks: PublicGuardianLink[] = [];
         for (const link of links) {
-          const row = await client.query<LinkRow>(
+          const row = await db.query<LinkRow>(
             `INSERT INTO guardian_links
                (tenant_id, guardian_id, learner_id, relationship, is_primary_payer, created_by)
              VALUES ($1, $2, $3, $4, $5, $6)
@@ -270,7 +253,7 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
         }
 
         // Audit detail carries ids and relationship only: no names, phones or emails.
-        await recordSecurityEvent(client, {
+        await recordSecurityEvent(db, {
           eventType: "directory.guardian.created",
           actorUserId: input.actorUserId,
           tenantId: input.tenantId,
@@ -283,22 +266,18 @@ export async function createGuardian(pool: pg.Pool, input: CreateGuardianInput):
         });
 
         return { id: guardian.id, tenantId: guardian.tenant_id, links: savedLinks };
-      },
-    );
+    })();
   } catch (err) {
     throw mapLinkWriteError(err);
   }
 }
 
 export async function getGuardianById(
-  pool: pg.Pool,
+  db: Db,
   input: { tenantId: string; guardianId: string; actorUserId: string },
 ): Promise<PublicGuardianContact> {
-  const result = await withGuardianTenantScope(
-    pool,
-    { tenantId: input.tenantId, userId: input.actorUserId },
-    async (client) => {
-      const g = await client.query<GuardianRow>(
+  const result = await (async () => {
+      const g = await db.query<GuardianRow>(
         `SELECT ${GUARDIAN_COLS} FROM guardians WHERE id = $1 AND tenant_id = $2`,
         [input.guardianId, input.tenantId],
       );
@@ -306,14 +285,13 @@ export async function getGuardianById(
       if (!guardian) return null;
       // F-2: do not return linked learner ids on guardian read.
       return mapGuardianContact(guardian);
-    },
-  );
+  })();
   if (!result) throw notFound("Guardian not found");
   return result;
 }
 
 export async function addGuardianLink(
-  pool: pg.Pool,
+  db: Db,
   input: {
     tenantId: string;
     guardianId: string;
@@ -324,25 +302,22 @@ export async function addGuardianLink(
 ): Promise<PublicGuardianLink> {
   const link = validateLink(input.link);
   try {
-    return await withGuardianTenantScope(
-      pool,
-      { tenantId: input.tenantId, userId: input.actorUserId },
-      async (client) => {
-        const g = await client.query(`SELECT 1 FROM guardians WHERE id = $1 AND tenant_id = $2`, [
+    return await (async () => {
+        const g = await db.query(`SELECT 1 FROM guardians WHERE id = $1 AND tenant_id = $2`, [
           input.guardianId,
           input.tenantId,
         ]);
         if (g.rowCount !== 1) throw notFound("Guardian not found");
-        await assertActiveLearnersInTenant(client, input.tenantId, [link.learner_id]);
+        await assertActiveLearnersInTenant(db, input.tenantId, [link.learner_id]);
 
-        const row = await client.query<LinkRow>(
+        const row = await db.query<LinkRow>(
           `INSERT INTO guardian_links
              (tenant_id, guardian_id, learner_id, relationship, is_primary_payer, created_by)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING ${LINK_COLS}`,
           [input.tenantId, input.guardianId, link.learner_id, link.relationship, link.primary, input.actorUserId],
         );
-        await recordSecurityEvent(client, {
+        await recordSecurityEvent(db, {
           eventType: "directory.guardian.linked",
           actorUserId: input.actorUserId,
           tenantId: input.tenantId,
@@ -354,27 +329,23 @@ export async function addGuardianLink(
           ip: input.ip ?? null,
         });
         return mapLink(row.rows[0]!);
-      },
-    );
+    })();
   } catch (err) {
     throw mapLinkWriteError(err);
   }
 }
 
 export async function listGuardiansForLearner(
-  pool: pg.Pool,
+  db: Db,
   input: { tenantId: string; learnerId: string; actorUserId: string },
 ): Promise<LearnerGuardian[]> {
-  const rows = await withGuardianTenantScope(
-    pool,
-    { tenantId: input.tenantId, userId: input.actorUserId },
-    async (client) => {
-      const learner = await client.query(`SELECT 1 FROM learners WHERE id = $1 AND tenant_id = $2`, [
+  const rows = await (async () => {
+      const learner = await db.query(`SELECT 1 FROM learners WHERE id = $1 AND tenant_id = $2`, [
         input.learnerId,
         input.tenantId,
       ]);
       if (learner.rowCount !== 1) return null;
-      const result = await client.query<
+      const result = await db.query<
         GuardianRow & { link_id: string; relationship: string; is_primary_payer: boolean; link_created_at: Date | string }
       >(
         `SELECT g.id, g.tenant_id, g.full_name, g.phone, g.alt_phone, g.email,
@@ -387,8 +358,7 @@ export async function listGuardiansForLearner(
         [input.learnerId, input.tenantId],
       );
       return result.rows;
-    },
-  );
+  })();
   if (!rows) throw notFound("Learner not found");
   return rows.map((r) => ({
     id: r.id,

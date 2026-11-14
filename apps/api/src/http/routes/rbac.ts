@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type pg from "pg";
 import { z } from "zod";
-import { withTransaction } from "../../db/pool.js";
-import { requireTenantAuth } from "../middleware/authContext.js";
+import type { AppPool } from "../../db/pool.js";
+import { recordSecurityEvent } from "../../modules/audit/audit.js";
+import { ADMIN_AREAS, isAdminArea, mayHoldAdminAreas } from "../../modules/identity/roles.js";
 import {
   loadEffectivePermissions,
   mayAdminister,
@@ -15,10 +15,9 @@ import {
   loadDelegatedPermissionCodes,
   revokeOrgAdminDelegations,
 } from "../../modules/rbac/delegations.js";
-import { ADMIN_AREAS, isAdminArea, mayHoldAdminAreas } from "../../modules/identity/roles.js";
-import { validationError, forbidden, notFound } from "../errors.js";
-import { recordSecurityEvent } from "../../modules/audit/audit.js";
 import { clientIp } from "../clientIp.js";
+import { forbidden, notFound, validationError } from "../errors.js";
+import { withTenantRequest } from "../tenantRequest.js";
 
 const SetAreasSchema = z.object({
   userId: z.string().uuid(),
@@ -35,104 +34,116 @@ const DelegationRevokeSchema = z.object({
   permissionCodes: z.array(z.string().min(1).max(64)).max(64).optional(),
 });
 
-export async function registerRbacRoutes(app: FastifyInstance, db: pg.Pool): Promise<void> {
+export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): Promise<void> {
   app.get("/v1/rbac/permissions", async (request) => {
-    const auth = await requireTenantAuth(db, request);
-    await requirePermission(db, auth.authz, "rbac.permissions.read", { ip: clientIp(request) });
-    const permissions = [...(await loadEffectivePermissions(db, auth.authz))].sort();
-    const delegatedPermissions =
-      auth.authz.isOrgAdminForTenant && auth.authz.tenantId && !mayAdminister(auth.authz)
-        ? [...(await loadDelegatedPermissionCodes(db, auth.user.id, auth.authz.tenantId))].sort()
-        : [];
-    return {
-      role: auth.authz.role,
-      tenantId: auth.authz.tenantId,
-      mayAdminister: mayAdminister(auth.authz),
-      isOrgAdminForTenant: auth.authz.isOrgAdminForTenant,
-      isSuperAdmin: auth.authz.isSuperAdmin,
-      delegatedPermissions,
-      actingVia: await resolveActingVia(db, auth.authz),
-      permissions,
-    };
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.permissions.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const permissions = [...(await loadEffectivePermissions(tx, auth.authz))].sort();
+      const delegatedPermissions =
+        auth.authz.isOrgAdminForTenant && auth.authz.tenantId && !mayAdminister(auth.authz)
+          ? [...(await loadDelegatedPermissionCodes(tx, auth.user.id, auth.authz.tenantId))].sort()
+          : [];
+      return {
+        role: auth.authz.role,
+        tenantId: auth.authz.tenantId,
+        mayAdminister: mayAdminister(auth.authz),
+        isOrgAdminForTenant: auth.authz.isOrgAdminForTenant,
+        isSuperAdmin: auth.authz.isSuperAdmin,
+        delegatedPermissions,
+        actingVia: await resolveActingVia(tx, auth.authz),
+        permissions,
+      };
+    });
   });
 
   app.get("/v1/rbac/org-delegations", async (request) => {
-    const auth = await requireTenantAuth(db, request);
-    await requirePermission(db, auth.authz, "rbac.org_delegations.read", {
-      ip: clientIp(request),
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.org_delegations.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const tenantId = auth.authz.tenantId!;
+      const items = await listOrgAdminDelegations(tx, tenantId);
+      return { tenantId, items };
     });
-    const tenantId = auth.authz.tenantId!;
-    const items = await listOrgAdminDelegations(db, tenantId);
-    return { tenantId, items };
   });
 
-  app.post("/v1/rbac/org-delegations", async (request, reply) => {
-    const auth = await requireTenantAuth(db, request);
-    await requirePermission(db, auth.authz, "rbac.org_delegations.manage", {
-      ip: clientIp(request),
-    });
+  app.post("/v1/rbac/org-delegations", async (request) => {
     const parsed = DelegationGrantSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("delegateUserId and permissionCodes[] are required");
-    const result = await grantOrgAdminDelegations(db, {
-      actor: auth.authz,
-      tenantId: auth.authz.tenantId!,
-      delegateUserId: parsed.data.delegateUserId,
-      permissionCodes: parsed.data.permissionCodes,
-      ip: clientIp(request),
-    });
-    return reply.code(200).send({
-      ok: true,
-      tenantId: auth.authz.tenantId,
-      delegateUserId: parsed.data.delegateUserId,
-      granted: result.granted,
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.org_delegations.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const result = await grantOrgAdminDelegations(tx, {
+        actor: auth.authz,
+        tenantId: auth.authz.tenantId!,
+        delegateUserId: parsed.data.delegateUserId,
+        permissionCodes: parsed.data.permissionCodes,
+        ip: clientIp(request),
+      });
+      return {
+        ok: true,
+        tenantId: auth.authz.tenantId,
+        delegateUserId: parsed.data.delegateUserId,
+        granted: result.granted,
+      };
     });
   });
 
-  app.delete("/v1/rbac/org-delegations", async (request, reply) => {
-    const auth = await requireTenantAuth(db, request);
-    await requirePermission(db, auth.authz, "rbac.org_delegations.manage", {
-      ip: clientIp(request),
-    });
+  app.delete("/v1/rbac/org-delegations", async (request) => {
     const parsed = DelegationRevokeSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("delegateUserId is required");
-    const result = await revokeOrgAdminDelegations(db, {
-      actor: auth.authz,
-      tenantId: auth.authz.tenantId!,
-      delegateUserId: parsed.data.delegateUserId,
-      permissionCodes: parsed.data.permissionCodes ?? null,
-      ip: clientIp(request),
-    });
-    return reply.send({
-      ok: true,
-      tenantId: auth.authz.tenantId,
-      delegateUserId: parsed.data.delegateUserId,
-      revoked: result.revoked,
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.org_delegations.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const result = await revokeOrgAdminDelegations(tx, {
+        actor: auth.authz,
+        tenantId: auth.authz.tenantId!,
+        delegateUserId: parsed.data.delegateUserId,
+        permissionCodes: parsed.data.permissionCodes ?? null,
+        ip: clientIp(request),
+      });
+      return {
+        ok: true,
+        tenantId: auth.authz.tenantId,
+        delegateUserId: parsed.data.delegateUserId,
+        revoked: result.revoked,
+      };
     });
   });
 
-  app.put("/v1/rbac/staff-areas", async (request, reply) => {
-    const auth = await requireTenantAuth(db, request);
-    await requirePermission(db, auth.authz, "rbac.staff_areas.manage", { ip: clientIp(request) });
-
+  app.put("/v1/rbac/staff-areas", async (request) => {
     const parsed = SetAreasSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("userId and areas[] are required");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.staff_areas.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
 
-    const tenantId = auth.authz.tenantId!;
-    if (parsed.data.userId === auth.user.id) {
-      throw forbidden("Cannot change your own admin areas");
-    }
+      const tenantId = auth.authz.tenantId!;
+      if (parsed.data.userId === auth.user.id) {
+        throw forbidden("Cannot change your own admin areas");
+      }
+      if (!parsed.data.areas.every(isAdminArea)) throw validationError("Unknown admin area");
+      const areas = [...new Set(parsed.data.areas)].filter(isAdminArea);
+      const actingVia = await resolveActingVia(tx, auth.authz);
 
-    if (!parsed.data.areas.every(isAdminArea)) throw validationError("Unknown admin area");
-    const areas = [...new Set(parsed.data.areas)].filter(isAdminArea);
-
-    // requirePermission already enforced rbac.staff_areas.manage (native or delegated).
-    const actingVia = await resolveActingVia(db, auth.authz);
-
-    await withTransaction(db, async (client) => {
-      const target = await client.query<{ role: string }>(
+      // SELECT-only grant on school_memberships cannot take FOR UPDATE.
+      // The advisory lock serialises concurrent area edits for this membership.
+      await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+        `staff-areas:${tenantId}:${parsed.data.userId}`,
+      ]);
+      const target = await tx.query<{ role: string }>(
         `SELECT role FROM school_memberships
-         WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL
-         FOR UPDATE`,
+         WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL`,
         [parsed.data.userId, tenantId],
       );
       if (!target.rows[0]) throw notFound("Membership not found");
@@ -140,22 +151,22 @@ export async function registerRbacRoutes(app: FastifyInstance, db: pg.Pool): Pro
         throw forbidden("Only teacher or staff memberships may hold admin areas");
       }
 
-      const previous = await client.query<{ area: string }>(
+      const previous = await tx.query<{ area: string }>(
         `SELECT area FROM staff_area_grants WHERE user_id = $1 AND tenant_id = $2 ORDER BY area`,
         [parsed.data.userId, tenantId],
       );
-      await client.query(
-        `DELETE FROM staff_area_grants WHERE user_id = $1 AND tenant_id = $2`,
-        [parsed.data.userId, tenantId],
-      );
+      await tx.query(`DELETE FROM staff_area_grants WHERE user_id = $1 AND tenant_id = $2`, [
+        parsed.data.userId,
+        tenantId,
+      ]);
       for (const area of areas) {
-        await client.query(
+        await tx.query(
           `INSERT INTO staff_area_grants (tenant_id, user_id, area, granted_by)
            VALUES ($1, $2, $3, $4)`,
           [tenantId, parsed.data.userId, area, auth.user.id],
         );
       }
-      await recordSecurityEvent(client, {
+      await recordSecurityEvent(tx, {
         eventType: "rbac.staff_areas.changed",
         actorUserId: auth.user.id,
         tenantId,
@@ -168,12 +179,12 @@ export async function registerRbacRoutes(app: FastifyInstance, db: pg.Pool): Pro
         },
         ip: clientIp(request),
       });
-    });
 
-    return reply.send({
-      ok: true,
-      userId: parsed.data.userId,
-      areas: [...ADMIN_AREAS].filter((a) => areas.includes(a)),
+      return {
+        ok: true,
+        userId: parsed.data.userId,
+        areas: [...ADMIN_AREAS].filter((a) => areas.includes(a)),
+      };
     });
   });
 }

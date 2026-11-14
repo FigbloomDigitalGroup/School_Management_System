@@ -1,6 +1,4 @@
-import type pg from "pg";
-import { withTransaction } from "../../db/pool.js";
-import { setTenantContext } from "../../db/tenantContext.js";
+import type { Db } from "../../db/pool.js";
 import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 
@@ -115,27 +113,10 @@ const SELECT_COLS = `
 `;
 
 /**
- * Tenant-scoped DB work for learner PII.
- * Sets transaction-local app.tenant_id / app.user_id so RLS policies for
- * figbloom_app can enforce isolation when the runtime role is wired (FIG-1605).
- * Application authorization remains mandatory regardless of RLS.
+ * Learner writes run on the caller's tenant transaction (FIG-1605).
+ * The route sets app.tenant_id / app.user_id. This module does not open a second transaction.
  */
-async function withLearnerTenantScope<T>(
-  pool: pg.Pool,
-  input: { tenantId: string; userId: string },
-  fn: (client: pg.PoolClient) => Promise<T>,
-): Promise<T> {
-  return withTransaction(pool, async (client) => {
-    await setTenantContext(client, {
-      tenantId: input.tenantId,
-      userId: input.userId,
-      mode: "app",
-    });
-    return fn(client);
-  });
-}
-
-export async function createLearner(pool: pg.Pool, input: CreateLearnerInput): Promise<PublicLearner> {
+export async function createLearner(db: Db, input: CreateLearnerInput): Promise<PublicLearner> {
   const admission_no = input.admission_no.trim();
   const full_name = input.full_name.trim();
   if (!admission_no) throw validationError("Admission number is required");
@@ -165,11 +146,8 @@ export async function createLearner(pool: pg.Pool, input: CreateLearnerInput): P
   const boarding = input.boarding === true;
 
   try {
-    const created = await withLearnerTenantScope(
-      pool,
-      { tenantId: input.tenantId, userId: input.actorUserId },
-      async (client) => {
-        const result = await client.query<{
+    const created = await (async () => {
+        const result = await db.query<{
           id: string;
           tenant_id: string;
           admission_no: string;
@@ -200,7 +178,7 @@ export async function createLearner(pool: pg.Pool, input: CreateLearnerInput): P
         const row = result.rows[0];
         if (!row) throw new Error("learner insert returned no row");
 
-        await recordSecurityEvent(client, {
+        await recordSecurityEvent(db, {
           eventType: "directory.learner.created",
           actorUserId: input.actorUserId,
           tenantId: input.tenantId,
@@ -212,8 +190,7 @@ export async function createLearner(pool: pg.Pool, input: CreateLearnerInput): P
         });
 
         return mapRow(row);
-      },
-    );
+    })();
     return toPublicLearner(created);
   } catch (err) {
     const code = (err as { code?: string } | null)?.code;
@@ -225,14 +202,11 @@ export async function createLearner(pool: pg.Pool, input: CreateLearnerInput): P
 }
 
 export async function getLearnerById(
-  pool: pg.Pool,
+  db: Db,
   input: { tenantId: string; learnerId: string; actorUserId: string },
 ): Promise<PublicLearner> {
-  const row = await withLearnerTenantScope(
-    pool,
-    { tenantId: input.tenantId, userId: input.actorUserId },
-    async (client) => {
-      const result = await client.query<{
+  const row = await (async () => {
+      const result = await db.query<{
         id: string;
         tenant_id: string;
         admission_no: string;
@@ -252,19 +226,15 @@ export async function getLearnerById(
         [input.learnerId, input.tenantId],
       );
       return result.rows[0] ?? null;
-    },
-  );
+  })();
 
   if (!row) throw notFound("Learner not found");
   return toPublicLearner(mapRow(row));
 }
 
 /** Direct pool queries for least-privilege / RLS tests (SET ROLE figbloom_app). */
-export async function countLearnersVisibleAsAppRole(
-  client: pg.PoolClient,
-  tenantId: string,
-): Promise<number> {
-  const result = await client.query<{ n: string }>(
+export async function countLearnersVisibleAsAppRole(db: Db, tenantId: string): Promise<number> {
+  const result = await db.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM learners WHERE tenant_id = $1`,
     [tenantId],
   );

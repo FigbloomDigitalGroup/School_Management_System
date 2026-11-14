@@ -1,10 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { loadConfig } from "../src/config.js";
 import { hashPassword } from "../src/modules/identity/password.js";
 import { buildApp } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
+import { createPool } from "../src/db/pool.js";
 import { runMigrations } from "../src/db/migrate.js";
+import { assertRuntimeRole } from "../src/db/roleAssert.js";
 
 const { Pool } = pg;
 
@@ -24,12 +26,24 @@ export function assertIsolatedTestDatabase(databaseUrl: string): void {
   }
 }
 
+function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Build a figbloom_app URL from the owner URL without logging either string. */
+export function runtimeUrlFromOwner(ownerUrl: string, password: string): string {
+  const url = new URL(ownerUrl);
+  url.username = "figbloom_app";
+  url.password = password;
+  return url.toString();
+}
+
 export async function resetDatabase(pool: pg.Pool): Promise<void> {
   await pool.query(`
     DROP SCHEMA public CASCADE;
     CREATE SCHEMA public;
-    GRANT ALL ON SCHEMA public TO postgres;
-    GRANT ALL ON SCHEMA public TO public;
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    GRANT USAGE ON SCHEMA public TO PUBLIC;
   `);
   // Use the real migration runner (advisory lock + checksums) — R2-09 / R3.
   await runMigrations(pool);
@@ -115,23 +129,70 @@ export async function seedFixtures(pool: pg.Pool): Promise<FixtureIds> {
 
 export async function createTestApp(): Promise<{
   config: AppConfig;
+  /** Owner/migrator pool: fixtures, resets, catalogue assertions. */
   pool: pg.Pool;
+  /** Application pool. The app under test uses only this login (figbloom_app). */
+  runtimePool: pg.Pool;
   app: Awaited<ReturnType<typeof buildApp>>;
   ids: FixtureIds;
 }> {
-  process.env.DATABASE_URL ??= "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const ownerUrl =
+    process.env.MIGRATION_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
   // Override .env defaults so the suite is not starved by the login token bucket.
   process.env.AUTH_RATE_CAPACITY = "1000";
   process.env.AUTH_RATE_REFILL = "1000";
   // Default: proxy trust off for the shared suite (R2 tests enable it explicitly).
   process.env.API_TRUST_PROXY_HOPS = "0";
   delete process.env.API_TRUST_PROXY_CIDRS;
-  const config = loadConfig();
-  assertIsolatedTestDatabase(config.databaseUrl);
-  const pool = new Pool({ connectionString: config.databaseUrl });
+  assertIsolatedTestDatabase(ownerUrl);
+  const pool = new Pool({
+    connectionString: ownerUrl,
+    max: 10,
+    application_name: "figbloom-test-owner",
+  });
   await resetDatabase(pool);
   const ids = await seedFixtures(pool);
-  const app = await buildApp(config, pool);
+
+  // Cluster-wide role: LOGIN is test-only and cleared when the owner pool ends.
+  const password = randomBytes(24).toString("base64url");
+  await pool.query(`ALTER ROLE figbloom_app WITH LOGIN PASSWORD ${quoteLiteral(password)}`);
+  const runtimeUrl = runtimeUrlFromOwner(ownerUrl, password);
+  process.env.DATABASE_URL = runtimeUrl;
+  let config: AppConfig;
+  try {
+    config = loadConfig();
+  } finally {
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  }
+  const runtimePool = createPool({
+    connectionString: runtimeUrl,
+    max: config.poolMax,
+    applicationName: "figbloom-api-test",
+    connectionTimeoutMillis: config.poolAcquireTimeoutMs,
+  });
+  const probe = await runtimePool.connect();
+  try {
+    await assertRuntimeRole(probe, { expectedRole: config.runtimeRole });
+  } finally {
+    probe.release();
+  }
+  const app = await buildApp(config, runtimePool);
   await app.ready();
-  return { config, pool, app, ids };
+
+  const originalEnd = pool.end.bind(pool);
+  pool.end = async () => {
+    await runtimePool.end().catch(() => undefined);
+    try {
+      await pool.query(`ALTER ROLE figbloom_app WITH NOLOGIN PASSWORD NULL`);
+    } catch {
+      /* best-effort; the role is cluster-wide */
+    }
+    return originalEnd();
+  };
+
+  return { config, pool, runtimePool, app, ids };
 }

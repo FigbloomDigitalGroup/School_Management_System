@@ -11,6 +11,8 @@ import {
   legacyCrlfChecksumFromCanonical,
   LEGACY_CRLF_RECONCILE_REASON,
   MIGRATION_LOCK_KEY,
+  MigrationLockTimeoutError,
+  NULL_CHECKSUM_BACKFILL_REASON,
   resolveMigrationsDir,
   runMigrations,
   verifyMigrations,
@@ -67,7 +69,7 @@ describe("FIG-1610 migration integrity", () => {
     expect(hashCanonicalSql(canonicalizeSql(lf))).toBe(checksumSql(lf));
   });
 
-  it("H-1: stray CR immediately before a line ending is not collapsed by hashing", () => {
+  it("M-1: stray CR immediately before a line ending is not collapsed by hashing", () => {
     const lf = "CREATE TABLE t_h1 (v text);\nINSERT INTO t_h1 VALUES ('a\nb');\n";
     // CR placed immediately before what becomes a line ending after one CRLF pass.
     const strayBeforeEol = "CREATE TABLE t_h1 (v text);\nINSERT INTO t_h1 VALUES ('a\r\r\nb');\n";
@@ -299,7 +301,7 @@ describe("FIG-1610 migration integrity", () => {
     expect(hash(tooLenient(lf))).toBe(hash(tooLenient(loneCr)));
   });
 
-  it("H-1: runMigrations refuses a stray-CR-before-EOL edit of an applied migration", async () => {
+  it("M-1: runMigrations refuses a stray-CR-before-EOL edit of an applied migration", async () => {
     await resetPublic();
     const dir = join(scratchDir, "h1-stray");
     mkdirSync(dir, { recursive: true });
@@ -316,7 +318,7 @@ describe("FIG-1610 migration integrity", () => {
     );
   });
 
-  it("M-1: successful reconciliation writes checksum and audit atomically", async () => {
+  it("H-1: successful reconciliation writes checksum and audit atomically", async () => {
     await resetPublic();
     const dir = join(scratchDir, "m1-ok");
     mkdirSync(dir, { recursive: true });
@@ -348,7 +350,7 @@ describe("FIG-1610 migration integrity", () => {
     });
   });
 
-  it("M-1: audit insert failure rolls back checksum (no silent reconcile)", async () => {
+  it("H-1: audit insert failure rolls back checksum (no silent reconcile)", async () => {
     await resetPublic();
     const dir = join(scratchDir, "m1-audit-fail");
     mkdirSync(dir, { recursive: true });
@@ -403,7 +405,7 @@ describe("FIG-1610 migration integrity", () => {
     expect(auditAfter.rows[0]?.n).toBe("1");
   });
 
-  it("M-1: checksum update failure leaves legacy checksum and no audit row", async () => {
+  it("H-1: checksum update failure leaves legacy checksum and no audit row", async () => {
     await resetPublic();
     const dir = join(scratchDir, "m1-upd-fail");
     mkdirSync(dir, { recursive: true });
@@ -450,7 +452,7 @@ describe("FIG-1610 migration integrity", () => {
     await pool.query(`DROP FUNCTION public.figbloom_test_fail_checksum_upd()`);
   });
 
-  it("M-1: concurrent reconciliations leave one canonical checksum and one audit row", async () => {
+  it("H-1: concurrent reconciliations leave one canonical checksum and one audit row", async () => {
     await resetPublic();
     const dir = join(scratchDir, "m1-concurrent");
     mkdirSync(dir, { recursive: true });
@@ -482,5 +484,54 @@ describe("FIG-1610 migration integrity", () => {
     // Serialized lock: exactly one successful reconciliation writes one audit row.
     // If the second run sees canonical already, it adds none.
     expect(Number(audit.rows[0]?.n)).toBe(1);
+  });
+
+  it("NULL checksum backfill writes an audit row and is not silent", async () => {
+    await resetPublic();
+    const dir = join(scratchDir, "null-checksum");
+    mkdirSync(dir, { recursive: true });
+    const body = "CREATE TABLE t_null_checksum (id int);\n";
+    writeFileSync(join(dir, "001_null.sql"), body, "utf8");
+    await runMigrations(pool, { migrationsDir: dir });
+    await pool.query(`UPDATE schema_migrations SET checksum = NULL WHERE id = '001_null.sql'`);
+
+    await expect(verifyMigrations(pool, { migrationsDir: dir, reconcile: false })).rejects.toThrow(
+      /NULL checksum/,
+    );
+    const stillNull = await pool.query<{ checksum: string | null }>(
+      `SELECT checksum FROM schema_migrations WHERE id = '001_null.sql'`,
+    );
+    expect(stillNull.rows[0]?.checksum).toBeNull();
+
+    const applied = await runMigrations(pool, { migrationsDir: dir });
+    expect(applied.backfilled).toEqual(["001_null.sql"]);
+    const sum = checksumSql(body);
+    const after = await pool.query<{ checksum: string }>(
+      `SELECT checksum FROM schema_migrations WHERE id = '001_null.sql'`,
+    );
+    expect(after.rows[0]?.checksum).toBe(sum);
+    const audit = await pool.query<{ reason: string; old_checksum: string; new_checksum: string }>(
+      `SELECT reason, old_checksum, new_checksum
+       FROM schema_migration_checksum_audit WHERE migration_id = '001_null.sql'`,
+    );
+    expect(audit.rows[0]).toMatchObject({
+      reason: NULL_CHECKSUM_BACKFILL_REASON,
+      old_checksum: "(null)",
+      new_checksum: sum,
+    });
+    expect(NULL_CHECKSUM_BACKFILL_REASON).not.toBe(LEGACY_CRLF_RECONCILE_REASON);
+  });
+
+  it("migration lock acquisition times out instead of blocking forever", async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query(`SELECT pg_advisory_lock($1)`, [MIGRATION_LOCK_KEY]);
+      await expect(runMigrations(pool, { lockTimeoutMs: 300 })).rejects.toBeInstanceOf(
+        MigrationLockTimeoutError,
+      );
+    } finally {
+      await holder.query(`SELECT pg_advisory_unlock($1)`, [MIGRATION_LOCK_KEY]).catch(() => undefined);
+      holder.release();
+    }
   });
 });

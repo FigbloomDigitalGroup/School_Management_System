@@ -1,4 +1,5 @@
 import type { Db } from "../../db/pool.js";
+import { attachDenialAudit } from "../../db/errors.js";
 import { forbidden } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 import {
@@ -139,18 +140,38 @@ export async function requirePermission(
   db: Db,
   ctx: AuthzContext,
   permission: string,
-  opts?: { ip?: string | null },
+  opts?: { ip?: string | null; deferAudit?: boolean },
 ): Promise<void> {
   const ok = await hasPermission(db, ctx, permission);
   if (ok) return;
-  await recordSecurityEvent(db, {
+  const err = forbidden("Missing permission");
+  attachDenialAudit(err, {
     eventType: "rbac.permission.denied",
     actorUserId: ctx.userId,
     tenantId: ctx.tenantId,
     detail: { permission, role: ctx.role, isOrgAdminForTenant: ctx.isOrgAdminForTenant },
     ip: opts?.ip ?? null,
   });
-  throw forbidden("Missing permission");
+  // Inside a tenant transaction the write would roll back with the denial.
+  // The transaction primitive persists it after rollback. Identity-path callers
+  // write immediately on their autocommit connection.
+  if (!opts?.deferAudit) {
+    try {
+      await recordSecurityEvent(db, {
+        eventType: "rbac.permission.denied",
+        actorUserId: ctx.userId,
+        tenantId: ctx.tenantId,
+        detail: { permission, role: ctx.role, isOrgAdminForTenant: ctx.isOrgAdminForTenant },
+        ip: opts?.ip ?? null,
+      });
+    } catch (auditErr) {
+      console.error(
+        "[api] denial audit write failed:",
+        auditErr instanceof Error ? auditErr.message : auditErr,
+      );
+    }
+  }
+  throw err;
 }
 
 /**

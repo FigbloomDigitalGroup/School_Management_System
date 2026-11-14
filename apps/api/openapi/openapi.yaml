@@ -1069,6 +1069,6 @@ components:
           properties:
             code:
               type: string
-              enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, internal_error]
+              enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, service_unavailable, internal_error]
             message:
               type: string

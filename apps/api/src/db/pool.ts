@@ -1,49 +1,36 @@
 import pg from "pg";
-import type { AppConfig } from "../config.js";
+import type { SqlClient } from "./sql.js";
 
 const { Pool } = pg;
 
-export type Db = pg.Pool | pg.PoolClient;
+/** Query surface for modules. Not a raw driver client. */
+export type Db = SqlClient;
 
-let pool: pg.Pool | null = null;
+/** Runtime or migration pool. Constructed at the entrypoint and passed explicitly. */
+export type AppPool = pg.Pool;
 
-export function createPool(config: AppConfig): pg.Pool {
-  if (pool) return pool;
-  pool = new Pool({
-    connectionString: config.databaseUrl,
-    max: 10,
+export interface CreatePoolOptions {
+  connectionString: string;
+  max?: number;
+  applicationName: string;
+  /** pg connection checkout backstop. The request path also races acquireClient. */
+  connectionTimeoutMillis?: number;
+}
+
+/**
+ * A new pool every call. There is no process-wide singleton: the API and
+ * migrate hold different credentials and must not share a pool.
+ */
+export function createPool(opts: CreatePoolOptions): pg.Pool {
+  const pool = new Pool({
+    connectionString: opts.connectionString,
+    max: opts.max ?? 10,
     idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: opts.connectionTimeoutMillis ?? 2_000,
+    application_name: opts.applicationName,
   });
-  // An idle client error must not become an unhandled 'error' event (process crash).
-  pool.on("error", (err) => console.error("[api] idle pg client error:", err.message));
+  pool.on("error", (err) => {
+    console.error("[api] idle pg client error:", err.message);
+  });
   return pool;
-}
-
-export function getPool(): pg.Pool {
-  if (!pool) throw new Error("Database pool not initialised");
-  return pool;
-}
-
-export async function closePool(): Promise<void> {
-  if (!pool) return;
-  await pool.end();
-  pool = null;
-}
-
-export async function withTransaction<T>(
-  db: pg.Pool,
-  fn: (client: pg.PoolClient) => Promise<T>,
-): Promise<T> {
-  const client = await db.connect();
-  try {
-    await client.query("begin");
-    const result = await fn(client);
-    await client.query("commit");
-    return result;
-  } catch (err) {
-    await client.query("rollback");
-    throw err;
-  } finally {
-    client.release();
-  }
 }

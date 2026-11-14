@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import type { AppConfig } from "./config.js";
-import type pg from "pg";
+import type { AppPool } from "./db/pool.js";
 import { toClientError, AppError } from "./http/errors.js";
 import { registerHealthRoutes } from "./http/routes/health.js";
 import { registerAuthRoutes } from "./http/routes/auth.js";
@@ -24,7 +24,7 @@ declare module "fastify" {
   }
 }
 
-export async function buildApp(config: AppConfig, pool: pg.Pool) {
+export async function buildApp(config: AppConfig, pool: AppPool) {
   const app = Fastify({
     logger: false,
     // R2-01: hop-count trust only when configured; never boolean `true`.
@@ -47,14 +47,18 @@ export async function buildApp(config: AppConfig, pool: pg.Pool) {
   });
 
   app.setErrorHandler((err, _request, reply) => {
-    const { statusCode, body } = toClientError(err);
-    if (!(err instanceof AppError) && statusCode >= 500) {
-      console.error("[api]", err instanceof Error ? err.message : err);
+    const mapped = toClientError(err);
+    if (!(err instanceof AppError) && mapped.statusCode >= 500) {
+      const sqlstate = (err as { code?: unknown } | null)?.code;
+      console.error(
+        "[api]",
+        typeof sqlstate === "string" ? `database error ${sqlstate}` : err instanceof Error ? err.message : err,
+      );
     }
-    if (err instanceof AppError && err.retryAfterSeconds !== undefined) {
-      reply.header("Retry-After", String(err.retryAfterSeconds));
+    if (mapped.retryAfterSeconds !== undefined) {
+      reply.header("Retry-After", String(mapped.retryAfterSeconds));
     }
-    return reply.status(statusCode).send(body);
+    return reply.status(mapped.statusCode).send(mapped.body);
   });
 
   app.setNotFoundHandler((_request, reply) =>

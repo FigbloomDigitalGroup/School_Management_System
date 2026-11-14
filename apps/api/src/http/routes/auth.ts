@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppConfig } from "../../config.js";
-import type { Db } from "../../db/pool.js";
+import type { AppPool } from "../../db/pool.js";
+import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
 import { validationError } from "../errors.js";
 import { requireSessionAuth } from "../middleware/authContext.js";
 import { buildAuthzContext } from "../../modules/rbac/authorize.js";
@@ -40,13 +41,13 @@ const ChangePasswordSchema = z.object({
 
 export async function registerAuthRoutes(
   app: FastifyInstance,
-  db: Db,
+  pool: AppPool,
   config: AppConfig,
 ): Promise<void> {
   app.post("/v1/auth/login/email", async (request, reply) => {
     const parsed = EmailLoginSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("Invalid email login payload");
-    const result = await loginWithEmail(db, config, {
+    const result = await loginWithEmail(pool, config, {
       ...parsed.data,
       ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
@@ -62,7 +63,7 @@ export async function registerAuthRoutes(
   app.post("/v1/auth/login/login-id", async (request, reply) => {
     const parsed = LoginIdSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("Invalid login-id payload");
-    const result = await loginWithLoginId(db, config, {
+    const result = await loginWithLoginId(pool, config, {
       ...parsed.data,
       ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
@@ -76,27 +77,44 @@ export async function registerAuthRoutes(
   });
 
   app.post("/v1/auth/logout", async (request, reply) => {
-    const auth = await requireSessionAuth(db, request);
-    await logout(
-      db,
-      auth.session,
-      clientIp(request),
+    await withIdentityAccess(
+      pool,
+      async (db) => {
+        const auth = await requireSessionAuth(db, request);
+        await logout(db, auth.session, clientIp(request));
+      },
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
     );
     return reply.send({ ok: true });
   });
 
   app.get("/v1/auth/me", async (request) => {
-    const auth = await requireSessionAuth(db, request);
-    const memberships = await listMembershipsForUser(db, auth.user.id);
+    const auth = await withIdentityAccess(
+      pool,
+      (db) => requireSessionAuth(db, request),
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+    );
+    const memberships = await withIdentityUserScope(
+      pool,
+      auth.user.id,
+      (db) => listMembershipsForUser(db, auth.user.id),
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+    );
     // Authorization context is best-effort here: if the session's school is no
     // longer usable (membership archived, school suspended) the caller still
     // learns who they are and what they can switch to (AUD-06).
     let authz: Awaited<ReturnType<typeof buildAuthzContext>> | null = null;
     try {
-      authz = await buildAuthzContext(db, {
-        userId: auth.user.id,
-        tenantId: auth.session.active_tenant_id,
-      });
+      authz = await withIdentityUserScope(
+        pool,
+        auth.user.id,
+        (db) =>
+          buildAuthzContext(db, {
+            userId: auth.user.id,
+            tenantId: auth.session.active_tenant_id,
+          }),
+        { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+      );
     } catch (err) {
       if (!(err instanceof AppError)) throw err;
     }
@@ -120,12 +138,16 @@ export async function registerAuthRoutes(
   });
 
   app.post("/v1/auth/select-tenant", async (request, reply) => {
-    const auth = await requireSessionAuth(db, request);
+    const auth = await withIdentityAccess(
+      pool,
+      (db) => requireSessionAuth(db, request),
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+    );
     assertPasswordChangeNotRequired(auth.user, request);
     const parsed = SelectTenantSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("tenantId is required");
     const session = await selectTenant(
-      db,
+      pool,
       auth.session,
       parsed.data.tenantId,
       clientIp(request),
@@ -137,15 +159,24 @@ export async function registerAuthRoutes(
   });
 
   app.post("/v1/auth/password/change", async (request, reply) => {
-    const auth = await requireSessionAuth(db, request);
+    const auth = await withIdentityAccess(
+      pool,
+      (db) => requireSessionAuth(db, request),
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+    );
     const parsed = ChangePasswordSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("currentPassword and newPassword are required");
-    const user = await changePassword(db, config, {
+    const user = await withIdentityAccess(
+      pool,
+      (db) =>
+        changePassword(db, config, {
       session: auth.session,
       currentPassword: parsed.data.currentPassword,
       newPassword: parsed.data.newPassword,
       ip: clientIp(request),
-    });
+        }),
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+    );
     return reply.send({
       ok: true,
       user: {
