@@ -48,6 +48,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ["apps/api/test/negative-controls/**/*.mjs"],
+    languageOptions: { sourceType: "module", globals: globals.node },
+  },
+  {
     // RN tooling loads these as plain CommonJS, not ESM — the rest of the repo is "type": "module".
     files: [
       "apps/mobile/babel.config.js", "apps/mobile/metro.config.js", "apps/mobile/jest.config.js", "apps/mobile/jest.setup.js",
