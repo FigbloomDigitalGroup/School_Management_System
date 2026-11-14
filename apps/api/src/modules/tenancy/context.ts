@@ -1,4 +1,4 @@
-import type { Db } from "../../db/pool.js";
+import type { TxOrIdentity } from "../../db/sql.js";
 import { forbidden, validationError } from "../../http/errors.js";
 import type { SchoolRole } from "../identity/roles.js";
 
@@ -26,7 +26,7 @@ export interface TenantRecord {
  * Never trusts a client-supplied tenant id without this check.
  */
 export async function resolveSchoolMembership(
-  db: Db,
+  db: TxOrIdentity,
   userId: string,
   tenantId: string | null | undefined,
 ): Promise<SchoolMembership> {
@@ -52,7 +52,7 @@ export async function resolveSchoolMembership(
 }
 
 export async function assertTenantAccess(
-  db: Db,
+  db: TxOrIdentity,
   userId: string,
   tenantId: string,
   opts?: { allowSuperAdmin?: boolean; allowOrgAdmin?: boolean },
@@ -91,7 +91,7 @@ export function assertSameTenant(contextTenantId: string | null | undefined, res
   if (contextTenantId !== resourceTenantId) throw forbidden("Cross-tenant access denied");
 }
 
-export async function getTenant(db: Db, tenantId: string): Promise<TenantRecord> {
+export async function getTenant(db: TxOrIdentity, tenantId: string): Promise<TenantRecord> {
   const result = await db.query<TenantRecord>(
     `SELECT id, name, slug, status, organization_id, timezone FROM tenants WHERE id = $1`,
     [tenantId],
@@ -101,7 +101,7 @@ export async function getTenant(db: Db, tenantId: string): Promise<TenantRecord>
   return tenant;
 }
 
-export async function listMembershipsForUser(db: Db, userId: string): Promise<SchoolMembership[]> {
+export async function listMembershipsForUser(db: TxOrIdentity, userId: string): Promise<SchoolMembership[]> {
   const result = await db.query<SchoolMembership>(
     `SELECT m.id, m.user_id, m.tenant_id, m.role, m.login_id,
             t.status AS tenant_status, t.organization_id

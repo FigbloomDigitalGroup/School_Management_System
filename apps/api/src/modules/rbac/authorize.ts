@@ -1,4 +1,4 @@
-import type { Db } from "../../db/pool.js";
+import type { TxOrIdentity } from "../../db/sql.js";
 import { attachDenialAudit } from "../../db/errors.js";
 import { forbidden } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
@@ -33,7 +33,7 @@ export function mayAdminister(ctx: AuthzContext): boolean {
 }
 
 export async function loadEffectiveAreas(
-  db: Db,
+  db: TxOrIdentity,
   ctx: AuthzContext,
 ): Promise<ReadonlySet<AdminArea> | "all"> {
   if (!ctx.tenantId) return new Set();
@@ -72,7 +72,7 @@ export async function loadEffectiveAreas(
   return areas;
 }
 
-export async function loadRolePermissions(db: Db, role: AppRole): Promise<Set<string>> {
+export async function loadRolePermissions(db: TxOrIdentity, role: AppRole): Promise<Set<string>> {
   const result = await db.query<{ permission_code: string }>(
     `SELECT permission_code FROM role_permissions WHERE role = $1`,
     [role],
@@ -86,7 +86,7 @@ export async function loadRolePermissions(db: Db, role: AppRole): Promise<Set<st
  * R2-05: org_admin school powers come only from active delegations.
  */
 export async function loadEffectivePermissions(
-  db: Db,
+  db: TxOrIdentity,
   ctx: AuthzContext,
 ): Promise<Set<string>> {
   const perms = await loadRolePermissions(db, ctx.role);
@@ -127,7 +127,7 @@ export async function loadEffectivePermissions(
 }
 
 export async function hasPermission(
-  db: Db,
+  db: TxOrIdentity,
   ctx: AuthzContext,
   permission: string,
 ): Promise<boolean> {
@@ -137,7 +137,7 @@ export async function hasPermission(
 }
 
 export async function requirePermission(
-  db: Db,
+  db: TxOrIdentity,
   ctx: AuthzContext,
   permission: string,
   opts?: { ip?: string | null; deferAudit?: boolean },
@@ -178,7 +178,7 @@ export async function requirePermission(
  * How the actor obtained school-level power for audit trails (R2-05).
  */
 export async function resolveActingVia(
-  db: Db,
+  db: TxOrIdentity,
   ctx: AuthzContext,
 ): Promise<"super_admin" | "school_admin" | "org_admin_delegation" | "membership" | AppRole> {
   if (ctx.isSuperAdmin) return "super_admin";
@@ -195,7 +195,7 @@ export async function resolveActingVia(
  * Client role/permission payloads are ignored — role comes from membership/platform tables.
  */
 export async function buildAuthzContext(
-  db: Db,
+  db: TxOrIdentity,
   input: {
     userId: string;
     tenantId?: string | null;

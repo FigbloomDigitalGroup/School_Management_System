@@ -1,4 +1,4 @@
-import type { Db } from "../../db/pool.js";
+import type { TxOrIdentity } from "../../db/sql.js";
 import { forbidden, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 import { ADMIN_AREAS, isAdminArea } from "../identity/roles.js";
@@ -39,7 +39,7 @@ export interface ActiveDelegation {
  * Requires live org membership, active org, non-suspended school.
  */
 export async function loadActiveDelegations(
-  db: Db,
+  db: TxOrIdentity,
   userId: string,
   tenantId: string,
 ): Promise<ActiveDelegation[]> {
@@ -64,7 +64,7 @@ export async function loadActiveDelegations(
 }
 
 export async function loadDelegatedPermissionCodes(
-  db: Db,
+  db: TxOrIdentity,
   userId: string,
   tenantId: string,
 ): Promise<Set<string>> {
@@ -73,7 +73,7 @@ export async function loadDelegatedPermissionCodes(
 }
 
 export async function assertOrgAdminOfTenantOrg(
-  db: Db,
+  db: TxOrIdentity,
   userId: string,
   tenantId: string,
 ): Promise<{ organizationId: string }> {
@@ -94,7 +94,7 @@ export async function assertOrgAdminOfTenantOrg(
 }
 
 export async function grantOrgAdminDelegations(
-  db: Db,
+  db: TxOrIdentity,
   input: {
     actor: AuthzContext;
     tenantId: string;
@@ -162,7 +162,7 @@ export async function grantOrgAdminDelegations(
 }
 
 export async function revokeOrgAdminDelegations(
-  db: Db,
+  db: TxOrIdentity,
   input: {
     actor: AuthzContext;
     tenantId: string;
@@ -210,7 +210,7 @@ export async function revokeOrgAdminDelegations(
 }
 
 export async function listOrgAdminDelegations(
-  db: Db,
+  db: TxOrIdentity,
   tenantId: string,
 ): Promise<
   Array<{

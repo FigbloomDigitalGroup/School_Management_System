@@ -1,4 +1,4 @@
-import type { Db } from "../../db/pool.js";
+import type { Tx } from "../../db/sql.js";
 import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 
@@ -116,7 +116,7 @@ const SELECT_COLS = `
  * Learner writes run on the caller's tenant transaction (FIG-1605).
  * The route sets app.tenant_id / app.user_id. This module does not open a second transaction.
  */
-export async function createLearner(db: Db, input: CreateLearnerInput): Promise<PublicLearner> {
+export async function createLearner(db: Tx, input: CreateLearnerInput): Promise<PublicLearner> {
   const admission_no = input.admission_no.trim();
   const full_name = input.full_name.trim();
   if (!admission_no) throw validationError("Admission number is required");
@@ -202,7 +202,7 @@ export async function createLearner(db: Db, input: CreateLearnerInput): Promise<
 }
 
 export async function getLearnerById(
-  db: Db,
+  db: Tx,
   input: { tenantId: string; learnerId: string; actorUserId: string },
 ): Promise<PublicLearner> {
   const row = await (async () => {
@@ -233,7 +233,7 @@ export async function getLearnerById(
 }
 
 /** Direct pool queries for least-privilege / RLS tests (SET ROLE figbloom_app). */
-export async function countLearnersVisibleAsAppRole(db: Db, tenantId: string): Promise<number> {
+export async function countLearnersVisibleAsAppRole(db: Tx, tenantId: string): Promise<number> {
   const result = await db.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM learners WHERE tenant_id = $1`,
     [tenantId],

@@ -1,4 +1,4 @@
-import type { Db } from "../../db/pool.js";
+import type { Tx } from "../../db/sql.js";
 import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 
@@ -170,7 +170,7 @@ function validateLink(link: GuardianLinkInput): { learner_id: string; relationsh
  * insert with SQLSTATE P0002, which mapLinkWriteError() turns into the same 404.
  */
 async function assertActiveLearnersInTenant(
-  db: Db,
+  db: Tx,
   tenantId: string,
   learnerIds: string[],
 ): Promise<void> {
@@ -210,7 +210,7 @@ export interface CreateGuardianInput {
 }
 
 /** Guardian + its initial learner links in one transaction. */
-export async function createGuardian(db: Db, input: CreateGuardianInput): Promise<PublicCreatedGuardian> {
+export async function createGuardian(db: Tx, input: CreateGuardianInput): Promise<PublicCreatedGuardian> {
   const full_name = input.full_name.trim();
   if (!full_name) throw validationError("Full name is required");
   if (codePointLength(full_name) > GUARDIAN_NAME_MAX_LENGTH) throw validationError("Full name is too long");
@@ -273,7 +273,7 @@ export async function createGuardian(db: Db, input: CreateGuardianInput): Promis
 }
 
 export async function getGuardianById(
-  db: Db,
+  db: Tx,
   input: { tenantId: string; guardianId: string; actorUserId: string },
 ): Promise<PublicGuardianContact> {
   const result = await (async () => {
@@ -291,7 +291,7 @@ export async function getGuardianById(
 }
 
 export async function addGuardianLink(
-  db: Db,
+  db: Tx,
   input: {
     tenantId: string;
     guardianId: string;
@@ -336,7 +336,7 @@ export async function addGuardianLink(
 }
 
 export async function listGuardiansForLearner(
-  db: Db,
+  db: Tx,
   input: { tenantId: string; learnerId: string; actorUserId: string },
 ): Promise<LearnerGuardian[]> {
   const rows = await (async () => {

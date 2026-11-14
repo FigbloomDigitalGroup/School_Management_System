@@ -23,6 +23,14 @@ export type IdentityDb = SqlClient & {
   readonly __tx: "identity";
 };
 
+/**
+ * Polymorphic helper handle. Used only where a function legitimately runs on
+ * either path (authorisation helpers and school_memberships reads, AD-4).
+ * Tenant-table access through the identity member returns zero rows (RLS, no
+ * tenant context); the architecture test lists each such exception explicitly.
+ */
+export type TxOrIdentity = Tx | IdentityDb;
+
 export function createTxHandle(
   client: pg.PoolClient,
   meta: { tenantId: string; userId: string },
