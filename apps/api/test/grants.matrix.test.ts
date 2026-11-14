@@ -81,6 +81,15 @@ describe("migration 009 grants and policies", () => {
     expect(owner.rows[0]?.n).toBeGreaterThanOrEqual(8);
   });
 
+  it("asserts TEMPORARY is revoked from figbloom_app (effective privilege)", async () => {
+    const temp = await ctx.pool.query<{ app_temp: boolean; public_temp: boolean }>(
+      `SELECT has_database_privilege('figbloom_app', current_database(), 'TEMPORARY') AS app_temp,
+              has_database_privilege('public', current_database(), 'TEMPORARY') AS public_temp`,
+    );
+    expect(temp.rows[0]?.app_temp).toBe(false);
+    expect(temp.rows[0]?.public_temp).toBe(false);
+  });
+
   it("a probe role with SELECT is not the owner and sees zero learner rows", async () => {
     await ctx.pool.query(`
       DO $$ BEGIN

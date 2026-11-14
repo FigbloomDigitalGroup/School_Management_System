@@ -74,7 +74,7 @@ Archived memberships are hidden from `figbloom_app`. The owner can still archive
 
 Login-by-login-id residual: during that short scoped transaction the tenant policy can see every non-archived membership in the request tenant. The statement filters `login_id`.
 
-`users.password_hash` remains readable by `figbloom_app` because login verifies the password in the application. There is no definer wrapper for that in this stage.
+`users.password_hash` remains readable by `figbloom_app` because login (email and login-id) and password-change verify the hash in the application on the identity path (`modules/auth/service.ts` only). `PublicUser` / `/auth/me` / login responses omit the column. Failed-login audit detail must not include the hash. There is no `INSERT` grant on `users`. `UPDATE` is required for password change. A `SECURITY DEFINER` hash-lookup wrapper is deferred to Stage D.
 
 `SELECT … FOR UPDATE` on `school_memberships` needs `UPDATE`, which is not granted. Staff-area edits take `pg_advisory_xact_lock(hashtextextended('staff-areas:' || tenant || ':' || user, 0))` instead.
 
@@ -86,7 +86,7 @@ Login-by-login-id residual: during that short scoped transaction the tenant poli
 
 `EXECUTE` is granted on `consume_rate_token(text, numeric, numeric, numeric, integer)`, `app_current_tenant_id()`, and `app_current_user_id()`. `prune_rate_buckets` is revoked; the API does not call it.
 
-`REVOKE TEMPORARY ON DATABASE` is attempted and ignored when the migrator lacks the privilege. Tests do not depend on it. `CREATE` on the database is not granted to `figbloom_app`.
+`REVOKE TEMPORARY ON DATABASE` is attempted for `PUBLIC` and `figbloom_app`. When the migrator lacks the privilege, migration 009 raises a notice and continues. The grants-matrix and Stage C ownership suites **assert** the effective privilege with `has_database_privilege(..., 'TEMPORARY')` and a failed `CREATE TEMP TABLE` as `figbloom_app`. If those assertions fail on a managed host, the residual risk is temporary-table creation by the runtime role inside its own session (not an RLS bypass of permanent tenant tables); record the host limitation rather than deleting the assertion. `CREATE` on the database is not granted to `figbloom_app`.
 
 Foreign keys are checked by PostgreSQL as the table owner and are not an RLS bypass the application can choose. `guardian_links_active_learner_guard` stays `SECURITY DEFINER` (migration 008). Stage D is the definer inventory; it is not part of this change.
 
