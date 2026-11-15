@@ -1,5 +1,5 @@
 import type { AppPool, Db } from "../../db/pool.js";
-import { withIdentityAccess, withIdentityUserScope, withLoginIdTenantScope } from "../../db/identityAccess.js";
+import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
 import type { AppConfig } from "../../config.js";
 import { unauthorized, validationError, forbidden, notFound } from "../../http/errors.js";
 import { hashPassword, verifyPassword } from "../identity/password.js";
@@ -83,8 +83,9 @@ export async function loginWithEmail(
     await consumeAuthToken(db, config, rateLimitBucketForIp("login:ip", input.ip));
     await consumeAuthToken(db, config, `login:email:${email}`);
 
+    // Credentials are read only through the exact-key definer function (migration 011).
     const result = await db.query<{ id: string; password_hash: string; status: string }>(
-      `SELECT id, password_hash, status FROM users WHERE email = $1`,
+      `SELECT user_id AS id, password_hash, status FROM public.auth_credential_by_email($1)`,
       [email],
     );
     const row = result.rows[0];
@@ -159,20 +160,14 @@ export async function loginWithLoginId(
     }
   });
 
-  // Scoping key only: the request tenant UUID is not an authorisation claim.
-  const membership = await withLoginIdTenantScope(pool, { tenantId: input.tenantId }, (db) =>
-    db.query<{ user_id: string; password_hash: string; status: string }>(
-      `SELECT m.user_id, u.password_hash, u.status
-       FROM school_memberships m
-       JOIN users u ON u.id = m.user_id
-       WHERE m.tenant_id = $1
-         AND lower(m.login_id) = lower($2)
-         AND m.archived_at IS NULL`,
-      [input.tenantId, loginId],
-    ),
-  );
-
   return withIdentityAccess(pool, async (db) => {
+    // No tenant context is set for this lookup (F-C1). The exact-key definer function
+    // joins memberships as the table owner and returns at most the one account for
+    // (tenant, login id); the tenant is an argument, not an authorisation claim.
+    const membership = await db.query<{ user_id: string; password_hash: string; status: string }>(
+      `SELECT user_id, password_hash, status FROM public.auth_credential_by_login_id($1, $2)`,
+      [input.tenantId, loginId],
+    );
     const row = membership.rows[0];
     if (!row || row.status !== "active") {
       await burnVerify(input.password);
@@ -249,7 +244,7 @@ export async function changePassword(
   await consumeAuthToken(db, config, `password_change:user:${input.session.user_id}`);
 
   const row = await db.query<{ password_hash: string; status: string }>(
-    `SELECT password_hash, status FROM users WHERE id = $1`,
+    `SELECT password_hash, status FROM public.auth_password_credential($1)`,
     [input.session.user_id],
   );
   const userRow = row.rows[0];

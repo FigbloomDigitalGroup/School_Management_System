@@ -27,6 +27,7 @@ Dedicated non-owner role used only by the API; **no `SUPERUSER`, no `BYPASSRLS`,
 Exact matrix: migration 009, asserted by `test/grants.matrix.test.ts`. Summary:
 
 - Per-table minimum DML derived from the code audit (e.g. `school_memberships`, `school_roles`, `school_role_assignments`: `SELECT` only; `learners`, `guardians`, `guardian_links`: `SELECT, INSERT`). No `TRUNCATE`, `REFERENCES` or `TRIGGER` anywhere.
+- `users`: **no table-level privilege**; column-level `SELECT` on the eight non-secret columns and column-level `UPDATE` on `password_hash`, `must_change_password`, `updated_at`. `password_hash` cannot be read by any statement; it is reachable only through three exact-key `SECURITY DEFINER` functions (migration 011, see `RUNTIME-DATABASE-SECURITY.md`).
 - `security_audit_events`: `INSERT` only (no `SELECT`; the API has no read path).
 - `schema_migrations` and `schema_migration_checksum_audit`: no grant (the earlier `SELECT` on `schema_migrations` is revoked).
 - `EXECUTE` on `consume_rate_token`, `app_current_tenant_id`, `app_current_user_id`; `prune_rate_buckets` is revoked.

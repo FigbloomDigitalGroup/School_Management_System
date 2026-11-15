@@ -79,15 +79,39 @@ describe("password_hash access justification", () => {
     expect(JSON.stringify(learner.json())).not.toMatch(/password_hash|scrypt\$/);
   });
 
-  it("cannot be read through the identity path as a business-data substitute and cannot be written without UPDATE grant intent", async () => {
-    // Identity path can SELECT the column for verifyPassword — that is intentional.
-    const hash = await withIdentityAccess(ctx.runtimePool, (db) =>
-      db.query<{ password_hash: string }>(
-        `SELECT password_hash FROM users WHERE id = $1`,
-        [ids.adminA],
-      ),
+  it("cannot be read by any statement; reachable only through exact-key functions; cannot be bulk-read; no INSERT", async () => {
+    // F-C2 (migration 011): the runtime role has no SELECT on the column, however it is phrased.
+    for (const sql of [
+      `SELECT password_hash FROM users WHERE id = $1`,
+      `SELECT * FROM users WHERE id = $1`,
+      `SELECT u.* FROM users u WHERE u.id = $1`,
+      `SELECT count(*) FROM users WHERE password_hash LIKE 'scrypt$%' AND id = $1`,
+      `UPDATE users SET full_name = 'x' WHERE id = $1`,
+    ]) {
+      await expect(
+        withIdentityAccess(ctx.runtimePool, (db) => db.query(sql, [ids.adminA])),
+        sql,
+      ).rejects.toThrow(/permission denied/i);
+    }
+    // Non-secret columns remain readable.
+    const ok = await withIdentityAccess(ctx.runtimePool, (db) =>
+      db.query<{ id: string; email: string }>(`SELECT id, email FROM users WHERE id = $1`, [ids.adminA]),
     );
-    expect(hash.rows[0]?.password_hash.startsWith("scrypt$")).toBe(true);
+    expect(ok.rows[0]?.id).toBe(ids.adminA);
+
+    // The exact-key functions are the only path, and they return one account per key.
+    const byEmail = await withIdentityAccess(ctx.runtimePool, (db) =>
+      db.query<{ password_hash: string }>(`SELECT password_hash FROM public.auth_credential_by_email($1)`, [
+        "admin-a@example.com",
+      ]),
+    );
+    expect(byEmail.rows).toHaveLength(1);
+    expect(byEmail.rows[0]!.password_hash.startsWith("scrypt$")).toBe(true);
+    // Nothing enumerates: no key means no rows.
+    const none = await withIdentityAccess(ctx.runtimePool, (db) =>
+      db.query(`SELECT * FROM public.auth_credential_by_email($1)`, ["nobody@example.com"]),
+    );
+    expect(none.rows).toEqual([]);
 
     // Runtime cannot INSERT a new user (no INSERT grant on users).
     await expect(

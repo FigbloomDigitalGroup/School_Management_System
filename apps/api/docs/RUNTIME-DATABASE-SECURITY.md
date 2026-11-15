@@ -51,7 +51,7 @@ The HTTP reply is sent only after that commit. Sending inside the callback races
 
 Denial audits (`rbac.permission.denied`) are written after the client is released, on the identity autocommit path, so they survive the rollback and do not deadlock a pool of one. A failed audit write is logged and still returns 403. It does not turn a denial into a success. Business audit rows (`directory.learner.created`, `rbac.staff_areas.changed`, and the other directory and delegation events) stay inside the tenant transaction and roll back with the effect.
 
-Identity access (`withIdentityAccess`) never sets a general tenant. It sets `app.user_id` alone for membership self-read, or, for login-by-login-id only, sets the request tenant UUID as a scoping key. That key is not an authorisation claim. The password still decides. Rate-limit updates and failed-login rows are autocommit, so they survive a later rollback.
+Identity access (`withIdentityAccess`, `withIdentityUserScope`) never sets a tenant. `withIdentityUserScope` sets `app.user_id` alone for membership self-read. Login by login id sets **no** context at all (migration 011, below). Rate-limit updates and failed-login rows are autocommit, so they survive a later rollback.
 
 ## Row level security
 
@@ -72,9 +72,21 @@ For each tenant table the policies are:
 
 Archived memberships are hidden from `figbloom_app`. The owner can still archive and restore them.
 
-Login-by-login-id residual: during that short scoped transaction the tenant policy can see every non-archived membership in the request tenant. The statement filters `login_id`.
+### Credential access (migration 011, Stage D; closes F-C1 and F-C2)
 
-`users.password_hash` remains readable by `figbloom_app` because login (email and login-id) and password-change verify the hash in the application on the identity path (`modules/auth/service.ts` only). `PublicUser` / `/auth/me` / login responses omit the column. Failed-login audit detail must not include the hash. There is no `INSERT` grant on `users`. `UPDATE` is required for password change. A `SECURITY DEFINER` hash-lookup wrapper is deferred to Stage D.
+`figbloom_app` has **no** table-level privilege on `users` and **no** `SELECT` on `users.password_hash`: it holds column-level `SELECT` on the eight non-secret columns and column-level `UPDATE` on `password_hash`, `must_change_password` and `updated_at` (password change). No statement can read the hash. A column added to `users` later is not readable by the runtime role until a migration grants it.
+
+The hash is reachable only through three `SECURITY DEFINER` functions (owner: the migrator; `search_path = pg_catalog, pg_temp`; schema-qualified; `EXECUTE` for `figbloom_app` only), each taking an exact key and returning `(user id, hash, status)` for at most that key:
+
+| Function | Used by |
+|---|---|
+| `auth_credential_by_email(email)` | login by e-mail |
+| `auth_credential_by_login_id(tenant, login_id)` | login by login id |
+| `auth_password_credential(user_id)` | password change (the caller's own id from the session) |
+
+**Login by login id no longer sets any tenant context.** The Stage C window (the request tenant UUID as `app.tenant_id` while one statement filtered `school_memberships` by login id) is gone: the function joins memberships as the table owner (the positive owner policy), and the tenant is only an argument, not an authorisation claim. Authentication semantics are unchanged: uniform invalid-credentials responses, decoy scrypt on unknown paths, rate limits, status check, archived memberships excluded.
+
+**Accepted residual.** Arbitrary SQL executing as `figbloom_app` can still call these functions with a *known* e-mail, a known (school, login id) or a known user id and obtain that one account's scrypt hash. That equals what the login endpoint already gives an attacker for a guess; there is no argument that matches many accounts, so bulk exfiltration is no longer possible. Failed-login audit detail never contains the hash, and no API response returns it. There is still no `INSERT` grant on `users`.
 
 `SELECT … FOR UPDATE` on `school_memberships` needs `UPDATE`, which is not granted. Staff-area edits take `pg_advisory_xact_lock(hashtextextended('staff-areas:' || tenant || ':' || user, 0))` instead.
 
@@ -84,11 +96,11 @@ Login-by-login-id residual: during that short scoped transaction the tenant poli
 
 `REVOKE ALL` on tables and sequences from `PUBLIC` and from `figbloom_app`, then the minimum grants the code uses. No `TRUNCATE`, `REFERENCES`, or `TRIGGER`. `CREATE` on schema `public` is revoked from `PUBLIC` and from `figbloom_app`. `USAGE` on the schema is granted to `figbloom_app`.
 
-`EXECUTE` is granted on `consume_rate_token(text, numeric, numeric, numeric, integer)`, `app_current_tenant_id()`, and `app_current_user_id()`. `prune_rate_buckets` is revoked; the API does not call it.
+`EXECUTE` is granted to `figbloom_app` only on `consume_rate_token(text, numeric, numeric, numeric, integer)`, `app_current_tenant_id()`, `app_current_user_id()` and the three credential functions above; `PUBLIC` has `EXECUTE` on none of them (migrations 010 and 011). `prune_rate_buckets` and every trigger function are not executable by the runtime role. Functions the migrator creates later are not `PUBLIC`-executable by default (`ALTER DEFAULT PRIVILEGES`, migration 010).
 
 `REVOKE TEMPORARY ON DATABASE` is attempted for `PUBLIC` and `figbloom_app`. When the migrator lacks the privilege, migration 009 raises a notice and continues. The grants-matrix and Stage C ownership suites **assert** the effective privilege with `has_database_privilege(..., 'TEMPORARY')` and a failed `CREATE TEMP TABLE` as `figbloom_app`. If those assertions fail on a managed host, the residual risk is temporary-table creation by the runtime role inside its own session (not an RLS bypass of permanent tenant tables); record the host limitation rather than deleting the assertion. `CREATE` on the database is not granted to `figbloom_app`.
 
-Foreign keys are checked by PostgreSQL as the table owner and are not an RLS bypass the application can choose. `guardian_links_active_learner_guard` stays `SECURITY DEFINER` (migration 008). Stage D is the definer inventory; it is not part of this change.
+Foreign keys are checked by PostgreSQL as the table owner and are not an RLS bypass the application can choose. `guardian_links_active_learner_guard` stays `SECURITY DEFINER` (migration 008), hardened by migration 010 together with the other definers: `search_path = pg_catalog, pg_temp` (pg_temp explicitly last, `public` deliberately absent), schema-qualified references, migrator ownership, no `PUBLIC` `EXECUTE`. The complete function inventory and the temp-table shadowing evidence are in `SECURITY-DEFINER-INVENTORY.md`.
 
 ## Migrations
 

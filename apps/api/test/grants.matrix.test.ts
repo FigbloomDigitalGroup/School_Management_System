@@ -7,7 +7,6 @@ import { createTestApp } from "./support.js";
 const EXPECTED: Record<string, string[]> = {
   organizations: ["SELECT"],
   tenants: ["SELECT"],
-  users: ["SELECT", "UPDATE"],
   sessions: ["INSERT", "SELECT", "UPDATE"],
   platform_roles: ["SELECT"],
   organization_memberships: ["SELECT"],
@@ -55,6 +54,29 @@ describe("migration 009 grants and policies", () => {
       ["TRUNCATE", "REFERENCES", "TRIGGER"].includes(r.privilege_type),
     );
     expect(excess).toEqual([]);
+  });
+
+  it("users: no table-level privilege; password_hash is write-only (UPDATE) and never selectable (migration 011)", async () => {
+    const cols = await ctx.pool.query<{ column_name: string; privilege_type: string }>(
+      `SELECT column_name, privilege_type
+         FROM information_schema.role_column_grants
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND table_name = 'users'
+        ORDER BY privilege_type, column_name`,
+    );
+    const sel = cols.rows.filter((r) => r.privilege_type === "SELECT").map((r) => r.column_name).sort();
+    const upd = cols.rows.filter((r) => r.privilege_type === "UPDATE").map((r) => r.column_name).sort();
+    expect(sel).toEqual(["created_at", "email", "full_name", "id", "must_change_password", "phone", "status", "updated_at"]);
+    expect(sel).not.toContain("password_hash");
+    expect(upd).toEqual(["must_change_password", "password_hash", "updated_at"]);
+    expect(cols.rows.filter((r) => !["SELECT", "UPDATE"].includes(r.privilege_type))).toEqual([]);
+    // Effective privilege on the hash column, as PostgreSQL computes it.
+    const eff = await ctx.pool.query<{ sel: boolean; upd: boolean; ins: boolean; tbl_sel: boolean }>(
+      `SELECT has_column_privilege('figbloom_app', 'public.users', 'password_hash', 'SELECT') AS sel,
+              has_column_privilege('figbloom_app', 'public.users', 'password_hash', 'UPDATE') AS upd,
+              has_column_privilege('figbloom_app', 'public.users', 'password_hash', 'INSERT') AS ins,
+              has_table_privilege('figbloom_app', 'public.users', 'SELECT') AS tbl_sel`,
+    );
+    expect(eff.rows[0]).toEqual({ sel: false, upd: true, ins: false, tbl_sel: false });
   });
 
   it("revokes CREATE on schema public and does not reference a mode GUC", async () => {

@@ -42,7 +42,18 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "school_memberships_on_archive()": { secdef: true, grantees: [], why: "trigger; clears grants and writes the audit row when a membership is archived" },
   "security_audit_events_guard()": { secdef: true, grantees: [], why: "trigger; append-only guard for the audit table" },
   "schema_migration_checksum_audit_append_only()": { secdef: false, grantees: [], why: "runner-created trigger (ensureBootstrap), not a migration object" },
+  // Migration 011: the only way the runtime role can reach users.password_hash (exact key, one account).
+  "auth_credential_by_email(text)": { secdef: true, grantees: ["figbloom_app"], why: "login by e-mail; returns (user id, hash, status) for one e-mail" },
+  "auth_credential_by_login_id(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "login by login id; one account per (school, login id)" },
+  "auth_password_credential(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "password change; the caller's own user id" },
 };
+
+/** The only SECURITY DEFINER functions the runtime role may execute. */
+const RUNTIME_EXECUTABLE_DEFINERS = [
+  "auth_credential_by_email(text)",
+  "auth_credential_by_login_id(uuid,text)",
+  "auth_password_credential(uuid)",
+];
 
 async function inventory(pool: pg.Pool): Promise<FnRow[]> {
   const r = await pool.query<FnRow>(
@@ -110,7 +121,7 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 
-  it("the runtime role owns no function and has no EXECUTE on any trigger or definer function", async () => {
+  it("the runtime role owns no function and can execute only the three credential definers (no trigger function)", async () => {
     const owned = await ctx.pool.query(
       `SELECT 1 FROM pg_proc p WHERE pg_get_userbyid(p.proowner) = 'figbloom_app'`,
     );
@@ -121,7 +132,7 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
         WHERE n.nspname = 'public' AND p.prosecdef
           AND has_function_privilege('figbloom_app', p.oid, 'EXECUTE')`,
     );
-    expect(exec.rows).toEqual([]);
+    expect(exec.rows.map((r) => r.sig).sort()).toEqual([...RUNTIME_EXECUTABLE_DEFINERS].sort());
   });
 
   it("a function created later by the migrator is not executable by PUBLIC by default", async () => {

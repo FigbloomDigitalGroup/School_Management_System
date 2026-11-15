@@ -7,15 +7,15 @@ import {
   guardedRollback,
   type TransactionLimits,
 } from "./tenantTransaction.js";
-import { applyTransactionLimits, setTenantContext, setUserContextOnly } from "./tenantContext.js";
+import { applyTransactionLimits, setUserContextOnly } from "./tenantContext.js";
 
 /**
  * Identity / pre-tenant database access (AD-3).
  *
- * Never sets a general tenant context for business data. It may set:
- * - app.user_id alone (self-read of school_memberships), or
- * - a one-shot scoping key for login-by-login-id (the request tenant UUID as
- *   app.tenant_id for that lookup only — a scoping key, not an authorisation claim).
+ * Never sets a tenant context. The only context it may set is app.user_id alone
+ * (self-read of school_memberships). Login by login id needs no context at all:
+ * it reads credentials through an exact-key definer function (migration 011),
+ * so the Stage C "request tenant as scoping key" window no longer exists.
  *
  * Without a matching context, tenant RLS returns zero rows.
  * Statements here are autocommit unless a scoped helper starts a transaction,
@@ -50,33 +50,6 @@ export async function withIdentityUserScope<T>(
     await client.query("BEGIN");
     await applyTransactionLimits(client, limits);
     await setUserContextOnly(client, userId);
-    try {
-      const result = await fn(createIdentityHandle(client));
-      await client.query("COMMIT");
-      return result;
-    } catch (err) {
-      return await guardedRollback(client, err);
-    }
-  } finally {
-    client.release();
-  }
-}
-
-/**
- * Login-by-login-id scoping. Sets the request tenant UUID as app.tenant_id
- * for the membership lookup only. Password verification remains the decision.
- */
-export async function withLoginIdTenantScope<T>(
-  pool: pg.Pool,
-  input: { tenantId: string; limits?: TransactionLimits; acquireTimeoutMs?: number },
-  fn: (db: IdentityDb) => Promise<T>,
-): Promise<T> {
-  const client = await acquireClient(pool, input.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS);
-  const limits = input.limits ?? DEFAULT_TRANSACTION_LIMITS;
-  try {
-    await client.query("BEGIN");
-    await applyTransactionLimits(client, limits);
-    await setTenantContext(client, { tenantId: input.tenantId, userId: null });
     try {
       const result = await fn(createIdentityHandle(client));
       await client.query("COMMIT");
