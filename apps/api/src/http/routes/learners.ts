@@ -6,7 +6,8 @@ import { requirePermission } from "../../modules/rbac/authorize.js";
 import { createLearner, getLearnerById } from "../../modules/directory/learners.js";
 import { assertSameTenant } from "../../modules/tenancy/context.js";
 import { clientIp } from "../clientIp.js";
-import { validationError } from "../errors.js";
+import { AppError, validationError } from "../errors.js";
+import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { withTenantRequest } from "../tenantRequest.js";
 
 const CreateLearnerSchema = z.object({
@@ -36,24 +37,44 @@ export async function registerLearnerRoutes(app: FastifyInstance, pool: AppPool)
         "admission_no, full_name and gender (male|female) are required; optional boarding and date_of_birth (YYYY-MM-DD)",
       );
     }
-    const learner = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+    const key = parseIdempotencyKey(request.headers["idempotency-key"]);
+    const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       assertSameTenant(auth.authz.tenantId, params.tenantId);
       await requirePermission(tx, auth.authz, "resource.learner.write", {
         ip: clientIp(request),
         deferAudit: true,
       });
-      return createLearner(tx, {
-        tenantId: params.tenantId,
-        actorUserId: auth.user.id,
-        admission_no: parsed.data.admission_no,
-        full_name: parsed.data.full_name,
-        gender: parsed.data.gender,
-        boarding: parsed.data.boarding,
-        date_of_birth: parsed.data.date_of_birth ?? null,
-        ip: clientIp(request),
+      return runIdempotent(tx, {
+        key,
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/learners",
+        fingerprintInput: { params, body: parsed.data },
+        status: 201,
+        execute: async () => {
+          const learner = await createLearner(tx, {
+            tenantId: params.tenantId,
+            actorUserId: auth.user.id,
+            admission_no: parsed.data.admission_no,
+            full_name: parsed.data.full_name,
+            gender: parsed.data.gender,
+            boarding: parsed.data.boarding,
+            date_of_birth: parsed.data.date_of_birth ?? null,
+            ip: clientIp(request),
+          });
+          return { value: { learner }, resourceType: "learner", resourceId: learner.id };
+        },
+        replay: async (_type, id) => {
+          try {
+            return { learner: await getLearnerById(tx, { tenantId: params.tenantId, learnerId: id, actorUserId: auth.user.id }) };
+          } catch (err) {
+            if (err instanceof AppError && err.statusCode === 404) return null;
+            throw err;
+          }
+        },
       });
     });
-    return reply.status(201).send({ learner });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   app.get("/v1/tenants/:tenantId/learners/:learnerId", async (request) => {

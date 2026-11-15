@@ -7,6 +7,7 @@ import { forbidden, validationError } from "../errors.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import { assertSameTenant } from "../../modules/tenancy/context.js";
 import { withTenantRequest } from "../tenantRequest.js";
+import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import {
   addGuardianLink,
   createGuardian,
@@ -18,6 +19,8 @@ import {
   GUARDIAN_NAME_PATTERN,
   GUARDIAN_PHONE_PATTERN,
   listGuardiansForLearner,
+  getCreatedGuardianView,
+  getGuardianLinkById,
 } from "../../modules/directory/guardians.js";
 
 const Relationship = z.enum(["mother", "father", "guardian"]);
@@ -79,7 +82,8 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         "full_name and at least one learner (learner_id, relationship mother|father|guardian) are required; optional phone, alt_phone and email",
       );
     }
-    const guardian = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+    const key = parseIdempotencyKey(request.headers["idempotency-key"]);
+    const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       assertSameTenant(auth.authz.tenantId, params.tenantId);
       await requirePermission(tx, auth.authz, "resource.guardian.write", {
         ip: clientIp(request),
@@ -90,19 +94,33 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         ip: clientIp(request),
         deferAudit: true,
       });
-
-      return createGuardian(tx, {
-        tenantId: params.tenantId,
-        actorUserId: auth.user.id,
-        full_name: parsed.data.full_name,
-        phone: parsed.data.phone ?? null,
-        alt_phone: parsed.data.alt_phone ?? null,
-        email: parsed.data.email ?? null,
-        learners: parsed.data.learners,
-        ip: clientIp(request),
+      return runIdempotent(tx, {
+        key,
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/guardians",
+        fingerprintInput: { params, body: parsed.data },
+        status: 201,
+        execute: async () => {
+          const guardian = await createGuardian(tx, {
+            tenantId: params.tenantId,
+            actorUserId: auth.user.id,
+            full_name: parsed.data.full_name,
+            phone: parsed.data.phone ?? null,
+            alt_phone: parsed.data.alt_phone ?? null,
+            email: parsed.data.email ?? null,
+            learners: parsed.data.learners,
+            ip: clientIp(request),
+          });
+          return { value: { guardian }, resourceType: "guardian", resourceId: guardian.id };
+        },
+        replay: async (_type, id) => {
+          const guardian = await getCreatedGuardianView(tx, { tenantId: params.tenantId, guardianId: id });
+          return guardian ? { guardian } : null;
+        },
       });
     });
-    return reply.status(201).send({ guardian });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   app.get("/v1/tenants/:tenantId/guardians/:guardianId", async (request) => {
@@ -136,7 +154,8 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         "learner_id and relationship (mother|father|guardian) are required; optional is_primary_payer",
       );
     }
-    const link = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+    const key = parseIdempotencyKey(request.headers["idempotency-key"]);
+    const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       assertSameTenant(auth.authz.tenantId, params.tenantId);
       await requirePermission(tx, auth.authz, "resource.guardian.write", {
         ip: clientIp(request),
@@ -146,15 +165,30 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         ip: clientIp(request),
         deferAudit: true,
       });
-      return addGuardianLink(tx, {
-        tenantId: params.tenantId,
-        guardianId: params.guardianId,
-        actorUserId: auth.user.id,
-        link: parsed.data,
-        ip: clientIp(request),
+      return runIdempotent(tx, {
+        key,
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/guardians/:guardianId/links",
+        fingerprintInput: { params, body: parsed.data },
+        status: 201,
+        execute: async () => {
+          const link = await addGuardianLink(tx, {
+            tenantId: params.tenantId,
+            guardianId: params.guardianId,
+            actorUserId: auth.user.id,
+            link: parsed.data,
+            ip: clientIp(request),
+          });
+          return { value: { link }, resourceType: "guardian_link", resourceId: link.id };
+        },
+        replay: async (_type, id) => {
+          const link = await getGuardianLinkById(tx, { tenantId: params.tenantId, linkId: id });
+          return link ? { link } : null;
+        },
       });
     });
-    return reply.status(201).send({ link });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   app.get("/v1/tenants/:tenantId/learners/:learnerId/guardians", async (request) => {

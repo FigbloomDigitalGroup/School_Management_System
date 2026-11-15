@@ -272,6 +272,34 @@ export async function createGuardian(db: Tx, input: CreateGuardianInput): Promis
   }
 }
 
+/** The create-response view of a guardian (id, tenant, current links). No contact fields (F-2, F-6). */
+export async function getCreatedGuardianView(
+  db: Tx,
+  input: { tenantId: string; guardianId: string },
+): Promise<PublicCreatedGuardian | null> {
+  const g = await db.query<{ id: string; tenant_id: string }>(
+    `SELECT id, tenant_id FROM guardians WHERE id = $1 AND tenant_id = $2`,
+    [input.guardianId, input.tenantId],
+  );
+  if (g.rowCount !== 1) return null;
+  const links = await db.query<LinkRow>(
+    `SELECT ${LINK_COLS} FROM guardian_links WHERE guardian_id = $1 AND tenant_id = $2 ORDER BY created_at, id`,
+    [input.guardianId, input.tenantId],
+  );
+  return { id: g.rows[0]!.id, tenantId: g.rows[0]!.tenant_id, links: links.rows.map(mapLink) };
+}
+
+export async function getGuardianLinkById(
+  db: Tx,
+  input: { tenantId: string; linkId: string },
+): Promise<PublicGuardianLink | null> {
+  const r = await db.query<LinkRow>(
+    `SELECT ${LINK_COLS} FROM guardian_links WHERE id = $1 AND tenant_id = $2`,
+    [input.linkId, input.tenantId],
+  );
+  return r.rows[0] ? mapLink(r.rows[0]) : null;
+}
+
 export async function getGuardianById(
   db: Tx,
   input: { tenantId: string; guardianId: string; actorUserId: string },

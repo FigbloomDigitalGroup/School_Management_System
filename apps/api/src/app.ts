@@ -82,7 +82,7 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
     },
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id", "X-Tenant-Id"],
-    exposedHeaders: ["X-Request-Id", "Retry-After"],
+    exposedHeaders: ["X-Request-Id", "Retry-After", "Idempotent-Replayed"],
     credentials: false,
     maxAge: config.corsMaxAgeSeconds,
   });

@@ -323,6 +323,7 @@ paths:
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
         - name: tenantId
           in: path
           required: true
@@ -344,6 +345,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
         "409":
           $ref: "#/components/responses/Conflict"
   /v1/tenants/{tenantId}/learners/{learnerId}:
@@ -402,6 +405,7 @@ paths:
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
         - name: tenantId
           in: path
           required: true
@@ -423,6 +427,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -481,6 +487,7 @@ paths:
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
         - name: tenantId
           in: path
           required: true
@@ -506,6 +513,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -599,6 +608,7 @@ paths:
       x-figbloom-tenantScope: session
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -623,6 +633,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
     delete:
       tags: [rbac]
       summary: Revoke school-scoped org_admin delegations (R2-05)
@@ -703,6 +715,20 @@ components:
       scheme: bearer
       bearerFormat: opaque
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours,
+        for the same school, caller and key: the same request again returns the ORIGINAL status
+        with the resource re-read by reference (so it reflects the resource's current state;
+        header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different
+        request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce
+        one effect. A caller who is not (or no longer) authorised is refused as usual: a key never
+        grants access. Guarantee: at most one committed effect per (school, caller, key) in the window;
+        not exactly-once across client, network or process failures. Header-less requests are unchanged.
+      schema: { type: string, minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" }
     TenantHeader:
       name: X-Tenant-Id
       in: header
@@ -740,6 +766,12 @@ components:
             $ref: "#/components/schemas/Error"
     Conflict:
       description: Resource conflict (for example duplicate admission number)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyKeyReused:
+      description: The Idempotency-Key was already used for a different request
       content:
         application/json:
           schema:
@@ -1104,7 +1136,7 @@ components:
           properties:
             code:
               type: string
-              enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, service_unavailable, internal_error]
+              enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, idempotency_key_reused, service_unavailable, internal_error]
             message:
               type: string
             request_id:

@@ -19,6 +19,7 @@ import {
 import { clientIp } from "../clientIp.js";
 import { forbidden, notFound, validationError } from "../errors.js";
 import { withTenantRequest } from "../tenantRequest.js";
+import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 
 const SetAreasSchema = z.object({
   userId: uuidString,
@@ -72,28 +73,47 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
     });
   });
 
-  app.post("/v1/rbac/org-delegations", async (request) => {
+  app.post("/v1/rbac/org-delegations", async (request, reply) => {
     const parsed = DelegationGrantSchema.safeParse(request.body);
     if (!parsed.success) throw validationError("delegateUserId and permissionCodes[] are required");
-    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+    const key = parseIdempotencyKey(request.headers["idempotency-key"]);
+    const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       await requirePermission(tx, auth.authz, "rbac.org_delegations.manage", {
         ip: clientIp(request),
         deferAudit: true,
       });
-      const result = await grantOrgAdminDelegations(tx, {
-        actor: auth.authz,
-        tenantId: auth.authz.tenantId!,
-        delegateUserId: parsed.data.delegateUserId,
-        permissionCodes: parsed.data.permissionCodes,
-        ip: clientIp(request),
+      const tenantId = auth.authz.tenantId!;
+      return runIdempotent(tx, {
+        key,
+        config: app.appConfig,
+        routeTemplate: "POST /v1/rbac/org-delegations",
+        fingerprintInput: { body: parsed.data },
+        status: 200,
+        execute: async () => {
+          const result = await grantOrgAdminDelegations(tx, {
+            actor: auth.authz,
+            tenantId,
+            delegateUserId: parsed.data.delegateUserId,
+            permissionCodes: parsed.data.permissionCodes,
+            ip: clientIp(request),
+          });
+          return {
+            value: { ok: true, tenantId, delegateUserId: parsed.data.delegateUserId, granted: result.granted },
+            resourceType: "org_delegation",
+            resourceId: parsed.data.delegateUserId,
+          };
+        },
+        // Replay reflects the original request (the fingerprint matched): the codes that were granted.
+        replay: async () => ({
+          ok: true,
+          tenantId,
+          delegateUserId: parsed.data.delegateUserId,
+          granted: [...new Set(parsed.data.permissionCodes)],
+        }),
       });
-      return {
-        ok: true,
-        tenantId: auth.authz.tenantId,
-        delegateUserId: parsed.data.delegateUserId,
-        granted: result.granted,
-      };
     });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   app.delete("/v1/rbac/org-delegations", async (request) => {

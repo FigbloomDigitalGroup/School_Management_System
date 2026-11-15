@@ -139,7 +139,8 @@ export async function grantOrgAdminDelegations(
     await db.query(
       `INSERT INTO org_admin_school_delegations
          (organization_id, tenant_id, delegate_user_id, permission_code, granted_by)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT DO NOTHING`,
       [organizationId, input.tenantId, input.delegateUserId, code, input.actor.userId],
     );
     granted.push(code);

@@ -7,6 +7,7 @@ import type { AppConfig } from "../src/config.js";
 import { createPool } from "../src/db/pool.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { assertRuntimeRole } from "../src/db/roleAssert.js";
+import { setLogSink } from "../src/log.js";
 
 const { Pool } = pg;
 
@@ -150,6 +151,8 @@ export async function createTestApp(): Promise<{
   process.env.API_TRUST_PROXY_HOPS = "0";
   delete process.env.API_TRUST_PROXY_CIDRS;
   assertIsolatedTestDatabase(ownerUrl);
+  // Access logs would drown test output; tests that assert on logs install their own sink.
+  setLogSink(() => undefined);
   const pool = new Pool({
     connectionString: ownerUrl,
     max: 10,

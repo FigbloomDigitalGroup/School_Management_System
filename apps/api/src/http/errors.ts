@@ -5,6 +5,7 @@ export type ErrorCode =
   | "validation_error"
   | "rate_limited"
   | "conflict"
+  | "idempotency_key_reused"
   | "service_unavailable"
   | "internal_error";
 
@@ -45,6 +46,15 @@ export function notFound(message = "Not found"): AppError {
 
 export function validationError(message: string): AppError {
   return new AppError(400, "validation_error", message);
+}
+
+/** The same Idempotency-Key was sent with a different request (FIG-1623). */
+export function idempotencyKeyReused(): AppError {
+  return new AppError(
+    422,
+    "idempotency_key_reused",
+    "This Idempotency-Key was already used for a different request",
+  );
 }
 
 export function conflict(message: string): AppError {
