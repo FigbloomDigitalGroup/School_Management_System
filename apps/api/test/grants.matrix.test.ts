@@ -23,6 +23,7 @@ const EXPECTED: Record<string, string[]> = {
   learners: ["INSERT", "SELECT"],
   guardians: ["INSERT", "SELECT"],
   guardian_links: ["INSERT", "SELECT"],
+  idempotency_keys: ["INSERT", "SELECT", "UPDATE"],
   security_audit_events: ["INSERT"],
 };
 
