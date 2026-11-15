@@ -27,7 +27,7 @@ Dedicated non-owner role used only by the API; **no `SUPERUSER`, no `BYPASSRLS`,
 Exact matrix: migration 009, asserted by `test/grants.matrix.test.ts`. Summary:
 
 - Per-table minimum DML derived from the code audit (e.g. `school_memberships`, `school_roles`, `school_role_assignments`: `SELECT` only; `learners`, `guardians`, `guardian_links`: `SELECT, INSERT`). No `TRUNCATE`, `REFERENCES` or `TRIGGER` anywhere.
-- `users`: **no table-level privilege**; column-level `SELECT` on the eight non-secret columns and column-level `UPDATE` on `password_hash`, `must_change_password`, `updated_at`. `password_hash` cannot be read by any statement; it is reachable only through three exact-key `SECURITY DEFINER` functions (migration 011, see `RUNTIME-DATABASE-SECURITY.md`).
+- `users`: **no table-level privilege**; column-level `SELECT` on the eight non-secret columns and **no `UPDATE` of any kind** (migration 013). `password_hash` cannot be read by any statement; it is reachable only through three exact-key `SECURITY DEFINER` read functions (migration 011) and written only through `auth_change_own_password` (migration 013), which derives the account from a valid session, compare-and-swaps the verified current hash and writes the audit row. See `RUNTIME-DATABASE-SECURITY.md`. (Migration 009's table-level `SELECT, UPDATE` and migration 011's column `UPDATE` are superseded; the effective state is what the grants-matrix test reads from PostgreSQL.)
 - `security_audit_events`: `INSERT` only (no `SELECT`; the API has no read path).
 - `schema_migrations` and `schema_migration_checksum_audit`: no grant (the earlier `SELECT` on `schema_migrations` is revoked).
 - `EXECUTE` on `consume_rate_token`, `app_current_tenant_id`, `app_current_user_id`; `prune_rate_buckets` is revoked.
@@ -38,7 +38,9 @@ Exact matrix: migration 009, asserted by `test/grants.matrix.test.ts`. Summary:
 
 ```sql
 -- As migrator / superuser after migrations:
--- figbloom_app already exists (created NOLOGIN NOINHERIT by migration 004).
+-- figbloom_app already exists. Migration 004 runs `CREATE ROLE figbloom_app NOINHERIT`, which PostgreSQL
+-- creates NOLOGIN (and NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION); migration 013 refuses
+-- to continue if the role has any privileged attribute. LOGIN is enabled only by the ALTER ROLE below.
 -- Give it a login secret out of band (never in a migration or a tracked file):
 ALTER ROLE figbloom_app LOGIN PASSWORD '...';  -- or IAM / SCRAM provisioning externally
 -- Grants and policies are applied by migrations 004 and 009.

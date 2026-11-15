@@ -15,7 +15,7 @@ Production never runs `tsx`. Two credentials, two entrypoints: the API reads `DA
 
 | Variable | Default | Notes |
 |---|---|---|
-| `APP_ENV` | `local` | `local|test|staging|production`. `NODE_ENV=production` without it is refused. In staging/production `.env` is never read |
+| `APP_ENV` | `local` | `local|test|staging|production`. `NODE_ENV=production` without it is refused. In staging/production `.env` is never read. **If both `APP_ENV` and `NODE_ENV` are unset the process runs as `local`: it reads `.env` and the strict checks are off. By design, but deployment manifests must set `APP_ENV` explicitly** (review R-12) |
 | `DATABASE_URL` | required | user must equal `RUNTIME_ROLE`. Non-loopback in staging/production needs `sslmode=verify-full` (or `verify-ca`) |
 | `MIGRATION_DATABASE_URL` | migrate only | refused in the API process in staging/production |
 | `RUNTIME_ROLE` | `figbloom_app` | startup asserts the live role (not superuser, no BYPASSRLS, owns nothing, no inherited roles, cannot `SET ROLE`) |
@@ -23,7 +23,9 @@ Production never runs `tsx`. Two credentials, two entrypoints: the API reads `DA
 | `IDEMPOTENCY_TTL_SECONDS` | 86400 | |
 | `POOL_MAX` | 10 | refused above 20 |
 | `POOL_ACQUIRE_TIMEOUT_MS` | 2000 | acquisition only; then 503 |
-| `STATEMENT_TIMEOUT_MS`, `LOCK_TIMEOUT_MS`, `IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` | 15000 / 5000 / 15000 | per transaction (`set_config(..., true)`), pooler-safe |
+| `STATEMENT_TIMEOUT_MS`, `LOCK_TIMEOUT_MS`, `IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` | 15000 / 5000 / 15000 | per tenant transaction (`set_config(..., true)`), pooler-safe |
+| `IDENTITY_STATEMENT_TIMEOUT_MS`, `IDENTITY_LOCK_TIMEOUT_MS` | 5000 / 2000 | baseline of every pooled connection for the autocommit identity path (login, rate limiting, session validation, readiness); idle-in-transaction uses the value above. Installed when each connection is created |
+| `CLIENT_QUERY_TIMEOUT_MS` | 20000 | client-side per-query backstop for a stalled network; must exceed both statement timeouts (startup refuses otherwise). A connection that hits it is destroyed, not reused |
 | `SESSION_TTL_SECONDS` | 43200 | |
 | `SESSION_LAST_SEEN_INTERVAL_SECONDS` | 300 | 0 = write every request |
 | `READINESS_CACHE_MS`, `READINESS_TIMEOUT_MS` | 1000 / 2000 | |
@@ -48,6 +50,46 @@ with a transaction-mode pooler in front, divide by the pooler's server-side pool
 3. Idle connections close; past the grace period the remaining ones are force-closed and the exit code is 1.
 4. The pool ends. `SHUTDOWN_HARD_TIMEOUT_MS` forces `exit(1)` if anything hangs. Repeated signals share one sequence. A listen failure still closes the pool. `unhandledRejection` / `uncaughtException` stop serving and exit 1.
 
+### What "no 5xx in a controlled restart" means (FIG-1617, review R-05)
+
+It is a precise guarantee, not "nothing can ever fail". Tested over a real socket in `test/lifecycle.restart.test.ts`:
+
+| Situation | Behaviour |
+|---|---|
+| request admitted before shutdown, finishes within `SHUTDOWN_GRACE_MS` | its normal response; a database write it made is durable |
+| request during the drain delay | served normally (the listener is still open). The only 503 is `/readyz` `{"status":"draining"}` with `Retry-After: 5` |
+| new connection after the listener closed | refused at TCP level (connection refused). Not an HTTP status; a load balancer that has stopped routing never sees it |
+| request that outlives the grace period | the connection is cut (no response); its transaction is rolled back, so there is **no partial write**; no backend of the process keeps running; exit code 1 |
+| request on an already-open keep-alive connection while the listener is closing | dropped at the socket, or answered `503` with `Connection: close` by the HTTP framework before any handler runs (its body is Fastify's, not the standard error shape). Never a 500, never a partial effect. Retry on another instance |
+| database stalls during shutdown | stalled connections are destroyed by the client-side read timeout, so the pool still ends; exit code 1; `SHUTDOWN_HARD_TIMEOUT_MS` is the last resort |
+| unplanned database outage while serving | `503 service_unavailable` with `Retry-After: 1` (never 500) |
+| unexpected defect | the opaque 500 `internal_error`, logged by class and SQLSTATE only |
+
+**Drain delay.** The default `SHUTDOWN_DRAIN_DELAY_MS=0` closes the listener at once. A load balancer that polls `/readyz` every N seconds then routes new requests to a closing instance for up to N seconds, and those get connection errors. **For a rolling deploy set `SHUTDOWN_DRAIN_DELAY_MS` to at least the balancer's health-check interval times its unhealthy threshold**, and keep `SHUTDOWN_HARD_TIMEOUT_MS` above grace plus drain (startup refuses otherwise). Nothing in this repository configures a balancer; the value belongs in the deployment manifest.
+
+## Connection budget: cancellation side connections
+
+Cancelling a request whose client disconnected opens one short-lived, unpooled connection per aborted transaction (`figbloom-api-cancel`). In a mass disconnect that is up to `POOL_MAX` extra connections per instance for about a second. Leave that headroom in the database `max_connections` budget (review R-06); if the cancel connection cannot be opened the cancel is skipped and the statement ends at its own statement timeout.
+
+## Housekeeping (run by an operator, as the migrator)
+
+Not run by the API, not required for correctness. Idempotency rows older than their 24 h validity are ignored at lookup and replaced by the claim, but they accumulate:
+
+```sql
+SELECT public.prune_idempotency_keys(interval '0', 10000);   -- repeat until it returns 0
+SELECT public.prune_rate_buckets(interval '1 day');
+```
+`prune_idempotency_keys(grace, batch)` deletes only expired rows, at most `batch` per call, and keeps rows expired less than `grace` ago. Schedule it (for example daily) from the platform's scheduler; there is deliberately no in-process timer. The runtime role cannot execute either function.
+
+## Health and readiness contract (review: `/health` change)
+
+| Path | Meaning | Use it for | Database |
+|---|---|---|---|
+| `/livez`, `/health`, `/v1/health` | the process is serving HTTP | orchestrator **liveness**: restart a process only when this fails | never; they stay 200 during a database outage and during drain |
+| `/readyz` | ready to take traffic | load-balancer **readiness**; deployment gates | one bounded `SELECT 1` (acquire budget, server baseline, client read timeout), single-flight, cached `READINESS_CACHE_MS` |
+
+`/health` and `/v1/health` used to run `SELECT 1` and returned a generic 500 on database failure. They now behave like `/livez` (same body, same status), identically in both API versions. **Consumer impact:** anything that polled `/health` to learn whether PostgreSQL was reachable now sees 200 while the database is down and must poll `/readyz` instead. No consumer exists in this repository (the web and mobile clients do not call `apps/api` yet; GRAPH Stage 15), and no deployment manifest exists to update; `GET /health` is documented in `openapi/openapi.yaml`. Tests: `test/lifecycle.http.test.ts` (database down: liveness 200, readiness 503, bounded, no internal detail) and `test/identityBounds.test.ts` (a stalled network).
+
 On Windows, signals are not delivered like POSIX; the sequence is tested through the `shutdown()` API and not through OS signals on this machine.
 
 ## Migrations
@@ -65,6 +107,7 @@ Forward-only; the runner takes a session advisory lock with a bounded wait (`MIG
 | Every tenant query returns nothing | tenant context missing: the request did not go through `withTenantTransaction` |
 | 503 with `Retry-After` | pool exhausted or a transient SQLSTATE (see API-CONVENTIONS.md); look for `request_failed` log lines with `sqlstate` |
 | `/readyz` 503 but `/livez` 200 | database unreachable or the process is draining |
+| 503 on login or every authenticated request, `/livez` 200 | database too slow or locked on the identity path (identity statement or lock timeout) or unreachable; check `pg_stat_activity` for a long lock holder on `sessions` or `auth_rate_buckets` |
 
 ## Deployment prerequisites (not performed)
 

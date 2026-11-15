@@ -21,7 +21,7 @@ Status: implemented and tested locally. Not independently verified. Clients (web
 | `GET /livez`, `/health`, `/v1/health` | process is serving HTTP | never | 200 |
 | `GET /readyz` | ready for traffic | one bounded `SELECT 1`, single-flight, cached `READINESS_CACHE_MS` (default 1000), budget `READINESS_TIMEOUT_MS` (default 2000) | 200 `{"status":"ready"}`; 503 `{"status":"draining"}` during shutdown; 503 `{"status":"unavailable"}` when the check fails or times out. `Retry-After` is set. No internal detail is returned |
 
-Liveness never fails because PostgreSQL is down: an orchestrator must not restart a healthy process for that.
+Liveness never fails because PostgreSQL is down: an orchestrator must not restart a healthy process for that. The `/health` and `/v1/health` contract change (they no longer touch the database), its consumer impact and the shutdown behaviour are in `OPERATIONS.md` ("Health and readiness contract", "What no 5xx in a controlled restart means").
 
 ## Request correlation and logging
 
@@ -33,7 +33,7 @@ One structured logger (`src/log.ts`, JSON lines on stdout). Logged fields are an
 
 Shape: `{ "error": { "code", "message", "request_id" } }`. Codes: `unauthorized`, `forbidden`, `not_found`, `validation_error`, `rate_limited`, `conflict`, `idempotency_key_reused`, `service_unavailable`, `internal_error`.
 
-`service_unavailable` (503, `Retry-After`) covers pool exhaustion (acquire timeout) and the transient SQLSTATEs `55P03`, `57014`, `25P03`, `40001`, `40P01`, `08000`, `08001`, `08003`, `08006`, `53300`, `57P01`, `57P03`. There is **no automatic retry** inside the API. `GET /v1/tenants/:id` no longer turns every failure into 404: only a real not-found is 404.
+`service_unavailable` (503, `Retry-After`) covers pool exhaustion (acquire timeout), the transient SQLSTATEs `55P03`, `57014`, `25P03`, `40001`, `40P01`, `08000`, `08001`, `08003`, `08006`, `53300`, `57P01`, `57P03`, and connection-level failures (database refused, reset, closed, or the client-side read timeout). An unreachable or stalled database is therefore a 503 on login, on session validation and on every business endpoint, never a 500, and the body never carries driver text. There is **no automatic retry** inside the API. `GET /v1/tenants/:id` no longer turns every failure into 404: only a real not-found is 404.
 
 ## Headers and CORS
 
@@ -56,7 +56,7 @@ Optional on `POST /v1/tenants/{t}/learners`, `POST /v1/tenants/{t}/guardians`, `
 | same key, different request or route | 422 `idempotency_key_reused` |
 | concurrent duplicates | one effect; the others wait for the first transaction, then replay (or proceed if it rolled back) |
 | first attempt failed | rolled back, nothing stored, the key is free |
-| key older than 24 h | treated as absent and replaced atomically; deleting expired rows is housekeeping, never required |
+| key older than 24 h | treated as absent and replaced atomically; deleting expired rows is housekeeping, never required. The operator runs `public.prune_idempotency_keys(grace, batch)` as the migrator (migration 013, `OPERATIONS.md` "Housekeeping"); the API cannot delete these rows |
 | resource deleted after the original request | replay is 409 |
 | not authorised / no longer authorised | refused as usual; a key never grants access; nothing is stored for a denied actor |
 
@@ -68,7 +68,7 @@ Stored per key: tenant, actor, key, route template, a **keyed HMAC-SHA256 finger
 
 ## Request cancellation
 
-When the HTTP client goes away before the response is finished, the in-flight PostgreSQL statement of that request is cancelled, its transaction rolls back and its connection is released with no context left behind. A request abandoned before `COMMIT` begins has no effect; once `COMMIT` has begun it is not cancelled, so a client that disconnected at that moment cannot know the outcome (use an idempotency key). Identity-path autocommit statements (login, rate limiting) are short and bounded by `STATEMENT_TIMEOUT_MS`; they are not cancelled on disconnect.
+When the HTTP client goes away before the response is finished, the in-flight PostgreSQL statement of that request is cancelled, its transaction rolls back and its connection is released with no context left behind. A request abandoned before `COMMIT` begins has no effect; once `COMMIT` has begun it is not cancelled, so a client that disconnected at that moment cannot know the outcome (use an idempotency key). Identity-path autocommit statements (login, rate limiting, session validation, readiness) are not cancelled on disconnect; they are short point statements bounded by their own limits. **Correction (WP-A1 review R-01):** earlier text said they were bounded by `STATEMENT_TIMEOUT_MS`. That was false: that limit is transaction-local and applies only to tenant transactions, and the identity path had no limit at all. They are now bounded by a per-connection baseline (`IDENTITY_STATEMENT_TIMEOUT_MS` 5 s, `IDENTITY_LOCK_TIMEOUT_MS` 2 s, installed when each pooled connection is created) plus a client-side backstop (`CLIENT_QUERY_TIMEOUT_MS` 20 s). A timeout, a lock wait or an unreachable database on that path is `503 service_unavailable` with `Retry-After: 1`. See `RUNTIME-DATABASE-SECURITY.md`, "Limits: what bounds what".
 
 ## Not done in this work package (recorded, not hidden)
 
