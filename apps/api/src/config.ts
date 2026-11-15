@@ -104,9 +104,32 @@ const ConfigSchema = z.object({
   trustProxyHops: z.coerce.number().int().min(0).max(32).default(0),
   /** Comma-separated CIDRs / addresses of trusted proxies (required when hops > 0). */
   trustProxyCidrs: z.array(z.string()).default([]),
+  /**
+   * Browser origins allowed to call the API (FIG-1622, AD-12). Exact origins only
+   * (scheme://host[:port], no path, no wildcard). Empty (default) = no CORS headers at all.
+   * The API authenticates with a bearer token, not cookies, so credentials are never allowed.
+   */
+  corsAllowedOrigins: z.array(z.string()).default([]),
+  corsMaxAgeSeconds: z.coerce.number().int().min(0).max(86_400).default(600),
+  /** Send Strict-Transport-Security. Enable only where TLS terminates for this host. */
+  hstsEnabled: z.boolean().default(false),
+  /** Node HTTP server timeouts. keep-alive must exceed the load balancer's idle timeout. */
+  serverKeepAliveTimeoutMs: z.coerce.number().int().positive().max(600_000).default(65_000),
+  serverHeadersTimeoutMs: z.coerce.number().int().positive().max(600_000).default(66_000),
+  serverRequestTimeoutMs: z.coerce.number().int().positive().max(600_000).default(30_000),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
+
+/** True only for `http(s)://host[:port]` with nothing after it. `*`, `null`, paths and slashes are refused. */
+export function isExactHttpOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === value;
+  } catch {
+    return false;
+  }
+}
 
 function parseCidrList(raw: string | undefined): string[] {
   if (!raw || !raw.trim()) return [];
@@ -150,6 +173,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     shutdownHardTimeoutMs: env.SHUTDOWN_HARD_TIMEOUT_MS,
     trustProxyHops: hopsRaw === undefined || hopsRaw === "" ? 0 : hopsRaw,
     trustProxyCidrs: cidrs,
+    corsAllowedOrigins: parseCidrList(env.CORS_ALLOWED_ORIGINS),
+    corsMaxAgeSeconds: env.CORS_MAX_AGE_SECONDS,
+    hstsEnabled: (env.HSTS_ENABLED ?? "").trim().toLowerCase() === "true",
+    serverKeepAliveTimeoutMs: env.SERVER_KEEP_ALIVE_TIMEOUT_MS,
+    serverHeadersTimeoutMs: env.SERVER_HEADERS_TIMEOUT_MS,
+    serverRequestTimeoutMs: env.SERVER_REQUEST_TIMEOUT_MS,
   });
   if (!parsed.success) {
     throw new Error(
@@ -175,6 +204,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!parseCidr(c)) {
       throw new Error(`Invalid API config: bad CIDR in API_TRUST_PROXY_CIDRS: ${c}`);
     }
+  }
+  for (const origin of config.corsAllowedOrigins) {
+    if (!isExactHttpOrigin(origin)) {
+      throw new Error(
+        "Invalid API config: CORS_ALLOWED_ORIGINS entries must be exact http(s) origins " +
+          "(scheme://host[:port], no path, no trailing slash, no wildcard).",
+      );
+    }
+  }
+  if (config.serverHeadersTimeoutMs <= config.serverKeepAliveTimeoutMs) {
+    throw new Error(
+      "Invalid API config: SERVER_HEADERS_TIMEOUT_MS must exceed SERVER_KEEP_ALIVE_TIMEOUT_MS.",
+    );
   }
   if (config.shutdownHardTimeoutMs <= config.shutdownGraceMs + config.shutdownDrainDelayMs) {
     throw new Error(

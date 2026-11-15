@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import helmet from "@fastify/helmet";
+import cors from "@fastify/cors";
 import type { AppConfig } from "./config.js";
 import type { AppPool } from "./db/pool.js";
 import { toClientError, AppError } from "./http/errors.js";
@@ -41,6 +43,47 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
         ? (_address: string, hop: number) => hop < config.trustProxyHops
         : false,
     bodyLimit: 64 * 1024,
+    // Connection hygiene (FIG-1622). keep-alive must outlive the load balancer's idle timeout,
+    // otherwise the balancer reuses a connection the server has just closed and returns 502.
+    keepAliveTimeout: config.serverKeepAliveTimeoutMs,
+    requestTimeout: config.serverRequestTimeoutMs,
+  });
+  app.server.headersTimeout = config.serverHeadersTimeoutMs;
+
+  // Security headers for a JSON API: nothing is renderable, framed, or cacheable.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    frameguard: { action: "deny" },
+    referrerPolicy: { policy: "no-referrer" },
+    // HSTS only where this host terminates TLS (an HTTP-only listener must not send it).
+    strictTransportSecurity: config.hstsEnabled
+      ? { maxAge: 15_552_000, includeSubDomains: true }
+      : false,
+  });
+  // Explicit allowlist only. No configured origin = no CORS headers. Never "*", never credentials
+  // (bearer tokens, not cookies).
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, false);
+      cb(null, config.corsAllowedOrigins.includes(origin));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id", "X-Tenant-Id"],
+    exposedHeaders: ["X-Request-Id", "Retry-After"],
+    credentials: false,
+    maxAge: config.corsMaxAgeSeconds,
+  });
+  // Authenticated and error responses must never be stored by a shared cache.
+  app.addHook("onSend", async (_request, reply) => {
+    if (!reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
   });
 
   app.decorate("appConfig", config);
