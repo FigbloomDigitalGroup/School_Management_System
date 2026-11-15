@@ -32,10 +32,42 @@ function resolveApiRoot(startDir: string = __dirname): string {
 
 const apiRoot = resolveApiRoot();
 
-/** Load apps/api/.env if present without printing values. */
-function loadDotEnv(): void {
+export type AppEnvironment = "local" | "test" | "staging" | "production";
+const APP_ENVIRONMENTS: readonly AppEnvironment[] = ["local", "test", "staging", "production"];
+
+/**
+ * Explicit environment mode (FIG-1618). APP_ENV selects it. Unset means `local`, except that
+ * NODE_ENV=production without APP_ENV is refused so a deployment cannot silently run with
+ * local-development relaxations. Error text names the variable, never a value.
+ */
+export function resolveAppEnvironment(env: NodeJS.ProcessEnv, kind: "API" | "migrate" = "API"): AppEnvironment {
+  const raw = env.APP_ENV?.trim();
+  if (raw) {
+    if ((APP_ENVIRONMENTS as readonly string[]).includes(raw)) return raw as AppEnvironment;
+    throw new Error(`Invalid ${kind} config: APP_ENV must be one of ${APP_ENVIRONMENTS.join(", ")}.`);
+  }
+  if (env.NODE_ENV === "production") {
+    throw new Error(`Invalid ${kind} config: APP_ENV is required when NODE_ENV=production.`);
+  }
+  return "local";
+}
+
+const isStrict = (e: AppEnvironment) => e === "staging" || e === "production";
+
+/**
+ * Load apps/api/.env (names and values are never printed). Called explicitly by an entrypoint,
+ * not at import time, and only in local/test: staging and production read the process
+ * environment only, so a stray file cannot change what a deployed process trusts.
+ * Returns whether a file was read.
+ */
+export function loadDotEnvForLocal(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (isStrict(resolveAppEnvironment(env))) return false;
+  return loadDotEnv();
+}
+
+function loadDotEnv(): boolean {
   const path = resolve(apiRoot, ".env");
-  if (!existsSync(path)) return;
+  if (!existsSync(path)) return false;
   const text = readFileSync(path, "utf8");
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -52,9 +84,8 @@ function loadDotEnv(): void {
     }
     if (process.env[key] === undefined) process.env[key] = value;
   }
+  return true;
 }
-
-loadDotEnv();
 
 /**
  * Per-process safety ceiling for POOL_MAX. This is not a production pool size.
@@ -109,6 +140,15 @@ const ConfigSchema = z.object({
    * (scheme://host[:port], no path, no wildcard). Empty (default) = no CORS headers at all.
    * The API authenticates with a bearer token, not cookies, so credentials are never allowed.
    */
+  /** Selected by APP_ENV; strict (staging/production) refuses unsafe settings below. */
+  appEnv: z.enum(["local", "test", "staging", "production"]).default("local"),
+  /**
+   * Secret for keyed idempotency-request fingerprints (HMAC), so a stored fingerprint of a child's
+   * data is not a plain hash an attacker can test guesses against. Required outside local/test.
+   */
+  idempotencyFingerprintKey: z.string().min(32).max(256).optional(),
+  /** Idempotency-Key validity (AD-10): 24 h, enforced at lookup. */
+  idempotencyTtlSeconds: z.coerce.number().int().positive().max(604_800).default(86_400),
   corsAllowedOrigins: z.array(z.string()).default([]),
   corsMaxAgeSeconds: z.coerce.number().int().min(0).max(86_400).default(600),
   /** Send Strict-Transport-Security. Enable only where TLS terminates for this host. */
@@ -173,6 +213,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     shutdownHardTimeoutMs: env.SHUTDOWN_HARD_TIMEOUT_MS,
     trustProxyHops: hopsRaw === undefined || hopsRaw === "" ? 0 : hopsRaw,
     trustProxyCidrs: cidrs,
+    appEnv: resolveAppEnvironment(env),
+    idempotencyFingerprintKey: env.IDEMPOTENCY_FINGERPRINT_KEY || undefined,
+    idempotencyTtlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
     corsAllowedOrigins: parseCidrList(env.CORS_ALLOWED_ORIGINS),
     corsMaxAgeSeconds: env.CORS_MAX_AGE_SECONDS,
     hstsEnabled: (env.HSTS_ENABLED ?? "").trim().toLowerCase() === "true",
@@ -247,7 +290,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  if (isStrict(config.appEnv)) assertStrictApiConfig(config, env);
   return config;
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
+/** TLS must be verified for any database that is not on this machine. Names only in errors. */
+function assertVerifiedTls(url: string, variable: string, kind: "API" | "migrate"): void {
+  const parsed = new URL(url);
+  if (isLoopbackHost(parsed.hostname)) return;
+  const mode = parsed.searchParams.get("sslmode");
+  if (mode !== "verify-full" && mode !== "verify-ca") {
+    throw new Error(
+      `Invalid ${kind} config: ${variable} must set sslmode=verify-full (or verify-ca) for a database that is not on loopback outside local/test.`,
+    );
+  }
+}
+
+/** Staging and production: refuse settings that weaken security instead of silently accepting them. */
+function assertStrictApiConfig(config: AppConfig, env: NodeJS.ProcessEnv): void {
+  assertVerifiedTls(config.databaseUrl, "DATABASE_URL", "API");
+  if (!config.idempotencyFingerprintKey) {
+    throw new Error("Invalid API config: IDEMPOTENCY_FINGERPRINT_KEY is required outside local/test (at least 32 characters).");
+  }
+  // The serving process must not hold the migrator's credentials (AD-1): that would make
+  // the least-privilege runtime role pointless if the process were compromised.
+  if (env.MIGRATION_DATABASE_URL?.trim()) {
+    throw new Error("Invalid API config: MIGRATION_DATABASE_URL must not be set in the API process outside local/test.");
+  }
+  if (config.poolMax > POOL_MAX_CAP) {
+    throw new Error("Invalid API config: POOL_MAX exceeds the per-process safety cap.");
+  }
 }
 
 export interface MigrationConfig {
@@ -302,6 +378,9 @@ export function loadMigrationConfig(env: NodeJS.ProcessEnv = process.env): Migra
     lockRaw === undefined || lockRaw === "" ? 15_000 : Number(lockRaw);
   if (!Number.isInteger(migrationLockTimeoutMs) || migrationLockTimeoutMs <= 0 || migrationLockTimeoutMs > 120_000) {
     throw new Error("Invalid migrate config: MIGRATION_LOCK_TIMEOUT_MS must be a positive integer up to 120000");
+  }
+  if (isStrict(resolveAppEnvironment(env, "migrate"))) {
+    assertVerifiedTls(url, "MIGRATION_DATABASE_URL", "migrate");
   }
   return { migrationDatabaseUrl: url, migrationLockTimeoutMs, runtimeRole };
 }

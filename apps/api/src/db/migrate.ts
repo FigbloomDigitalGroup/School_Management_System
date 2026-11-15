@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadMigrationConfig } from "../config.js";
+import { loadDotEnvForLocal, loadMigrationConfig } from "../config.js";
 import { createPool } from "./pool.js";
 
 /** Advisory lock key namespace for figbloom API migrations (stable int). */
@@ -479,6 +479,7 @@ function parseCliArgs(argv: string[]): { mode: MigrationRunMode; reconcile: bool
 
 async function main(): Promise<void> {
   const { mode, reconcile } = parseCliArgs(process.argv);
+  loadDotEnvForLocal();
   const migration = loadMigrationConfig();
   const pool = createPool({
     connectionString: migration.migrationDatabaseUrl,
