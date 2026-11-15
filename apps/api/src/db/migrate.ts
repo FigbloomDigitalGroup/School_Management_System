@@ -150,12 +150,17 @@ async function ensureBootstrap(client: import("pg").PoolClient): Promise<void> {
     CREATE OR REPLACE FUNCTION public.schema_migration_checksum_audit_append_only()
     RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path = pg_catalog, pg_temp
     AS $fn$
     BEGIN
       RAISE EXCEPTION 'schema_migration_checksum_audit is append-only';
     END;
     $fn$
   `);
+  // Stage D: no caller needs EXECUTE on a trigger function (checked at CREATE TRIGGER).
+  await client.query(
+    `REVOKE ALL ON FUNCTION public.schema_migration_checksum_audit_append_only() FROM PUBLIC`,
+  );
 
   await client.query(`
     DROP TRIGGER IF EXISTS schema_migration_checksum_audit_append_only_trg
