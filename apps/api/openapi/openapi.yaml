@@ -18,24 +18,59 @@ tags:
   - name: rbac
   - name: directory
 paths:
+  /livez:
+    get:
+      tags: [health]
+      summary: Liveness (no database)
+      description: >
+        Answers while the process can serve HTTP. Never touches PostgreSQL, so a database
+        outage does not make an orchestrator restart a healthy process.
+      operationId: livez
+      x-figbloom-authz: public
+      responses:
+        "200":
+          description: Process is up
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness
+      description: >
+        200 when the bounded database check succeeds and the process is not draining.
+        503 while shutting down (`{"status":"draining"}`) or when the database check fails or
+        times out (`{"status":"unavailable"}`). The check is single-flight and cached briefly,
+        so probes cannot multiply database load. No internal detail is returned.
+      operationId: readyz
+      x-figbloom-authz: public
+      responses:
+        "200":
+          description: Ready to serve
+        "503":
+          description: Draining or database unavailable
+          headers:
+            Retry-After:
+              schema: { type: integer }
   /health:
     get:
       tags: [health]
-      summary: Liveness
+      summary: Liveness (alias of /livez)
+      description: >
+        Contract change (FIG-1617, OI-5): this used to run `SELECT 1` and returned a generic
+        500 when PostgreSQL was down. It is now a pure liveness alias. Use `/readyz` for readiness.
       operationId: health
       x-figbloom-authz: public
       responses:
         "200":
-          description: Service is up
+          description: Process is up
   /v1/health:
     get:
       tags: [health]
-      summary: Versioned liveness
+      summary: Versioned liveness (alias of /livez)
+      description: See `/health`.
       operationId: healthV1
       x-figbloom-authz: public
       responses:
         "200":
-          description: Service is up
+          description: Process is up
   /v1/auth/login/email:
     post:
       tags: [auth]

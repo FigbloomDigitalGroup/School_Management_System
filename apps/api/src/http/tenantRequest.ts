@@ -72,6 +72,7 @@ export async function withTenantRequest<T>(
       ip: clientIp(request),
       limits: transactionLimitsFromConfig(config),
       acquireTimeoutMs: config.poolAcquireTimeoutMs,
+      signal: request.abortSignal,
       authorize: async (db) => {
         authz = await buildAuthzContext(db, {
           userId: sessionAuth.session.user_id,

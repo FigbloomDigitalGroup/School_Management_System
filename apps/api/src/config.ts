@@ -84,6 +84,13 @@ const ConfigSchema = z.object({
   lockTimeoutMs: z.coerce.number().int().positive().max(120_000).default(5_000),
   idleInTransactionSessionTimeoutMs: z.coerce.number().int().positive().max(120_000).default(15_000),
   applicationName: z.string().min(1).max(63).default("figbloom-api"),
+  /** /readyz database probe: result cache window and hard time budget (FIG-1617). */
+  readinessCacheMs: z.coerce.number().int().min(0).max(60_000).default(1_000),
+  readinessTimeoutMs: z.coerce.number().int().positive().max(30_000).default(2_000),
+  /** Shutdown sequence (FIG-1617): drain delay, in-flight grace, absolute hard limit. */
+  shutdownDrainDelayMs: z.coerce.number().int().min(0).max(60_000).default(0),
+  shutdownGraceMs: z.coerce.number().int().positive().max(120_000).default(10_000),
+  shutdownHardTimeoutMs: z.coerce.number().int().positive().max(180_000).default(15_000),
   /**
    * Number of trusted reverse-proxy hops (R2-01). 0 = do not honour X-Forwarded-For.
    * When > 0, API_TRUST_PROXY_CIDRS must list the addresses/CIDRs of those proxies.
@@ -129,6 +136,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     lockTimeoutMs: env.LOCK_TIMEOUT_MS,
     idleInTransactionSessionTimeoutMs: env.IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS,
     applicationName: env.APPLICATION_NAME,
+    readinessCacheMs: env.READINESS_CACHE_MS,
+    readinessTimeoutMs: env.READINESS_TIMEOUT_MS,
+    shutdownDrainDelayMs: env.SHUTDOWN_DRAIN_DELAY_MS,
+    shutdownGraceMs: env.SHUTDOWN_GRACE_MS,
+    shutdownHardTimeoutMs: env.SHUTDOWN_HARD_TIMEOUT_MS,
     trustProxyHops: hopsRaw === undefined || hopsRaw === "" ? 0 : hopsRaw,
     trustProxyCidrs: cidrs,
   });
@@ -156,6 +168,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!parseCidr(c)) {
       throw new Error(`Invalid API config: bad CIDR in API_TRUST_PROXY_CIDRS: ${c}`);
     }
+  }
+  if (config.shutdownHardTimeoutMs <= config.shutdownGraceMs + config.shutdownDrainDelayMs) {
+    throw new Error(
+      "Invalid API config: SHUTDOWN_HARD_TIMEOUT_MS must exceed SHUTDOWN_GRACE_MS plus SHUTDOWN_DRAIN_DELAY_MS.",
+    );
   }
   if (config.poolMax > POOL_MAX_CAP) {
     throw new Error(

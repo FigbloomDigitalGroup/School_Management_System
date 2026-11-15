@@ -42,14 +42,29 @@ export async function applyTransactionLimits(
     lockTimeoutMs: number;
     idleInTransactionSessionTimeoutMs: number;
   },
+  /** Per-transaction application_name token so an abort can address exactly this transaction (F-C3). */
+  applicationName?: string,
 ): Promise<void> {
-  await client.query(`SELECT set_config('statement_timeout', $1, true)`, [
+  // One statement: three limits (and optionally the cancel token), transaction-local.
+  const values = [
     timeoutMs("statementTimeoutMs", limits.statementTimeoutMs),
-  ]);
-  await client.query(`SELECT set_config('lock_timeout', $1, true)`, [
     timeoutMs("lockTimeoutMs", limits.lockTimeoutMs),
-  ]);
-  await client.query(`SELECT set_config('idle_in_transaction_session_timeout', $1, true)`, [
     timeoutMs("idleInTransactionSessionTimeoutMs", limits.idleInTransactionSessionTimeoutMs),
-  ]);
+  ];
+  if (applicationName === undefined) {
+    await client.query(
+      `SELECT set_config('statement_timeout', $1, true),
+              set_config('lock_timeout', $2, true),
+              set_config('idle_in_transaction_session_timeout', $3, true)`,
+      values,
+    );
+    return;
+  }
+  await client.query(
+    `SELECT set_config('statement_timeout', $1, true),
+            set_config('lock_timeout', $2, true),
+            set_config('idle_in_transaction_session_timeout', $3, true),
+            set_config('application_name', $4, true)`,
+    [...values, applicationName],
+  );
 }

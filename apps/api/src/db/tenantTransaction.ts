@@ -3,6 +3,14 @@ import { createIdentityHandle, createTxHandle, type IdentityDb, type Tx } from "
 import { applyTransactionLimits, setTenantContext, setUserContextOnly } from "./tenantContext.js";
 import { getDenialAudit, poolAcquireTimeoutError, type DenialAuditPayload } from "./errors.js";
 import { recordSecurityEvent } from "../modules/audit/audit.js";
+import { randomUUID } from "node:crypto";
+import {
+  APPLICATION_NAME_PREFIX,
+  cancelBackendQuery,
+  cancelToken,
+  isQueryCanceled,
+  RequestAbortedError,
+} from "./cancel.js";
 
 export interface TransactionLimits {
   statementTimeoutMs: number;
@@ -30,6 +38,12 @@ export interface TenantTransactionInput {
   limits?: TransactionLimits;
   acquireTimeoutMs?: number;
   ip?: string | null;
+  /**
+   * Fires when the HTTP client goes away before the response is finished (F-C3).
+   * The in-flight statement is cancelled in PostgreSQL, the transaction rolls
+   * back and the connection is released. Not set for non-HTTP callers.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -140,9 +154,27 @@ export async function withTenantTransaction<T>(
 
   let failure: unknown;
   let result: T | undefined;
+  // Cancellation is only legal while this transaction is open and before COMMIT starts.
+  let cancellable = false;
+  let onAbort: (() => void) | undefined;
   try {
     await client.query("BEGIN");
-    await applyTransactionLimits(client, limits);
+    const signal = input.signal;
+    if (signal) {
+      const token = cancelToken(APPLICATION_NAME_PREFIX, randomUUID());
+      await applyTransactionLimits(client, limits, token);
+      const processId = (client as unknown as { processID?: number }).processID;
+      cancellable = true;
+      onAbort = () => {
+        if (cancellable && typeof processId === "number") {
+          void cancelBackendQuery(pool, processId, token);
+        }
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    } else {
+      await applyTransactionLimits(client, limits);
+    }
     await setUserContextOnly(client, input.userId);
 
     try {
@@ -168,13 +200,22 @@ export async function withTenantTransaction<T>(
 
     try {
       result = await fn(tx);
+      // A request abandoned before COMMIT has no effect.
+      if (input.signal?.aborted) throw new RequestAbortedError();
+      cancellable = false;
       await client.query("COMMIT");
     } catch (err) {
-      await guardedRollback(client, err);
+      cancellable = false;
+      await guardedRollback(
+        client,
+        input.signal?.aborted && isQueryCanceled(err) ? new RequestAbortedError() : err,
+      );
     }
   } catch (err) {
-    failure = err;
+    failure = input.signal?.aborted && isQueryCanceled(err) ? new RequestAbortedError() : err;
   } finally {
+    cancellable = false;
+    if (onAbort && input.signal) input.signal.removeEventListener("abort", onAbort);
     client.release();
   }
 
