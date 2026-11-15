@@ -46,6 +46,9 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "auth_credential_by_email(text)": { secdef: true, grantees: ["figbloom_app"], why: "login by e-mail; returns (user id, hash, status) for one e-mail" },
   "auth_credential_by_login_id(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "login by login id; one account per (school, login id)" },
   "auth_password_credential(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "password change; the caller's own user id" },
+  // Migration 013 (WP-A1 review R-02, R-04).
+  "auth_change_own_password(uuid,text,text,inet)": { secdef: true, grantees: ["figbloom_app"], why: "the only write path to users.password_hash; account derived from the session, compare-and-swap, audited" },
+  "prune_idempotency_keys(interval,integer)": { secdef: false, grantees: [], why: "owner-run housekeeping; not an API call" },
 };
 
 /** The only SECURITY DEFINER functions the runtime role may execute. */
@@ -53,6 +56,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_credential_by_email(text)",
   "auth_credential_by_login_id(uuid,text)",
   "auth_password_credential(uuid)",
+  "auth_change_own_password(uuid,text,text,inet)",
 ];
 
 async function inventory(pool: pg.Pool): Promise<FnRow[]> {
@@ -121,7 +125,7 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 
-  it("the runtime role owns no function and can execute only the three credential definers (no trigger function)", async () => {
+  it("the runtime role owns no function and can execute only the four credential definers (no trigger function)", async () => {
     const owned = await ctx.pool.query(
       `SELECT 1 FROM pg_proc p WHERE pg_get_userbyid(p.proowner) = 'figbloom_app'`,
     );

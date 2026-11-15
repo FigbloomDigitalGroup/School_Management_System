@@ -5,6 +5,7 @@ import { unauthorized, validationError, forbidden, notFound } from "../../http/e
 import { hashPassword, verifyPassword } from "../identity/password.js";
 import { assertPasswordPolicy } from "../identity/passwordPolicy.js";
 import { recordSecurityEvent } from "../audit/audit.js";
+import { normalizeIp } from "../../http/ip.js";
 import { consumeAuthToken } from "./rateLimit.js";
 import { rateLimitBucketForIp } from "./rateLimitBuckets.js";
 import { createSession, revokeSession, type SessionRow } from "./session.js";
@@ -262,27 +263,18 @@ export async function changePassword(
   }
 
   const newHash = await hashPassword(input.newPassword);
-  await db.query(
-    `UPDATE users
-     SET password_hash = $2, must_change_password = false, updated_at = now()
-     WHERE id = $1`,
-    [input.session.user_id, newHash],
+  // The only write path to users.password_hash (migration 013). One atomic database call:
+  // compare-and-swap on the verified current hash, revoke the user's other sessions (the
+  // current one stays valid, documented), and write the audit row. The account is read from
+  // the session row inside the function, never taken from a parameter.
+  const changed = await db.query<{ changed: boolean }>(
+    `SELECT public.auth_change_own_password($1::uuid, $2::text, $3::text, $4::inet) AS changed`,
+    [input.session.id, userRow.password_hash, newHash, normalizeIp(input.ip)],
   );
-
-  // Revoke every other session; current session remains valid (documented).
-  await db.query(
-    `UPDATE sessions SET revoked_at = now()
-     WHERE user_id = $1 AND revoked_at IS NULL AND id <> $2`,
-    [input.session.user_id, input.session.id],
-  );
-
-  await recordSecurityEvent(db, {
-    eventType: "auth.password.changed",
-    actorUserId: input.session.user_id,
-    tenantId: input.session.active_tenant_id,
-    detail: { revokedOtherSessions: true, keptSessionId: input.session.id },
-    ip: input.ip ?? null,
-  });
+  if (changed.rows[0]?.changed !== true) {
+    // Session ended, user disabled, or the password changed concurrently: nothing was written.
+    throw unauthorized("Invalid credentials");
+  }
 
   return loadUser(db, input.session.user_id);
 }

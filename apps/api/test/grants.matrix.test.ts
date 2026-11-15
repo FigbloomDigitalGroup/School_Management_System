@@ -57,7 +57,7 @@ describe("migration 009 grants and policies", () => {
     expect(excess).toEqual([]);
   });
 
-  it("users: no table-level privilege; password_hash is write-only (UPDATE) and never selectable (migration 011)", async () => {
+  it("users: no table-level privilege; password_hash is neither selectable nor updatable by the runtime role (migrations 011 and 013)", async () => {
     const cols = await ctx.pool.query<{ column_name: string; privilege_type: string }>(
       `SELECT column_name, privilege_type
          FROM information_schema.role_column_grants
@@ -68,7 +68,7 @@ describe("migration 009 grants and policies", () => {
     const upd = cols.rows.filter((r) => r.privilege_type === "UPDATE").map((r) => r.column_name).sort();
     expect(sel).toEqual(["created_at", "email", "full_name", "id", "must_change_password", "phone", "status", "updated_at"]);
     expect(sel).not.toContain("password_hash");
-    expect(upd).toEqual(["must_change_password", "password_hash", "updated_at"]);
+    expect(upd).toEqual([]);
     expect(cols.rows.filter((r) => !["SELECT", "UPDATE"].includes(r.privilege_type))).toEqual([]);
     // Effective privilege on the hash column, as PostgreSQL computes it.
     const eff = await ctx.pool.query<{ sel: boolean; upd: boolean; ins: boolean; tbl_sel: boolean }>(
@@ -77,7 +77,7 @@ describe("migration 009 grants and policies", () => {
               has_column_privilege('figbloom_app', 'public.users', 'password_hash', 'INSERT') AS ins,
               has_table_privilege('figbloom_app', 'public.users', 'SELECT') AS tbl_sel`,
     );
-    expect(eff.rows[0]).toEqual({ sel: false, upd: true, ins: false, tbl_sel: false });
+    expect(eff.rows[0]).toEqual({ sel: false, upd: false, ins: false, tbl_sel: false });
   });
 
   it("revokes CREATE on schema public and does not reference a mode GUC", async () => {
