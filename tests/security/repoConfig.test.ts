@@ -66,7 +66,11 @@ describe("secrets in the client code", () => {
   ];
 
   it("no server-side secret name or private key appears in the web or phone source", () => {
-    const hits = clientFiles().flatMap((f) => FORBIDDEN.filter((s) => read(f).includes(s)).map((s) => `${f}: ${s}`));
+    // Each file is read once (not once per forbidden string): same assertion, 12x fewer reads.
+    const hits = clientFiles().flatMap((f) => {
+      const text = read(f);
+      return FORBIDDEN.filter((s) => text.includes(s)).map((s) => `${f}: ${s}`);
+    });
     expect(hits).toEqual([]);
   });
 
