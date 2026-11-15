@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "./support.js";
-import { findTenantBoundaryViolations } from "./support/tenantBoundary.js";
+import { findTenantBoundaryViolations, UNRESOLVED_SQL } from "./support/tenantBoundary.js";
 
 const SRC = join(process.cwd(), "src");
 const TSCONFIG = join(process.cwd(), "tsconfig.json");
@@ -169,6 +169,71 @@ describe("architecture: tenant boundary (F-C6, F-C7)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }, 120_000);
+
+  it("NC-2c (review R-07): SQL held in a const, a conditional or an `as const` value is resolved; unresolvable SQL is reported", () => {
+    const dir = mkdtempSync(join(tmpdir(), "figbloom-tenant-nc2c-"));
+    try {
+      const file = join(dir, "indirect.ts");
+      writeFileSync(
+        file,
+        [
+          `import type { Tx, IdentityDb, SqlClient } from "${join(SRC, "db", "sql.js").split("\\").join("/")}";`,
+          `const READ = "SELECT * FROM learners";`,
+          `const WRITE = \`UPDATE guardians SET x = 1\`;`,
+          `const PICK = process.env.X ? "SELECT 1" : "SELECT * FROM guardian_links";`,
+          `const TYPED = "DELETE FROM school_memberships" as const;`,
+          `const BASE = "SELECT * FROM ";`,
+          `const JOINED = BASE + "staff_area_grants";`,
+          `export async function viaConst(db: IdentityDb) { return db.query(READ); }`,
+          `export async function viaTemplateConst(db: SqlClient) { return db.query(WRITE); }`,
+          `export async function viaConditional(db: SqlClient) { return db.query(PICK); }`,
+          `export async function viaAs(db: SqlClient) { return db.query(TYPED); }`,
+          `export async function viaChain(db: SqlClient) { return db.query(JOINED); }`,
+          `export async function okTenant(tx: Tx) { return tx.query(READ); }`,
+          `export async function okOtherTable(db: IdentityDb) { const s = "SELECT 1 FROM users"; return db.query(s); }`,
+          `export async function unresolvedParam(db: IdentityDb, sql: string) { return db.query(sql); }`,
+          `export async function unresolvedCall(db: IdentityDb) { return db.query(String(Date.now())); }`,
+          `let mutable = "SELECT 1";`,
+          `export async function unresolvedLet(db: IdentityDb) { return db.query(mutable); }`,
+        ].join("\n"),
+        "utf8",
+      );
+      const all = findTenantBoundaryViolations({
+        tsconfigPath: TSCONFIG,
+        srcRoot: SRC,
+        tenantTables,
+        extraFiles: [file],
+        reportUnresolved: true,
+      }).filter((v) => v.file.endsWith("indirect.ts"));
+      const named = all.filter((v) => v.table !== UNRESOLVED_SQL).map((v) => v.table).sort();
+      expect(named).toEqual(
+        ["guardian_links", "guardians", "learners", "school_memberships", "staff_area_grants"].sort(),
+      );
+      // the three SQL values nothing can resolve are reported, not silently skipped
+      expect(all.filter((v) => v.table === UNRESOLVED_SQL)).toHaveLength(3);
+      // without the option nothing unresolved is reported, and the named ones are unchanged
+      const quiet = findTenantBoundaryViolations({
+        tsconfigPath: TSCONFIG,
+        srcRoot: SRC,
+        tenantTables,
+        extraFiles: [file],
+      }).filter((v) => v.file.endsWith("indirect.ts"));
+      expect(quiet.map((v) => v.table).sort()).toEqual(named);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("no query outside src/db has SQL that the detector cannot resolve (so the boundary check sees every statement)", () => {
+    const unresolved = findTenantBoundaryViolations({
+      tsconfigPath: TSCONFIG,
+      srcRoot: SRC,
+      tenantTables,
+      identityAllowed: IDENTITY_EXCEPTIONS,
+      reportUnresolved: true,
+    }).filter((v) => v.table === UNRESOLVED_SQL);
+    expect(unresolved).toEqual([]);
   }, 120_000);
 
   it("supplementary: no application-controlled bypass/owner mode text in src (pattern check only)", () => {

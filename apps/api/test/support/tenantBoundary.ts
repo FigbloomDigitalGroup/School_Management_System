@@ -24,23 +24,54 @@ export interface BoundaryViolation {
   receiverType: string;
 }
 
+/** Reported (with `reportUnresolved`) when a query's SQL cannot be resolved to text statically. */
+export const UNRESOLVED_SQL = "<unresolved sql>";
+
 const HOLE = String.fromCharCode(0);
 
-function sqlText(node: ts.Node | undefined): string | null {
-  if (!node) return null;
+/**
+ * Static text of a SQL argument. Resolves string/template/concatenation, parentheses, `as`/`satisfies`
+ * wrappers, a conditional (the text of BOTH branches, so a table named in either is seen), and an
+ * identifier that refers to a `const` with an initializer (WP-A1 review R-07: SQL held in a variable
+ * used to escape the detector). Anything else is null (unresolved).
+ */
+function sqlText(node: ts.Node | undefined, checker?: ts.TypeChecker, depth = 0): string | null {
+  if (!node || depth > 8) return null;
+  const again = (n: ts.Node | undefined) => sqlText(n, checker, depth + 1);
+  if (ts.isIdentifier(node) && checker) {
+    const decl = checker.getSymbolAtLocation(node)?.valueDeclaration;
+    if (
+      decl &&
+      ts.isVariableDeclaration(decl) &&
+      decl.initializer &&
+      ts.isVariableDeclarationList(decl.parent) &&
+      (decl.parent.flags & ts.NodeFlags.Const) !== 0
+    ) {
+      return again(decl.initializer);
+    }
+    return null;
+  }
+  if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isNonNullExpression(node)) {
+    return again(node.expression);
+  }
+  if (ts.isConditionalExpression(node)) {
+    const a = again(node.whenTrue);
+    const b = again(node.whenFalse);
+    return a === null && b === null ? null : (a ?? HOLE) + " " + (b ?? HOLE);
+  }
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isTemplateExpression(node)) {
-    return node.head.text + node.templateSpans.map((s) => HOLE + s.literal.text).join("");
+    return node.head.text + node.templateSpans.map((sp) => HOLE + sp.literal.text).join("");
   }
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const l = sqlText(node.left);
-    const r = sqlText(node.right);
+    const l = again(node.left);
+    const r = again(node.right);
     return l === null && r === null ? null : (l ?? HOLE) + (r ?? HOLE);
   }
-  if (ts.isParenthesizedExpression(node)) return sqlText(node.expression);
+  if (ts.isParenthesizedExpression(node)) return again(node.expression);
   if (ts.isObjectLiteralExpression(node)) {
     for (const p of node.properties) {
-      if (ts.isPropertyAssignment(p) && p.name.getText() === "text") return sqlText(p.initializer);
+      if (ts.isPropertyAssignment(p) && p.name.getText() === "text") return again(p.initializer);
     }
   }
   return null;
@@ -71,6 +102,11 @@ export function findTenantBoundaryViolations(opts: {
    * (`"*"` = any file). Every other receiver must be the tenant handle `Tx`.
    */
   identityAllowed?: ReadonlyArray<{ file: string; table: string; reason: string }>;
+  /**
+   * Also report every `.query(...)` call whose SQL cannot be resolved to text (a computed or
+   * parameter-supplied statement) outside the allowed directories, as table `UNRESOLVED_SQL`.
+   */
+  reportUnresolved?: boolean;
 }): BoundaryViolation[] {
   const allowed = opts.allowedDirs ?? ["db"];
   const cfg = ts.readConfigFile(opts.tsconfigPath, ts.sys.readFile);
@@ -98,7 +134,16 @@ export function findTenantBoundaryViolations(opts: {
         ts.isPropertyAccessExpression(node.expression) &&
         node.expression.name.text === "query"
       ) {
-        const text = sqlText(node.arguments[0]);
+        const text = sqlText(node.arguments[0], checker);
+        if (text === null && opts.reportUnresolved && node.arguments.length > 0) {
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart());
+          out.push({
+            file: rel,
+            line: line + 1,
+            table: UNRESOLVED_SQL,
+            receiverType: checker.typeToString(checker.getTypeAtLocation(node.expression.expression)),
+          });
+        }
         const m = text ? re.exec(text) : null;
         if (m) {
           const recvType = checker.getTypeAtLocation(node.expression.expression);
