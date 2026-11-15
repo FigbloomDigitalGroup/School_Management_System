@@ -48,6 +48,12 @@ export default tseslint.config(
     },
   },
   {
+    // FIG-1620: one structured, allowlisted logger. console is for the migrate CLI only.
+    files: ["apps/api/src/**/*.ts"],
+    ignores: ["apps/api/src/db/migrate.ts", "apps/api/src/openapi/**", "apps/api/src/log.ts"],
+    rules: { "no-console": "error" },
+  },
+  {
     files: ["apps/api/test/negative-controls/**/*.mjs"],
     languageOptions: { sourceType: "module", globals: globals.node },
   },

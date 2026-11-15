@@ -1,9 +1,11 @@
 import Fastify from "fastify";
+import { randomUUID } from "node:crypto";
+import { acceptableRequestId, describeError, logError, logInfo } from "./log.js";
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import type { AppConfig } from "./config.js";
 import type { AppPool } from "./db/pool.js";
-import { toClientError, AppError } from "./http/errors.js";
+import { toClientError } from "./http/errors.js";
 import { registerHealthRoutes, type Lifecycle } from "./http/routes/health.js";
 import { RequestAbortedError } from "./db/cancel.js";
 import { registerAuthRoutes } from "./http/routes/auth.js";
@@ -43,6 +45,9 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
         ? (_address: string, hop: number) => hop < config.trustProxyHops
         : false,
     bodyLimit: 64 * 1024,
+    // Correlation id: an inbound X-Request-Id is honoured only if it is a short safe token.
+    requestIdHeader: false,
+    genReqId: (req) => acceptableRequestId(req.headers["x-request-id"]) ?? randomUUID(),
     // Connection hygiene (FIG-1622). keep-alive must outlive the load balancer's idle timeout,
     // otherwise the balancer reuses a connection the server has just closed and returns 502.
     keepAliveTimeout: config.serverKeepAliveTimeoutMs,
@@ -82,8 +87,22 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
     maxAge: config.corsMaxAgeSeconds,
   });
   // Authenticated and error responses must never be stored by a shared cache.
-  app.addHook("onSend", async (_request, reply) => {
+  app.addHook("onSend", async (request, reply) => {
     if (!reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
+    reply.header("X-Request-Id", request.id);
+  });
+
+  // One access-log line per request: allowlisted identifiers and facts only (see src/log.ts).
+  app.addHook("onResponse", async (request, reply) => {
+    logInfo("request", {
+      request_id: request.id,
+      method: request.method,
+      route: request.routeOptions?.url ?? "unmatched",
+      status: reply.statusCode,
+      duration_ms: Math.round(reply.elapsedTime),
+      tenant_id: request.auth?.authz.tenantId ?? null,
+      user_id: request.auth?.user.id ?? null,
+    });
   });
 
   app.decorate("appConfig", config);
@@ -109,25 +128,32 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
     }
   });
 
-  app.setErrorHandler((err, _request, reply) => {
+  app.setErrorHandler((err, request, reply) => {
     // The client is gone; nothing to deliver and nothing to alarm on.
-    if (err instanceof RequestAbortedError) return reply.status(499).send();
+    if (err instanceof RequestAbortedError) {
+      logInfo("request_aborted", { request_id: request.id, outcome: "client_disconnect" });
+      return reply.status(499).send();
+    }
     const mapped = toClientError(err);
-    if (!(err instanceof AppError) && mapped.statusCode >= 500) {
-      const sqlstate = (err as { code?: unknown } | null)?.code;
-      console.error(
-        "[api]",
-        typeof sqlstate === "string" ? `database error ${sqlstate}` : err instanceof Error ? err.message : err,
-      );
+    if (mapped.statusCode >= 500) {
+      // Class and SQLSTATE only: never the exception or driver message.
+      logError("request_failed", {
+        request_id: request.id,
+        status: mapped.statusCode,
+        error_code: mapped.body.error.code,
+        ...describeError(err),
+      });
     }
     if (mapped.retryAfterSeconds !== undefined) {
       reply.header("Retry-After", String(mapped.retryAfterSeconds));
     }
-    return reply.status(mapped.statusCode).send(mapped.body);
+    return reply
+      .status(mapped.statusCode)
+      .send({ error: { ...mapped.body.error, request_id: request.id } });
   });
 
-  app.setNotFoundHandler((_request, reply) =>
-    reply.status(404).send({ error: { code: "not_found", message: "Not found" } }),
+  app.setNotFoundHandler((request, reply) =>
+    reply.status(404).send({ error: { code: "not_found", message: "Not found", request_id: request.id } }),
   );
 
   await registerHealthRoutes(app, pool, lifecycle);

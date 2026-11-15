@@ -1,5 +1,6 @@
 import pg from "pg";
 import type { SqlClient } from "./sql.js";
+import { describeError, logError } from "../log.js";
 
 const { Pool } = pg;
 
@@ -30,7 +31,7 @@ export function createPool(opts: CreatePoolOptions): pg.Pool {
     application_name: opts.applicationName,
   });
   pool.on("error", (err) => {
-    console.error("[api] idle pg client error:", err.message);
+    logError("db_idle_client_error", describeError(err));
   });
   return pool;
 }

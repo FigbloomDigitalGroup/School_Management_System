@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "./config.js";
 import type { AppPool } from "./db/pool.js";
 import { buildApp } from "./app.js";
+import { logError, logInfo, logWarn } from "./log.js";
 
 export interface RunningServer {
   app: FastifyInstance;
@@ -40,7 +41,8 @@ export async function startServer(
   const gracePeriodMs = opts.gracePeriodMs ?? config.shutdownGraceMs;
   const hardTimeoutMs = opts.hardTimeoutMs ?? config.shutdownHardTimeoutMs;
   const forceExit = opts.forceExit ?? ((code: number) => process.exit(code));
-  const log = opts.log ?? ((m: string) => console.log(m));
+  // Fixed messages only; the reason is a signal name or a constant, never data.
+  const log = opts.log ?? ((m: string) => (m.startsWith("figbloom-api shutdown error") ? logError(m) : m.includes("exceeded") ? logWarn(m) : logInfo(m)));
 
   const app = await buildApp(config, pool);
   try {

@@ -3,6 +3,7 @@ import { createIdentityHandle, createTxHandle, type IdentityDb, type Tx } from "
 import { applyTransactionLimits, setTenantContext, setUserContextOnly } from "./tenantContext.js";
 import { getDenialAudit, poolAcquireTimeoutError, type DenialAuditPayload } from "./errors.js";
 import { recordSecurityEvent } from "../modules/audit/audit.js";
+import { describeError, logError } from "../log.js";
 import { randomUUID } from "node:crypto";
 import {
   APPLICATION_NAME_PREFIX,
@@ -122,10 +123,8 @@ async function persistDenialAudit(
       ip: denial.ip ?? ip ?? null,
     });
   } catch (auditErr) {
-    console.error(
-      "[api] denial audit write failed after rollback:",
-      auditErr instanceof Error ? auditErr.message : auditErr,
-    );
+    // The denial is still returned as 403; the failed audit write must stay visible (class + SQLSTATE only).
+    logError("denial_audit_write_failed", { outcome: "after_rollback", ...describeError(auditErr) });
   }
 }
 

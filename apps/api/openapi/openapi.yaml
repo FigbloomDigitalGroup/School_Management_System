@@ -1107,3 +1107,9 @@ components:
               enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, service_unavailable, internal_error]
             message:
               type: string
+            request_id:
+              type: string
+              description: >
+                Correlation id of the request (additive, OI-4). Also returned in the X-Request-Id
+                response header. An inbound X-Request-Id is honoured only if it matches
+                [A-Za-z0-9._-]{8,64}; otherwise one is generated.

@@ -2,6 +2,7 @@ import type { TxOrIdentity } from "../../db/sql.js";
 import { attachDenialAudit } from "../../db/errors.js";
 import { forbidden } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
+import { describeError, logError } from "../../log.js";
 import {
   ADMIN_AREAS,
   isAdminArea,
@@ -165,10 +166,7 @@ export async function requirePermission(
         ip: opts?.ip ?? null,
       });
     } catch (auditErr) {
-      console.error(
-        "[api] denial audit write failed:",
-        auditErr instanceof Error ? auditErr.message : auditErr,
-      );
+      logError("denial_audit_write_failed", { outcome: "inline", ...describeError(auditErr) });
     }
   }
   throw err;

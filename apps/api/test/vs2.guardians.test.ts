@@ -54,6 +54,13 @@ async function waitForLockWaiter(pool: pg.Pool, timeoutMs = 5_000): Promise<void
   throw new Error("no request waited on a lock: the active-learner check does not lock the learner row");
 }
 
+/** Error bodies carry a per-request correlation id (FIG-1620); parity checks compare everything else. */
+function sansRequestId(body: { error?: Record<string, unknown> } & Record<string, unknown>) {
+  if (!body.error) return body;
+  const { request_id: _requestId, ...rest } = body.error;
+  return { ...body, error: rest };
+}
+
 describe("VS-2 guardian directory create/read and learner links", () => {
   let ctx: Ctx;
   let ids: FixtureIds;
@@ -407,7 +414,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       learners: [{ learner_id: unknownId, relationship: "mother" }],
     });
     expect(createOnArchived.statusCode).toBe(404);
-    expect(createOnArchived.json()).toEqual(createOnUnknown.json());
+    expect(sansRequestId(createOnArchived.json())).toEqual(sansRequestId(createOnUnknown.json()));
     expect(createOnUnknown.statusCode).toBe(404);
 
     const created = await postGuardian(adminToken, ids.tenantA, {
@@ -429,7 +436,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       payload: { learner_id: unknownId, relationship: "guardian" },
     });
     expect(linkArchived.statusCode).toBe(404);
-    expect(linkArchived.json()).toEqual(linkUnknown.json());
+    expect(sansRequestId(linkArchived.json())).toEqual(sansRequestId(linkUnknown.json()));
     expect(JSON.stringify(linkArchived.json())).not.toMatch(/archiv/i);
   });
 
@@ -585,7 +592,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       learners: [{ learner_id: "00000000-0000-4000-8000-000000000000", relationship: "mother" }],
     });
     expect(unknownLearner.statusCode).toBe(404);
-    expect(foreignLearner.json()).toEqual(unknownLearner.json());
+    expect(sansRequestId(foreignLearner.json())).toEqual(sansRequestId(unknownLearner.json()));
     expect(assertErrorShape(foreignLearner.json())).toEqual([]);
 
     // One valid and one foreign learner: whole request refused, nothing persisted.
@@ -650,7 +657,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       headers: bearer(adminToken, ids.tenantA),
     });
     expect(unknown.statusCode).toBe(404);
-    expect(readOther.json()).toEqual(unknown.json());
+    expect(sansRequestId(readOther.json())).toEqual(sansRequestId(unknown.json()));
 
     // A admin pointed at B's path: 403.
     const pathB = await ctx.app.inject({
