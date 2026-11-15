@@ -1,4 +1,3 @@
-import net from "node:net";
 import type pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "./support.js";
@@ -8,6 +7,7 @@ import { withTenantTransaction } from "../src/db/tenantTransaction.js";
 import { buildApp } from "../src/app.js";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { pendingQueries } from "../src/db/clientHealth.js";
+import { StallProxy, viaProxy } from "./support/stallProxy.js";
 
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
@@ -17,63 +17,6 @@ type Ctx = Awaited<ReturnType<typeof createTestApp>>;
  * figbloom_app and prove the operations are actually bounded, that timed-out connections are
  * destroyed instead of reused, and that the pool recovers.
  */
-
-/** A TCP proxy to PostgreSQL that can be stalled: sockets stay open, no bytes move. */
-class StallProxy {
-  private server: net.Server;
-  private sockets = new Set<net.Socket>();
-  private stalled = false;
-  port = 0;
-
-  constructor(private target: { host: string; port: number }) {
-    this.server = net.createServer((client) => {
-      const upstream = net.connect(this.target.port, this.target.host);
-      for (const s of [client, upstream]) {
-        this.sockets.add(s);
-        s.on("close", () => this.sockets.delete(s));
-        s.on("error", () => s.destroy());
-      }
-      client.pipe(upstream);
-      upstream.pipe(client);
-      if (this.stalled) {
-        client.pause();
-        upstream.pause();
-      }
-    });
-  }
-
-  async start(): Promise<void> {
-    await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
-    this.port = (this.server.address() as net.AddressInfo).port;
-  }
-
-  stall(): void {
-    this.stalled = true;
-    for (const s of this.sockets) s.pause();
-  }
-
-  resume(): void {
-    this.stalled = false;
-    for (const s of this.sockets) s.resume();
-  }
-
-  /** Number of currently open client-side connections (a leaked pool client keeps one open). */
-  get open(): number {
-    return this.sockets.size / 2;
-  }
-
-  async stop(): Promise<void> {
-    for (const s of this.sockets) s.destroy();
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
-  }
-}
-
-function viaProxy(runtimeUrl: string, port: number): string {
-  const u = new URL(runtimeUrl);
-  u.hostname = "127.0.0.1";
-  u.port = String(port);
-  return u.toString();
-}
 
 async function settle(ms = 50): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
