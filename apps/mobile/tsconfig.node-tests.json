@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "react-native",
+      "jest",
+      "node"
+    ]
+  },
+  "include": [
+    "src/lib/useHrLeaveAccess.test.tsx",
+    "src/lib/useSearch.test.tsx",
+    "src/screens/admin/People.test.tsx",
+    "src/screens/admin/RecordPayment.test.tsx"
+  ],
+  "exclude": []
+}
