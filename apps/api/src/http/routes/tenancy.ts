@@ -3,7 +3,7 @@ import type { AppPool } from "../../db/pool.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import { assertSameTenant, getTenant } from "../../modules/tenancy/context.js";
 import { clientIp } from "../clientIp.js";
-import { notFound } from "../errors.js";
+import { AppError, notFound } from "../errors.js";
 import { withTenantRequest } from "../tenantRequest.js";
 
 export async function registerTenancyRoutes(app: FastifyInstance, pool: AppPool): Promise<void> {
@@ -25,8 +25,13 @@ export async function registerTenancyRoutes(app: FastifyInstance, pool: AppPool)
           timezone: tenant.timezone,
           organizationId: tenant.organization_id,
         };
-      } catch {
-        throw notFound("Tenant not found");
+      } catch (err) {
+        // Only a genuine not-found/forbidden is a 404. A database failure (timeout, outage,
+        // permission) must surface as 503/500, not masquerade as a missing school.
+        if (err instanceof AppError && (err.statusCode === 404 || err.statusCode === 403)) {
+          throw notFound("Tenant not found");
+        }
+        throw err;
       }
     });
   });
