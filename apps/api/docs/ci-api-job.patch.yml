@@ -1,46 +1,37 @@
-# APPLY-READY snippet for .github/workflows/ci.yml (D-2 / FIG-1573)
-# Status: OPEN — TEAM APPROVAL. Do not merge without authorization.
+# PROPOSED additive job for .github/workflows/ci.yml (FIG-1606, D-2). NOT APPLIED.
+# .github/workflows/ci.yml is team-owned: apply only after the team approves
+# (see TEAM-APPROVAL-D2-CI.md). Paste under `jobs:` next to `checks:`.
 #
-# Insert as a sibling job next to checks / edge-functions / database-and-browser.
-# Conventions matched to existing CI:
-#   - needs: security-scan (scan never skipped)
-#   - pinned action SHAs (same as checks job)
-#   - node-version: 22
-#   - npm ci --ignore-scripts
-#   - no production secrets; DATABASE_URL points at the job's Postgres service only
+# Reuses the workflow's existing conventions: SHA-pinned actions, needs: security-scan,
+# read-only token (workflow-level permissions: contents: read), Node 22 (the version the
+# other jobs use; the Node 26 target in AD-7 is unverified and not applied).
 #
-# Notes:
-#   - @figbloom/api is already in workspaces via apps/*
-#   - API vitest suite is the integration/security suite (requires Postgres + migrate)
-#   - There is no separate apps/api lint script; eslint is run via the root flat config
-#   - Root `npm run lint` already covers apps/api when the checks job runs; this job
-#     also lints apps/api so API PRs fail even if someone later excludes the package
+# Every step must fail the job on a genuine error: no continue-on-error anywhere, no excluded
+# test, no allowlisted advisory. The database service is a throwaway local container; the
+# credentials below belong to it alone.
 
   api:
-    name: API (figbloom_api)
+    name: API (typecheck, build, migrations, RLS, tests, audit)
     needs: security-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
-        image: postgres:16
+        image: postgres:15
         env:
-          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: figbloom_api
-        ports:
-          - 5432:5432
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U postgres -d figbloom_api"
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      # Throwaway service DB only — never a hosted / developer laptop URL.
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/figbloom_api
-      AUTH_RATE_CAPACITY: "1000"
-      AUTH_RATE_REFILL: "1000"
-      API_TRUST_PROXY_HOPS: "0"
+      # The suite resets this database, so it refuses anything but loopback + figbloom_api.
+      # The tests enable LOGIN on figbloom_app with a random per-run password and reset it afterwards,
+      # so the application under test connects as figbloom_app, never as this owner.
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/figbloom_api
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -49,15 +40,21 @@
         with:
           node-version: 22
           cache: npm
-      - name: Install (lockfile)
-        run: npm ci --ignore-scripts
-      - name: API typecheck
-        run: npm run typecheck --workspace @figbloom/api
-      - name: API lint (root eslint flat config)
-        run: npx eslint "apps/api/src/**/*.ts" "apps/api/test/**/*.ts"
-      - name: API migrate (real runner)
-        run: npm run migrate --workspace @figbloom/api
-      - name: API tests (unit + integration against service Postgres)
-        run: npm run test --workspace @figbloom/api
-      - name: OpenAPI validation
-        run: npm run openapi:check --workspace @figbloom/api
+      # Lockfile integrity: npm ci fails if package-lock.json and the manifests disagree.
+      - run: npm ci --ignore-scripts
+      # Audit gate: the API workspace, production AND development dependencies, fails on ANY finding.
+      # No allowlist, no exception mechanism. (The whole-repository audit is gated separately once
+      # decision D-T2 resolves the apps/mobile findings; it must not be narrowed to hide them.)
+      - run: npm audit --workspace @figbloom/api
+      - run: npm run typecheck --workspace @figbloom/api
+      - run: npm run build --workspace @figbloom/api
+      # Compiled migrations as the migrator: apply, verify, and a second run must be a no-op.
+      - run: npm run migrate --workspace @figbloom/api
+      - run: npm run migrate:verify --workspace @figbloom/api
+      - run: npm run migrate --workspace @figbloom/api
+      - run: npm run openapi:check --workspace @figbloom/api
+      # Unit and integration suites, including: RLS and tenant isolation through the real
+      # figbloom_app login, role assertions, SECURITY DEFINER inventory and shadowing attacks,
+      # credential access, idempotency, cancellation over a real socket, headers/CORS, logging
+      # redaction, the architecture rules and the compiled-build smoke test.
+      - run: npm run test --workspace @figbloom/api
