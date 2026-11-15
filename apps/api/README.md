@@ -31,10 +31,11 @@ docker exec supabase_db_figbloom psql -U postgres -c "CREATE DATABASE figbloom_a
 | `DATABASE_URL` | the API process | `figbloom_app` | Created `NOLOGIN` by migration 004. After the first migration give it a secret with `ALTER ROLE figbloom_app LOGIN PASSWORD '...'` run as the migrator, and put that password only in your untracked `.env`. |
 
    Each entrypoint reads only its own variable and fails closed when it is absent or wrong: `migrate` stops with `MIGRATION_DATABASE_URL is required` (it does **not** fall back to `DATABASE_URL`) or when that URL connects as the runtime role; the API refuses to start unless `DATABASE_URL` connects as `RUNTIME_ROLE` and the live role passes the startup assertions (`docs/RUNTIME-DATABASE-SECURITY.md`). `figbloom_app` is a cluster-wide role: the test suite enables `LOGIN` with a random password and resets it afterwards, so do not run two suites against one cluster at once.
-3. Install, migrate (as the migrator), provision the runtime login, then run the API:
+3. Install, build, migrate (as the migrator), provision the runtime login, then run the API:
 
 ```bash
 npm install --workspace @figbloom/api
+npm run build --workspace @figbloom/api
 npm run migrate --workspace @figbloom/api
 # one-time, as the migrator: ALTER ROLE figbloom_app LOGIN PASSWORD '<your local secret>'
 npm run dev --workspace @figbloom/api
@@ -44,8 +45,10 @@ npm run dev --workspace @figbloom/api
 
 | Script | Purpose |
 |---|---|
-| `migrate` | Apply forward-only SQL in `migrations/` |
-| `dev` / `start` | Run the API |
+| `build` | Compile `src/` to `dist/` (`tsconfig.build.json`, tests excluded). Production runs this output, never `tsx`. |
+| `start` | `node dist/index.js` (run `build` first) |
+| `migrate` / `migrate:verify` | `node dist/db/migrate.js` / `--verify`: apply or verify forward-only SQL in `migrations/` from the compiled output (run `build` first) |
+| `dev` / `migrate:dev` / `migrate:verify:dev` | Development only: the same programs through `tsx` without a build |
 | `typecheck` | `tsc --noEmit` |
 | `test` | Vitest (unit + integration). **Resets the database**: refuses anything but a loopback `figbloom_api` |
 | `openapi:check` | Validate OpenAPI structure, `$ref`s and authz annotations (route parity is a test) |
