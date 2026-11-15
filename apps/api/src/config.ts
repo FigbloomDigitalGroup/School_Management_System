@@ -120,6 +120,15 @@ const ConfigSchema = z.object({
   statementTimeoutMs: z.coerce.number().int().positive().max(120_000).default(15_000),
   lockTimeoutMs: z.coerce.number().int().positive().max(120_000).default(5_000),
   idleInTransactionSessionTimeoutMs: z.coerce.number().int().positive().max(120_000).default(15_000),
+  /**
+   * Autocommit identity path (login, session lookup, rate limiting, readiness): short point
+   * statements, so tighter than the tenant transaction limits. Installed as the baseline of every
+   * pooled connection (WP-A1 review R-01).
+   */
+  identityStatementTimeoutMs: z.coerce.number().int().positive().max(120_000).default(5_000),
+  identityLockTimeoutMs: z.coerce.number().int().positive().max(120_000).default(2_000),
+  /** Client-side per-query backstop for a stalled network. Must exceed every server-side statement timeout. */
+  clientQueryTimeoutMs: z.coerce.number().int().positive().max(180_000).default(20_000),
   applicationName: z.string().min(1).max(63).default("figbloom-api"),
   /** /readyz database probe: result cache window and hard time budget (FIG-1617). */
   readinessCacheMs: z.coerce.number().int().min(0).max(60_000).default(1_000),
@@ -205,6 +214,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     statementTimeoutMs: env.STATEMENT_TIMEOUT_MS,
     lockTimeoutMs: env.LOCK_TIMEOUT_MS,
     idleInTransactionSessionTimeoutMs: env.IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS,
+    identityStatementTimeoutMs: env.IDENTITY_STATEMENT_TIMEOUT_MS,
+    identityLockTimeoutMs: env.IDENTITY_LOCK_TIMEOUT_MS,
+    clientQueryTimeoutMs: env.CLIENT_QUERY_TIMEOUT_MS,
     applicationName: env.APPLICATION_NAME,
     readinessCacheMs: env.READINESS_CACHE_MS,
     readinessTimeoutMs: env.READINESS_TIMEOUT_MS,
@@ -255,6 +267,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           "(scheme://host[:port], no path, no trailing slash, no wildcard).",
       );
     }
+  }
+  const longestServerStatementMs = Math.max(config.statementTimeoutMs, config.identityStatementTimeoutMs);
+  if (config.clientQueryTimeoutMs <= longestServerStatementMs) {
+    throw new Error(
+      "Invalid API config: CLIENT_QUERY_TIMEOUT_MS must exceed STATEMENT_TIMEOUT_MS and IDENTITY_STATEMENT_TIMEOUT_MS " +
+        "(the server-side timers must fire first; the client timer is only the backstop for a stalled network).",
+    );
   }
   if (config.serverHeadersTimeoutMs <= config.serverKeepAliveTimeoutMs) {
     throw new Error(

@@ -1,5 +1,5 @@
 import { loadConfig, loadDotEnvForLocal } from "./config.js";
-import { createPool } from "./db/pool.js";
+import { createPool, runtimePoolOptions } from "./db/pool.js";
 import { acquireClient } from "./db/tenantTransaction.js";
 import { assertRuntimeRole } from "./db/roleAssert.js";
 import { startServer } from "./server.js";
@@ -8,12 +8,7 @@ import { describeError, logError, logInfo } from "./log.js";
 async function main(): Promise<void> {
   loadDotEnvForLocal();
   const config = loadConfig();
-  const pool = createPool({
-    connectionString: config.databaseUrl,
-    max: config.poolMax,
-    applicationName: config.applicationName,
-    connectionTimeoutMillis: config.poolAcquireTimeoutMs,
-  });
+  const pool = createPool(runtimePoolOptions(config));
   try {
     const client = await acquireClient(pool, config.poolAcquireTimeoutMs);
     try {

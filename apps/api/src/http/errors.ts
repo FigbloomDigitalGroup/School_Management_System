@@ -1,3 +1,5 @@
+import { isConnectionFailure } from "../db/clientHealth.js";
+
 export type ErrorCode =
   | "unauthorized"
   | "forbidden"
@@ -91,6 +93,14 @@ const TRANSIENT_SQLSTATE = new Set([
   "57P03",
 ]);
 
+/**
+ * The database is unreachable or too slow at the connection level (refused, reset, closed, client-side
+ * read timeout). Not an application bug: a stable 503 with Retry-After, never a 500 or driver text.
+ */
+function isDatabaseUnavailable(err: unknown): boolean {
+  return isConnectionFailure(err);
+}
+
 /** Client-safe body — never include SQL, stack traces, or internal details. */
 export function toClientError(err: unknown): {
   statusCode: number;
@@ -106,6 +116,13 @@ export function toClientError(err: unknown): {
   }
   const sqlstate = (err as { code?: unknown } | null)?.code;
   if (typeof sqlstate === "string" && TRANSIENT_SQLSTATE.has(sqlstate)) {
+    return {
+      statusCode: 503,
+      body: { error: { code: "service_unavailable", message: "Service temporarily unavailable" } },
+      retryAfterSeconds: 1,
+    };
+  }
+  if (isDatabaseUnavailable(err)) {
     return {
       statusCode: 503,
       body: { error: { code: "service_unavailable", message: "Service temporarily unavailable" } },

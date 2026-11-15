@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppPool } from "../../db/pool.js";
-import { withIdentityAccess } from "../../db/identityAccess.js";
+import { checkDatabaseReady } from "../../db/identityAccess.js";
 
 /**
  * Probes (FIG-1617, OI-5).
@@ -12,7 +12,8 @@ import { withIdentityAccess } from "../../db/identityAccess.js";
  * contract change.)
  *
  * /readyz: readiness. 503 while draining (shutdown has begun) or when a bounded
- * database check fails. At most one probe runs at a time and its result is
+ * database check fails (acquire budget, statement timeout and a client-side read timeout all apply;
+ * a probe that times out gives its connection up rather than leaving it checked out). At most one probe runs at a time and its result is
  * cached for readinessCacheMs, so probes cannot multiply database load.
  * Bodies carry no internal detail.
  */
@@ -39,13 +40,7 @@ export async function registerHealthRoutes(
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        withIdentityAccess(
-          pool,
-          async (db) => {
-            await db.query("SELECT 1");
-          },
-          { acquireTimeoutMs: budget },
-        ),
+        checkDatabaseReady(pool, { acquireTimeoutMs: budget, queryTimeoutMs: config.readinessTimeoutMs }),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => reject(new Error("readiness probe timed out")), config.readinessTimeoutMs);
         }),

@@ -4,7 +4,7 @@ import { loadConfig } from "../src/config.js";
 import { hashPassword } from "../src/modules/identity/password.js";
 import { buildApp } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
-import { createPool } from "../src/db/pool.js";
+import { createPool, runtimePoolOptions } from "../src/db/pool.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { assertRuntimeRole } from "../src/db/roleAssert.js";
 import { setLogSink } from "../src/log.js";
@@ -173,12 +173,9 @@ export async function createTestApp(): Promise<{
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousDatabaseUrl;
   }
-  const runtimePool = createPool({
-    connectionString: runtimeUrl,
-    max: config.poolMax,
-    applicationName: "figbloom-api-test",
-    connectionTimeoutMillis: config.poolAcquireTimeoutMs,
-  });
+  const runtimePool = createPool(
+    runtimePoolOptions(config, { connectionString: runtimeUrl, applicationName: "figbloom-api-test" }),
+  );
   const probe = await runtimePool.connect();
   try {
     await assertRuntimeRole(probe, { expectedRole: config.runtimeRole });

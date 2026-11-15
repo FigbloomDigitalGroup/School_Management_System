@@ -4,6 +4,7 @@ import { applyTransactionLimits, setTenantContext, setUserContextOnly } from "./
 import { getDenialAudit, poolAcquireTimeoutError, type DenialAuditPayload } from "./errors.js";
 import { recordSecurityEvent } from "../modules/audit/audit.js";
 import { describeError, logError } from "../log.js";
+import { isConnectionFailure, markPoisoned, releaseClient } from "./clientHealth.js";
 import { randomUUID } from "node:crypto";
 import {
   APPLICATION_NAME_PREFIX,
@@ -72,9 +73,16 @@ export async function acquireClient(pool: pg.Pool, acquireTimeoutMs: number): Pr
 
 /** ROLLBACK that never hides the original error. */
 export async function guardedRollback(client: pg.PoolClient, original: unknown): Promise<never> {
+  // A stalled or dead connection cannot take a ROLLBACK (it would queue behind the stuck
+  // statement). Destroy it instead: closing the socket ends the transaction on the server.
+  if (isConnectionFailure(original)) {
+    markPoisoned(client);
+    throw original;
+  }
   try {
     await client.query("ROLLBACK");
   } catch (rollbackErr) {
+    markPoisoned(client);
     const primary = original instanceof Error ? original.message : String(original);
     const secondary = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
     const wrapped = new Error(`Transaction failed (${primary}); rollback also failed (${secondary})`);
@@ -211,11 +219,12 @@ export async function withTenantTransaction<T>(
       );
     }
   } catch (err) {
+    if (isConnectionFailure(err)) markPoisoned(client);
     failure = input.signal?.aborted && isQueryCanceled(err) ? new RequestAbortedError() : err;
   } finally {
     cancellable = false;
     if (onAbort && input.signal) input.signal.removeEventListener("abort", onAbort);
-    client.release();
+    releaseClient(client);
   }
 
   if (failure !== undefined) {

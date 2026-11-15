@@ -7,6 +7,7 @@ import {
   guardedRollback,
   type TransactionLimits,
 } from "./tenantTransaction.js";
+import { isConnectionFailure, markPoisoned, releaseClient } from "./clientHealth.js";
 import { applyTransactionLimits, setUserContextOnly } from "./tenantContext.js";
 
 /**
@@ -20,6 +21,12 @@ import { applyTransactionLimits, setUserContextOnly } from "./tenantContext.js";
  * Without a matching context, tenant RLS returns zero rows.
  * Statements here are autocommit unless a scoped helper starts a transaction,
  * so rate-limit writes and failed-login events survive later rollbacks.
+ *
+ * Bounded (WP-A1 review R-01): every pooled connection carries session-level baseline limits
+ * (statement, lock, idle-in-transaction) installed when it is created (createPool), so these
+ * autocommit statements cannot wait forever on a lock or run unbounded. A client-side read
+ * timeout backstop covers a stalled network, where no server-side timer can fire. A
+ * connection that timed out or still has a query in flight is destroyed, not reused.
  */
 export async function withIdentityAccess<T>(
   pool: pg.Pool,
@@ -29,9 +36,32 @@ export async function withIdentityAccess<T>(
   const client = await acquireClient(pool, opts?.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS);
   try {
     return await fn(createIdentityHandle(client));
+  } catch (err) {
+    if (isConnectionFailure(err)) markPoisoned(client);
+    throw err;
   } finally {
-    client.release();
+    // Destroys the connection when a query timed out client-side or is still in flight.
+    releaseClient(client);
   }
+}
+
+/**
+ * Readiness check: one `SELECT 1` bounded by the acquire budget, the server-side baseline and a
+ * client-side read timeout. If the database or the network stalls, the query is abandoned and
+ * withIdentityAccess destroys the connection instead of returning it to the pool, so repeated
+ * probes during an outage cannot exhaust the pool (WP-A1 review R-01).
+ */
+export async function checkDatabaseReady(
+  pool: pg.Pool,
+  opts: { acquireTimeoutMs: number; queryTimeoutMs: number },
+): Promise<void> {
+  await withIdentityAccess(
+    pool,
+    async (db) => {
+      await db.query({ text: "SELECT 1", query_timeout: opts.queryTimeoutMs } as pg.QueryConfig);
+    },
+    { acquireTimeoutMs: opts.acquireTimeoutMs },
+  );
 }
 
 /**
@@ -57,7 +87,10 @@ export async function withIdentityUserScope<T>(
     } catch (err) {
       return await guardedRollback(client, err);
     }
+  } catch (err) {
+    if (isConnectionFailure(err)) markPoisoned(client);
+    throw err;
   } finally {
-    client.release();
+    releaseClient(client);
   }
 }
