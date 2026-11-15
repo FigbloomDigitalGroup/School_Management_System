@@ -54,25 +54,50 @@ export async function createSession(
   return { token, session: result.rows[0]! };
 }
 
-export async function findValidSession(db: Db, token: string): Promise<SessionRow | null> {
+/**
+ * Validate a session and, at most once per interval, record that it was seen (FIG-1624).
+ *
+ * Validity (not revoked, not expired) is evaluated by every call, in the same single
+ * statement that may write, so throttling can never extend a revoked or expired session.
+ * The write is one conditional UPDATE: `last_seen_at` moves only when it is older than
+ * the interval, and the staleness test is re-checked against the locked row, so
+ * concurrent requests on a stale session produce one write, not several (no
+ * read-modify-write race). An interval of 0 restores a write on every request.
+ */
+export async function findValidSession(
+  db: Db,
+  token: string,
+  lastSeenIntervalSeconds = 0,
+): Promise<SessionRow | null> {
   const tokenHash = hashSessionToken(token);
   const result = await db.query<SessionRow>(
-    `SELECT id, user_id, active_tenant_id, active_organization_id, expires_at, revoked_at
-     FROM sessions
-     WHERE token_hash = $1
-       AND revoked_at IS NULL
-       AND expires_at > now()`,
-    [tokenHash],
+    `WITH valid AS (
+       SELECT id, user_id, active_tenant_id, active_organization_id, expires_at, revoked_at
+         FROM sessions
+        WHERE token_hash = $1
+          AND revoked_at IS NULL
+          AND expires_at > now()
+     ), touched AS (
+       UPDATE sessions s
+          SET last_seen_at = now()
+         FROM valid v
+        WHERE s.id = v.id
+          AND s.last_seen_at <= now() - make_interval(secs => $2::double precision)
+       RETURNING s.id
+     )
+     SELECT id, user_id, active_tenant_id, active_organization_id, expires_at, revoked_at FROM valid`,
+    [tokenHash, lastSeenIntervalSeconds],
   );
-  const row = result.rows[0];
-  if (!row) return null;
-  await db.query(`UPDATE sessions SET last_seen_at = now() WHERE id = $1`, [row.id]);
-  return row;
+  return result.rows[0] ?? null;
 }
 
-export async function requireSession(db: Db, token: string | undefined | null): Promise<SessionRow> {
+export async function requireSession(
+  db: Db,
+  token: string | undefined | null,
+  lastSeenIntervalSeconds = 0,
+): Promise<SessionRow> {
   if (!token) throw unauthorized();
-  const session = await findValidSession(db, token);
+  const session = await findValidSession(db, token, lastSeenIntervalSeconds);
   if (!session) throw unauthorized("Invalid or expired session");
   return session;
 }

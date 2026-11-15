@@ -46,7 +46,7 @@ export function routeKey(request: FastifyRequest): string {
 
 export async function requireSessionAuth(db: IdentityDb, request: FastifyRequest): Promise<SessionAuth> {
   const token = bearerToken(request.headers.authorization);
-  const session = await requireSession(db, token);
+  const session = await requireSession(db, token, request.server.appConfig.sessionLastSeenIntervalSeconds);
   const user = await loadUser(db, session.user_id);
   return { session, user };
 }

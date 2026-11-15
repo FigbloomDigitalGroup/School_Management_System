@@ -72,6 +72,12 @@ const ConfigSchema = z.object({
   host: z.string().default("127.0.0.1"),
   port: z.coerce.number().int().positive().default(4100),
   sessionTtlSeconds: z.coerce.number().int().positive().default(43_200),
+  /**
+   * last_seen_at is written at most once per interval per session (FIG-1624, AD-11).
+   * Validity checks (expiry, revocation, user and tenant state) run on every request regardless.
+   * 0 = write on every request.
+   */
+  sessionLastSeenIntervalSeconds: z.coerce.number().int().min(0).max(3_600).default(300),
   authRateCapacity: z.coerce.number().positive().default(5),
   authRateRefill: z.coerce.number().positive().default(2),
   authRateIntervalMs: z.coerce.number().int().positive().default(5_000),
@@ -126,6 +132,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host: env.API_HOST,
     port: env.API_PORT,
     sessionTtlSeconds: env.SESSION_TTL_SECONDS,
+    sessionLastSeenIntervalSeconds: env.SESSION_LAST_SEEN_INTERVAL_SECONDS,
     authRateCapacity: env.AUTH_RATE_CAPACITY,
     authRateRefill: env.AUTH_RATE_REFILL,
     authRateIntervalMs: env.AUTH_RATE_INTERVAL_MS,
