@@ -15,6 +15,9 @@ test-results/
 supabase/.branches/
 supabase/.temp/
 
+# Local portable toolchains / downloaded binaries (session tooling only; never commit)
+.tools/
+
 # Native Android project (apps/mobile/android)
 .gradle/
 local.properties
