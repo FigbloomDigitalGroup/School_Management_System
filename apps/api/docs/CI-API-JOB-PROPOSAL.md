@@ -23,7 +23,7 @@ The job is in [`ci-api-job.patch.yml`](./ci-api-job.patch.yml) (YAML-validated l
 
 - **No remote proof.** Verifying the job on GitHub needs a push or a pull request; neither is authorised. What exists is local evidence: each gate was run against deliberately broken input and exited non-zero (type error: typecheck exit 2; edited historical migration: `migrate:verify` exit 1; duplicated OpenAPI operation id: `openapi:check` exit 1; the pre-Zod lockfile: `npm audit` exit 1 naming zod/vitest/mocker findings).
 - **Whole-repository audit is not gated here.** `npm audit` over all workspaces reports 35 findings (29 in `apps/mobile`'s tree, 6 in the root `typescript-eslint` chain) that decision D-T2 and a typescript-estree release must resolve. The API-workspace gate is 0 findings. A repository-wide gate must not be narrowed to hide them.
-- Node 26 (AD-7) is unverified: no runtime, no team confirmation. The job uses Node 22 like its siblings.
+- Node 26 (AD-7 / OD-5): a portable local binary (v26.12.1) ran typecheck, build and the full API suite successfully on 2026-11-16; **`engines` and this CI proposal still pin Node 22** until team confirmation. The job uses Node 22 like its siblings.
 
 ## How to apply (after approval)
 
