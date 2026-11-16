@@ -1,4 +1,10 @@
 import type pg from "pg";
+import {
+  buildSelftestPayload,
+  newProofNonce,
+  signSessionProof,
+  type SessionHmacStatus,
+} from "../modules/auth/sessionProof.js";
 import { createIdentityHandle, type IdentityDb } from "./sql.js";
 import {
   acquireClient,
@@ -53,12 +59,23 @@ export async function withIdentityAccess<T>(
  */
 export async function checkDatabaseReady(
   pool: pg.Pool,
-  opts: { acquireTimeoutMs: number; queryTimeoutMs: number },
-): Promise<void> {
-  await withIdentityAccess(
+  opts: { acquireTimeoutMs: number; queryTimeoutMs: number; sessionMintHmacKey?: string },
+): Promise<SessionHmacStatus | undefined> {
+  return withIdentityAccess(
     pool,
     async (db) => {
       await db.query({ text: "SELECT 1", query_timeout: opts.queryTimeoutMs } as pg.QueryConfig);
+      if (!opts.sessionMintHmacKey) return undefined;
+      // HMAC self-test (migration 015): the database reports ok / mismatch / no_secret and never
+      // returns key material. A deployment with migration 014 but no matching secret is not ready.
+      const nonce = newProofNonce();
+      const mac = signSessionProof(opts.sessionMintHmacKey, buildSelftestPayload(nonce));
+      const res = await db.query<{ status: SessionHmacStatus }>({
+        text: "SELECT public.auth_session_hmac_status($1::text, $2::text) AS status",
+        values: [nonce, mac],
+        query_timeout: opts.queryTimeoutMs,
+      } as pg.QueryConfig);
+      return res.rows[0]?.status ?? "invalid";
     },
     { acquireTimeoutMs: opts.acquireTimeoutMs },
   );

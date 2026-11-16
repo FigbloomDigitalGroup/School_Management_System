@@ -81,12 +81,21 @@ SELECT public.prune_rate_buckets(interval '1 day');
 ```
 `prune_idempotency_keys(grace, batch)` deletes only expired rows, at most `batch` per call, and keeps rows expired less than `grace` ago. Schedule it (for example daily) from the platform's scheduler; there is deliberately no in-process timer. The runtime role cannot execute either function.
 
+Session proof nonces (migration 014/015) are also operator-purged, hourly is ample:
+
+```
+node scripts/session-hmac.mjs purge-nonces --batch 1000 --max-batches 50
+```
+A nonce is deleted only when its expiry has passed and it is over an hour old, so replay protection is never weakened; batches skip locked rows and stay short. Provisioning and rotation of the HMAC secret are in `SESSION-HMAC-PROVISIONING.md`.
+
 ## Health and readiness contract (review: `/health` change)
 
 | Path | Meaning | Use it for | Database |
 |---|---|---|---|
 | `/livez`, `/health`, `/v1/health` | the process is serving HTTP | orchestrator **liveness**: restart a process only when this fails | never; they stay 200 during a database outage and during drain |
 | `/readyz` | ready to take traffic | load-balancer **readiness**; deployment gates | one bounded `SELECT 1` (acquire budget, server baseline, client read timeout), single-flight, cached `READINESS_CACHE_MS` |
+
+`/readyz` additionally runs the session-mint HMAC self-test (migration 015). A database with no provisioned secret, or one that does not match this process's `SESSION_MINT_HMAC_KEY`, answers 503 `{"status":"unavailable","reason":"configuration"}` (cause logged, no key material), so a deployment is not ready merely because migration 014 exists.
 
 `/health` and `/v1/health` used to run `SELECT 1` and returned a generic 500 on database failure. They now behave like `/livez` (same body, same status), identically in both API versions. **Consumer impact:** anything that polled `/health` to learn whether PostgreSQL was reachable now sees 200 while the database is down and must poll `/readyz` instead. No consumer exists in this repository (the web and mobile clients do not call `apps/api` yet; GRAPH Stage 15), and no deployment manifest exists to update; `GET /health` is documented in `openapi/openapi.yaml`. Tests: `test/lifecycle.http.test.ts` (database down: liveness 200, readiness 503, bounded, no internal detail) and `test/identityBounds.test.ts` (a stalled network).
 
@@ -111,4 +120,4 @@ Forward-only; the runner takes a session advisory lock with a bounded wait (`MIG
 
 ## Deployment prerequisites (not performed)
 
-PostgreSQL with the migrator and `figbloom_app` roles provisioned out of band; secrets from a secret store; TLS to the database; a load balancer health check on `/readyz`; Node runtime matching `engines` (`>=20`; verified on 24.16.0 only); no Redis, queue, worker or scheduler is required or provided.
+PostgreSQL with the migrator and `figbloom_app` roles provisioned out of band; secrets from a secret store; TLS to the database; a load balancer health check on `/readyz`; Node runtime matching `engines` (`>=20`; verified on 24.16.0 only); no Redis, queue or worker is required or provided; housekeeping (idempotency keys, rate buckets, proof nonces) is operator-scheduled. **Before the first start with migration 014/015:** provision the session-mint HMAC secret and set `SESSION_MINT_HMAC_KEY` (`SESSION-HMAC-PROVISIONING.md`); `/readyz` stays 503 until they match.

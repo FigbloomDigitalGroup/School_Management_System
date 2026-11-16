@@ -18,7 +18,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty",
     "test": "vitest run",
     "test:watch": "vitest",
-    "openapi:check": "tsx src/openapi/validate.ts"
+    "openapi:check": "tsx src/openapi/validate.ts",
+    "session-hmac": "node scripts/session-hmac.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.3",
