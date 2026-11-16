@@ -6,7 +6,9 @@ import { clientIp } from "../clientIp.js";
 import { forbidden, validationError } from "../errors.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import { assertSameTenant } from "../../modules/tenancy/context.js";
+import { pageFromKeysetRows, parseListQuery } from "../pagination.js";
 import { withTenantRequest } from "../tenantRequest.js";
+import { parseOrThrow } from "../validation.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import {
   addGuardianLink,
@@ -18,7 +20,7 @@ import {
   GUARDIAN_NAME_MAX_LENGTH,
   GUARDIAN_NAME_PATTERN,
   GUARDIAN_PHONE_PATTERN,
-  listGuardiansForLearner,
+  listGuardiansForLearnerPage,
   getCreatedGuardianView,
   getGuardianLinkById,
 } from "../../modules/directory/guardians.js";
@@ -76,12 +78,11 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
     const params = request.params as { tenantId: string };
     uuidParam(params.tenantId, "tenantId");
     rejectClientSuppliedPermissions(request.body);
-    const parsed = CreateGuardianSchema.safeParse(request.body);
-    if (!parsed.success) {
-      throw validationError(
-        "full_name and at least one learner (learner_id, relationship mother|father|guardian) are required; optional phone, alt_phone and email",
-      );
-    }
+    const parsed = parseOrThrow(
+      CreateGuardianSchema,
+      request.body,
+      "full_name and at least one learner (learner_id, relationship mother|father|guardian) are required; optional phone, alt_phone and email",
+    );
     const key = parseIdempotencyKey(request.headers["idempotency-key"]);
     const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       assertSameTenant(auth.authz.tenantId, params.tenantId);
@@ -98,17 +99,17 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         key,
         config: app.appConfig,
         routeTemplate: "POST /v1/tenants/:tenantId/guardians",
-        fingerprintInput: { params, body: parsed.data },
+        fingerprintInput: { params, body: parsed },
         status: 201,
         execute: async () => {
           const guardian = await createGuardian(tx, {
             tenantId: params.tenantId,
             actorUserId: auth.user.id,
-            full_name: parsed.data.full_name,
-            phone: parsed.data.phone ?? null,
-            alt_phone: parsed.data.alt_phone ?? null,
-            email: parsed.data.email ?? null,
-            learners: parsed.data.learners,
+            full_name: parsed.full_name,
+            phone: parsed.phone ?? null,
+            alt_phone: parsed.alt_phone ?? null,
+            email: parsed.email ?? null,
+            learners: parsed.learners,
             ip: clientIp(request),
           });
           return { value: { guardian }, resourceType: "guardian", resourceId: guardian.id };
@@ -148,12 +149,11 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
     uuidParam(params.tenantId, "tenantId");
     uuidParam(params.guardianId, "guardianId");
     rejectClientSuppliedPermissions(request.body);
-    const parsed = LinkSchema.safeParse(request.body);
-    if (!parsed.success) {
-      throw validationError(
-        "learner_id and relationship (mother|father|guardian) are required; optional is_primary_payer",
-      );
-    }
+    const parsed = parseOrThrow(
+      LinkSchema,
+      request.body,
+      "learner_id and relationship (mother|father|guardian) are required; optional is_primary_payer",
+    );
     const key = parseIdempotencyKey(request.headers["idempotency-key"]);
     const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       assertSameTenant(auth.authz.tenantId, params.tenantId);
@@ -169,14 +169,14 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         key,
         config: app.appConfig,
         routeTemplate: "POST /v1/tenants/:tenantId/guardians/:guardianId/links",
-        fingerprintInput: { params, body: parsed.data },
+        fingerprintInput: { params, body: parsed },
         status: 201,
         execute: async () => {
           const link = await addGuardianLink(tx, {
             tenantId: params.tenantId,
             guardianId: params.guardianId,
             actorUserId: auth.user.id,
-            link: parsed.data,
+            link: parsed,
             ip: clientIp(request),
           });
           return { value: { link }, resourceType: "guardian_link", resourceId: link.id };
@@ -196,22 +196,36 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
     uuidParam(params.tenantId, "tenantId");
     uuidParam(params.learnerId, "learnerId");
     return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
-    assertSameTenant(auth.authz.tenantId, params.tenantId);
-    await requirePermission(tx, auth.authz, "resource.guardian.read", {
-      ip: clientIp(request),
-      deferAudit: true,
-    });
-    await requirePermission(tx, auth.authz, "resource.learner.read", {
-      ip: clientIp(request),
-      deferAudit: true,
-    });
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      await requirePermission(tx, auth.authz, "resource.guardian.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      await requirePermission(tx, auth.authz, "resource.learner.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
 
-    const guardians = await listGuardiansForLearner(tx, {
-      tenantId: params.tenantId,
-      learnerId: params.learnerId,
-      actorUserId: auth.user.id,
-    });
-    return { guardians };
+      const query = request.query as Record<string, unknown>;
+      const sort = "link_created_at";
+      const { limit, cursor, fingerprint } = parseListQuery(query, {
+        sort,
+        filter: { tenantId: params.tenantId, learnerId: params.learnerId },
+        keySpecs: [{ kind: "timestamptz_micros" }, { kind: "uuid" }],
+      });
+      const guardians = await listGuardiansForLearnerPage(tx, {
+        tenantId: params.tenantId,
+        learnerId: params.learnerId,
+        actorUserId: auth.user.id,
+        limit: limit + 1,
+        after: cursor ? { createdAt: cursor.k[0]!, linkId: cursor.k[1]! } : null,
+      });
+      return pageFromKeysetRows(guardians, {
+        limit,
+        sort,
+        fingerprint,
+        keysOf: (g) => [g.created_at, g.linkId],
+      });
     });
   });
 }

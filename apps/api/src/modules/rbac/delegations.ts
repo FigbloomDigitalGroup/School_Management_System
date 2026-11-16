@@ -210,39 +210,84 @@ export async function revokeOrgAdminDelegations(
   return { revoked };
 }
 
-export async function listOrgAdminDelegations(
+export type DelegationListStatus = "active" | "revoked" | "all";
+
+export type OrgDelegationListRow = {
+  id: string;
+  delegateUserId: string;
+  permissionCode: string;
+  grantedBy: string;
+  /** ISO-8601 UTC with microseconds from PostgreSQL (cursor key). */
+  createdAt: string;
+  revokedAt: string | null;
+};
+
+/**
+ * SQL keyset page for org-admin delegations.
+ * ORDER BY created_at DESC, id ASC — mixed-direction predicate (FIG-1621):
+ * `created_at < $ts OR (created_at = $ts AND id > $id)`.
+ */
+export async function listOrgAdminDelegationsPage(
   db: TxOrIdentity,
-  tenantId: string,
-): Promise<
-  Array<{
-    id: string;
-    delegateUserId: string;
-    permissionCode: string;
-    grantedBy: string;
-    createdAt: Date;
-    revokedAt: Date | null;
-  }>
-> {
+  input: {
+    tenantId: string;
+    status?: DelegationListStatus;
+    limit: number;
+    after?: { createdAt: string; id: string } | null;
+  },
+): Promise<OrgDelegationListRow[]> {
+  const status = input.status ?? "active";
+  const statusClause =
+    status === "active"
+      ? "AND revoked_at IS NULL"
+      : status === "revoked"
+        ? "AND revoked_at IS NOT NULL"
+        : "";
+  const params: unknown[] = [input.tenantId];
+  let keyset = "";
+  if (input.after) {
+    params.push(input.after.createdAt, input.after.id);
+    keyset = `AND (created_at < $${params.length - 1}::timestamptz
+                   OR (created_at = $${params.length - 1}::timestamptz AND id > $${params.length}::uuid))`;
+  }
+  params.push(input.limit);
+  const limitParam = `$${params.length}`;
   const result = await db.query<{
     id: string;
     delegate_user_id: string;
     permission_code: string;
     granted_by: string;
-    created_at: Date;
-    revoked_at: Date | null;
+    created_at_text: string;
+    revoked_at_text: string | null;
   }>(
-    `SELECT id, delegate_user_id, permission_code, granted_by, created_at, revoked_at
+    `SELECT id, delegate_user_id, permission_code, granted_by,
+            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_text,
+            CASE WHEN revoked_at IS NULL THEN NULL
+                 ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+            END AS revoked_at_text
      FROM org_admin_school_delegations
      WHERE tenant_id = $1
-     ORDER BY created_at DESC, permission_code`,
-    [tenantId],
+     ${statusClause}
+     ${keyset}
+     ORDER BY created_at DESC, id
+     LIMIT ${limitParam}`,
+    params,
   );
   return result.rows.map((r) => ({
     id: r.id,
     delegateUserId: r.delegate_user_id,
     permissionCode: r.permission_code,
     grantedBy: r.granted_by,
-    createdAt: r.created_at,
-    revokedAt: r.revoked_at,
+    createdAt: r.created_at_text,
+    revokedAt: r.revoked_at_text,
   }));
+}
+
+/** @deprecated Prefer listOrgAdminDelegationsPage — retained for non-paginated callers. */
+export async function listOrgAdminDelegations(
+  db: TxOrIdentity,
+  tenantId: string,
+  status: DelegationListStatus = "active",
+): Promise<OrgDelegationListRow[]> {
+  return listOrgAdminDelegationsPage(db, { tenantId, status, limit: 10_000, after: null });
 }

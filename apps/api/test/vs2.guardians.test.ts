@@ -204,7 +204,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       headers: bearer(adminToken, ids.tenantA),
     });
     expect(listed.statusCode).toBe(200);
-    expect(listed.json().guardians.map((x: { full_name: string }) => x.full_name)).toEqual(["Peter Kamau"]);
+    expect(listed.json().items.map((x: { full_name: string }) => x.full_name)).toEqual(["Peter Kamau"]);
   });
 
   it("lists the guardians of a learner", async () => {
@@ -225,7 +225,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       headers: bearer(adminToken, ids.tenantA),
     });
     expect(list.statusCode).toBe(200);
-    const guardians = list.json().guardians as Array<{ full_name: string; relationship: string }>;
+    const guardians = list.json().items as Array<{ full_name: string; relationship: string }>;
     expect(guardians.map((x) => x.full_name)).toEqual(["Mary Listed", "John Listed"]);
     expect(guardians.map((x) => x.relationship)).toEqual(["mother", "father"]);
 
@@ -236,7 +236,8 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       headers: bearer(adminToken, ids.tenantA),
     });
     expect(none.statusCode).toBe(200);
-    expect(none.json().guardians).toEqual([]);
+    expect(none.json().items).toEqual([]);
+    expect(none.json().page.next_cursor).toBeNull();
   });
 
   it("area.people alone does not grant guardian contact access (F-6)", async () => {
@@ -697,7 +698,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       headers: bearer(adminBToken, ids.tenantB),
     });
     expect(bList.statusCode).toBe(200);
-    expect(bList.json().guardians.map((x: { full_name: string }) => x.full_name)).toEqual(["Tenant B Guardian"]);
+    expect(bList.json().items.map((x: { full_name: string }) => x.full_name)).toEqual(["Tenant B Guardian"]);
   });
 
   it("refuses duplicate guardian-learner relationships with a clean conflict", async () => {

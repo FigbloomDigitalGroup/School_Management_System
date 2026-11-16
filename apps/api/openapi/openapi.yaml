@@ -35,10 +35,13 @@ paths:
       tags: [health]
       summary: Readiness
       description: >
-        200 when the bounded database check succeeds and the process is not draining.
-        503 while shutting down (`{"status":"draining"}`) or when the database check fails or
-        times out (`{"status":"unavailable"}`). The check is single-flight and cached briefly,
-        so probes cannot multiply database load. No internal detail is returned.
+        200 when the bounded database check succeeds, the session-mint HMAC self-test passes
+        and the process is not draining.
+        503 while shutting down (`{"status":"draining"}`), when the database check fails or
+        times out (`{"status":"unavailable"}`), or when the database has no HMAC secret or one
+        that does not match this process's key (`{"status":"unavailable","reason":"configuration"}`;
+        login would fail closed). The check is single-flight and cached briefly,
+        so probes cannot multiply database load. No internal detail or key material is returned.
       operationId: readyz
       x-figbloom-authz: public
       responses:
@@ -157,7 +160,10 @@ paths:
           description: >-
             Identity snapshot. `authz` is null when the session's school is no
             longer usable (membership archived, school suspended); the caller can
-            then still list memberships and call select-tenant.
+            then still list memberships and call select-tenant. Memberships are
+            returned in full (ordered by created_at, id) up to a hard safety
+            bound of 2000; overflow yields HTTP 409 and never silent truncation.
+            `membershipsComplete` is true when the full authorised set is present.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
@@ -266,8 +272,15 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions: [rbac.permissions.read]
       x-figbloom-tenantScope: session
+      description: >
+        Effective permission codes are SQL keyset-paginated as `items` ordered by
+        `code` (FIG-1621). Clients that need the full set must follow `next_cursor`.
+        This is a UX hint only; every endpoint re-checks permission server-side.
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
       responses:
         "400":
           $ref: "#/components/responses/ValidationError"
@@ -541,9 +554,15 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
       responses:
         "200":
-          description: Guardians linked to the learner
+          description: >
+            Guardians linked to the learner. SQL keyset on
+            `(link.created_at, link.id)` ascending; timestamps in cursors keep
+            PostgreSQL microsecond precision.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LearnerGuardiansResponse" }
@@ -561,18 +580,29 @@ paths:
       summary: Aggregate member-school summaries for the caller's organizations (R2-05)
       description: >
         Organization-level aggregate visibility only. Does not grant school-admin
-        or learner record access. Requires org.tenants.read.
+        or learner record access. Requires org.tenants.read. SQL keyset-paginated
+        (FIG-1621): `{ items, page: { limit, next_cursor } }`. Order is
+        `organization.name, tenant.name, tenant.id` with `COLLATE "C"` on both
+        the ORDER BY and the cursor predicate (locale-independent). The cursor is opaque and
+        identifies the last school by id (names are unbounded, so they are never embedded); a
+        cursor whose school is no longer in the caller's set is `400 validation_error`.
       operationId: listOrgSchools
       security: [{ bearerAuth: [] }]
       x-figbloom-authz: permission
       x-figbloom-permissions: [org.tenants.read]
       x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
       responses:
         "200":
           description: Member school summaries
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OrgSchoolList" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -581,6 +611,11 @@ paths:
     get:
       tags: [rbac]
       summary: List org-admin school delegations for the active school
+      description: >
+        SQL keyset-paginated (FIG-1621) on `created_at DESC, id ASC` with a
+        mixed-direction predicate. Query `status` defaults to `active`
+        (only non-revoked rows) — behavioural change from the pre-pagination
+        endpoint that returned revoked history too. Pass `revoked` or `all` to widen.
       operationId: listOrgDelegations
       security: [{ bearerAuth: [] }]
       x-figbloom-authz: permission
@@ -588,12 +623,22 @@ paths:
       x-figbloom-tenantScope: session
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+        - name: status
+          in: query
+          required: false
+          description: Filter by revocation state. Default `active` (breaking vs pre-FIG-1621).
+          schema: { type: string, enum: [active, revoked, all], default: active }
       responses:
         "200":
           description: Delegation rows
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OrgDelegationList" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -739,6 +784,33 @@ components:
         reach or platform super-admin, re-checked on every request. Must be a
         UUID (400 otherwise). Absent: the session's active school applies.
       schema: { type: string, format: uuid }
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      description: >
+        Page size (FIG-1621). Default 50, maximum 200. Decimal integers only;
+        values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    PageCursor:
+      name: cursor
+      in: query
+      required: false
+      description: >
+        Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are
+        PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter
+        and tenant/org scope fingerprint. Wrong version, wrong key types, reuse
+        across tenants/filters/sorts, truncation or tampering → `400 validation_error`.
+        Cursors carry no privilege.
+      schema: { type: string, minLength: 8, maxLength: 2048 }
+    PageSortUnsupported:
+      name: sort
+      in: query
+      required: false
+      description: >
+        Not supported on this endpoint. Only the documented fixed sort is used.
+        Any other value is `400 validation_error` (never silently ignored).
+      schema: { type: string }
   responses:
     ValidationError:
       description: Malformed or oversized request
@@ -828,7 +900,7 @@ components:
         user: { $ref: "#/components/schemas/PublicUser" }
     Me:
       type: object
-      required: [user, session, memberships, authz]
+      required: [user, session, memberships, membershipsComplete, authz]
       properties:
         user: { $ref: "#/components/schemas/PublicUser" }
         session:
@@ -839,6 +911,7 @@ components:
             expiresAt: { type: string, format: date-time }
         memberships:
           type: array
+          maxItems: 2000
           items:
             type: object
             properties:
@@ -846,6 +919,9 @@ components:
               role: { type: string }
               loginId: { type: [string, "null"] }
               tenantStatus: { type: string }
+        membershipsComplete:
+          type: boolean
+          description: True when the response includes every authorised membership (no silent truncation).
         authz:
           type: [object, "null"]
           properties:
@@ -861,6 +937,12 @@ components:
         status: { type: string }
         timezone: { type: string }
         organizationId: { type: string, format: uuid }
+    PageInfo:
+      type: object
+      required: [limit, next_cursor]
+      properties:
+        limit: { type: integer, minimum: 1, maximum: 200 }
+        next_cursor: { type: [string, "null"] }
     PermissionSet:
       type: object
       required:
@@ -872,13 +954,15 @@ components:
           isSuperAdmin,
           delegatedPermissions,
           actingVia,
-          permissions,
+          items,
+          page,
         ]
       description: >-
         The single source a client may use to decide which actions and
         navigation to SHOW. It is a UX hint only; every endpoint re-checks the
         same permission server-side. R2-05: org admins do not automatically
         mayAdminister; school powers appear only via delegatedPermissions.
+        Effective permission codes are keyset-paginated as `items` (FIG-1621).
       properties:
         role: { type: string }
         tenantId: { type: string, format: uuid }
@@ -887,12 +971,13 @@ components:
         isSuperAdmin: { type: boolean }
         delegatedPermissions: { type: array, items: { type: string } }
         actingVia: { type: string }
-        permissions: { type: array, items: { type: string } }
+        items: { type: array, items: { type: string } }
+        page: { $ref: "#/components/schemas/PageInfo" }
     OrgSchoolList:
       type: object
-      required: [schools]
+      required: [items, page]
       properties:
-        schools:
+        items:
           type: array
           items:
             type: object
@@ -905,9 +990,10 @@ components:
               organizationId: { type: string, format: uuid }
               organizationName: { type: string }
               organizationSlug: { type: string }
+        page: { $ref: "#/components/schemas/PageInfo" }
     OrgDelegationList:
       type: object
-      required: [tenantId, items]
+      required: [tenantId, items, page]
       properties:
         tenantId: { type: string, format: uuid }
         items:
@@ -921,6 +1007,7 @@ components:
               grantedBy: { type: string, format: uuid }
               createdAt: { type: string, format: date-time }
               revokedAt: { type: [string, "null"], format: date-time }
+        page: { $ref: "#/components/schemas/PageInfo" }
     OrgDelegationGrantResult:
       type: object
       properties:
@@ -1121,11 +1208,12 @@ components:
         created_at: { type: string, format: date-time, description: When the link was made }
     LearnerGuardiansResponse:
       type: object
-      required: [guardians]
+      required: [items, page]
       properties:
-        guardians:
+        items:
           type: array
           items: { $ref: "#/components/schemas/LearnerGuardian" }
+        page: { $ref: "#/components/schemas/PageInfo" }
     Error:
       type: object
       required: [error]
@@ -1145,3 +1233,15 @@ components:
                 Correlation id of the request (additive, OI-4). Also returned in the X-Request-Id
                 response header. An inbound X-Request-Id is honoured only if it matches
                 [A-Za-z0-9._-]{8,64}; otherwise one is generated.
+            details:
+              type: array
+              description: >
+                Additive field-level validation details (OI-4 / FIG-1621). Present on some
+                `validation_error` responses. Never echoes submitted values, secrets, SQL or stacks.
+              items:
+                type: object
+                required: [field, code, message]
+                properties:
+                  field: { type: string }
+                  code: { type: string }
+                  message: { type: string }

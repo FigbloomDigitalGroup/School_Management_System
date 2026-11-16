@@ -11,12 +11,20 @@ export type ErrorCode =
   | "service_unavailable"
   | "internal_error";
 
+/** Additive field-level validation detail (OI-4 / FIG-1621). Never carries submitted values. */
+export type ErrorDetail = {
+  field: string;
+  code: string;
+  message: string;
+};
+
 export class AppError extends Error {
   readonly statusCode: number;
   readonly code: ErrorCode;
   readonly expose: boolean;
   /** Seconds for the Retry-After header (429 only). */
   readonly retryAfterSeconds?: number;
+  readonly details?: ErrorDetail[];
 
   constructor(
     statusCode: number,
@@ -24,6 +32,7 @@ export class AppError extends Error {
     message: string,
     expose = true,
     retryAfterSeconds?: number,
+    details?: ErrorDetail[],
   ) {
     super(message);
     this.retryAfterSeconds = retryAfterSeconds;
@@ -31,6 +40,7 @@ export class AppError extends Error {
     this.statusCode = statusCode;
     this.code = code;
     this.expose = expose;
+    this.details = details;
   }
 }
 
@@ -46,8 +56,8 @@ export function notFound(message = "Not found"): AppError {
   return new AppError(404, "not_found", message);
 }
 
-export function validationError(message: string): AppError {
-  return new AppError(400, "validation_error", message);
+export function validationError(message: string, details?: ErrorDetail[]): AppError {
+  return new AppError(400, "validation_error", message, true, undefined, details);
 }
 
 /** The same Idempotency-Key was sent with a different request (FIG-1623). */
@@ -104,13 +114,25 @@ function isDatabaseUnavailable(err: unknown): boolean {
 /** Client-safe body — never include SQL, stack traces, or internal details. */
 export function toClientError(err: unknown): {
   statusCode: number;
-  body: { error: { code: ErrorCode; message: string } };
+  body: {
+    error: {
+      code: ErrorCode;
+      message: string;
+      details?: ErrorDetail[];
+    };
+  };
   retryAfterSeconds?: number;
 } {
   if (err instanceof AppError) {
     return {
       statusCode: err.statusCode,
-      body: { error: { code: err.code, message: err.expose ? err.message : "Request failed" } },
+      body: {
+        error: {
+          code: err.code,
+          message: err.expose ? err.message : "Request failed",
+          ...(err.details && err.details.length > 0 ? { details: err.details } : {}),
+        },
+      },
       retryAfterSeconds: err.retryAfterSeconds,
     };
   }
@@ -120,6 +142,21 @@ export function toClientError(err: unknown): {
       statusCode: 503,
       body: { error: { code: "service_unavailable", message: "Service temporarily unavailable" } },
       retryAfterSeconds: 1,
+    };
+  }
+  // Defence in depth for cursor / bind casts: class 22 data exceptions map to the
+  // established client validation response. Message stays generic; SQL never leaks.
+  if (
+    typeof sqlstate === "string" &&
+    (sqlstate === "22P02" ||
+      sqlstate === "22007" ||
+      sqlstate === "22008" ||
+      sqlstate === "22021" ||
+      (sqlstate.length === 5 && sqlstate.startsWith("22")))
+  ) {
+    return {
+      statusCode: 400,
+      body: { error: { code: "validation_error", message: "Invalid request" } },
     };
   }
   if (isDatabaseUnavailable(err)) {

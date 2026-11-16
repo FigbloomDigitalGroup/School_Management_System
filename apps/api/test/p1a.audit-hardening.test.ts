@@ -488,7 +488,7 @@ describe("FIG-1573 audit regression suite", () => {
       await pool.query(`INSERT INTO school_role_assignments (tenant_id, user_id, role_id) VALUES ($1,$2,$3)`, [ids.tenantA, ids.teacherA, role.rows[0]!.id]);
       const t = (await loginId(ids.tenantA, "TC-0001")).json().token as string;
       const perms = await app.inject({ method: "GET", url: "/v1/rbac/permissions", headers: bearer(t) });
-      expect(perms.json().permissions).toContain("area.fees");
+      expect(perms.json().items).toContain("area.fees");
       await pool.query(`DELETE FROM school_role_assignments WHERE role_id=$1`, [role.rows[0]!.id]);
     });
   });

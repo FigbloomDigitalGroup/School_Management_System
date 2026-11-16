@@ -9,6 +9,7 @@ import { clientIp } from "../clientIp.js";
 import { AppError, validationError } from "../errors.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { withTenantRequest } from "../tenantRequest.js";
+import { parseOrThrow } from "../validation.js";
 
 const CreateLearnerSchema = z.object({
   admission_no: z.string().min(1).max(32),
@@ -31,12 +32,11 @@ export async function registerLearnerRoutes(app: FastifyInstance, pool: AppPool)
     if (!UuidParam.safeParse(params.tenantId).success) {
       throw validationError("tenantId must be a UUID");
     }
-    const parsed = CreateLearnerSchema.safeParse(request.body);
-    if (!parsed.success) {
-      throw validationError(
-        "admission_no, full_name and gender (male|female) are required; optional boarding and date_of_birth (YYYY-MM-DD)",
-      );
-    }
+    const parsed = parseOrThrow(
+      CreateLearnerSchema,
+      request.body,
+      "admission_no, full_name and gender (male|female) are required; optional boarding and date_of_birth (YYYY-MM-DD)",
+    );
     const key = parseIdempotencyKey(request.headers["idempotency-key"]);
     const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
       assertSameTenant(auth.authz.tenantId, params.tenantId);
@@ -48,17 +48,17 @@ export async function registerLearnerRoutes(app: FastifyInstance, pool: AppPool)
         key,
         config: app.appConfig,
         routeTemplate: "POST /v1/tenants/:tenantId/learners",
-        fingerprintInput: { params, body: parsed.data },
+        fingerprintInput: { params, body: parsed },
         status: 201,
         execute: async () => {
           const learner = await createLearner(tx, {
             tenantId: params.tenantId,
             actorUserId: auth.user.id,
-            admission_no: parsed.data.admission_no,
-            full_name: parsed.data.full_name,
-            gender: parsed.data.gender,
-            boarding: parsed.data.boarding,
-            date_of_birth: parsed.data.date_of_birth ?? null,
+            admission_no: parsed.admission_no,
+            full_name: parsed.full_name,
+            gender: parsed.gender,
+            boarding: parsed.boarding,
+            date_of_birth: parsed.date_of_birth ?? null,
             ip: clientIp(request),
           });
           return { value: { learner }, resourceType: "learner", resourceId: learner.id };

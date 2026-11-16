@@ -363,32 +363,59 @@ export async function addGuardianLink(
   }
 }
 
-export async function listGuardiansForLearner(
+/**
+ * SQL keyset page of guardians linked to a learner.
+ * ORDER BY l.created_at, l.id with row comparison; timestamps as microsecond UTC text.
+ */
+export async function listGuardiansForLearnerPage(
   db: Tx,
-  input: { tenantId: string; learnerId: string; actorUserId: string },
+  input: {
+    tenantId: string;
+    learnerId: string;
+    actorUserId: string;
+    limit: number;
+    after?: { createdAt: string; linkId: string } | null;
+  },
 ): Promise<LearnerGuardian[]> {
-  const rows = await (async () => {
-      const learner = await db.query(`SELECT 1 FROM learners WHERE id = $1 AND tenant_id = $2`, [
-        input.learnerId,
-        input.tenantId,
-      ]);
-      if (learner.rowCount !== 1) return null;
-      const result = await db.query<
-        GuardianRow & { link_id: string; relationship: string; is_primary_payer: boolean; link_created_at: Date | string }
-      >(
-        `SELECT g.id, g.tenant_id, g.full_name, g.phone, g.alt_phone, g.email,
-                g.created_at, g.updated_at,
-                l.id AS link_id, l.relationship, l.is_primary_payer, l.created_at AS link_created_at
-         FROM guardian_links l
-         JOIN guardians g ON g.id = l.guardian_id AND g.tenant_id = l.tenant_id
-         WHERE l.learner_id = $1 AND l.tenant_id = $2
-         ORDER BY l.created_at, l.id`,
-        [input.learnerId, input.tenantId],
-      );
-      return result.rows;
-  })();
-  if (!rows) throw notFound("Learner not found");
-  return rows.map((r) => ({
+  const learner = await db.query(`SELECT 1 FROM learners WHERE id = $1 AND tenant_id = $2`, [
+    input.learnerId,
+    input.tenantId,
+  ]);
+  if (learner.rowCount !== 1) throw notFound("Learner not found");
+
+  const params: unknown[] = [input.learnerId, input.tenantId];
+  let keyset = "";
+  if (input.after) {
+    params.push(input.after.createdAt, input.after.linkId);
+    keyset = `AND (l.created_at, l.id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`;
+  }
+  params.push(input.limit);
+  const limitParam = `$${params.length}`;
+
+  const result = await db.query<{
+    id: string;
+    tenant_id: string;
+    full_name: string;
+    phone: string | null;
+    alt_phone: string | null;
+    email: string | null;
+    link_id: string;
+    relationship: string;
+    is_primary_payer: boolean;
+    link_created_at_text: string;
+  }>(
+    `SELECT g.id, g.tenant_id, g.full_name, g.phone, g.alt_phone, g.email,
+            l.id AS link_id, l.relationship, l.is_primary_payer,
+            to_char(l.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS link_created_at_text
+     FROM guardian_links l
+     JOIN guardians g ON g.id = l.guardian_id AND g.tenant_id = l.tenant_id
+     WHERE l.learner_id = $1 AND l.tenant_id = $2
+     ${keyset}
+     ORDER BY l.created_at, l.id
+     LIMIT ${limitParam}`,
+    params,
+  );
+  return result.rows.map((r) => ({
     id: r.id,
     tenantId: r.tenant_id,
     full_name: r.full_name,
@@ -398,6 +425,13 @@ export async function listGuardiansForLearner(
     linkId: r.link_id,
     relationship: r.relationship as GuardianRelationship,
     is_primary_payer: r.is_primary_payer,
-    created_at: isoStamp(r.link_created_at),
+    created_at: r.link_created_at_text,
   }));
+}
+
+export async function listGuardiansForLearner(
+  db: Tx,
+  input: { tenantId: string; learnerId: string; actorUserId: string },
+): Promise<LearnerGuardian[]> {
+  return listGuardiansForLearnerPage(db, { ...input, limit: 10_000, after: null });
 }
