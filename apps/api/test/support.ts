@@ -8,6 +8,7 @@ import { createPool, runtimePoolOptions } from "../src/db/pool.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { assertRuntimeRole } from "../src/db/roleAssert.js";
 import { setLogSink } from "../src/log.js";
+import { LOCAL_SESSION_MINT_HMAC_KEY } from "../src/modules/auth/sessionProof.js";
 
 const { Pool } = pg;
 
@@ -48,6 +49,11 @@ export async function resetDatabase(pool: pg.Pool): Promise<void> {
   `);
   // Use the real migration runner (advisory lock + checksums) — R2-09 / R3.
   await runMigrations(pool);
+  // Migration 014: install the local/test session-mint HMAC secret (owner only).
+  await pool.query(`SELECT public.auth_install_session_hmac_secret($1, $2)`, [
+    "local",
+    LOCAL_SESSION_MINT_HMAC_KEY,
+  ]);
 }
 
 export interface FixtureIds {

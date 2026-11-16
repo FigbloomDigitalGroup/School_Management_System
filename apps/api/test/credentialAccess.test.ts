@@ -95,13 +95,39 @@ describe("credential access (migration 011)", () => {
   });
 
   it("EXECUTE is limited to figbloom_app: PUBLIC and other roles are refused", async () => {
+    // Credential + session-write definers granted to figbloom_app. Owner-only helpers
+    // (install secret, consume proof, active secret) must NOT be executable by it.
     const eff = await ctx.pool.query<{ pub: boolean; app: boolean }>(
       `SELECT bool_or(has_function_privilege('public', p.oid, 'EXECUTE')) AS pub,
               bool_and(has_function_privilege('figbloom_app', p.oid, 'EXECUTE')) AS app
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'public' AND p.proname LIKE 'auth\\_%' ESCAPE '\\' AND p.prosecdef`,
+        WHERE n.nspname = 'public' AND p.prosecdef
+          AND p.proname IN (
+            'auth_credential_by_email',
+            'auth_credential_by_login_id',
+            'auth_password_credential',
+            'auth_change_own_password',
+            'auth_mint_session',
+            'auth_touch_session',
+            'auth_revoke_session',
+            'auth_revoke_all_user_sessions',
+            'auth_set_session_tenant'
+          )`,
     );
     expect(eff.rows[0]).toEqual({ pub: false, app: true });
+    const ownerOnly = await ctx.pool.query<{ name: string; app: boolean }>(
+      `SELECT p.proname AS name,
+              has_function_privilege('figbloom_app', p.oid, 'EXECUTE') AS app
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.prosecdef
+          AND p.proname IN (
+            'auth_install_session_hmac_secret',
+            'auth_consume_session_proof',
+            'auth_active_session_hmac_secret'
+          )
+        ORDER BY 1`,
+    );
+    expect(ownerOnly.rows.every((r) => r.app === false)).toBe(true);
 
     const c = await ctx.pool.connect();
     try {

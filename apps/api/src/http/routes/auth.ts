@@ -4,10 +4,9 @@ import { loginEmailString, uuidString } from "../schemas.js";
 import type { AppConfig } from "../../config.js";
 import type { AppPool } from "../../db/pool.js";
 import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
-import { validationError } from "../errors.js";
+import { AppError } from "../errors.js";
 import { requireSessionAuth } from "../middleware/authContext.js";
 import { buildAuthzContext } from "../../modules/rbac/authorize.js";
-import { AppError } from "../errors.js";
 import { clientIp } from "../clientIp.js";
 import {
   changePassword,
@@ -16,8 +15,13 @@ import {
   logout,
   selectTenant,
 } from "../../modules/auth/service.js";
-import { listMembershipsForUser } from "../../modules/tenancy/context.js";
+import {
+  AUTH_ME_MEMBERSHIP_HARD_CAP,
+  listMembershipsForUser,
+} from "../../modules/tenancy/context.js";
 import { assertPasswordChangeNotRequired } from "../middleware/authContext.js";
+import { parseOrThrow } from "../validation.js";
+import { conflict } from "../errors.js";
 
 // Bounded inputs: nothing oversized reaches the rate limiter, the DB or scrypt (AUD-13).
 const EmailLoginSchema = z.object({
@@ -46,10 +50,9 @@ export async function registerAuthRoutes(
   config: AppConfig,
 ): Promise<void> {
   app.post("/v1/auth/login/email", async (request, reply) => {
-    const parsed = EmailLoginSchema.safeParse(request.body);
-    if (!parsed.success) throw validationError("Invalid email login payload");
+    const parsed = parseOrThrow(EmailLoginSchema, request.body, "Invalid email login payload");
     const result = await loginWithEmail(pool, config, {
-      ...parsed.data,
+      ...parsed,
       ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
     });
@@ -62,10 +65,9 @@ export async function registerAuthRoutes(
   });
 
   app.post("/v1/auth/login/login-id", async (request, reply) => {
-    const parsed = LoginIdSchema.safeParse(request.body);
-    if (!parsed.success) throw validationError("Invalid login-id payload");
+    const parsed = parseOrThrow(LoginIdSchema, request.body, "Invalid login-id payload");
     const result = await loginWithLoginId(pool, config, {
-      ...parsed.data,
+      ...parsed,
       ip: clientIp(request),
       userAgent: request.headers["user-agent"] ?? null,
     });
@@ -82,7 +84,7 @@ export async function registerAuthRoutes(
       pool,
       async (db) => {
         const auth = await requireSessionAuth(db, request);
-        await logout(db, auth.session, clientIp(request));
+        await logout(db, config, auth.session, clientIp(request));
       },
       { acquireTimeoutMs: config.poolAcquireTimeoutMs },
     );
@@ -101,6 +103,14 @@ export async function registerAuthRoutes(
       (db) => listMembershipsForUser(db, auth.user.id),
       { acquireTimeoutMs: config.poolAcquireTimeoutMs },
     );
+    // FIG-1621 / N-4: never silently omit authorised memberships. Return the full
+    // ordered set up to AUTH_ME_MEMBERSHIP_HARD_CAP; overflow is an explicit conflict,
+    // not a truncated 200. Tie-breaker is membership id (ORDER BY created_at, id).
+    if (memberships.length > AUTH_ME_MEMBERSHIP_HARD_CAP) {
+      throw conflict(
+        `Membership count exceeds the supported /auth/me bound of ${AUTH_ME_MEMBERSHIP_HARD_CAP}`,
+      );
+    }
     // Authorization context is best-effort here: if the session's school is no
     // longer usable (membership archived, school suspended) the caller still
     // learns who they are and what they can switch to (AUD-06).
@@ -132,6 +142,7 @@ export async function registerAuthRoutes(
         loginId: m.login_id,
         tenantStatus: m.tenant_status,
       })),
+      membershipsComplete: true,
       authz: authz
         ? { role: authz.role, tenantId: authz.tenantId, isSuperAdmin: authz.isSuperAdmin }
         : null,
@@ -145,12 +156,12 @@ export async function registerAuthRoutes(
       { acquireTimeoutMs: config.poolAcquireTimeoutMs },
     );
     assertPasswordChangeNotRequired(auth.user, request);
-    const parsed = SelectTenantSchema.safeParse(request.body);
-    if (!parsed.success) throw validationError("tenantId is required");
+    const parsed = parseOrThrow(SelectTenantSchema, request.body, "tenantId is required");
     const session = await selectTenant(
       pool,
+      config,
       auth.session,
-      parsed.data.tenantId,
+      parsed.tenantId,
       clientIp(request),
     );
     return reply.send({
@@ -165,16 +176,19 @@ export async function registerAuthRoutes(
       (db) => requireSessionAuth(db, request),
       { acquireTimeoutMs: config.poolAcquireTimeoutMs },
     );
-    const parsed = ChangePasswordSchema.safeParse(request.body);
-    if (!parsed.success) throw validationError("currentPassword and newPassword are required");
+    const parsed = parseOrThrow(
+      ChangePasswordSchema,
+      request.body,
+      "currentPassword and newPassword are required",
+    );
     const user = await withIdentityAccess(
       pool,
       (db) =>
         changePassword(db, config, {
-      session: auth.session,
-      currentPassword: parsed.data.currentPassword,
-      newPassword: parsed.data.newPassword,
-      ip: clientIp(request),
+          session: auth.session,
+          currentPassword: parsed.currentPassword,
+          newPassword: parsed.newPassword,
+          ip: clientIp(request),
         }),
       { acquireTimeoutMs: config.poolAcquireTimeoutMs },
     );

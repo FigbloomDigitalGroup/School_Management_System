@@ -101,6 +101,9 @@ export async function getTenant(db: TxOrIdentity, tenantId: string): Promise<Ten
   return tenant;
 }
 
+/** Absolute safety ceiling for /auth/me membership materialisation (never silent truncate). */
+export const AUTH_ME_MEMBERSHIP_HARD_CAP = 2_000;
+
 export async function listMembershipsForUser(db: TxOrIdentity, userId: string): Promise<SchoolMembership[]> {
   const result = await db.query<SchoolMembership>(
     `SELECT m.id, m.user_id, m.tenant_id, m.role, m.login_id,
@@ -108,8 +111,9 @@ export async function listMembershipsForUser(db: TxOrIdentity, userId: string): 
      FROM school_memberships m
      JOIN tenants t ON t.id = m.tenant_id
      WHERE m.user_id = $1 AND m.archived_at IS NULL
-     ORDER BY m.created_at`,
-    [userId],
+     ORDER BY m.created_at, m.id
+     LIMIT $2`,
+    [userId, AUTH_ME_MEMBERSHIP_HARD_CAP + 1],
   );
   return result.rows;
 }

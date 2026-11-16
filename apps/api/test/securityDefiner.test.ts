@@ -49,6 +49,48 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   // Migration 013 (WP-A1 review R-02, R-04).
   "auth_change_own_password(uuid,text,text,inet)": { secdef: true, grantees: ["figbloom_app"], why: "the only write path to users.password_hash; account derived from the session, compare-and-swap, audited" },
   "prune_idempotency_keys(interval,integer)": { secdef: false, grantees: [], why: "owner-run housekeeping; not an API call" },
+  // Migration 014 (OD-1 / R-02 session mint containment).
+  "auth_hmac_sha256_hex(bytea,bytea)": { secdef: false, grantees: [], why: "internal HMAC helper; not an API call" },
+  "auth_hmac_hex_equals(text,text)": { secdef: false, grantees: [], why: "internal constant-time compare; not an API call" },
+  "auth_active_session_hmac_secret()": { secdef: true, grantees: [], why: "reads owner-only secret; called only by other definers" },
+  "auth_consume_session_proof(text,text,text,timestamp with time zone,text,interval)": {
+    secdef: true,
+    grantees: [],
+    why: "proof verify + nonce consume; called only by other definers",
+  },
+  "auth_install_session_hmac_secret(text,text)": { secdef: true, grantees: [], why: "owner/migrator installs HMAC secret; never executable by figbloom_app" },
+  // Migration 015 (provisioning safety, nonce housekeeping, tenant eligibility).
+  "auth_session_hmac_matches(text,text)": { secdef: false, grantees: [], why: "internal verify against active keys; called only by definers" },
+  "auth_rotate_session_hmac_secret(text,text)": { secdef: true, grantees: [], why: "owner-run rotation step 1 (adds a second active key)" },
+  "auth_retire_session_hmac_secret(text)": { secdef: true, grantees: [], why: "owner-run rotation step 2 (retires a key; never the last one)" },
+  "auth_session_hmac_status(text,text)": { secdef: true, grantees: ["figbloom_app"], why: "readiness self-test: ok / mismatch / no_secret; selftest payloads only, no key material" },
+  "auth_purge_session_proof_nonces(integer)": { secdef: true, grantees: [], why: "owner-run bounded nonce housekeeping; not an API call" },
+  "auth_session_tenant_eligible(uuid,uuid)": { secdef: false, grantees: [], why: "internal tenant eligibility rules; called only by auth_set_session_tenant" },
+  "auth_mint_session(uuid,text,timestamp with time zone,uuid,uuid,text,inet,text,uuid,timestamp with time zone,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "only INSERT path for sessions; HMAC proof required",
+  },
+  "auth_touch_session(text,double precision)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "session validate + throttled last_seen write",
+  },
+  "auth_revoke_session(uuid,uuid,timestamp with time zone,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "session revoke with HMAC proof",
+  },
+  "auth_revoke_all_user_sessions(uuid,uuid,uuid,timestamp with time zone,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "bulk revoke with HMAC proof",
+  },
+  "auth_set_session_tenant(uuid,uuid,uuid,uuid,timestamp with time zone,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "select-tenant write with HMAC proof",
+  },
 };
 
 /** The only SECURITY DEFINER functions the runtime role may execute. */
@@ -57,6 +99,12 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_credential_by_login_id(uuid,text)",
   "auth_password_credential(uuid)",
   "auth_change_own_password(uuid,text,text,inet)",
+  "auth_mint_session(uuid,text,timestamp with time zone,uuid,uuid,text,inet,text,uuid,timestamp with time zone,text,text)",
+  "auth_touch_session(text,double precision)",
+  "auth_revoke_session(uuid,uuid,timestamp with time zone,text,text)",
+  "auth_revoke_all_user_sessions(uuid,uuid,uuid,timestamp with time zone,text,text)",
+  "auth_set_session_tenant(uuid,uuid,uuid,uuid,timestamp with time zone,text,text)",
+  "auth_session_hmac_status(text,text)",
 ];
 
 async function inventory(pool: pg.Pool): Promise<FnRow[]> {
@@ -125,7 +173,7 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 
-  it("the runtime role owns no function and can execute only the four credential definers (no trigger function)", async () => {
+  it("the runtime role owns no function and can execute only the allowlisted definers (no trigger function)", async () => {
     const owned = await ctx.pool.query(
       `SELECT 1 FROM pg_proc p WHERE pg_get_userbyid(p.proowner) = 'figbloom_app'`,
     );

@@ -3,6 +3,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { parseCidr } from "./http/ip.js";
+import { LOCAL_SESSION_MINT_HMAC_KEY } from "./modules/auth/sessionProof.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -156,6 +157,11 @@ const ConfigSchema = z.object({
    * data is not a plain hash an attacker can test guesses against. Required outside local/test.
    */
   idempotencyFingerprintKey: z.string().min(32).max(256).optional(),
+  /**
+   * HMAC key for session mint/revoke proofs (migration 014 / R-02). Required outside
+   * local/test. Local/test may omit and receive the documented local default.
+   */
+  sessionMintHmacKey: z.string().min(32).max(256).optional(),
   /** Idempotency-Key validity (AD-10): 24 h, enforced at lookup. */
   idempotencyTtlSeconds: z.coerce.number().int().positive().max(604_800).default(86_400),
   corsAllowedOrigins: z.array(z.string()).default([]),
@@ -227,6 +233,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trustProxyCidrs: cidrs,
     appEnv: resolveAppEnvironment(env),
     idempotencyFingerprintKey: env.IDEMPOTENCY_FINGERPRINT_KEY || undefined,
+    sessionMintHmacKey: env.SESSION_MINT_HMAC_KEY || undefined,
     idempotencyTtlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
     corsAllowedOrigins: parseCidrList(env.CORS_ALLOWED_ORIGINS),
     corsMaxAgeSeconds: env.CORS_MAX_AGE_SECONDS,
@@ -242,7 +249,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
-  const config = parsed.data;
+  let config = parsed.data;
   if (config.trustProxyHops > 0 && config.trustProxyCidrs.length === 0) {
     throw new Error(
       "Invalid API config: API_TRUST_PROXY_HOPS > 0 requires API_TRUST_PROXY_CIDRS " +
@@ -309,6 +316,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  // Local/test default for session mint HMAC (migration 014). A documented development
+  // key for disposable databases only: it is rejected in staging/production below, and the
+  // provisioning script refuses to install it.
+  if (!config.sessionMintHmacKey && !isStrict(config.appEnv)) {
+    config = { ...config, sessionMintHmacKey: LOCAL_SESSION_MINT_HMAC_KEY };
+  }
+
   if (isStrict(config.appEnv)) assertStrictApiConfig(config, env);
   return config;
 }
@@ -334,6 +348,12 @@ function assertStrictApiConfig(config: AppConfig, env: NodeJS.ProcessEnv): void 
   assertVerifiedTls(config.databaseUrl, "DATABASE_URL", "API");
   if (!config.idempotencyFingerprintKey) {
     throw new Error("Invalid API config: IDEMPOTENCY_FINGERPRINT_KEY is required outside local/test (at least 32 characters).");
+  }
+  if (!config.sessionMintHmacKey) {
+    throw new Error("Invalid API config: SESSION_MINT_HMAC_KEY is required outside local/test (at least 32 characters).");
+  }
+  if (config.sessionMintHmacKey === LOCAL_SESSION_MINT_HMAC_KEY) {
+    throw new Error("Invalid API config: SESSION_MINT_HMAC_KEY is the documented local/test development key; generate a random key (see docs/SESSION-HMAC-PROVISIONING.md).");
   }
   // The serving process must not hold the migrator's credentials (AD-1): that would make
   // the least-privilege runtime role pointless if the process were compromised.

@@ -7,7 +7,8 @@ import { createTestApp } from "./support.js";
 const EXPECTED: Record<string, string[]> = {
   organizations: ["SELECT"],
   tenants: ["SELECT"],
-  sessions: ["INSERT", "SELECT", "UPDATE"],
+  // Migration 014: session writes are SECURITY DEFINER + HMAC; runtime retains SELECT only.
+  sessions: ["SELECT"],
   platform_roles: ["SELECT"],
   organization_memberships: ["SELECT"],
   permissions: ["SELECT"],

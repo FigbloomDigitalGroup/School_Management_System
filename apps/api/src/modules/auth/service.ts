@@ -8,7 +8,12 @@ import { recordSecurityEvent } from "../audit/audit.js";
 import { normalizeIp } from "../../http/ip.js";
 import { consumeAuthToken } from "./rateLimit.js";
 import { rateLimitBucketForIp } from "./rateLimitBuckets.js";
-import { createSession, revokeSession, type SessionRow } from "./session.js";
+import {
+  createSession,
+  revokeSession,
+  setSessionTenant,
+  type SessionRow,
+} from "./session.js";
 import { listMembershipsForUser } from "../tenancy/context.js";
 
 export interface PublicUser {
@@ -202,10 +207,11 @@ export async function loginWithLoginId(
 
 export async function logout(
   db: Db,
+  config: AppConfig,
   session: SessionRow,
   ip?: string | null,
 ): Promise<void> {
-  await revokeSession(db, session.id);
+  await revokeSession(db, config, session.id, session.user_id);
   await recordSecurityEvent(db, {
     eventType: "auth.logout",
     actorUserId: session.user_id,
@@ -281,6 +287,7 @@ export async function changePassword(
 
 export async function selectTenant(
   pool: AppPool,
+  config: AppConfig,
   session: SessionRow,
   tenantId: string,
   ip?: string | null,
@@ -335,22 +342,19 @@ export async function selectTenant(
   }
 
   return withIdentityAccess(pool, async (db) => {
-    const updated = await db.query<SessionRow>(
-      `UPDATE sessions
-       SET active_tenant_id = $2,
-           active_organization_id = $3,
-           last_seen_at = now()
-       WHERE id = $1
-       RETURNING id, user_id, active_tenant_id, active_organization_id, expires_at, revoked_at`,
-      [session.id, tenantId, tenant.rows[0]!.organization_id],
-    );
+    const updated = await setSessionTenant(db, config, {
+      sessionId: session.id,
+      tenantId,
+      organizationId: tenant.rows[0]!.organization_id,
+      actorUserId: session.user_id,
+    });
     await recordSecurityEvent(db, {
       eventType: "auth.tenant.selected",
       actorUserId: session.user_id,
       tenantId,
       ip: ip ?? null,
     });
-    return updated.rows[0]!;
+    return updated;
   });
 }
 
