@@ -20,12 +20,64 @@ const EXPECTED: Record<string, string[]> = {
   external_identities: ["INSERT", "SELECT", "UPDATE"],
   external_identity_link_events: ["INSERT"],
   staff_area_grants: ["DELETE", "INSERT", "SELECT"],
-  org_admin_school_delegations: ["INSERT", "SELECT", "UPDATE"],
+  // Migration 025: UPDATE only on (revoked_at, revoked_by), asserted as column grants below.
+  org_admin_school_delegations: ["INSERT", "SELECT"],
+  // Migration 027: every directory table's UPDATE is column-level — only the columns its module
+  // writes — so no table-level UPDATE appears here. The exact column sets are asserted below.
   learners: ["INSERT", "SELECT"],
   guardians: ["INSERT", "SELECT"],
   guardian_links: ["INSERT", "SELECT"],
+  school_profiles: ["INSERT", "SELECT"],
+  staff_members: ["INSERT", "SELECT"],
+  // Migration 025 (FIG-1614 Option D): grant rows are inserted and soft-revoked (UPDATE), never deleted.
+  staff_resource_grants: ["INSERT", "SELECT"],
+  directory_documents: ["INSERT", "SELECT"],
   idempotency_keys: ["INSERT", "SELECT", "UPDATE"],
   security_audit_events: ["INSERT"],
+};
+
+/**
+ * Migration 027 (P3-AUDIT-009). Identity (`id`, `tenant_id`), provenance (`created_at`,
+ * `created_by`, `uploaded_by`) and storage-contract columns (`storage_key`, `storage_status`,
+ * `logo_object_key`) are absent from every list: no application path updates them, and the
+ * privilege is now gone as well as the code. Widening any of these lists is a security change.
+ */
+const EXPECTED_DIRECTORY_UPDATE_COLUMNS: Record<string, string[]> = {
+  learners: [
+    "active",
+    "admission_no",
+    "archived_at",
+    "boarding",
+    "date_of_birth",
+    "full_name",
+    "gender",
+    "updated_at",
+  ],
+  guardians: ["active", "alt_phone", "archived_at", "email", "full_name", "phone", "updated_at"],
+  guardian_links: ["archived_at", "archived_reason"],
+  staff_members: [
+    "active",
+    "archived_at",
+    "classification",
+    "email",
+    "full_name",
+    "phone",
+    "staff_title",
+    "updated_at",
+    "user_id",
+  ],
+  school_profiles: [
+    "accent",
+    "contact_email",
+    "contact_phone",
+    "country",
+    "county",
+    "institution_type",
+    "level",
+    "moe_registration",
+    "updated_at",
+  ],
+  directory_documents: ["archived_at", "updated_at"],
 };
 
 describe("migration 009 grants and policies", () => {
@@ -38,6 +90,88 @@ describe("migration 009 grants and policies", () => {
   afterAll(async () => {
     await ctx.app.close();
     await ctx.pool.end();
+  });
+
+  it("UPDATE on the two grant tables is column-level, revocation columns only (review M-1)", async () => {
+    const r = await ctx.pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND privilege_type = 'UPDATE'
+          AND table_name IN ('org_admin_school_delegations', 'staff_resource_grants')
+        ORDER BY table_name, column_name`,
+    );
+    const by: Record<string, string[]> = {};
+    for (const row of r.rows) (by[row.table_name] ??= []).push(row.column_name);
+    expect(by).toEqual({
+      org_admin_school_delegations: ["revoked_at", "revoked_by"],
+      staff_resource_grants: ["revoke_reason", "revoked_at", "revoked_by"],
+    });
+  });
+
+  it("directory tables: UPDATE is column-level and names only the columns the modules write (P3-AUDIT-009)", async () => {
+    const tables = Object.keys(EXPECTED_DIRECTORY_UPDATE_COLUMNS);
+    const r = await ctx.pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND privilege_type = 'UPDATE'
+          AND table_name = ANY($1::text[])
+        ORDER BY table_name, column_name`,
+      [tables],
+    );
+    const by: Record<string, string[]> = {};
+    for (const row of r.rows) (by[row.table_name] ??= []).push(row.column_name);
+    expect(by).toEqual(EXPECTED_DIRECTORY_UPDATE_COLUMNS);
+
+    // The point of the change: identity and provenance are not updatable at all, as PostgreSQL
+    // itself computes it — not merely absent from the list above.
+    for (const [table, columns] of Object.entries(EXPECTED_DIRECTORY_UPDATE_COLUMNS)) {
+      const forbidden = ["id", "tenant_id", "created_at", "created_by"].filter(
+        (c) => !columns.includes(c),
+      );
+      for (const column of forbidden) {
+        const exists = await ctx.pool.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+          [table, column],
+        );
+        if (exists.rows[0]!.n === 0) continue;
+        const eff = await ctx.pool.query<{ upd: boolean }>(
+          `SELECT has_column_privilege('figbloom_app', $1, $2, 'UPDATE') AS upd`,
+          [`public.${table}`, column],
+        );
+        expect(eff.rows[0]?.upd, `${table}.${column} UPDATE`).toBe(false);
+      }
+      // Table-level UPDATE really is gone, and only the column-level privilege remains.
+      const priv = await ctx.pool.query<{ tbl: boolean; any_col: boolean }>(
+        `SELECT has_table_privilege('figbloom_app', $1, 'UPDATE') AS tbl,
+                has_any_column_privilege('figbloom_app', $1, 'UPDATE') AS any_col`,
+        [`public.${table}`],
+      );
+      expect(priv.rows[0]?.tbl, `${table} table-level UPDATE`).toBe(false);
+      expect(priv.rows[0]?.any_col, `${table} any-column UPDATE`).toBe(true);
+    }
+  });
+
+  it("row locking still works under column-level grants, so read-modify-write stays serialised (P3-AUDIT-012)", async () => {
+    // The lost-update fix depends on SELECT ... FOR UPDATE, which needs an UPDATE privilege.
+    // PostgreSQL accepts a column-level one, but that is not obvious from the catalogue
+    // (has_table_privilege says false), so it is proved by executing the lock.
+    const client = await ctx.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL ROLE figbloom_app");
+      await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [ctx.ids.tenantA]);
+      for (const table of Object.keys(EXPECTED_DIRECTORY_UPDATE_COLUMNS)) {
+        await client.query("SAVEPOINT sp_lock");
+        await expect(
+          client.query(`SELECT 1 FROM ${table} LIMIT 1 FOR UPDATE`),
+          `${table} FOR UPDATE`,
+        ).resolves.toBeDefined();
+        await client.query("RELEASE SAVEPOINT sp_lock");
+      }
+      await client.query("ROLLBACK");
+    } finally {
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
+    }
   });
 
   it("matches the code-audit grant matrix", async () => {

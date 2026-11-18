@@ -29,6 +29,15 @@ const IDENTITY_EXCEPTIONS = [
   ),
 ];
 
+// FIG-1614: the effective-permission loader (authorize.ts) reads the caller's own explicit
+// guardian grants through the same TxOrIdentity handle as staff_area_grants. It needs a tenant id,
+// which it receives only after the tenant is authorised; a null tenant returns before any query.
+IDENTITY_EXCEPTIONS.push({
+  file: "modules/rbac/authorize.ts",
+  table: "staff_resource_grants",
+  reason: "effective-permission loader runs on both paths, like staff_area_grants; skips when tenantId is null",
+});
+
 /**
  * SUPPLEMENTARY pattern check (F-C7). A regex over source text can be evaded
  * (string concatenation, a variable, an indirect helper). It is NOT proof that

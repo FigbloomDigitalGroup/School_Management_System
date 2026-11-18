@@ -103,7 +103,7 @@ describe("security headers, CORS and server timeouts", () => {
     });
     expect(pre.statusCode).toBe(204);
     expect(pre.headers["access-control-allow-origin"]).toBe("https://app.example.com");
-    expect(pre.headers["access-control-allow-methods"]).toBe("GET, POST, PUT, DELETE");
+    expect(pre.headers["access-control-allow-methods"]).toBe("GET, POST, PUT, PATCH, DELETE"); // PATCH added: Phase 3 routes (P3-AUDIT-003); still an explicit list, no wildcard
     expect(String(pre.headers["access-control-allow-headers"]).toLowerCase()).toContain("idempotency-key");
     expect(String(pre.headers["access-control-allow-headers"]).toLowerCase()).toContain("x-tenant-id");
     expect(pre.headers["access-control-max-age"]).toBe("600");

@@ -731,7 +731,7 @@ describe("VS-2 guardian directory create/read and learner links", () => {
          VALUES ($1, $2, $3, 'mother')`,
         [ids.tenantA, gid, learnerA2],
       ),
-    ).rejects.toThrow(/guardian_links_guardian_learner_uniq/);
+    ).rejects.toThrow(/guardian_links_(guardian_learner_uniq|active_guardian_learner_uidx)/);
   });
 
   it("rolls back the guardian when the relationship insert fails", async () => {
@@ -823,11 +823,27 @@ describe("VS-2 guardian directory create/read and learner links", () => {
       const links = await client.query(`SELECT DISTINCT tenant_id FROM guardian_links`);
       expect(links.rows.map((r) => r.tenant_id)).toEqual([ids.tenantA]);
 
+      // Phase 3 (019): UPDATE is granted for lifecycle; DELETE/TRUNCATE remain denied.
+      // Migration 027 (P3-AUDIT-009) narrows that UPDATE to the columns each module writes.
+      await client.query("SAVEPOINT sp_upd");
+      await client.query(`UPDATE guardians SET full_name = 'RLS Visible A renamed' WHERE full_name = 'RLS Visible A'`);
+      await client.query(`UPDATE guardian_links SET archived_at = now() WHERE tenant_id = $1`, [ids.tenantA]);
+      await client.query("ROLLBACK TO SAVEPOINT sp_upd");
+
+      // A column no module writes is now refused outright, not merely unused.
+      for (const sql of [
+        `UPDATE guardian_links SET relationship = 'father' WHERE tenant_id = '${ids.tenantA}'`,
+        `UPDATE guardians SET created_at = now() WHERE full_name = 'RLS Visible A'`,
+        `UPDATE guardians SET id = gen_random_uuid() WHERE full_name = 'RLS Visible A'`,
+      ]) {
+        await client.query("SAVEPOINT sp_col");
+        await expect(client.query(sql)).rejects.toThrow(/permission denied/i);
+        await client.query("ROLLBACK TO SAVEPOINT sp_col");
+      }
+
       for (const sql of [
         `DELETE FROM guardians WHERE full_name = 'RLS Visible A'`,
-        `UPDATE guardians SET full_name = 'x'`,
         `DELETE FROM guardian_links`,
-        `UPDATE guardian_links SET relationship = 'father'`,
         `TRUNCATE guardian_links`,
       ]) {
         await client.query("SAVEPOINT sp");
@@ -881,17 +897,26 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(denied.statusCode).toBe(403);
 
-    // F-6: area.people alone must not unlock guardian contact details.
-    const peopleOnly = await ctx.app.inject({
+    // F-6: area.people alone must not unlock guardian contact details. area.people can no longer be
+    // GRANTED by delegation (owner decision 2026-11-17), so this uses an existing grant: the row is
+    // created the way it existed before, with the grant guard bypassed.
+    const refusedNow = await ctx.app.inject({
       method: "POST",
       url: "/v1/rbac/org-delegations",
       headers: bearer(adminToken, ids.tenantA),
-      payload: {
-        delegateUserId: ids.orgAdmin,
-        permissionCodes: ["area.people"],
-      },
+      payload: { delegateUserId: ids.orgAdmin, permissionCodes: ["area.people"] },
     });
-    expect(peopleOnly.statusCode).toBe(200);
+    expect(refusedNow.statusCode).toBe(400);
+    await ctx.pool.query(`ALTER TABLE org_admin_school_delegations DISABLE TRIGGER org_admin_school_delegations_guard`);
+    try {
+      await ctx.pool.query(
+        `INSERT INTO org_admin_school_delegations (organization_id, tenant_id, delegate_user_id, permission_code, granted_by)
+         VALUES ($1, $2, $3, 'area.people', $4) ON CONFLICT DO NOTHING`,
+        [ids.orgA, ids.tenantA, ids.orgAdmin, ids.adminA],
+      );
+    } finally {
+      await ctx.pool.query(`ALTER TABLE org_admin_school_delegations ENABLE TRIGGER org_admin_school_delegations_guard`);
+    }
     const stillDenied = await postGuardian(orgToken, ids.tenantA, {
       full_name: "Org People Only",
       learners: [{ learner_id: learnerA1, relationship: "mother" }],
@@ -910,45 +935,44 @@ describe("VS-2 guardian directory create/read and learner links", () => {
     });
     expect(revokePeople.statusCode).toBe(200);
 
-    // F-3: guardian.write without learner.read must not probe learner existence.
-    const writeOnly = await ctx.app.inject({
+    // Owner decision (FIG-1609 / M-2): guardian codes cannot be delegated at all, so an org admin can
+    // never reach guardian records through delegation. Whole requests are refused (400), nothing is granted.
+    for (const codes of [
+      ["resource.guardian.write"],
+      ["resource.guardian.read"],
+      ["resource.guardian.read", "resource.learner.read"],
+    ]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/v1/rbac/org-delegations",
+        headers: bearer(adminToken, ids.tenantA),
+        payload: { delegateUserId: ids.orgAdmin, permissionCodes: codes },
+      });
+      expect(res.statusCode, codes.join()).toBe(400);
+    }
+    const learnerReadOnly = await ctx.app.inject({
       method: "POST",
       url: "/v1/rbac/org-delegations",
       headers: bearer(adminToken, ids.tenantA),
-      payload: {
-        delegateUserId: ids.orgAdmin,
-        permissionCodes: ["resource.guardian.write"],
-      },
+      payload: { delegateUserId: ids.orgAdmin, permissionCodes: ["resource.learner.read"] },
     });
-    expect(writeOnly.statusCode).toBe(200);
-    const missingLearnerRead = await postGuardian(orgToken, ids.tenantA, {
-      full_name: "Org Write Only",
+    expect(learnerReadOnly.statusCode).toBe(200);
+    const stillNoGuardian = await postGuardian(orgToken, ids.tenantA, {
+      full_name: "Org Still Denied",
       learners: [{ learner_id: learnerA1, relationship: "mother" }],
     });
-    expect(missingLearnerRead.statusCode).toBe(403);
-
-    const grant = await ctx.app.inject({
-      method: "POST",
-      url: "/v1/rbac/org-delegations",
-      headers: bearer(adminToken, ids.tenantA),
-      payload: {
-        delegateUserId: ids.orgAdmin,
-        permissionCodes: ["resource.guardian.read", "resource.learner.read"],
-      },
-    });
-    expect(grant.statusCode).toBe(200);
-    const created = await postGuardian(orgToken, ids.tenantA, {
-      full_name: "Org Created",
+    expect(stillNoGuardian.statusCode).toBe(403);
+    const adminCreated = await postGuardian(adminToken, ids.tenantA, {
+      full_name: "Admin Created",
       learners: [{ learner_id: learnerA1, relationship: "mother" }],
     });
-    expect(created.statusCode).toBe(201);
-    const readOk = await ctx.app.inject({
+    expect(adminCreated.statusCode).toBe(201);
+    const readDenied = await ctx.app.inject({
       method: "GET",
-      url: `/v1/tenants/${ids.tenantA}/guardians/${created.json().guardian.id}`,
+      url: `/v1/tenants/${ids.tenantA}/guardians/${adminCreated.json().guardian.id}`,
       headers: bearer(orgToken, ids.tenantA),
     });
-    expect(readOk.statusCode).toBe(200);
-    expect(readOk.json().guardian.links).toBeUndefined();
+    expect(readDenied.statusCode).toBe(403);
   });
 
   it("database unique constraint wins under concurrent link creates", async () => {

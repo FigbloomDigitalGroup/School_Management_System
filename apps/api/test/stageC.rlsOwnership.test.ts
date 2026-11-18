@@ -181,12 +181,14 @@ describe("Stage C RLS ownership, membership and TEMPORARY", () => {
       );
       expect(selectB.rowCount).toBe(0);
 
-      // No UPDATE/DELETE grant — least privilege stops the write before RLS.
-      await client.query("SAVEPOINT deny_update");
-      await expect(
-        client.query(`UPDATE learners SET full_name = 'hacked' WHERE admission_no = 'OWN-B'`),
-      ).rejects.toThrow(/permission denied/i);
-      await client.query("ROLLBACK TO SAVEPOINT deny_update");
+      // Phase 3 (017): UPDATE is granted for lifecycle; RLS still hides other-tenant rows (0 updated).
+      // DELETE remains denied by least-privilege grants.
+      await client.query("SAVEPOINT rls_update");
+      const crossUpdate = await client.query(
+        `UPDATE learners SET full_name = 'hacked' WHERE admission_no = 'OWN-B'`,
+      );
+      expect(crossUpdate.rowCount).toBe(0);
+      await client.query("ROLLBACK TO SAVEPOINT rls_update");
 
       await client.query("SAVEPOINT deny_delete");
       await expect(client.query(`DELETE FROM learners WHERE admission_no = 'OWN-B'`)).rejects.toThrow(
@@ -210,11 +212,12 @@ describe("Stage C RLS ownership, membership and TEMPORARY", () => {
       client.release();
     }
 
-    // With a temporary UPDATE grant, RLS still hides the other tenant (0 rows updated).
+    // With a temporary DELETE grant, RLS still hides the other tenant (0 rows deleted).
+    // UPDATE is already granted (Phase 3 lifecycle); RLS still yields 0 on foreign rows.
     const widened = await ctx.pool.connect();
     try {
       await widened.query("BEGIN");
-      await widened.query(`GRANT UPDATE, DELETE ON learners TO figbloom_app`);
+      await widened.query(`GRANT DELETE ON learners TO figbloom_app`);
       await widened.query("SET LOCAL ROLE figbloom_app");
       await widened.query(`SELECT set_config('app.tenant_id', $1, true)`, [ids.tenantA]);
       const updated = await widened.query(

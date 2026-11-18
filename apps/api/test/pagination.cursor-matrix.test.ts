@@ -83,7 +83,10 @@ describe("C-1 malformed cursor matrix (all four paginated endpoints)", () => {
       url: () => `/v1/tenants/${ids.tenantA}/learners/${learnerId}/guardians`,
       headers: () => ({ authorization: `Bearer ${adminToken}`, "x-tenant-id": ids.tenantA }),
       sort: "link_created_at",
-      filter: () => ({ tenantId: ids.tenantA, learnerId }),
+      // `resource` was added to every Stage 8 list filter by audit finding A-07: without it,
+      // learners, guardians and staff all fingerprinted identically and a cursor from one was
+      // honoured by the others. This hand-built fingerprint must mirror the route exactly.
+      filter: () => ({ resource: "learner-guardians", tenantId: ids.tenantA, learnerId }),
       goodKeys: () => ["2026-01-15T12:00:00.000100Z", randomUUID()], keyCount: 2,
     },
     {
@@ -246,9 +249,18 @@ describe("C-1 malformed cursor matrix (all four paginated endpoints)", () => {
       expect(out.statusCode).toBe(400);
       expect(out.body).toEqual({ error: { code: "validation_error", message: "Invalid request" } });
     }
-    // Non-22 stays a generic server error with no internals.
-    const out = toClientError(Object.assign(new Error("boom SELECT"), { code: "23505" }));
-    expect(out.statusCode).not.toBe(400);
-    expect(JSON.stringify(out.body)).not.toContain("SELECT");
+    // Unique violations stay call-site mapped (not a generic 400).
+    const unique = toClientError(Object.assign(new Error("boom SELECT"), { code: "23505" }));
+    expect(unique.statusCode).not.toBe(400);
+    expect(JSON.stringify(unique.body)).not.toContain("SELECT");
+    // Check violations are client-shaped (independent review I-01 / A-01 class).
+    const check = toClientError(
+      Object.assign(new Error('violates check constraint "school_profiles_accent_len"'), {
+        code: "23514",
+      }),
+    );
+    expect(check.statusCode).toBe(400);
+    expect(check.body.error.code).toBe("validation_error");
+    expect(JSON.stringify(check.body)).not.toMatch(/accent_len|SELECT|constraint/i);
   });
 });

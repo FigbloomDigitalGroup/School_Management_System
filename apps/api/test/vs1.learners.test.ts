@@ -423,6 +423,7 @@ describe("VS-1 learner directory create/read", () => {
     });
     expect(denied.statusCode).toBe(403);
 
+    // Owner decision: resource.learner.write is not delegable to an org admin.
     const grantWrite = await ctx.app.inject({
       method: "POST",
       url: "/v1/rbac/org-delegations",
@@ -432,12 +433,18 @@ describe("VS-1 learner directory create/read", () => {
         permissionCodes: ["resource.learner.write"],
       },
     });
-    expect(grantWrite.statusCode).toBe(200);
-
-    const created = await ctx.app.inject({
+    expect(grantWrite.statusCode).toBe(400);
+    const stillDenied = await ctx.app.inject({
       method: "POST",
       url: `/v1/tenants/${ids.tenantA}/learners`,
       headers: bearer(orgToken, ids.tenantA),
+      payload: { admission_no: "4801", full_name: "Org Created", gender: "female" },
+    });
+    expect(stillDenied.statusCode).toBe(403);
+    const created = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/learners`,
+      headers: bearer(adminToken, ids.tenantA),
       payload: { admission_no: "4801", full_name: "Org Created", gender: "female" },
     });
     expect(created.statusCode).toBe(201);

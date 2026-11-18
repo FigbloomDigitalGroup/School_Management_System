@@ -329,7 +329,8 @@ describe("FIG-1573 closure programme", () => {
         headers: { authorization: `Bearer ${admin}`, "x-tenant-id": ctx.ids.tenantA },
         payload: {
           delegateUserId: ctx.ids.orgAdmin,
-          permissionCodes: ["rbac.staff_areas.manage", "tenant.read"],
+          // area.attendance: a delegate may only assign the areas delegated to them (owner principle).
+          permissionCodes: ["rbac.staff_areas.manage", "tenant.read", "area.attendance"],
         },
       });
       expect(grant.statusCode).toBe(200);

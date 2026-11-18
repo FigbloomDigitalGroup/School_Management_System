@@ -166,6 +166,18 @@ describe("SQL keyset pagination helpers (FIG-1621)", () => {
       expect(JSON.stringify(mapped)).not.toMatch(/uuid|syntax|22P02/i);
     }
   });
+
+  it("maps SQLSTATE 23514 check_violation to HTTP 400 without leaking constraint text", () => {
+    const mapped = toClientError({
+      code: "23514",
+      message: 'new row for relation "school_profiles" violates check constraint "school_profiles_accent_len"',
+    });
+    expect(mapped.statusCode).toBe(400);
+    expect(mapped.body).toEqual({
+      error: { code: "validation_error", message: "Invalid request" },
+    });
+    expect(JSON.stringify(mapped)).not.toMatch(/school_profiles|accent_len|23514|constraint/i);
+  });
 });
 
 describe("validation details (FIG-1621 E3a)", () => {

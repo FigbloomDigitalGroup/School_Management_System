@@ -38,11 +38,31 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "app_current_user_id()": { secdef: false, grantees: ["figbloom_app"], why: "RLS helper evaluated by the self-read policy" },
   "consume_rate_token(text,numeric,numeric,numeric,integer)": { secdef: false, grantees: ["figbloom_app"], why: "called by the API for the PG token bucket" },
   "prune_rate_buckets(interval)": { secdef: false, grantees: [], why: "housekeeping; not an API call" },
-  "guardian_links_active_learner_guard()": { secdef: true, grantees: [], why: "trigger; takes FOR SHARE on learners, which figbloom_app cannot (no UPDATE)" },
+  "guardian_links_active_learner_guard()": { secdef: true, grantees: [], why: "trigger; FOR SHARE on learners via SECURITY DEFINER (race-safe archived-learner guard)" },
+  "directory_update_tenant_identity(text,text)": { secdef: true, grantees: ["figbloom_app"], why: "audited school name/timezone update; tenants remain SELECT-only for figbloom_app" },
+  // Migrations 021-022 (Phase 3 remediation): invoker-rights trigger functions. NOT definers: they read
+  // only through the caller's own tenant policy, so they widen nothing.
+  "directory_documents_before_insert()": { secdef: false, grantees: [], why: "trigger; server-generated storage key + same-tenant subject guard (F-04)" },
+  "school_profiles_before_insert()": { secdef: false, grantees: [], why: "trigger; discards any client-supplied logo_object_key, the INSERT half of P3-AUDIT-005 (audit A-04)" },
+  "directory_documents_before_update()": { secdef: false, grantees: [], why: "trigger; document identity/storage fields immutable, archive one-way (F-04)" },
+  "staff_members_check_user_link()": { secdef: false, grantees: [], why: "trigger; a staff record may only link a user with an active membership in the same school (S-01)" },
   "school_memberships_on_archive()": { secdef: true, grantees: [], why: "trigger; clears grants and writes the audit row when a membership is archived" },
   "security_audit_events_guard()": { secdef: true, grantees: [], why: "trigger; append-only guard for the audit table" },
   "schema_migration_checksum_audit_append_only()": { secdef: false, grantees: [], why: "runner-created trigger (ensureBootstrap), not a migration object" },
   // Migration 011: the only way the runtime role can reach users.password_hash (exact key, one account).
+  // Migration 025 (FIG-1609 hardening, FIG-1614 Option D).
+  "is_delegable_permission(text)": { secdef: false, grantees: ["figbloom_app"], why: "pure allowlist predicate; no table access" },
+  "org_delegation_guard()": { secdef: true, grantees: [], why: "trigger; allowlist + FOR SHARE on tenants/users so a grant cannot race a suspension or a disabled recipient" },
+  "staff_resource_grants_guard()": { secdef: true, grantees: [], why: "trigger; grantee must be an active teacher/staff member of the school (FOR SHARE)" },
+  "staff_resource_grants_on_membership_change()": { secdef: true, grantees: [], why: "trigger; archive, role change or delete of a membership revokes its guardian grants so a restore cannot revive them" },
+  // Migration 026 (delegation lifecycle): invalidation on user, membership and organization changes.
+  "invalidate_org_delegations(uuid,uuid,text)": { secdef: true, grantees: [], why: "internal helper; revokes active delegations (final, audited) when the authorization relationship changes" },
+  "invalidate_guardian_grants(uuid,uuid,text)": { secdef: true, grantees: [], why: "internal helper; revokes active explicit guardian grants (final, audited)" },
+  "users_status_invalidates_grants()": { secdef: true, grantees: [], why: "trigger; a disabled user loses delegations and guardian grants for good" },
+  "org_membership_invalidates_delegations()": { secdef: true, grantees: [], why: "trigger; removing, moving or changing an organization membership revokes its delegations" },
+  "organizations_status_invalidates_delegations()": { secdef: true, grantees: [], why: "trigger; an organization leaving 'active' revokes every delegation in it" },
+  "org_delegation_immutable_guard()": { secdef: false, grantees: [], why: "trigger; delegation identity/code/grantor immutable, revocation final (review M-1)" },
+  "staff_resource_grants_immutable_guard()": { secdef: false, grantees: [], why: "trigger; grant identity/code/grantor immutable, revocation final (review M-1)" },
   "auth_credential_by_email(text)": { secdef: true, grantees: ["figbloom_app"], why: "login by e-mail; returns (user id, hash, status) for one e-mail" },
   "auth_credential_by_login_id(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "login by login id; one account per (school, login id)" },
   "auth_password_credential(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "password change; the caller's own user id" },
@@ -105,6 +125,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_revoke_all_user_sessions(uuid,uuid,uuid,timestamp with time zone,text,text)",
   "auth_set_session_tenant(uuid,uuid,uuid,uuid,timestamp with time zone,text,text)",
   "auth_session_hmac_status(text,text)",
+  "directory_update_tenant_identity(text,text)",
 ];
 
 async function inventory(pool: pg.Pool): Promise<FnRow[]> {
@@ -169,7 +190,10 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
          JOIN pg_class c ON c.oid = t.tgrelid
         WHERE NOT t.tgisinternal AND p.prosecdef`,
     );
-    expect(r.rows.length).toBe(3);
+    // 3 before migration 025, plus org_delegation_guard, staff_resource_grants_guard and the
+    // membership-change function, which is attached twice (UPDATE and DELETE). Migration 026 adds
+    // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
+    expect(r.rows.length).toBe(11);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 

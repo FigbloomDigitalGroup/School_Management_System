@@ -293,14 +293,16 @@ describe("runtime RLS through figbloom_app", () => {
     expect(after.rows[0]?.n).toBe((before.rows[0]?.n ?? 0) + 1);
   });
 
-  it("negative control: a widened grant and a name-keyed owner policy leak, then both are restored", async () => {
+  it("negative control: a widened DELETE grant and a name-keyed owner policy leak, then both are restored", async () => {
+    // Phase 3 (017): UPDATE is already granted for lifecycle. Prove DELETE is still denied
+    // without an explicit widen, and that a temporary DELETE grant is what the NC removes.
     const client = await ctx.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(`GRANT UPDATE ON learners TO figbloom_app`);
+      await client.query(`GRANT DELETE ON learners TO figbloom_app`);
       await client.query("SET LOCAL ROLE figbloom_app");
       await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [ids.tenantA]);
-      await client.query(`UPDATE learners SET full_name = full_name WHERE admission_no = 'RLS-A'`);
+      await client.query(`DELETE FROM learners WHERE admission_no = 'RLS-A-DOES-NOT-EXIST'`);
       await client.query("ROLLBACK");
     } finally {
       await client.query("ROLLBACK").catch(() => undefined);
@@ -309,7 +311,7 @@ describe("runtime RLS through figbloom_app", () => {
     const runtime = await ctx.runtimePool.connect();
     try {
       await expect(
-        runtime.query(`UPDATE learners SET full_name = 'nope' WHERE admission_no = 'RLS-A'`),
+        runtime.query(`DELETE FROM learners WHERE admission_no = 'RLS-A'`),
       ).rejects.toThrow(/permission denied/i);
     } finally {
       runtime.release();

@@ -270,7 +270,7 @@ describe("FIG-1621 SQL keyset pagination (HTTP)", () => {
     const rows = [
       { id: randomUUID(), us: 100, code: "tenant.read" },
       { id: randomUUID(), us: 900, code: "resource.learner.read" },
-      { id: randomUUID(), us: 100, code: "resource.guardian.read" },
+      { id: randomUUID(), us: 100, code: "area.fees" },
     ];
     // Same millisecond, different microseconds (100 vs 900); identical µs with distinct ids.
     for (const r of rows) {
