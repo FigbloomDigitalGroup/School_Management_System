@@ -159,6 +159,15 @@ export function toClientError(err: unknown): {
       body: { error: { code: "validation_error", message: "Invalid request" } },
     };
   }
+  // Check violations (23514) are the same defect class as A-01: a value that slipped past
+  // application validation must not surface as 500/internal_error. Unique (23505) and FK
+  // (23503) stay call-site mapped — they are not generically "invalid request".
+  if (typeof sqlstate === "string" && sqlstate === "23514") {
+    return {
+      statusCode: 400,
+      body: { error: { code: "validation_error", message: "Invalid request" } },
+    };
+  }
   if (isDatabaseUnavailable(err)) {
     return {
       statusCode: 503,

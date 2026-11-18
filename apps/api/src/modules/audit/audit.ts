@@ -13,12 +13,32 @@ export type SecurityEventType =
   | "rbac.school_role.changed"
   | "rbac.org_delegation.granted"
   | "rbac.org_delegation.revoked"
+  | "rbac.org_delegation.denied"
+  | "rbac.org_delegation.legacy_inert"
+  | "rbac.guardian_access.granted"
+  | "rbac.guardian_access.revoked"
+  | "rbac.guardian_access.denied"
+  | "rbac.staff_areas.denied"
   | "rbac.permission.denied"
   | "identity.external.linked"
   | "rate_limit.denied"
   | "directory.learner.created"
+  | "directory.learner.updated"
+  | "directory.learner.archived"
+  | "directory.learner.restored"
   | "directory.guardian.created"
-  | "directory.guardian.linked";
+  | "directory.guardian.linked"
+  | "directory.guardian.updated"
+  | "directory.guardian.link_archived"
+  | "directory.guardian.archived"
+  | "directory.guardian.restored"
+  | "directory.staff.created"
+  | "directory.staff.updated"
+  | "directory.staff.archived"
+  | "directory.staff.restored"
+  | "directory.school_profile.updated"
+  | "directory.document.registered"
+  | "directory.document.archived";
 
 export async function recordSecurityEvent(
   db: Db,

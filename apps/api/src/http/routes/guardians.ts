@@ -4,7 +4,7 @@ import { uuidString } from "../schemas.js";
 import type { AppPool } from "../../db/pool.js";
 import { clientIp } from "../clientIp.js";
 import { forbidden, validationError } from "../errors.js";
-import { requirePermission } from "../../modules/rbac/authorize.js";
+import { hasPermission, requirePermission } from "../../modules/rbac/authorize.js";
 import { assertSameTenant } from "../../modules/tenancy/context.js";
 import { pageFromKeysetRows, parseListQuery } from "../pagination.js";
 import { withTenantRequest } from "../tenantRequest.js";
@@ -12,6 +12,8 @@ import { parseOrThrow } from "../validation.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import {
   addGuardianLink,
+  archiveGuardian,
+  archiveGuardianLink,
   createGuardian,
   codePointLength,
   getGuardianById,
@@ -21,9 +23,13 @@ import {
   GUARDIAN_NAME_PATTERN,
   GUARDIAN_PHONE_PATTERN,
   listGuardiansForLearnerPage,
+  listGuardiansPage,
   getCreatedGuardianView,
   getGuardianLinkById,
+  restoreGuardian,
+  updateGuardian,
 } from "../../modules/directory/guardians.js";
+import { parseSearchTerm } from "../../modules/directory/search.js";
 
 const Relationship = z.enum(["mother", "father", "guardian"]);
 // F-5: the same patterns as the OpenAPI schema. Values are NOT trimmed before checking,
@@ -124,6 +130,48 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
     return reply.status(out.status).send(out.value);
   });
 
+  app.get("/v1/tenants/:tenantId/guardians", async (request) => {
+    const params = request.params as { tenantId: string };
+    uuidParam(params.tenantId, "tenantId");
+    const query = request.query as Record<string, unknown>;
+    let active: boolean | null = null;
+    if (query.active === "true") active = true;
+    else if (query.active === "false") active = false;
+    else if (query.active !== undefined && query.active !== null && query.active !== "") {
+      throw validationError("active must be true or false");
+    }
+    const q = parseSearchTerm(query.q);
+    const list = parseListQuery(query, {
+      sort: "name",
+      filter: { resource: "guardians", tenantId: params.tenantId, active, q },
+      keySpecs: [{ kind: "text", maxLen: 120 }, { kind: "uuid" }],
+    });
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      await requirePermission(tx, auth.authz, "resource.guardian.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const rows = await listGuardiansPage(tx, {
+        tenantId: params.tenantId,
+        limit: list.limit,
+        cursorKeys: list.cursor?.k ?? null,
+        active,
+        q,
+      });
+      const page = pageFromKeysetRows(rows, {
+        limit: list.limit,
+        sort: list.sort,
+        fingerprint: list.fingerprint,
+        keysOf: (row) => [row._sort_name, row.id],
+      });
+      return {
+        guardians: page.items.map(({ _sort_name: _, ...g }) => g),
+        page: page.page,
+      };
+    });
+  });
+
   app.get("/v1/tenants/:tenantId/guardians/:guardianId", async (request) => {
     const params = request.params as { tenantId: string; guardianId: string };
     uuidParam(params.tenantId, "tenantId");
@@ -141,6 +189,116 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
       actorUserId: auth.user.id,
     });
     return { guardian };
+    });
+  });
+
+  app.patch("/v1/tenants/:tenantId/guardians/:guardianId", async (request) => {
+    const params = request.params as { tenantId: string; guardianId: string };
+    uuidParam(params.tenantId, "tenantId");
+    uuidParam(params.guardianId, "guardianId");
+    rejectClientSuppliedPermissions(request.body);
+    const Phone = z.string().regex(new RegExp(GUARDIAN_PHONE_PATTERN));
+    const PatchSchema = z
+      .strictObject({
+        full_name: z
+          .string()
+          .min(1)
+          .regex(new RegExp(GUARDIAN_NAME_PATTERN))
+          .refine((v) => codePointLength(v) <= GUARDIAN_NAME_MAX_LENGTH)
+          .optional(),
+        phone: Phone.nullable().optional(),
+        alt_phone: Phone.nullable().optional(),
+        email: z
+          .string()
+          .max(GUARDIAN_EMAIL_MAX_LENGTH)
+          .regex(new RegExp(GUARDIAN_EMAIL_PATTERN))
+          .nullable()
+          .optional(),
+      })
+      .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
+    const parsed = parseOrThrow(PatchSchema, request.body, "At least one guardian field is required");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      await requirePermission(tx, auth.authz, "resource.guardian.write", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const updated = await updateGuardian(tx, {
+        tenantId: params.tenantId,
+        guardianId: params.guardianId,
+        actorUserId: auth.user.id,
+        ...parsed,
+        ip: clientIp(request),
+      });
+      // P3-AUDIT-001: read and write are separable. A caller holding only guardian.write must not
+      // receive contact details back from a write.
+      const canRead = await hasPermission(tx, auth.authz, "resource.guardian.read");
+      return {
+        guardian: canRead ? updated : { id: updated.id, tenantId: updated.tenantId },
+      };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/guardians/:guardianId/archive", async (request) => {
+    const params = request.params as { tenantId: string; guardianId: string };
+    uuidParam(params.tenantId, "tenantId");
+    uuidParam(params.guardianId, "guardianId");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      await requirePermission(tx, auth.authz, "resource.guardian.write", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const archived = await archiveGuardian(tx, {
+        tenantId: params.tenantId,
+        guardianId: params.guardianId,
+        actorUserId: auth.user.id,
+        ip: clientIp(request),
+      });
+      // P3-AUDIT-001: same rule as PATCH — no contact details to a write-only caller.
+      const canRead = await hasPermission(tx, auth.authz, "resource.guardian.read");
+      return {
+        guardian: canRead ? archived : { id: archived.id, tenantId: archived.tenantId },
+      };
+    });
+  });
+
+  /**
+   * Restore an archived guardian (Stage 8 lifecycle completion).
+   *
+   * Learners and staff have always had this; guardians did not, so archiving one was irreversible
+   * through the API even though `guardians.active` / `archived_at` were built for it (migration
+   * 019). Needs the same permission as archiving, so no new authority is created.
+   *
+   * `resource.learner.read` is also required because restoring re-establishes relationships to
+   * named learners: the same rule that applies when a link is created (F-3) applies when one
+   * comes back.
+   */
+  app.post("/v1/tenants/:tenantId/guardians/:guardianId/restore", async (request) => {
+    const params = request.params as { tenantId: string; guardianId: string };
+    uuidParam(params.tenantId, "tenantId");
+    uuidParam(params.guardianId, "guardianId");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      await requirePermission(tx, auth.authz, "resource.guardian.write", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      await requirePermission(tx, auth.authz, "resource.learner.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const restored = await restoreGuardian(tx, {
+        tenantId: params.tenantId,
+        guardianId: params.guardianId,
+        actorUserId: auth.user.id,
+        ip: clientIp(request),
+      });
+      // P3-AUDIT-001: same rule as PATCH and archive — no contact details to a write-only caller.
+      const canRead = await hasPermission(tx, auth.authz, "resource.guardian.read");
+      return {
+        guardian: canRead ? restored : { id: restored.id, tenantId: restored.tenantId },
+      };
     });
   });
 
@@ -210,7 +368,7 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
       const sort = "link_created_at";
       const { limit, cursor, fingerprint } = parseListQuery(query, {
         sort,
-        filter: { tenantId: params.tenantId, learnerId: params.learnerId },
+        filter: { resource: "learner-guardians", tenantId: params.tenantId, learnerId: params.learnerId },
         keySpecs: [{ kind: "timestamptz_micros" }, { kind: "uuid" }],
       });
       const guardians = await listGuardiansForLearnerPage(tx, {
@@ -226,6 +384,33 @@ export async function registerGuardianRoutes(app: FastifyInstance, pool: AppPool
         fingerprint,
         keysOf: (g) => [g.created_at, g.linkId],
       });
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/guardians/:guardianId/links/:linkId/archive", async (request) => {
+    const params = request.params as { tenantId: string; guardianId: string; linkId: string };
+    uuidParam(params.tenantId, "tenantId");
+    uuidParam(params.guardianId, "guardianId");
+    uuidParam(params.linkId, "linkId");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      await requirePermission(tx, auth.authz, "resource.guardian.write", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      await requirePermission(tx, auth.authz, "resource.learner.read", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      return {
+        link: await archiveGuardianLink(tx, {
+          tenantId: params.tenantId,
+          guardianId: params.guardianId,
+          linkId: params.linkId,
+          actorUserId: auth.user.id,
+          ip: clientIp(request),
+        }),
+      };
     });
   });
 }

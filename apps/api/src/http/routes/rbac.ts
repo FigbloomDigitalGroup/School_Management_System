@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { uuidString } from "../schemas.js";
 import type { AppPool } from "../../db/pool.js";
+import { attachDenialAudit } from "../../db/errors.js";
 import { recordSecurityEvent } from "../../modules/audit/audit.js";
 import { ADMIN_AREAS, isAdminArea, mayHoldAdminAreas } from "../../modules/identity/roles.js";
 import {
@@ -11,16 +12,27 @@ import {
   resolveActingVia,
 } from "../../modules/rbac/authorize.js";
 import {
+  activeDelegationCodes,
+  assertRecipientEligible,
+  assertSchoolAcceptsGrants,
+  isDelegablePermission,
   grantOrgAdminDelegations,
   listOrgAdminDelegationsPage,
+  loadActiveDelegations,
   loadDelegatedPermissionCodes,
   revokeOrgAdminDelegations,
   type DelegationListStatus,
 } from "../../modules/rbac/delegations.js";
+import {
+  GUARDIAN_ACCESS_CODES,
+  grantGuardianAccess,
+  listGuardianAccess,
+  revokeGuardianAccess,
+} from "../../modules/rbac/guardianAccess.js";
 import { clientIp } from "../clientIp.js";
 import { forbidden, notFound, validationError } from "../errors.js";
 import { pageFromKeysetRows, parseListQuery } from "../pagination.js";
-import { withTenantRequest } from "../tenantRequest.js";
+import { withDelegationRequest, withTenantRequest } from "../tenantRequest.js";
 import { parseOrThrow } from "../validation.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 
@@ -36,7 +48,19 @@ const DelegationGrantSchema = z.object({
 
 const DelegationRevokeSchema = z.object({
   delegateUserId: uuidString,
-  permissionCodes: z.array(z.string().min(1).max(64)).max(64).optional(),
+  // Omit the field to revoke every delegation of the person. An empty array is refused rather
+  // than read as "everything", so a client that sends an empty selection cannot wipe grants.
+  permissionCodes: z.array(z.string().min(1).max(64)).min(1).max(64).optional(),
+});
+
+const GuardianAccessCodeSchema = z.enum(GUARDIAN_ACCESS_CODES);
+const GuardianAccessGrantSchema = z.strictObject({
+  userId: uuidString,
+  permissionCodes: z.array(GuardianAccessCodeSchema).min(1).max(2),
+});
+const GuardianAccessRevokeSchema = z.strictObject({
+  userId: uuidString,
+  permissionCodes: z.array(GuardianAccessCodeSchema).min(1).max(2).optional(),
 });
 
 function parseDelegationStatus(raw: unknown): DelegationListStatus {
@@ -143,12 +167,11 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
       "delegateUserId and permissionCodes[] are required",
     );
     const key = parseIdempotencyKey(request.headers["idempotency-key"]);
-    const out = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
-      await requirePermission(tx, auth.authz, "rbac.org_delegations.manage", {
-        ip: clientIp(request),
-        deferAudit: true,
-      });
-      const tenantId = auth.authz.tenantId!;
+    const out = await withDelegationRequest(pool, app.appConfig, request, "grant", async ({ tx, actor }) => {
+      const tenantId = actor.tenantId;
+      // Current-state checks run BEFORE the idempotency lookup, so a stored success is never
+      // replayed into a suspended school (the actor's authority was just re-resolved above).
+      await assertSchoolAcceptsGrants(tx, actor, { delegateUserId: parsed.delegateUserId, ip: clientIp(request) });
       return runIdempotent(tx, {
         key,
         config: app.appConfig,
@@ -157,8 +180,7 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         status: 200,
         execute: async () => {
           const result = await grantOrgAdminDelegations(tx, {
-            actor: auth.authz,
-            tenantId,
+            actor,
             delegateUserId: parsed.delegateUserId,
             permissionCodes: parsed.permissionCodes,
             ip: clientIp(request),
@@ -170,12 +192,22 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
           };
         },
         // Replay reflects the original request (the fingerprint matched): the codes that were granted.
-        replay: async () => ({
-          ok: true,
-          tenantId,
-          delegateUserId: parsed.delegateUserId,
-          granted: [...new Set(parsed.permissionCodes)],
-        }),
+        // A replay must still be true: if any granted code has since been revoked, the original
+        // success no longer describes reality, so answer 409 (null) instead of a stale 200.
+        replay: async () => {
+          // The recipient must still be an active org admin of this organization.
+          try {
+            await assertRecipientEligible(tx, parsed.delegateUserId, tenantId);
+          } catch {
+            return null;
+          }
+          const active = await activeDelegationCodes(tx, tenantId, parsed.delegateUserId);
+          const codes = [...new Set(parsed.permissionCodes)];
+          // Every code must still be delegable AND active: a stored pre-policy success for a code that
+          // is no longer delegable must not replay as "granted".
+          if (!codes.every((c) => isDelegablePermission(c) && active.has(c))) return null;
+          return { ok: true, tenantId, delegateUserId: parsed.delegateUserId, granted: codes };
+        },
       });
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
@@ -184,24 +216,73 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
 
   app.delete("/v1/rbac/org-delegations", async (request) => {
     const parsed = parseOrThrow(DelegationRevokeSchema, request.body, "delegateUserId is required");
-    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
-      await requirePermission(tx, auth.authz, "rbac.org_delegations.manage", {
-        ip: clientIp(request),
-        deferAudit: true,
-      });
+    return withDelegationRequest(pool, app.appConfig, request, "revoke", async ({ tx, actor }) => {
       const result = await revokeOrgAdminDelegations(tx, {
-        actor: auth.authz,
-        tenantId: auth.authz.tenantId!,
+        actor,
         delegateUserId: parsed.delegateUserId,
         permissionCodes: parsed.permissionCodes ?? null,
         ip: clientIp(request),
       });
       return {
         ok: true,
-        tenantId: auth.authz.tenantId,
+        tenantId: actor.tenantId,
         delegateUserId: parsed.delegateUserId,
         revoked: result.revoked,
       };
+    });
+  });
+
+  // FIG-1614 Option D: explicit per-person guardian read/write grants (school administrators only).
+  app.get("/v1/rbac/guardian-access", async (request) => {
+    const userId = (request.query as Record<string, unknown>).userId;
+    if (typeof userId !== "string" || !uuidString.safeParse(userId).success) {
+      throw validationError("userId query parameter must be a UUID");
+    }
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.guardian_access.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const tenantId = auth.authz.tenantId!;
+      return { tenantId, userId, items: await listGuardianAccess(tx, { tenantId, userId }) };
+    });
+  });
+
+  app.post("/v1/rbac/guardian-access", async (request) => {
+    const parsed = parseOrThrow(GuardianAccessGrantSchema, request.body, "userId and permissionCodes[] are required");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.guardian_access.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const tenantId = auth.authz.tenantId!;
+      const result = await grantGuardianAccess(tx, {
+        actorUserId: auth.user.id,
+        tenantId,
+        userId: parsed.userId,
+        permissionCodes: parsed.permissionCodes,
+        ip: clientIp(request),
+      });
+      return { ok: true, tenantId, userId: parsed.userId, granted: result.granted };
+    });
+  });
+
+  app.delete("/v1/rbac/guardian-access", async (request) => {
+    const parsed = parseOrThrow(GuardianAccessRevokeSchema, request.body, "userId is required");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.guardian_access.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const tenantId = auth.authz.tenantId!;
+      const result = await revokeGuardianAccess(tx, {
+        actorUserId: auth.user.id,
+        tenantId,
+        userId: parsed.userId,
+        permissionCodes: parsed.permissionCodes ?? null,
+        ip: clientIp(request),
+      });
+      return { ok: true, tenantId, userId: parsed.userId, revoked: result.revoked };
     });
   });
 
@@ -240,17 +321,69 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         `SELECT area FROM staff_area_grants WHERE user_id = $1 AND tenant_id = $2 ORDER BY area`,
         [parsed.userId, tenantId],
       );
-      await tx.query(`DELETE FROM staff_area_grants WHERE user_id = $1 AND tenant_id = $2`, [
-        parsed.userId,
-        tenantId,
-      ]);
-      for (const area of areas) {
+      // An administrator may not assign more authority than they are permitted to administer.
+      // School administrators and platform super administrators administer every area. An
+      // organization administrator acting through a delegation administers exactly the `area.*`
+      // codes delegated to them; they may neither assign nor remove any other area, so holding
+      // rbac.staff_areas.manage alone cannot mint area authority (and `people`, which is no longer
+      // delegable, cannot be created through this door).
+      let finalAreas: string[] = areas;
+      let delegatedScope: string[] | null = null;
+      let activeDelegations: Array<{ id: string; permission_code: string }> = [];
+      if (!mayAdminister(auth.authz)) {
+        activeDelegations = await loadActiveDelegations(tx, auth.user.id, tenantId);
+        const scope = new Set<string>(
+          activeDelegations.filter((d) => d.permission_code.startsWith("area.")).map((d) => d.permission_code.slice("area.".length)),
+        );
+        delegatedScope = ADMIN_AREAS.filter((a) => scope.has(a));
+        const beyond = areas.filter((a) => !scope.has(a));
+        if (beyond.length > 0) {
+          const err = forbidden("Cannot assign admin areas beyond your own delegated authority");
+          attachDenialAudit(err, {
+            eventType: "rbac.staff_areas.denied",
+            actorUserId: auth.user.id,
+            tenantId,
+            detail: {
+              reason: "area_beyond_authority",
+              targetUserId: parsed.userId,
+              requestedBeyondAuthority: beyond,
+              delegatedAreas: delegatedScope,
+              actingVia,
+            },
+            ip: clientIp(request),
+          });
+          throw err;
+        }
+        // Areas outside the actor's authority that the person already holds stay as they are.
+        finalAreas = [...new Set([...previous.rows.map((r) => r.area).filter((a) => !scope.has(a)), ...areas])];
+      }
+      // Apply only the DIFFERENCE. An area the person already holds keeps its row, and with it who
+      // assigned it and when (granted_by, granted_at): an assignment made under a delegation becomes
+      // a school-level assignment and stays attributable to its maker, whoever edits the person's
+      // areas later. (Deleting and re-inserting everything would re-stamp every retained area.)
+      const held = new Set(previous.rows.map((r) => r.area));
+      const wanted = new Set(finalAreas);
+      const removedAreas = [...held].filter((a) => !wanted.has(a));
+      const addedAreas = finalAreas.filter((a) => !held.has(a));
+      if (removedAreas.length > 0) {
+        await tx.query(`DELETE FROM staff_area_grants WHERE user_id = $1 AND tenant_id = $2 AND area = ANY($3::text[])`, [
+          parsed.userId,
+          tenantId,
+          removedAreas,
+        ]);
+      }
+      for (const area of addedAreas) {
         await tx.query(
           `INSERT INTO staff_area_grants (tenant_id, user_id, area, granted_by)
            VALUES ($1, $2, $3, $4)`,
           [tenantId, parsed.userId, area, auth.user.id],
         );
       }
+      // The delegations that authorized this change: the management permission and the area codes touched.
+      const touched = new Set<string>([...addedAreas, ...removedAreas].map((a) => `area.${a}`));
+      const authorizingDelegationIds = activeDelegations
+        .filter((d) => d.permission_code === "rbac.staff_areas.manage" || touched.has(d.permission_code))
+        .map((d) => d.id);
       await recordSecurityEvent(tx, {
         eventType: "rbac.staff_areas.changed",
         actorUserId: auth.user.id,
@@ -258,9 +391,12 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         detail: {
           targetUserId: parsed.userId,
           previousAreas: previous.rows.map((r) => r.area),
-          areas,
+          areas: finalAreas,
+          addedAreas,
+          removedAreas,
           actingVia,
           actorIsOrgAdmin: auth.authz.isOrgAdminForTenant,
+          ...(delegatedScope ? { delegatedAreas: delegatedScope, authorizingDelegationIds } : {}),
         },
         ip: clientIp(request),
       });
@@ -268,7 +404,7 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
       return {
         ok: true,
         userId: parsed.userId,
-        areas: [...ADMIN_AREAS].filter((a) => areas.includes(a)),
+        areas: [...ADMIN_AREAS].filter((a) => finalAreas.includes(a)),
       };
     });
   });

@@ -48,6 +48,9 @@ export async function requireSessionAuth(db: IdentityDb, request: FastifyRequest
   const token = bearerToken(request.headers.authorization);
   const session = await requireSession(db, token, request.server.appConfig.sessionLastSeenIntervalSeconds);
   const user = await loadUser(db, session.user_id);
+  // FIG-1604: the forced-password-change gate lives in the one function every authenticated
+  // route must call, so a new route cannot forget it. Only the three allowlisted routes pass.
+  assertPasswordChangeNotRequired(user, request);
   return { session, user };
 }
 

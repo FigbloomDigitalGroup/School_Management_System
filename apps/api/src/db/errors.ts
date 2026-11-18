@@ -8,7 +8,11 @@ export function poolAcquireTimeoutError(
 }
 
 export interface DenialAuditPayload {
-  eventType: "rbac.permission.denied";
+  eventType:
+    | "rbac.permission.denied"
+    | "rbac.org_delegation.denied"
+    | "rbac.guardian_access.denied"
+    | "rbac.staff_areas.denied";
   actorUserId: string;
   tenantId: string | null;
   detail: Record<string, unknown>;

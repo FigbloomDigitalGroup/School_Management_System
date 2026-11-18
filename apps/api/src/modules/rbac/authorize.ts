@@ -33,6 +33,40 @@ export function mayAdminister(ctx: AuthzContext): boolean {
   return ctx.membership?.role === "school_admin";
 }
 
+/**
+ * Resource permissions implied by holding the People admin area (directly, via a school role, or by
+ * org-admin delegation). Exported so tests can pin the exact set: widening it is a security change.
+ */
+export const PEOPLE_AREA_IMPLIED: readonly string[] = [
+  "resource.learner.read",
+  "resource.learner.write",
+  "resource.staff.read",
+  "resource.staff.write",
+  "resource.school_profile.read",
+  "resource.document.read",
+  "resource.document.write",
+];
+
+/** Active explicit guardian grants of one person in one school (FIG-1614). Empty for a null tenant. */
+async function loadExplicitGuardianGrants(
+  db: TxOrIdentity,
+  userId: string,
+  tenantId: string | null,
+): Promise<string[]> {
+  if (!tenantId) return [];
+  const res = await db.query<{ permission_code: string }>(
+    // A suspended school exercises no delegated permission (owner decision, FIG-1614 item 8). The
+    // membership check upstream already refuses such a request; filtering here as well means the
+    // loader is correct on its own, as loadDelegatedPermissionCodes is.
+    `SELECT g.permission_code FROM staff_resource_grants g
+       JOIN tenants t ON t.id = g.tenant_id
+      WHERE g.tenant_id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+        AND t.status <> 'suspended'`,
+    [tenantId, userId],
+  );
+  return res.rows.map((r) => r.permission_code);
+}
+
 export async function loadEffectiveAreas(
   db: TxOrIdentity,
   ctx: AuthzContext,
@@ -99,6 +133,12 @@ export async function loadEffectivePermissions(
     perms.add("resource.learner.write");
     perms.add("resource.guardian.read");
     perms.add("resource.guardian.write");
+    perms.add("resource.staff.read");
+    perms.add("resource.staff.write");
+    perms.add("resource.school_profile.read");
+    perms.add("resource.school_profile.write");
+    perms.add("resource.document.read");
+    perms.add("resource.document.write");
     perms.add("tenant.read");
     perms.add("rbac.staff_areas.manage");
     perms.add("rbac.school_roles.manage");
@@ -106,21 +146,29 @@ export async function loadEffectivePermissions(
     perms.add("rbac.org_delegations.read");
   } else {
     for (const area of areas) perms.add(`area.${area}`);
-    // School-office people area implies directory learner read/write (VS-1).
-    // Guardian contact access is NOT implied: requires explicit resource.guardian.* (VS-2 / F-6).
+    // School-office people area implies learner/staff/document R/W and a READ-ONLY school profile
+    // (People workflows). It does NOT imply:
+    //  - resource.guardian.* (VS-2 / F-6; FIG-1614 Option D: only an explicit per-person grant, below);
+    //  - resource.school_profile.write (F-02: school name, timezone and profile are school
+    //    configuration, a full-administrator power; People administrators may not change them).
+    // Guardian-subject documents additionally need resource.guardian.* (F-01).
     if (areas.has("people")) {
-      perms.add("resource.learner.read");
-      perms.add("resource.learner.write");
+      for (const code of PEOPLE_AREA_IMPLIED) perms.add(code);
+    }
+    // FIG-1614 Option D: guardian read/write only through an explicit, revocable per-person grant
+    // (staff_resource_grants). Only teacher/staff members can hold one; the database enforces it.
+    if (ctx.membership && mayHoldAdminAreas(ctx.membership.role)) {
+      for (const code of await loadExplicitGuardianGrants(db, ctx.userId, ctx.tenantId)) perms.add(code);
     }
   }
 
   if (ctx.isOrgAdminForTenant && ctx.tenantId && !mayAdminister(ctx)) {
     const delegated = await loadDelegatedPermissionCodes(db, ctx.userId, ctx.tenantId);
     for (const code of delegated) perms.add(code);
-    // Delegation of area.people implies learner read/write only — not guardian contact details.
+    // Delegation of area.people implies exactly the same People-area set — not guardian contacts
+    // (FIG-1614) and not school-profile writes (F-02). Those need their own explicit delegation.
     if (delegated.has("area.people")) {
-      perms.add("resource.learner.read");
-      perms.add("resource.learner.write");
+      for (const code of PEOPLE_AREA_IMPLIED) perms.add(code);
     }
   }
 

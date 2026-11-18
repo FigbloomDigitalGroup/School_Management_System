@@ -15,6 +15,9 @@ import { registerOrgRoutes } from "./http/routes/org.js";
 import { registerResourceRoutes } from "./http/routes/resources.js";
 import { registerLearnerRoutes } from "./http/routes/learners.js";
 import { registerGuardianRoutes } from "./http/routes/guardians.js";
+import { registerSchoolProfileRoutes } from "./http/routes/schoolProfile.js";
+import { registerStaffRoutes } from "./http/routes/staff.js";
+import { registerDocumentRoutes } from "./http/routes/documents.js";
 
 export interface RouteEntry {
   method: string;
@@ -80,7 +83,7 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
       if (!origin) return cb(null, false);
       cb(null, config.corsAllowedOrigins.includes(origin));
     },
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id", "X-Tenant-Id"],
     exposedHeaders: ["X-Request-Id", "Retry-After", "Idempotent-Replayed"],
     credentials: false,
@@ -164,6 +167,9 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
   await registerResourceRoutes(app, pool);
   await registerLearnerRoutes(app, pool);
   await registerGuardianRoutes(app, pool);
+  await registerSchoolProfileRoutes(app, pool);
+  await registerStaffRoutes(app, pool);
+  await registerDocumentRoutes(app, pool);
 
   return app;
 }
