@@ -18,6 +18,14 @@ supabase/.temp/
 # Local portable toolchains / downloaded binaries (session tooling only; never commit)
 .tools/
 
+# Local Stage 8 / Phase 3 working docs (kept on disk; not committed until owner accepts)
+apps/api/docs/PHASE3-*.md
+apps/api/docs/STAGE8-*.md
+apps/api/docs/EXECUTION-BATCH-01-VERIFICATION.md
+apps/api/docs/RLS-CATALOGUE.md
+apps/api/docs/WORKER-ISOLATION-PROPOSAL.md
+apps/api/docs/sql/
+
 # Native Android project (apps/mobile/android)
 .gradle/
 local.properties
