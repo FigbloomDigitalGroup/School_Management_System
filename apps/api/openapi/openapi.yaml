@@ -4,7 +4,8 @@ info:
   version: 0.2.0
   description: |
     FigBloom replacement modular monolith contracts.
-    Includes P1-A identity/tenancy/RBAC and VS-1 learner directory create/read.
+    Includes P1-A identity/tenancy/RBAC and Phase 3 School Directory (learners, guardians,
+    staff, school profile, document metadata). VS-1/VS-2 contracts are preserved.
     Authorization is server-enforced. Client-supplied role or permission lists
     are never accepted as evidence of access.
 servers:
@@ -20,11 +21,11 @@ tags:
 paths:
   /livez:
     get:
-      tags: [health]
+      tags: [ health ]
       summary: Liveness (no database)
       description: >
-        Answers while the process can serve HTTP. Never touches PostgreSQL, so a database
-        outage does not make an orchestrator restart a healthy process.
+        Answers while the process can serve HTTP. Never touches PostgreSQL, so a
+        database outage does not make an orchestrator restart a healthy process.
       operationId: livez
       x-figbloom-authz: public
       responses:
@@ -32,16 +33,17 @@ paths:
           description: Process is up
   /readyz:
     get:
-      tags: [health]
+      tags: [ health ]
       summary: Readiness
       description: >
-        200 when the bounded database check succeeds, the session-mint HMAC self-test passes
-        and the process is not draining.
-        503 while shutting down (`{"status":"draining"}`), when the database check fails or
-        times out (`{"status":"unavailable"}`), or when the database has no HMAC secret or one
-        that does not match this process's key (`{"status":"unavailable","reason":"configuration"}`;
-        login would fail closed). The check is single-flight and cached briefly,
-        so probes cannot multiply database load. No internal detail or key material is returned.
+        200 when the bounded database check succeeds, the session-mint HMAC
+        self-test passes and the process is not draining. 503 while shutting
+        down (`{"status":"draining"}`), when the database check fails or times
+        out (`{"status":"unavailable"}`), or when the database has no HMAC
+        secret or one that does not match this process's key
+        (`{"status":"unavailable","reason":"configuration"}`; login would fail
+        closed). The check is single-flight and cached briefly, so probes cannot
+        multiply database load. No internal detail or key material is returned.
       operationId: readyz
       x-figbloom-authz: public
       responses:
@@ -54,11 +56,12 @@ paths:
               schema: { type: integer }
   /health:
     get:
-      tags: [health]
+      tags: [ health ]
       summary: Liveness (alias of /livez)
       description: >
-        Contract change (FIG-1617, OI-5): this used to run `SELECT 1` and returned a generic
-        500 when PostgreSQL was down. It is now a pure liveness alias. Use `/readyz` for readiness.
+        Contract change (FIG-1617, OI-5): this used to run `SELECT 1` and
+        returned a generic 500 when PostgreSQL was down. It is now a pure
+        liveness alias. Use `/readyz` for readiness.
       operationId: health
       x-figbloom-authz: public
       responses:
@@ -66,7 +69,7 @@ paths:
           description: Process is up
   /v1/health:
     get:
-      tags: [health]
+      tags: [ health ]
       summary: Versioned liveness (alias of /livez)
       description: See `/health`.
       operationId: healthV1
@@ -76,7 +79,7 @@ paths:
           description: Process is up
   /v1/auth/login/email:
     post:
-      tags: [auth]
+      tags: [ auth ]
       summary: Email + password login (admin / org / super)
       operationId: loginEmail
       x-figbloom-authz: public
@@ -87,7 +90,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password]
+              required: [ email, password ]
               properties:
                 email: { type: string, format: email }
                 password: { type: string }
@@ -105,7 +108,7 @@ paths:
           $ref: "#/components/responses/RateLimited"
   /v1/auth/login/login-id:
     post:
-      tags: [auth]
+      tags: [ auth ]
       summary: School + login_id + password login
       operationId: loginLoginId
       x-figbloom-authz: public
@@ -116,7 +119,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [tenantId, loginId, password]
+              required: [ tenantId, loginId, password ]
               properties:
                 tenantId: { type: string, format: uuid }
                 loginId: { type: string }
@@ -135,10 +138,10 @@ paths:
           $ref: "#/components/responses/RateLimited"
   /v1/auth/logout:
     post:
-      tags: [auth]
+      tags: [ auth ]
       summary: Revoke current session
       operationId: logout
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: authenticated
       responses:
         "200":
@@ -150,20 +153,21 @@ paths:
           $ref: "#/components/responses/Unauthorized"
   /v1/auth/me:
     get:
-      tags: [auth]
+      tags: [ auth ]
       summary: Current user, memberships and authz role
       operationId: authMe
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: authenticated
       responses:
         "200":
           description: >-
             Identity snapshot. `authz` is null when the session's school is no
-            longer usable (membership archived, school suspended); the caller can
-            then still list memberships and call select-tenant. Memberships are
-            returned in full (ordered by created_at, id) up to a hard safety
+            longer usable (membership archived, school suspended); the caller
+            can then still list memberships and call select-tenant. Memberships
+            are returned in full (ordered by created_at, id) up to a hard safety
             bound of 2000; overflow yields HTTP 409 and never silent truncation.
-            `membershipsComplete` is true when the full authorised set is present.
+            `membershipsComplete` is true when the full authorised set is
+            present.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
@@ -171,10 +175,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
   /v1/auth/select-tenant:
     post:
-      tags: [auth]
+      tags: [ auth ]
       summary: Set active tenant on the session (membership required)
       operationId: selectTenant
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: authenticated
       x-figbloom-tenantScope: requestBody.tenantId
       requestBody:
@@ -183,7 +187,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [tenantId]
+              required: [ tenantId ]
               properties:
                 tenantId: { type: string, format: uuid }
       responses:
@@ -202,10 +206,10 @@ paths:
           $ref: "#/components/responses/NotFound"
   /v1/auth/password/change:
     post:
-      tags: [auth]
+      tags: [ auth ]
       summary: Change password (authenticated; required when must_change_password)
       operationId: changePassword
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: authenticated
       x-figbloom-tenantScope: none
       description: >
@@ -218,7 +222,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [currentPassword, newPassword]
+              required: [ currentPassword, newPassword ]
               properties:
                 currentPassword: { type: string }
                 newPassword: { type: string }
@@ -236,12 +240,12 @@ paths:
           $ref: "#/components/responses/RateLimited"
   /v1/tenants/{tenantId}:
     get:
-      tags: [tenancy]
+      tags: [ tenancy ]
       summary: Read tenant (same-tenant only)
       operationId: getTenant
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [tenant.read]
+      x-figbloom-permissions: [ tenant.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -265,17 +269,18 @@ paths:
           $ref: "#/components/responses/NotFound"
   /v1/rbac/permissions:
     get:
-      tags: [rbac]
+      tags: [ rbac ]
       summary: Effective permissions for the active tenant context
       operationId: getPermissions
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [rbac.permissions.read]
+      x-figbloom-permissions: [ rbac.permissions.read ]
       x-figbloom-tenantScope: session
       description: >
-        Effective permission codes are SQL keyset-paginated as `items` ordered by
-        `code` (FIG-1621). Clients that need the full set must follow `next_cursor`.
-        This is a UX hint only; every endpoint re-checks permission server-side.
+        Effective permission codes are SQL keyset-paginated as `items` ordered
+        by `code` (FIG-1621). Clients that need the full set must follow
+        `next_cursor`. This is a UX hint only; every endpoint re-checks
+        permission server-side.
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
         - $ref: "#/components/parameters/PageLimit"
@@ -295,12 +300,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/resources/learners:
     get:
-      tags: [tenancy]
+      tags: [ tenancy ]
       summary: Representative learner resource predicate (P1-A)
       operationId: checkLearnerResource
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.learner.read]
+      x-figbloom-permissions: [ resource.learner.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -321,18 +326,65 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/learners:
+    get:
+      tags: [ directory ]
+      summary: List learners (Phase 3)
+      operationId: listLearners
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.learner.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [ name, created ], default: name }
+        - name: active
+          in: query
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: Keyset page of learners
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ learners, page ]
+                properties:
+                  learners:
+                    type: array
+                    items: { $ref: "#/components/schemas/Learner" }
+                  page: { $ref: "#/components/schemas/PageInfo" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
-      tags: [directory]
+      tags: [ directory ]
       summary: Create a learner in the school directory (VS-1)
       description: >
-        Creates a learner record for the path tenant. Requires resource.learner.write
-        (school_admin, or staff/teacher with area.people, or an equivalent org-admin
-        delegation). Tenant id in the path must match the session / X-Tenant-Id context.
-        Class assignment, guardians, health and import are out of scope for VS-1.
+        Creates a learner record for the path tenant. Requires
+        resource.learner.write (school_admin, or staff/teacher with area.people,
+        or an equivalent org-admin delegation). Tenant id in the path must match
+        the session / X-Tenant-Id context. Class assignment, guardians, health
+        and import are out of scope for VS-1.
       operationId: createLearner
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.learner.write]
+      x-figbloom-permissions: [ resource.learner.write ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -364,15 +416,16 @@ paths:
           $ref: "#/components/responses/Conflict"
   /v1/tenants/{tenantId}/learners/{learnerId}:
     get:
-      tags: [directory]
+      tags: [ directory ]
       summary: Retrieve a learner by id (VS-1)
       description: >
-        Returns a learner owned by the path tenant. Requires resource.learner.read.
-        Cross-tenant ids return 404 (not found) when the row is not in the caller's tenant.
+        Returns a learner owned by the path tenant. Requires
+        resource.learner.read. Cross-tenant ids return 404 (not found) when the
+        row is not in the caller's tenant.
       operationId: getLearner
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.learner.read]
+      x-figbloom-permissions: [ resource.learner.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -398,23 +451,624 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-  /v1/tenants/{tenantId}/guardians:
+    patch:
+      tags: [ directory ]
+      summary: Update a learner profile (Phase 3)
+      description: >
+        Partial update of the fields sent. Concurrent PATCHes on one learner are serialised by a
+        row lock, so the later write cannot silently discard the earlier one's fields
+        (P3-AUDIT-012).
+      operationId: updateLearner
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.learner.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: learnerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchLearnerRequest" }
+      responses:
+        "200":
+          description: Updated learner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/learners/{learnerId}/archive:
     post:
-      tags: [directory]
+      tags: [ directory ]
+      summary: Archive a learner (Phase 3)
+      operationId: archiveLearner
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.learner.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: learnerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived learner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/learners/{learnerId}/restore:
+    post:
+      tags: [ directory ]
+      summary: Restore an archived learner (Phase 3)
+      operationId: restoreLearner
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.learner.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: learnerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Restored learner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LearnerResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/school-profile:
+    get:
+      tags: [ directory ]
+      summary: Get school directory profile (Phase 3)
+      operationId: getSchoolProfile
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.school_profile.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: School profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchoolProfileResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [ directory ]
+      summary: Update school directory profile (Phase 3)
+      description: >
+        School name and timezone are school identity: only a full school administrator (or a
+        platform super admin) may change them. `area.people` implies read only (F-02). An org admin
+        holding an explicit `resource.school_profile.write` delegation may change the OTHER profile
+        fields (county, country, level, institution_type, contact_email, contact_phone,
+        moe_registration, accent) but is refused (403) when `name` or `timezone` is present
+        (P3-AUDIT-002). `timezone` must be a time zone name known to PostgreSQL (for example
+        `Africa/Nairobi`); anything else is a 400. `logo_object_key` is not accepted or returned: a
+        server-assigned logo key arrives with the storage integration (P3-AUDIT-005).
+      operationId: patchSchoolProfile
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.school_profile.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchSchoolProfileRequest" }
+      responses:
+        "200":
+          description: Updated school profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchoolProfileResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/staff:
+    get:
+      tags: [ directory ]
+      summary: List staff directory (Phase 3)
+      operationId: listStaff
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.staff.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: active
+          in: query
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: Staff page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffList" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [ directory ]
+      summary: Create staff directory member (Phase 3)
+      operationId: createStaff
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.staff.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateStaffRequest" }
+      responses:
+        "201":
+          description: Staff created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/staff/{staffId}:
+    get:
+      tags: [ directory ]
+      summary: Get staff member (Phase 3)
+      operationId: getStaff
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.staff.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: staffId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Staff member
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags: [ directory ]
+      summary: Update staff member (Phase 3)
+      operationId: updateStaff
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.staff.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: staffId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchStaffRequest" }
+      responses:
+        "200":
+          description: Updated staff
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/staff/{staffId}/archive:
+    post:
+      tags: [ directory ]
+      summary: Archive staff member (Phase 3)
+      operationId: archiveStaff
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.staff.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: staffId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived staff
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/staff/{staffId}/restore:
+    post:
+      tags: [ directory ]
+      summary: Restore staff member (Phase 3)
+      operationId: restoreStaff
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.staff.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: staffId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Restored staff
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StaffResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/documents:
+    get:
+      tags: [ directory ]
+      summary: List directory document metadata (Phase 3)
+      description: >
+        Metadata only: no object exists behind any row (`storage_status` is `metadata_only`,
+        `object_available` is `false`). A document describes its subject, so reading one needs the
+        subject's own read permission IN ADDITION to `resource.document.read`:
+        `resource.learner.read`, `resource.guardian.read` or `resource.staff.read` (P3-AUDIT-010).
+        Subject types the caller may not read are omitted from unfiltered listings; asking for one
+        explicitly via `subject_type=` is refused with 403. `area.people` implies the learner and
+        staff permissions but NEVER the guardian one (FIG-1614).
+      operationId: listDocuments
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.document.read ]
+      x-figbloom-conditionalPermissions: [ resource.learner.read, resource.guardian.read, resource.staff.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: subject_type
+          in: query
+          schema: { type: string, enum: [ learner, guardian, staff ] }
+        - name: subject_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: include_archived
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Document metadata page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentList" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [ directory ]
+      summary: Register document metadata (Phase 3)
+      description: >
+        Registers document METADATA only. This does not upload, store, scan or retain any bytes and
+        never creates an object. The client does not choose a storage key: any `storage_key`
+        property is rejected with 400, and the server generates an opaque, non-guessable key
+        internally that is never returned. A guardian subject additionally needs
+        the subject's own permission, checked BEFORE the subject is looked up so the response never
+        confirms that a subject id exists: `resource.learner.read` for a learner,
+        `resource.guardian.write` for a guardian, `resource.staff.read` for a staff member
+        (P3-AUDIT-010). The subject must exist in the same tenant. File names may not contain path
+        separators or control characters.
+      operationId: registerDocument
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.document.write ]
+      x-figbloom-conditionalPermissions: [ resource.learner.read, resource.guardian.write, resource.staff.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterDocumentRequest" }
+      responses:
+        "201":
+          description: Document metadata registered (no object exists; storage_status is metadata_only)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/documents/{documentId}:
+    get:
+      tags: [ directory ]
+      summary: Get document metadata (Phase 3)
+      description: >
+        A document whose subject the caller may not read answers 404 (not 403), so an id does not
+        reveal which kind of subject it belongs to. The denial is audited (P3-AUDIT-010).
+      operationId: getDocument
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.document.read ]
+      x-figbloom-conditionalPermissions: [ resource.learner.read, resource.guardian.read, resource.staff.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Document metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/documents/{documentId}/archive:
+    post:
+      tags: [ directory ]
+      summary: Archive document metadata (Phase 3)
+      description: >
+        Archiving is one-way and only changes `archived_at`; an archived document accepts no further
+        change at all (migration 027). A document whose subject the caller may not write answers
+        404, not 403 (P3-AUDIT-010).
+      operationId: archiveDocument
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.document.write ]
+      x-figbloom-conditionalPermissions: [ resource.learner.read, resource.guardian.write, resource.staff.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/guardians:
+    get:
+      tags: [ directory ]
+      summary: List guardians (Phase 3)
+      operationId: listGuardians
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.guardian.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: active
+          in: query
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: Guardians page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianList" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [ directory ]
       summary: Create a guardian linked to existing learners (VS-2)
       description: >
         Creates a guardian directory record and its initial learner links in one
-        transaction. At least one learner is required; every learner must be an active
-        learner of the path tenant. Requires resource.guardian.write and
-        resource.learner.read. A guardian is a person record only: no login account is
-        created and no user is bound (provisioning is deferred). Archived learners cannot
-        receive new guardian relationships and get the same 404 as unknown learners.
-        Duplicate learner ids in one request (including case-only differences) return 400.
-        The response returns the guardian id and links only, not the contact fields.
+        transaction. At least one learner is required; every learner must be an
+        active learner of the path tenant. Requires resource.guardian.write and
+        resource.learner.read. A guardian is a person record only: no login
+        account is created and no user is bound (provisioning is deferred).
+        Archived learners cannot receive new guardian relationships and get the
+        same 404 as unknown learners. Duplicate learner ids in one request
+        (including case-only differences) return 400. The response returns the
+        guardian id and links only, not the contact fields.
       operationId: createGuardian
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.guardian.write, resource.learner.read]
+      x-figbloom-permissions: [ resource.guardian.write, resource.learner.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -448,17 +1102,17 @@ paths:
           $ref: "#/components/responses/Conflict"
   /v1/tenants/{tenantId}/guardians/{guardianId}:
     get:
-      tags: [directory]
+      tags: [ directory ]
       summary: Retrieve a guardian contact record (VS-2)
       description: >
-        Requires resource.guardian.read. Returns contact fields only — linked learner
-        identifiers are not included. Use GET .../learners/{learnerId}/guardians to see
-        relationships for a known learner. A guardian id that is not in the path tenant
-        returns 404.
+        Requires resource.guardian.read. Returns contact fields only — linked
+        learner identifiers are not included. Use GET
+        .../learners/{learnerId}/guardians to see relationships for a known
+        learner. A guardian id that is not in the path tenant returns 404.
       operationId: getGuardian
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.guardian.read]
+      x-figbloom-permissions: [ resource.guardian.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -484,19 +1138,143 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [ directory ]
+      summary: Update guardian contacts (Phase 3)
+      operationId: updateGuardian
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.guardian.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Updated guardian contact
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianContactResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/guardians/{guardianId}/archive:
+    post:
+      tags: [ directory ]
+      summary: Archive a guardian and active links (Phase 3)
+      operationId: archiveGuardian
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.guardian.write ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: >
+            Archived guardian. A caller holding `resource.guardian.write` without
+            `resource.guardian.read` receives identifiers only (P3-AUDIT-001).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianMutationResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/guardians/{guardianId}/restore:
+    post:
+      tags: [ directory ]
+      summary: Restore an archived guardian and the links its archive cascaded over (Stage 8)
+      description: >
+        The inverse of archive, completing the lifecycle that learners and staff already had.
+        Restores the guardian record and re-activates exactly the links that archiving this
+        guardian archived. A link that someone unlinked deliberately stays unlinked, and a link
+        whose learner has since been archived is held back rather than refused - the active-learner
+        rule that governs creating a link also governs bringing one back. The audit event records
+        how many links were restored and how many were held back. Re-linking is the existing
+        `POST /guardians/{guardianId}/links`. Needs `resource.guardian.write` (the same permission
+        as archive) and `resource.learner.read`, because restoring names learners.
+      operationId: restoreGuardian
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.guardian.write, resource.learner.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: >
+            Restored guardian. A caller holding `resource.guardian.write` without
+            `resource.guardian.read` receives identifiers only (P3-AUDIT-001).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianMutationResponse" }
+        "400":
+          description: The guardian is not archived
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The guardian's relationships changed concurrently; retry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /v1/tenants/{tenantId}/guardians/{guardianId}/links:
     post:
-      tags: [directory]
+      tags: [ directory ]
       summary: Link an existing guardian to another learner (VS-2)
       description: >
-        Requires resource.guardian.write and resource.learner.read. The guardian and the
-        learner must both belong to the path tenant; the learner must be active
-        (404 for unknown, foreign or archived: the same response for all three). A duplicate guardian-learner link
-        returns 409.
+        Requires resource.guardian.write and resource.learner.read. The guardian
+        and the learner must both belong to the path tenant; the learner must be
+        active (404 for unknown, foreign or archived: the same response for all
+        three). A duplicate guardian-learner link returns 409.
       operationId: addGuardianLink
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.guardian.write, resource.learner.read]
+      x-figbloom-permissions: [ resource.guardian.write, resource.learner.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -532,17 +1310,52 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/guardians/{guardianId}/links/{linkId}/archive:
+    post:
+      tags: [ directory ]
+      summary: Soft-archive a guardian-learner link (Phase 3)
+      operationId: archiveGuardianLink
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ resource.guardian.write, resource.learner.read ]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: linkId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Link archived
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianLinkResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/learners/{learnerId}/guardians:
     get:
-      tags: [directory]
+      tags: [ directory ]
       summary: List the guardians of a learner (VS-2)
       description: >
-        Requires resource.guardian.read and resource.learner.read. A learner id that is
-        not in the path tenant returns 404.
+        Requires resource.guardian.read and resource.learner.read. A learner id
+        that is not in the path tenant returns 404.
       operationId: listLearnerGuardians
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [resource.guardian.read, resource.learner.read]
+      x-figbloom-permissions: [ resource.guardian.read, resource.learner.read ]
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -560,9 +1373,9 @@ paths:
       responses:
         "200":
           description: >
-            Guardians linked to the learner. SQL keyset on
-            `(link.created_at, link.id)` ascending; timestamps in cursors keep
-            PostgreSQL microsecond precision.
+            Guardians linked to the learner. SQL keyset on `(link.created_at,
+            link.id)` ascending; timestamps in cursors keep PostgreSQL
+            microsecond precision.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LearnerGuardiansResponse" }
@@ -576,20 +1389,21 @@ paths:
           $ref: "#/components/responses/NotFound"
   /v1/org/schools:
     get:
-      tags: [org]
+      tags: [ org ]
       summary: Aggregate member-school summaries for the caller's organizations (R2-05)
       description: >
-        Organization-level aggregate visibility only. Does not grant school-admin
-        or learner record access. Requires org.tenants.read. SQL keyset-paginated
-        (FIG-1621): `{ items, page: { limit, next_cursor } }`. Order is
-        `organization.name, tenant.name, tenant.id` with `COLLATE "C"` on both
-        the ORDER BY and the cursor predicate (locale-independent). The cursor is opaque and
-        identifies the last school by id (names are unbounded, so they are never embedded); a
-        cursor whose school is no longer in the caller's set is `400 validation_error`.
+        Organization-level aggregate visibility only. Does not grant
+        school-admin or learner record access. Requires org.tenants.read. SQL
+        keyset-paginated (FIG-1621): `{ items, page: { limit, next_cursor } }`.
+        Order is `organization.name, tenant.name, tenant.id` with `COLLATE "C"`
+        on both the ORDER BY and the cursor predicate (locale-independent). The
+        cursor is opaque and identifies the last school by id (names are
+        unbounded, so they are never embedded); a cursor whose school is no
+        longer in the caller's set is `400 validation_error`.
       operationId: listOrgSchools
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [org.tenants.read]
+      x-figbloom-permissions: [ org.tenants.read ]
       x-figbloom-tenantScope: none
       parameters:
         - $ref: "#/components/parameters/PageLimit"
@@ -609,17 +1423,17 @@ paths:
           $ref: "#/components/responses/Forbidden"
   /v1/rbac/org-delegations:
     get:
-      tags: [rbac]
+      tags: [ rbac ]
       summary: List org-admin school delegations for the active school
       description: >
         SQL keyset-paginated (FIG-1621) on `created_at DESC, id ASC` with a
-        mixed-direction predicate. Query `status` defaults to `active`
-        (only non-revoked rows) — behavioural change from the pre-pagination
-        endpoint that returned revoked history too. Pass `revoked` or `all` to widen.
+        mixed-direction predicate. Query `status` defaults to `active` (only
+        non-revoked rows) — behavioural change from the pre-pagination endpoint
+        that returned revoked history too. Pass `revoked` or `all` to widen.
       operationId: listOrgDelegations
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [rbac.org_delegations.read]
+      x-figbloom-permissions: [ rbac.org_delegations.read ]
       x-figbloom-tenantScope: session
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -629,8 +1443,9 @@ paths:
         - name: status
           in: query
           required: false
-          description: Filter by revocation state. Default `active` (breaking vs pre-FIG-1621).
-          schema: { type: string, enum: [active, revoked, all], default: active }
+          description: Filter by revocation state. Default `active` (breaking vs
+            pre-FIG-1621).
+          schema: { type: string, enum: [ active, revoked, all ], default: active }
       responses:
         "200":
           description: Delegation rows
@@ -644,12 +1459,24 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
-      tags: [rbac]
-      summary: Grant school-scoped permissions to an org_admin (R2-05)
+      tags: [ rbac ]
+      summary: Grant school-scoped permissions to an org_admin (R2-05, FIG-1609)
+      description: >
+        Delegable codes are exactly `tenant.read`, `rbac.staff_areas.manage`, `rbac.school_roles.manage`,
+        `resource.learner.read` and the `area.*` codes except `area.people` (owner decision, 2026-11-17:
+        it carries learner, staff and document writes); every other code, including
+        `area.people` and `resource.guardian.*`, is refused with 400. See ORG-ADMIN-POLICY.md.
+        Callable by a school administrator of the school (`rbac.org_delegations.manage`), a platform
+        super administrator, or an organization administrator of the organization that owns the
+        school (`org.delegations.grant`, non-delegable). The grantor need not hold the permission
+        being delegated. Only allowlisted codes, only to another org_admin of the same
+        organization, never to oneself. Refused with 403 on a suspended school for every actor,
+        including a super administrator; refusals are audited as `rbac.org_delegation.denied`
+        with a reason class.
       operationId: grantOrgDelegations
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [rbac.org_delegations.manage]
+      x-figbloom-permissions: [ rbac.org_delegations.manage, org.delegations.grant ]
       x-figbloom-tenantScope: session
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -660,12 +1487,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [delegateUserId, permissionCodes]
+              required: [ delegateUserId, permissionCodes ]
               properties:
                 delegateUserId: { type: string, format: uuid }
                 permissionCodes:
                   type: array
-                  items: { type: string }
+                  minItems: 1
+                  maxItems: 64
+                  items: { type: string, minLength: 1, maxLength: 64 }
       responses:
         "200":
           description: Granted
@@ -678,15 +1507,29 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Idempotent replay of a grant that is no longer true (delegation revoked, or the
+            recipient is no longer an active org admin), or an original request that did not complete.
+            Use a new Idempotency-Key to grant again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "422":
           $ref: "#/components/responses/IdempotencyKeyReused"
     delete:
-      tags: [rbac]
-      summary: Revoke school-scoped org_admin delegations (R2-05)
+      tags: [ rbac ]
+      summary: Revoke school-scoped org_admin delegations (R2-05, FIG-1609)
+      description: >
+        Callable by a school administrator of the school, a platform super administrator, or an
+        organization administrator of the owning organization (`org.delegations.revoke`,
+        non-delegable), who may revoke any delegation in the organization, including one a school
+        administrator granted. Allowed on a suspended school (revocation only removes privilege).
+        Takes effect on the next request. The audit event records the acting administrator, every
+        original grantor, the recipient, organization, school, permission codes and outcome.
       operationId: revokeOrgDelegations
-      security: [{ bearerAuth: [] }]
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [rbac.org_delegations.manage]
+      x-figbloom-permissions: [ rbac.org_delegations.manage, org.delegations.revoke ]
       x-figbloom-tenantScope: session
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -696,12 +1539,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [delegateUserId]
+              required: [ delegateUserId ]
               properties:
                 delegateUserId: { type: string, format: uuid }
                 permissionCodes:
                   type: array
-                  items: { type: string }
+                  minItems: 1
+                  maxItems: 64
+                  items: { type: string, minLength: 1, maxLength: 64 }
       responses:
         "200":
           description: Revoked
@@ -716,14 +1561,47 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-  /v1/rbac/staff-areas:
-    put:
-      tags: [rbac]
-      summary: Replace staff admin areas (audited)
-      operationId: setStaffAreas
-      security: [{ bearerAuth: [] }]
+  /v1/rbac/guardian-access:
+    get:
+      tags: [ rbac ]
+      summary: List one person's active explicit guardian access grants (FIG-1614)
+      operationId: listGuardianAccess
+      security: [ { bearerAuth: [] } ]
       x-figbloom-authz: permission
-      x-figbloom-permissions: [rbac.staff_areas.manage]
+      x-figbloom-permissions: [ rbac.guardian_access.manage ]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: userId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Active grants (at most two rows)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianAccessList" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [ rbac ]
+      summary: Grant explicit guardian read and/or write access to one staff member (FIG-1614, Option D)
+      description: >
+        School administrator (or platform super administrator) only; not delegable to org admins.
+        `resource.guardian.read` and `resource.guardian.write` are independent. Grantee must be an
+        active user with a live teacher or staff membership in this school (400 otherwise).
+        Granting an already-active code is a no-op. `area.people` never implies either code.
+        Refused (403) on a suspended school for every administrator, a super administrator included.
+        Audited as `rbac.guardian_access.granted` / `.denied`.
+      operationId: grantGuardianAccess
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ rbac.guardian_access.manage ]
       x-figbloom-tenantScope: session
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -733,7 +1611,93 @@ paths:
           application/json:
             schema:
               type: object
-              required: [userId, areas]
+              required: [ userId, permissionCodes ]
+              properties:
+                userId: { type: string, format: uuid }
+                permissionCodes:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  items: { type: string, enum: [ resource.guardian.read, resource.guardian.write ] }
+      responses:
+        "200":
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianAccessResult" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [ rbac ]
+      summary: Revoke explicit guardian access from one staff member (FIG-1614)
+      description: >
+        Revokes the named codes, or every active code when `permissionCodes` is omitted. Effective
+        on the next request. 404 when nothing was active. Audited with the original grantor.
+      operationId: revokeGuardianAccess
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ rbac.guardian_access.manage ]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ userId ]
+              properties:
+                userId: { type: string, format: uuid }
+                permissionCodes:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  items: { type: string, enum: [ resource.guardian.read, resource.guardian.write ] }
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GuardianAccessResult" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/rbac/staff-areas:
+    put:
+      tags: [ rbac ]
+      summary: Replace staff admin areas (audited)
+      description: >
+        A school administrator or platform super administrator may set any area. An organization
+        administrator acting through a delegation may assign, and remove, only the `area.*` codes
+        delegated to them (403, audited `rbac.staff_areas.denied` with reason `area_beyond_authority`,
+        otherwise); areas the person already holds outside that authority are kept. Only the difference is
+        applied: an area the person already holds keeps who assigned it and when, so an assignment made
+        under a delegation stays attributable after the delegation ends (it is not revoked with it). Targets are teacher
+        or staff members of the active school only; you cannot change your own areas.
+      operationId: setStaffAreas
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [ rbac.staff_areas.manage ]
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ userId, areas ]
               properties:
                 userId: { type: string, format: uuid }
                 areas:
@@ -765,14 +1729,17 @@ components:
       in: header
       required: false
       description: >-
-        Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours,
-        for the same school, caller and key: the same request again returns the ORIGINAL status
-        with the resource re-read by reference (so it reflects the resource's current state;
-        header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different
-        request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce
-        one effect. A caller who is not (or no longer) authorised is refused as usual: a key never
-        grants access. Guarantee: at most one committed effect per (school, caller, key) in the window;
-        not exactly-once across client, network or process failures. Header-less requests are unchanged.
+        Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within
+        24 hours, for the same school, caller and key: the same request again
+        returns the ORIGINAL status with the resource re-read by reference (so
+        it reflects the resource's current state; header `Idempotent-Replayed:
+        true`) and causes no second effect or audit event; a different request
+        with the same key is `422 idempotency_key_reused`. Concurrent duplicates
+        produce one effect. A caller who is not (or no longer) authorised is
+        refused as usual: a key never grants access. Guarantee: at most one
+        committed effect per (school, caller, key) in the window; not
+        exactly-once across client, network or process failures. Header-less
+        requests are unchanged.
       schema: { type: string, minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" }
     TenantHeader:
       name: X-Tenant-Id
@@ -790,7 +1757,8 @@ components:
       required: false
       description: >
         Page size (FIG-1621). Default 50, maximum 200. Decimal integers only;
-        values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`.
+        values above 200, `0x10`, `1e2` and non-integers are `400
+        validation_error`.
       schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
     PageCursor:
       name: cursor
@@ -798,11 +1766,23 @@ components:
       required: false
       description: >
         Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are
-        PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter
-        and tenant/org scope fingerprint. Wrong version, wrong key types, reuse
-        across tenants/filters/sorts, truncation or tampering → `400 validation_error`.
-        Cursors carry no privilege.
+        PostgreSQL text (timestamps preserve microseconds). Bound to sort,
+        filter and tenant/org scope fingerprint. Wrong version, wrong key types,
+        reuse across tenants/filters/sorts, truncation or tampering → `400
+        validation_error`. Cursors carry no privilege.
       schema: { type: string, minLength: 8, maxLength: 2048 }
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      description: >
+        Case-insensitive "contains" search over the listed name fields (learners also match the
+        admission number). The value is matched LITERALLY: `%`, `_` and `\` are escaped, so `q=%`
+        is a search for a per-cent sign and not a way to return every row (P3-AUDIT-013). Bounded
+        at 120 characters — the longest searchable value — and control characters are refused
+        (400). Blank or whitespace-only behaves as if `q` were absent. Personal names are never
+        normalised: accents, apostrophes and non-Latin scripts are compared as typed.
+      schema: { type: string, minLength: 1, maxLength: 120 }
     PageSortUnsupported:
       name: sort
       in: query
@@ -825,7 +1805,10 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Forbidden:
-      description: Authenticated but not authorized (default deny)
+      description: >
+        Authenticated but not authorized (default deny). Also returned, for every authenticated
+        route except POST /v1/auth/password/change, POST /v1/auth/logout and GET /v1/auth/me,
+        while the user's `must_change_password` flag is set ("Password change required", FIG-1604).
       content:
         application/json:
           schema:
@@ -855,7 +1838,8 @@ components:
         request cost exceeds capacity (waiting cannot help for that cost).
       headers:
         Retry-After:
-          description: Whole seconds until the request would be admitted (omitted when cost > capacity)
+          description: Whole seconds until the request would be admitted (omitted when
+            cost > capacity)
           schema: { type: integer, minimum: 1 }
       content:
         application/json:
@@ -864,50 +1848,50 @@ components:
   schemas:
     Ok:
       type: object
-      required: [ok]
+      required: [ ok ]
       properties:
         ok: { type: boolean }
     PublicUser:
       type: object
-      required: [id, full_name, email, must_change_password, platform_role]
+      required: [ id, full_name, email, must_change_password, platform_role ]
       properties:
         id: { type: string, format: uuid }
         full_name: { type: string }
-        email: { type: [string, "null"] }
+        email: { type: [ string, "null" ] }
         must_change_password: { type: boolean }
-        platform_role: { type: [string, "null"] }
+        platform_role: { type: [ string, "null" ] }
     LoginResponse:
       type: object
-      required: [token, expiresAt, user, activeTenantId]
+      required: [ token, expiresAt, user, activeTenantId ]
       properties:
         token:
           type: string
           description: Opaque bearer token, returned once; only its SHA-256 is stored.
         expiresAt: { type: string, format: date-time }
         user: { $ref: "#/components/schemas/PublicUser" }
-        activeTenantId: { type: [string, "null"], format: uuid }
+        activeTenantId: { type: [ string, "null" ], format: uuid }
     SelectTenantResponse:
       type: object
-      required: [activeTenantId, activeOrganizationId]
+      required: [ activeTenantId, activeOrganizationId ]
       properties:
-        activeTenantId: { type: [string, "null"], format: uuid }
-        activeOrganizationId: { type: [string, "null"], format: uuid }
+        activeTenantId: { type: [ string, "null" ], format: uuid }
+        activeOrganizationId: { type: [ string, "null" ], format: uuid }
     PasswordChangeResponse:
       type: object
-      required: [ok, user]
+      required: [ ok, user ]
       properties:
         ok: { type: boolean }
         user: { $ref: "#/components/schemas/PublicUser" }
     Me:
       type: object
-      required: [user, session, memberships, membershipsComplete, authz]
+      required: [ user, session, memberships, membershipsComplete, authz ]
       properties:
         user: { $ref: "#/components/schemas/PublicUser" }
         session:
           type: object
           properties:
             id: { type: string, format: uuid }
-            activeTenantId: { type: [string, "null"], format: uuid }
+            activeTenantId: { type: [ string, "null" ], format: uuid }
             expiresAt: { type: string, format: date-time }
         memberships:
           type: array
@@ -917,16 +1901,17 @@ components:
             properties:
               tenantId: { type: string, format: uuid }
               role: { type: string }
-              loginId: { type: [string, "null"] }
+              loginId: { type: [ string, "null" ] }
               tenantStatus: { type: string }
         membershipsComplete:
           type: boolean
-          description: True when the response includes every authorised membership (no silent truncation).
+          description: True when the response includes every authorised membership (no
+            silent truncation).
         authz:
-          type: [object, "null"]
+          type: [ object, "null" ]
           properties:
             role: { type: string }
-            tenantId: { type: [string, "null"], format: uuid }
+            tenantId: { type: [ string, "null" ], format: uuid }
             isSuperAdmin: { type: boolean }
     TenantRecord:
       type: object
@@ -939,10 +1924,10 @@ components:
         organizationId: { type: string, format: uuid }
     PageInfo:
       type: object
-      required: [limit, next_cursor]
+      required: [ limit, next_cursor ]
       properties:
         limit: { type: integer, minimum: 1, maximum: 200 }
-        next_cursor: { type: [string, "null"] }
+        next_cursor: { type: [ string, "null" ] }
     PermissionSet:
       type: object
       required:
@@ -955,7 +1940,7 @@ components:
           delegatedPermissions,
           actingVia,
           items,
-          page,
+          page
         ]
       description: >-
         The single source a client may use to decide which actions and
@@ -975,13 +1960,13 @@ components:
         page: { $ref: "#/components/schemas/PageInfo" }
     OrgSchoolList:
       type: object
-      required: [items, page]
+      required: [ items, page ]
       properties:
         items:
           type: array
           items:
             type: object
-            required: [id, name, slug, status, organizationId]
+            required: [ id, name, slug, status, organizationId ]
             properties:
               id: { type: string, format: uuid }
               name: { type: string }
@@ -993,7 +1978,7 @@ components:
         page: { $ref: "#/components/schemas/PageInfo" }
     OrgDelegationList:
       type: object
-      required: [tenantId, items, page]
+      required: [ tenantId, items, page ]
       properties:
         tenantId: { type: string, format: uuid }
         items:
@@ -1006,8 +1991,29 @@ components:
               permissionCode: { type: string }
               grantedBy: { type: string, format: uuid }
               createdAt: { type: string, format: date-time }
-              revokedAt: { type: [string, "null"], format: date-time }
+              revokedAt: { type: [ string, "null" ], format: date-time }
         page: { $ref: "#/components/schemas/PageInfo" }
+    GuardianAccessResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        tenantId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        granted: { type: array, items: { type: string } }
+        revoked: { type: array, items: { type: string } }
+    GuardianAccessList:
+      type: object
+      properties:
+        tenantId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              permissionCode: { type: string }
+              grantedBy: { type: string, format: uuid }
+              createdAt: { type: string, format: date-time }
     OrgDelegationGrantResult:
       type: object
       properties:
@@ -1030,15 +2036,15 @@ components:
         areas: { type: array, items: { type: string } }
     LearnerResourceAccess:
       type: object
-      required: [tenantId, resource, access]
+      required: [ tenantId, resource, access ]
       properties:
         tenantId: { type: string, format: uuid }
-        resource: { type: string, enum: [learners] }
-        access: { type: string, enum: [granted] }
+        resource: { type: string, enum: [ learners ] }
+        access: { type: string, enum: [ granted ] }
         note: { type: string }
     CreateLearnerRequest:
       type: object
-      required: [admission_no, full_name, gender]
+      required: [ admission_no, full_name, gender ]
       properties:
         admission_no:
           type: string
@@ -1051,12 +2057,12 @@ components:
           maxLength: 120
         gender:
           type: string
-          enum: [male, female]
+          enum: [ male, female ]
         boarding:
           type: boolean
           default: false
         date_of_birth:
-          type: [string, "null"]
+          type: [ string, "null" ]
           format: date
           description: Optional YYYY-MM-DD
     Learner:
@@ -1073,32 +2079,32 @@ components:
           active,
           archived_at,
           created_at,
-          updated_at,
+          updated_at
         ]
       properties:
         id: { type: string, format: uuid }
         tenantId: { type: string, format: uuid }
         admission_no: { type: string }
         full_name: { type: string }
-        gender: { type: string, enum: [male, female] }
+        gender: { type: string, enum: [ male, female ] }
         boarding: { type: boolean }
-        date_of_birth: { type: [string, "null"], format: date }
+        date_of_birth: { type: [ string, "null" ], format: date }
         active: { type: boolean }
-        archived_at: { type: [string, "null"], format: date-time }
+        archived_at: { type: [ string, "null" ], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     LearnerResponse:
       type: object
-      required: [learner]
+      required: [ learner ]
       properties:
         learner: { $ref: "#/components/schemas/Learner" }
     GuardianLinkRequest:
       type: object
-      required: [learner_id, relationship]
+      required: [ learner_id, relationship ]
       additionalProperties: false
       properties:
         learner_id: { type: string, format: uuid }
-        relationship: { type: string, enum: [mother, father, guardian] }
+        relationship: { type: string, enum: [ mother, father, guardian ] }
         is_primary_payer:
           type: boolean
           default: false
@@ -1106,12 +2112,12 @@ components:
     CreateGuardianRequest:
       type: object
       description: >
-        Values are validated as sent, without trimming. Send names and numbers already
-        trimmed: no leading or trailing whitespace. Lengths (minLength / maxLength) are
-        counted in Unicode code points, as JSON Schema defines them, so a supplementary
-        character such as an emoji counts as one. Accepted content is stored unchanged:
-        no normalization is applied.
-      required: [full_name, learners]
+        Values are validated as sent, without trimming. Send names and numbers
+        already trimmed: no leading or trailing whitespace. Lengths (minLength /
+        maxLength) are counted in Unicode code points, as JSON Schema defines
+        them, so a supplementary character such as an emoji counts as one.
+        Accepted content is stored unchanged: no normalization is applied.
+      required: [ full_name, learners ]
       additionalProperties: false
       properties:
         full_name:
@@ -1120,17 +2126,17 @@ components:
           maxLength: 120
           pattern: '^\S([\s\S]*\S)?$'
         phone:
-          type: [string, "null"]
+          type: [ string, "null" ]
           minLength: 5
           maxLength: 32
           pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
         alt_phone:
-          type: [string, "null"]
+          type: [ string, "null" ]
           minLength: 5
           maxLength: 32
           pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
         email:
-          type: [string, "null"]
+          type: [ string, "null" ]
           maxLength: 254
           # The pattern is the authoritative rule and is exactly what the backend enforces.
           # format: email alone is advisory (many validators ignore it) and is looser, so it
@@ -1144,32 +2150,77 @@ components:
           items: { $ref: "#/components/schemas/GuardianLinkRequest" }
     GuardianLink:
       type: object
-      required: [id, guardianId, learnerId, relationship, is_primary_payer, created_at]
+      required: [ id, guardianId, learnerId, relationship, is_primary_payer, created_at ]
       properties:
         id: { type: string, format: uuid }
         guardianId: { type: string, format: uuid }
         learnerId: { type: string, format: uuid }
-        relationship: { type: string, enum: [mother, father, guardian] }
+        relationship: { type: string, enum: [ mother, father, guardian ] }
         is_primary_payer: { type: boolean }
         created_at: { type: string, format: date-time }
     GuardianContact:
       type: object
-      required: [id, tenantId, full_name, phone, alt_phone, email, created_at, updated_at]
+      required:
+        [
+          id,
+          tenantId,
+          full_name,
+          phone,
+          alt_phone,
+          email,
+          active,
+          archived_at,
+          created_at,
+          updated_at
+        ]
       properties:
         id: { type: string, format: uuid }
         tenantId: { type: string, format: uuid }
         full_name: { type: string }
-        phone: { type: [string, "null"] }
-        alt_phone: { type: [string, "null"] }
-        email: { type: [string, "null"] }
+        phone: { type: [ string, "null" ] }
+        alt_phone: { type: [ string, "null" ] }
+        email: { type: [ string, "null" ] }
+        active: { type: boolean }
+        archived_at: { type: [ string, "null" ], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    GuardianWriteAck:
+      description: >
+        What a caller holding `resource.guardian.write` but NOT `resource.guardian.read` receives
+        from PATCH, archive and restore: identifiers only, never contact details (P3-AUDIT-001).
+
+        `additionalProperties: false` is load-bearing, not decoration: without it a full
+        `GuardianContact` body also satisfies this schema, both branches of the `oneOf` below
+        match, and a strict validator rejects every read-capable response (audit finding A-02).
+      type: object
+      required: [ id, tenantId ]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+    GuardianMutationResponse:
+      type: object
+      required: [ guardian ]
+      properties:
+        guardian:
+          oneOf:
+            - $ref: "#/components/schemas/GuardianContact"
+            - $ref: "#/components/schemas/GuardianWriteAck"
+    GuardianList:
+      type: object
+      required: [ guardians, page ]
+      properties:
+        guardians:
+          type: array
+          items: { $ref: "#/components/schemas/GuardianContact" }
+        page: { $ref: "#/components/schemas/PageInfo" }
     CreatedGuardian:
       description: >
-        Returned by create. Contact fields are not echoed back (F-2, F-6): a caller who
-        can create a guardian but cannot read guardian contacts gets no contact details.
+        Returned by create. Contact fields are not echoed back (F-2, F-6): a
+        caller who can create a guardian but cannot read guardian contacts gets
+        no contact details.
       type: object
-      required: [id, tenantId, links]
+      required: [ id, tenantId, links ]
       properties:
         id: { type: string, format: uuid }
         tenantId: { type: string, format: uuid }
@@ -1178,69 +2229,340 @@ components:
           items: { $ref: "#/components/schemas/GuardianLink" }
     CreatedGuardianResponse:
       type: object
-      required: [guardian]
+      required: [ guardian ]
       properties:
         guardian: { $ref: "#/components/schemas/CreatedGuardian" }
     GuardianContactResponse:
       type: object
-      required: [guardian]
+      required: [ guardian ]
       properties:
         guardian: { $ref: "#/components/schemas/GuardianContact" }
     GuardianLinkResponse:
       type: object
-      required: [link]
+      required: [ link ]
       properties:
         link: { $ref: "#/components/schemas/GuardianLink" }
     LearnerGuardian:
       type: object
       required:
-        [id, tenantId, full_name, phone, alt_phone, email, linkId, relationship, is_primary_payer, created_at]
+        [
+          id,
+          tenantId,
+          full_name,
+          phone,
+          alt_phone,
+          email,
+          linkId,
+          relationship,
+          is_primary_payer,
+          created_at
+        ]
       properties:
         id: { type: string, format: uuid, description: Guardian id }
         tenantId: { type: string, format: uuid }
         full_name: { type: string }
-        phone: { type: [string, "null"] }
-        alt_phone: { type: [string, "null"] }
-        email: { type: [string, "null"] }
+        phone: { type: [ string, "null" ] }
+        alt_phone: { type: [ string, "null" ] }
+        email: { type: [ string, "null" ] }
         linkId: { type: string, format: uuid }
-        relationship: { type: string, enum: [mother, father, guardian] }
+        relationship: { type: string, enum: [ mother, father, guardian ] }
         is_primary_payer: { type: boolean }
         created_at: { type: string, format: date-time, description: When the link was made }
     LearnerGuardiansResponse:
       type: object
-      required: [items, page]
+      required: [ items, page ]
       properties:
         items:
           type: array
           items: { $ref: "#/components/schemas/LearnerGuardian" }
         page: { $ref: "#/components/schemas/PageInfo" }
+    PatchLearnerRequest:
+      description: >
+        Partial update. At least one field is required. Unknown fields are rejected (400), unlike
+        the create body. Omitted fields keep their current value; `date_of_birth: null` clears it.
+        An archived learner is not updatable — restore it first (400).
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        admission_no: { type: string, minLength: 1, maxLength: 32 }
+        full_name: { type: string, minLength: 1, maxLength: 120 }
+        gender: { type: string, enum: [ male, female ] }
+        boarding: { type: boolean }
+        date_of_birth: { type: [ string, "null" ], format: date, pattern: '^\d{4}-\d{2}-\d{2}$' }
+    StaffMember:
+      description: >
+        A staff directory record. Directory identity only: it grants no RBAC power and carries no
+        credentials. `userId` optionally links the record to an account that is an active member
+        of this school; invitation and login provisioning belong to Identity and are deferred
+        (parity register P3-ST-04). `classification` is a directory label, not an authorization.
+      type: object
+      required:
+        [
+          id,
+          tenantId,
+          full_name,
+          staff_title,
+          classification,
+          phone,
+          email,
+          userId,
+          active,
+          archived_at,
+          created_at,
+          updated_at
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        full_name: { type: string }
+        staff_title: { type: [ string, "null" ] }
+        classification: { type: string, enum: [ school_admin, teacher, driver, staff ] }
+        phone: { type: [ string, "null" ] }
+        email: { type: [ string, "null" ] }
+        userId: { type: [ string, "null" ], format: uuid }
+        active: { type: boolean }
+        archived_at: { type: [ string, "null" ], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    StaffResponse:
+      type: object
+      required: [ staff ]
+      properties:
+        staff: { $ref: "#/components/schemas/StaffMember" }
+    StaffList:
+      type: object
+      required: [ staff, page ]
+      properties:
+        staff:
+          type: array
+          items: { $ref: "#/components/schemas/StaffMember" }
+        page: { $ref: "#/components/schemas/PageInfo" }
+    CreateStaffRequest:
+      type: object
+      required: [ full_name ]
+      additionalProperties: false
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 120 }
+        staff_title: { type: [ string, "null" ], minLength: 1, maxLength: 120 }
+        classification:
+          type: string
+          enum: [ school_admin, teacher, driver, staff ]
+          default: staff
+        phone:
+          type: [ string, "null" ]
+          minLength: 5
+          maxLength: 32
+          pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
+        email:
+          type: [ string, "null" ]
+          maxLength: 254
+          format: email
+          pattern: '^(?!\.)(?!.*\.\.)([A-Za-z0-9_''+\-.]*)[A-Za-z0-9_+\-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$'
+        userId:
+          type: [ string, "null" ]
+          format: uuid
+          description: >
+            Must be an active member of this school (enforced in the database, migration 022);
+            anything else is a 400 that does not reveal whether the account exists. At most one
+            active staff record per account per school (409).
+    PatchStaffRequest:
+      description: Partial update; at least one field is required. Unknown fields are rejected.
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 120 }
+        staff_title: { type: [ string, "null" ], minLength: 1, maxLength: 120 }
+        classification: { type: string, enum: [ school_admin, teacher, driver, staff ] }
+        phone:
+          type: [ string, "null" ]
+          minLength: 5
+          maxLength: 32
+          pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
+        email:
+          type: [ string, "null" ]
+          maxLength: 254
+          format: email
+          pattern: '^(?!\.)(?!.*\.\.)([A-Za-z0-9_''+\-.]*)[A-Za-z0-9_+\-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$'
+        userId: { type: [ string, "null" ], format: uuid }
+    DirectoryDocument:
+      description: >
+        Document METADATA only. No file bytes exist anywhere: `storage_status` is always
+        `metadata_only` and `object_available` is always `false`. There is no upload or download
+        operation, by design — object storage is an approved but unbuilt platform dependency
+        (parity register P3-DOC-02; see PHASE3-DOCUMENT-STORAGE-CONTRACT.md). The storage key is
+        generated by the database and is never returned.
+      type: object
+      required:
+        [
+          id,
+          tenantId,
+          subject_type,
+          subject_id,
+          doc_type,
+          file_name,
+          content_type,
+          byte_size,
+          storage_status,
+          object_available,
+          uploaded_by,
+          archived_at,
+          created_at,
+          updated_at
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        subject_type: { type: string, enum: [ learner, guardian, staff ] }
+        subject_id: { type: string, format: uuid }
+        doc_type: { type: string, minLength: 1, maxLength: 64 }
+        file_name: { type: string, minLength: 1, maxLength: 255 }
+        content_type: { type: [ string, "null" ], maxLength: 128 }
+        byte_size: { type: [ integer, "null" ], minimum: 0, maximum: 104857600 }
+        storage_status: { type: string, enum: [ metadata_only ] }
+        object_available: { type: boolean, enum: [ false ] }
+        uploaded_by: { type: [ string, "null" ], format: uuid }
+        archived_at: { type: [ string, "null" ], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DocumentResponse:
+      type: object
+      required: [ document ]
+      properties:
+        document: { $ref: "#/components/schemas/DirectoryDocument" }
+    DocumentList:
+      type: object
+      required: [ documents, page ]
+      properties:
+        documents:
+          type: array
+          items: { $ref: "#/components/schemas/DirectoryDocument" }
+        page: { $ref: "#/components/schemas/PageInfo" }
+    RegisterDocumentRequest:
+      description: >
+        There is deliberately no `storage_key` property: the database generates the only key that
+        will ever exist for the row, and sending one is a 400 (P3-AUDIT-005 / F-04).
+      type: object
+      required: [ subject_type, subject_id, doc_type, file_name ]
+      additionalProperties: false
+      properties:
+        subject_type: { type: string, enum: [ learner, guardian, staff ] }
+        subject_id: { type: string, format: uuid }
+        doc_type: { type: string, minLength: 1, maxLength: 64 }
+        file_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >
+            Display metadata destined for a Content-Disposition header: no path separators, no
+            control characters, not "." or "..".
+        content_type: { type: [ string, "null" ], minLength: 1, maxLength: 128 }
+        byte_size: { type: [ integer, "null" ], minimum: 0, maximum: 104857600 }
+    SchoolProfile:
+      description: >
+        School identity (from `tenants`) plus directory-owned profile fields (from
+        `school_profiles`). The profile row is a 1:1 extension of the school and is created on
+        demand by the first PATCH, so there is no create operation and no way to produce a second
+        profile for one school. `logo_object_key` is neither accepted nor returned until the
+        storage integration assigns one (P3-AUDIT-005).
+      type: object
+      required: [ tenantId, name, slug, status, timezone, organizationId ]
+      properties:
+        tenantId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        slug: { type: string }
+        status: { type: string }
+        timezone: { type: string, minLength: 1, maxLength: 64 }
+        organizationId: { type: string, format: uuid }
+        county: { type: [ string, "null" ], minLength: 1, maxLength: 120 }
+        country: { type: [ string, "null" ], minLength: 1, maxLength: 120 }
+        level: { type: [ string, "null" ], minLength: 1, maxLength: 64 }
+        institution_type: { type: [ string, "null" ], enum: [ k12, higher_ed, null ] }
+        contact_email: { type: [ string, "null" ], maxLength: 254 }
+        contact_phone: { type: [ string, "null" ], minLength: 5, maxLength: 32 }
+        moe_registration: { type: [ string, "null" ], minLength: 1, maxLength: 64 }
+        accent: { type: [ string, "null" ], maxLength: 32 }
+        updated_at: { type: [ string, "null" ], format: date-time }
+    SchoolProfileResponse:
+      type: object
+      required: [ schoolProfile ]
+      properties:
+        schoolProfile: { $ref: "#/components/schemas/SchoolProfile" }
+    PatchSchoolProfileRequest:
+      description: >
+        Partial update; at least one field is required. `name` and `timezone` are school identity
+        and require a full school administrator (or platform super admin) — an org admin holding a
+        delegated `resource.school_profile.write` is refused (403) when either is present
+        (P3-AUDIT-002). `timezone` must be a zone name PostgreSQL knows (P3-AUDIT-004).
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        timezone: { type: string, minLength: 1, maxLength: 64 }
+        county: { type: [ string, "null" ], minLength: 1, maxLength: 120 }
+        country: { type: [ string, "null" ], minLength: 1, maxLength: 120 }
+        level: { type: [ string, "null" ], minLength: 1, maxLength: 64 }
+        institution_type: { type: [ string, "null" ], enum: [ k12, higher_ed, null ] }
+        contact_email:
+          type: [ string, "null" ]
+          maxLength: 254
+          format: email
+          pattern: '^(?!\.)(?!.*\.\.)([A-Za-z0-9_''+\-.]*)[A-Za-z0-9_+\-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$'
+        contact_phone:
+          type: [ string, "null" ]
+          minLength: 5
+          maxLength: 32
+          pattern: '^[0-9+()\-][0-9+()\-\s]{3,30}[0-9+()\-]$'
+        moe_registration: { type: [ string, "null" ], minLength: 1, maxLength: 64 }
+        accent:
+          type: [ string, "null" ]
+          maxLength: 32
+          pattern: '^(#[A-Za-z0-9_-]{1,31}|[A-Za-z0-9_-]{1,32})$'
+          description: >
+            A short presentation token that clients interpolate into CSS, so it is restricted to
+            letters, digits, `-`, `_` and an optional leading `#` (P3-AUDIT-013).
     Error:
       type: object
-      required: [error]
+      required: [ error ]
       properties:
         error:
           type: object
-          required: [code, message]
+          required: [ code, message ]
           properties:
             code:
               type: string
-              enum: [unauthorized, forbidden, not_found, validation_error, rate_limited, conflict, idempotency_key_reused, service_unavailable, internal_error]
+              enum:
+                [
+                  unauthorized,
+                  forbidden,
+                  not_found,
+                  validation_error,
+                  rate_limited,
+                  conflict,
+                  idempotency_key_reused,
+                  service_unavailable,
+                  internal_error
+                ]
             message:
               type: string
             request_id:
               type: string
               description: >
-                Correlation id of the request (additive, OI-4). Also returned in the X-Request-Id
-                response header. An inbound X-Request-Id is honoured only if it matches
-                [A-Za-z0-9._-]{8,64}; otherwise one is generated.
+                Correlation id of the request (additive, OI-4). Also returned in
+                the X-Request-Id response header. An inbound X-Request-Id is
+                honoured only if it matches [A-Za-z0-9._-]{8,64}; otherwise one
+                is generated.
             details:
               type: array
               description: >
-                Additive field-level validation details (OI-4 / FIG-1621). Present on some
-                `validation_error` responses. Never echoes submitted values, secrets, SQL or stacks.
+                Additive field-level validation details (OI-4 / FIG-1621).
+                Present on some `validation_error` responses. Never echoes
+                submitted values, secrets, SQL or stacks.
               items:
                 type: object
-                required: [field, code, message]
+                required: [ field, code, message ]
                 properties:
                   field: { type: string }
                   code: { type: string }
