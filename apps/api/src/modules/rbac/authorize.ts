@@ -47,6 +47,22 @@ export const PEOPLE_AREA_IMPLIED: readonly string[] = [
   "resource.document.write",
 ];
 
+/** Resource permissions implied by the Academics admin area. */
+export const ACADEMICS_AREA_IMPLIED: readonly string[] = [
+  "resource.academics.read",
+  "resource.academics.write",
+];
+
+/**
+ * Resource permissions implied by the Attendance admin area.
+ * Collector PII (`resource.early_sign_out.collector.read`) is NOT implied — least privilege.
+ */
+export const ATTENDANCE_AREA_IMPLIED: readonly string[] = [
+  "resource.attendance.read",
+  "resource.attendance.write",
+  "resource.early_sign_out.read",
+];
+
 /** Active explicit guardian grants of one person in one school (FIG-1614). Empty for a null tenant. */
 async function loadExplicitGuardianGrants(
   db: TxOrIdentity,
@@ -139,6 +155,12 @@ export async function loadEffectivePermissions(
     perms.add("resource.school_profile.write");
     perms.add("resource.document.read");
     perms.add("resource.document.write");
+    perms.add("resource.academics.read");
+    perms.add("resource.academics.write");
+    perms.add("resource.attendance.read");
+    perms.add("resource.attendance.write");
+    perms.add("resource.early_sign_out.read");
+    perms.add("resource.early_sign_out.collector.read");
     perms.add("tenant.read");
     perms.add("rbac.staff_areas.manage");
     perms.add("rbac.school_roles.manage");
@@ -155,6 +177,12 @@ export async function loadEffectivePermissions(
     if (areas.has("people")) {
       for (const code of PEOPLE_AREA_IMPLIED) perms.add(code);
     }
+    if (areas.has("academics")) {
+      for (const code of ACADEMICS_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("attendance")) {
+      for (const code of ATTENDANCE_AREA_IMPLIED) perms.add(code);
+    }
     // FIG-1614 Option D: guardian read/write only through an explicit, revocable per-person grant
     // (staff_resource_grants). Only teacher/staff members can hold one; the database enforces it.
     if (ctx.membership && mayHoldAdminAreas(ctx.membership.role)) {
@@ -169,6 +197,12 @@ export async function loadEffectivePermissions(
     // (FIG-1614) and not school-profile writes (F-02). Those need their own explicit delegation.
     if (delegated.has("area.people")) {
       for (const code of PEOPLE_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.academics")) {
+      for (const code of ACADEMICS_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.attendance")) {
+      for (const code of ATTENDANCE_AREA_IMPLIED) perms.add(code);
     }
   }
 

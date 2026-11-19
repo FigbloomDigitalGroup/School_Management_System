@@ -62,14 +62,15 @@ export async function runIdempotent<T>(
     fingerprintInput: unknown;
     /** Status of the original success (201). Replays return the stored status. */
     status: number;
-    execute: () => Promise<{ value: T; resourceType: string; resourceId: string }>;
+    /** `status` overrides opts.status for this outcome (e.g. 201 created vs 200 revised) and is stored for replays. */
+    execute: () => Promise<{ value: T; resourceType: string; resourceId: string; status?: number }>;
     /** Re-read the resource by reference. Reflects its CURRENT state. */
     replay: (resourceType: string, resourceId: string) => Promise<T | null>;
   },
 ): Promise<IdempotentResult<T>> {
   if (opts.key === undefined) {
     const done = await opts.execute();
-    return { value: done.value, status: opts.status, replayed: false };
+    return { value: done.value, status: done.status ?? opts.status, replayed: false };
   }
 
   const fingerprint = requestFingerprint(opts.config, {
@@ -96,9 +97,9 @@ export async function runIdempotent<T>(
     const done = await opts.execute();
     await tx.query(
       `UPDATE idempotency_keys SET resource_type = $2, resource_id = $3, response_status = $4 WHERE id = $1`,
-      [claimed.rows[0]!.id, done.resourceType, done.resourceId, opts.status],
+      [claimed.rows[0]!.id, done.resourceType, done.resourceId, done.status ?? opts.status],
     );
-    return { value: done.value, status: opts.status, replayed: false };
+    return { value: done.value, status: done.status ?? opts.status, replayed: false };
   }
 
   const existing = await tx.query<{
