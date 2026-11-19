@@ -5,7 +5,8 @@ info:
   description: |
     FigBloom replacement modular monolith contracts.
     Includes P1-A identity/tenancy/RBAC, Phase 3 School Directory (learners, guardians,
-    staff, school profile, document metadata), Stage 9 academics and Stage 10 attendance.
+    staff, school profile, document metadata), Stage 9 academics, Stage 10 attendance and Stage 11 finance
+    (fees, invoices, payments, M-Pesa, payment proofs, reconciliation, AI helper billing foundations).
     VS-1/VS-2 contracts are preserved.
     Authorization is server-enforced. Client-supplied role or permission lists
     are never accepted as evidence of access.
@@ -21,6 +22,7 @@ tags:
   - name: directory
   - name: academics
   - name: attendance
+  - name: finance
 paths:
   /livez:
     get:
@@ -5747,6 +5749,1595 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/fee-items:
+    post:
+      tags:
+        - finance
+      summary: Create a fee item
+      description: "One line of a term's fee structure: a name, an amount and who it applies to (all, boarders, day, or a form level). Whole shillings only. Amounts are integer minor units (cents). Never send or expect a float. No discounts, penalties or categories exist in the product. Permissions: `resource.finance.read` and `resource.finance.write` come from school administrators and holders of the Fees admin area (or its delegation). `resource.finance.administer` (charges, total adjustments, voids, proof rejection, AI helper settings) is for school administrators only and is NOT implied by the Fees area."
+      operationId: financeCreateFeeItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceCreateFeeItemRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - fee_item
+                properties:
+                  fee_item:
+                    $ref: "#/components/schemas/FinanceFeeItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - finance
+      summary: List fee items
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListFeeItems
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - fee_items
+                  - page
+                properties:
+                  fee_items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinanceFeeItem"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/finance/fee-items/{feeItemId}:
+    get:
+      tags:
+        - finance
+      summary: Get a fee item
+      operationId: financeGetFeeItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: feeItemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - fee_item
+                properties:
+                  fee_item:
+                    $ref: "#/components/schemas/FinanceFeeItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - finance
+      summary: Change a fee item
+      description: "Invoices already billed keep their snapshot lines: a change affects only learners billed afterwards. An archived item cannot change."
+      operationId: financePatchFeeItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: feeItemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinancePatchFeeItemRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - fee_item
+                properties:
+                  fee_item:
+                    $ref: "#/components/schemas/FinanceFeeItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/fee-items/{feeItemId}/archive:
+    post:
+      tags:
+        - finance
+      summary: Archive a fee item
+      description: Archiving is one-way. Existing invoices are unaffected.
+      operationId: financeArchiveFeeItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: feeItemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - fee_item
+                properties:
+                  fee_item:
+                    $ref: "#/components/schemas/FinanceFeeItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/billing-runs:
+    post:
+      tags:
+        - finance
+      summary: Bill a term
+      description: "The SERVER computes every total: for each active learner, the sum of the term's active fee items that apply (all; boarders; day; the form level of the learner's class in the term's academic year). A learner already billed for the term is skipped and a zero total creates no invoice, so repeating a run is safe and concurrent runs never double-bill. Each invoice keeps snapshot lines. The client cannot supply totals. Permissions: `resource.finance.read` and `resource.finance.write` come from school administrators and holders of the Fees admin area (or its delegation). `resource.finance.administer` (charges, total adjustments, voids, proof rejection, AI helper settings) is for school administrators only and is NOT implied by the Fees area."
+      operationId: financeBillTerm
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceBillingRunRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - billing_run
+                properties:
+                  billing_run:
+                    $ref: "#/components/schemas/FinanceBillingRun"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/invoices:
+    get:
+      tags:
+        - finance
+      summary: List invoices
+      description: "Newest first. Status is derived by the server. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListInvoices
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - paid
+              - overdue
+              - part_paid
+              - unpaid
+              - voided
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - invoices
+                  - page
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinanceInvoice"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}:
+    get:
+      tags:
+        - finance
+      summary: Get an invoice with its lines, charges and adjustments
+      description: Totals are derived by the database from lines, live charges, adjustments and successful payments; no client-supplied total is ever stored.
+      operationId: financeGetInvoice
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceInvoiceDetail"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/due-date:
+    put:
+      tags:
+        - finance
+      summary: Change an invoice due date
+      operationId: financeSetDueDate
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceDueDateRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - invoice
+                properties:
+                  invoice:
+                    $ref: "#/components/schemas/FinanceInvoice"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/void:
+    post:
+      tags:
+        - finance
+      summary: Void an invoice
+      description: Final and audited; the record is kept. Refused (409) when the invoice has any payment, live charge or payment proof.
+      operationId: financeVoidInvoice
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceReasonRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - invoice
+                properties:
+                  invoice:
+                    $ref: "#/components/schemas/FinanceInvoice"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/charges:
+    post:
+      tags:
+        - finance
+      summary: Add a charge to a current-term invoice
+      description: An extra whole-shilling line (for example a lost book) on the learner's CURRENT-term invoice; no invoice is created. Amounts are integer minor units (cents). Never send or expect a float.
+      operationId: financeAddCharge
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceAddChargeRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - invoice
+                properties:
+                  invoice:
+                    $ref: "#/components/schemas/FinanceInvoice"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/charges/{chargeId}/void:
+    post:
+      tags:
+        - finance
+      summary: Void a charge
+      description: Final; the charge is kept. Refused (409) when the learner has already paid for it (paid would exceed the new total).
+      operationId: financeVoidCharge
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: chargeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceReasonRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - invoice
+                properties:
+                  invoice:
+                    $ref: "#/components/schemas/FinanceInvoice"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/adjustments:
+    post:
+      tags:
+        - finance
+      summary: Adjust an invoice total
+      description: "Sets a new total (whole shillings) with a reason, recorded as an append-only adjustment. `expected_total_minor` must equal the current total (409 otherwise), so a concurrent change is never overwritten. The new total cannot be below what is paid or charged. Waivers, discounts and bursaries are not product features: this is the only correction."
+      operationId: financeAdjustInvoice
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceAdjustInvoiceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - invoice
+                properties:
+                  invoice:
+                    $ref: "#/components/schemas/FinanceInvoice"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/finance/payments:
+    post:
+      tags:
+        - finance
+      summary: Record a payment made outside the app
+      description: "Cash, bank deposit, cheque, or an M-Pesa receipt the family paid directly. The amount must be above zero and not exceed the outstanding balance (400); whole shillings unless it is exactly the remaining balance. Non-cash needs a reference. An M-Pesa receipt is recorded once system-wide and a bank or cheque reference once per invoice (409). Naming a pending proof confirms it together with this payment, atomically. Concurrent payments are serialised on the invoice. A recorded payment is final: there is no edit, delete, reversal or refund in the product (owner decision). Amounts are integer minor units (cents). Never send or expect a float. Permissions: `resource.finance.read` and `resource.finance.write` come from school administrators and holders of the Fees admin area (or its delegation). `resource.finance.administer` (charges, total adjustments, voids, proof rejection, AI helper settings) is for school administrators only and is NOT implied by the Fees area."
+      operationId: financeRecordPayment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceRecordPaymentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinancePaymentRecorded"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - finance
+      summary: List payments
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListPayments
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - success
+              - failed
+              - cancelled
+              - timeout
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - payments
+                  - page
+                properties:
+                  payments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinancePayment"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/finance/payments/{paymentId}:
+    get:
+      tags:
+        - finance
+      summary: Get a payment
+      operationId: financeGetPayment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - payment
+                properties:
+                  payment:
+                    $ref: "#/components/schemas/FinancePayment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/mpesa/prompts:
+    post:
+      tags:
+        - finance
+      summary: Start an M-Pesa payment prompt (family payer)
+      description: "Family payer: a guardian or the learner acting for the learner. The API has no link between an account and a guardian or learner yet (login/invite provisioning is an Identity decision), so this operation answers 403 for every caller until it exists. Invoice existence is not revealed. When available: whole shillings, at least KES 1, at most the outstanding balance rounded up to the next shilling. One pending prompt per invoice; the same phone and amount within 2 minutes returns the existing prompt (200, reused true); otherwise 409. The provider is called outside any database transaction; a refusal answers 502 with the failed payment. The payment becomes success only when the provider confirms it (the callback or the settle job re-checks with the provider's status query) and is credited for the prompt's own amount. Poll GET /payments/{paymentId}. An overpayment from a prompt that settles after a manual payment is recorded and flagged by reconciliation, not rejected. 503 when M-Pesa is not configured."
+      operationId: financeStartMpesaPrompt
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceMpesaPromptRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceMpesaPrompt"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceMpesaPrompt"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          description: The provider refused the prompt; the payment is recorded as failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceMpesaPrompt"
+        "503":
+          description: M-Pesa is not configured or temporarily unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/tenants/{tenantId}/finance/proofs:
+    post:
+      tags:
+        - finance
+      summary: Submit a payment proof
+      description: "Evidence of a payment made outside the app: the pasted message text (the transaction code must appear in it) and/or file METADATA (name, type, size). No object storage exists: no file byte is stored or served, and no storage key is ever returned. Allowed file types: JPEG, PNG, WebP, PDF up to 10 MB. The office (`resource.finance.administer`) may submit on a family's behalf (submitted_via office). A family member needs the payer link, which is not provisioned yet (403). A transaction code is accepted once per school while its proof is live (a rejected proof frees it) and never when it is already recorded as a payment (409). Confirm a proof only by recording its payment with proof_id."
+      operationId: financeSubmitProof
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceSubmitProofRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - proof
+                properties:
+                  proof:
+                    $ref: "#/components/schemas/FinanceProof"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - finance
+      summary: List payment proofs
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListProofs
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - confirmed
+              - rejected
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - proofs
+                  - page
+                properties:
+                  proofs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinanceProof"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/finance/proofs/{proofId}:
+    get:
+      tags:
+        - finance
+      summary: Get a payment proof
+      operationId: financeGetProof
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: proofId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - proof
+                properties:
+                  proof:
+                    $ref: "#/components/schemas/FinanceProof"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/proofs/{proofId}/reject:
+    post:
+      tags:
+        - finance
+      summary: Reject a payment proof
+      description: Needs a reason. A reviewed proof (confirmed or rejected) is final.
+      operationId: financeRejectProof
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: proofId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceReasonRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - proof
+                properties:
+                  proof:
+                    $ref: "#/components/schemas/FinanceProof"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/reconciliation-runs:
+    post:
+      tags:
+        - finance
+      summary: Run reconciliation
+      description: "Checks the school's records against each other and against the M-Pesa evidence already received, and records findings: invoice_total_mismatch, overpaid_invoice, stale_pending_prompt, prompt_never_sent, callback_amount_mismatch, proof_already_paid. It never changes money; any corrective action is a separate, explicit, authorized operation. A resolved (kind, subject) is not raised again. `stale_after_minutes` defaults to 30."
+      operationId: financeRunReconciliation
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceReconciliationRunRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceReconciliationResult"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags:
+        - finance
+      summary: List reconciliation runs
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListReconciliationRuns
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - runs
+                  - page
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinanceReconciliationRun"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/finance/reconciliation-findings:
+    get:
+      tags:
+        - finance
+      summary: List reconciliation findings
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListReconciliationFindings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: runId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - findings
+                  - page
+                properties:
+                  findings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinanceReconciliationFinding"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/finance/reconciliation-findings/{findingId}/resolve:
+    post:
+      tags:
+        - finance
+      summary: Resolve a reconciliation finding
+      description: Records who, when and why; a resolved finding is final. Resolving changes no money. Requires `resource.finance.administer` because resolution permanently suppresses re-raising of the same (kind, subject) alarm.
+      operationId: financeResolveFinding
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: findingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceResolveFindingRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - finding
+                properties:
+                  finding:
+                    $ref: "#/components/schemas/FinanceReconciliationFinding"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/ai-helper/settings:
+    get:
+      tags:
+        - finance
+      summary: Get AI helper billing settings
+      description: "AI helper billing is NOT available: `billing_available` and `billing_enabled` are always false (database-enforced) and no charge is ever created. Pricing and turning billing on are owner decisions."
+      operationId: financeGetAiHelperSettings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - settings
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/FinanceAiHelperSettings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags:
+        - finance
+      summary: Set AI helper access mode, price and cancel window
+      description: Stores the settings only; it does not turn billing on.
+      operationId: financePutAiHelperSettings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceAiHelperSettingsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - settings
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/FinanceAiHelperSettings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/ai-helper/optins:
+    get:
+      tags:
+        - finance
+      summary: List AI helper opt-in choices for a term
+      description: "termId is required. By learner. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: financeListAiHelperOptins
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - optins
+                  - page
+                properties:
+                  optins:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinanceAiHelperOptin"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags:
+        - finance
+      summary: Record a family's AI helper opt-in choice
+      description: "Family payer: a guardian or the learner acting for the learner. The API has no link between an account and a guardian or learner yet (login/invite provisioning is an Identity decision), so this operation answers 403 for every caller until it exists. Invoice existence is not revealed. Never creates a charge."
+      operationId: financePutAiHelperOptin
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceAiHelperOptinRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - optin
+                properties:
+                  optin:
+                    $ref: "#/components/schemas/FinanceAiHelperOptin"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/mpesa/callback:
+    post:
+      tags:
+        - finance
+      summary: M-Pesa STK callback (provider)
+      description: "Public endpoint for Safaricom. Authenticated by the shared secret in the callback URL (`?token=`, constant-time compare): a missing or wrong token is 403 and nothing is read or stored. Rate-limited per caller address on every attempt (including wrong tokens). The CheckoutRequestID alone resolves the school, invoice and learner; the body is never trusted for money amounts. The outcome is re-confirmed with the provider's status query; success also requires a valid unique receipt (normally from this callback) before the prompt is credited. The amount credited is the prompt's own (a different callback amount is logged and flagged by reconciliation, never credited). Settlement is idempotent: a duplicate or replayed callback changes nothing. An unknown CheckoutRequestID is quarantined for platform operations (no tenant, no money) and answered 200 so the provider stops retrying. When the provider cannot confirm yet, or success lacks a unique receipt, the answer is 503 so Safaricom redelivers; a background job also retries until a receipt arrives or the job is exhausted."
+      operationId: mpesaCallback
+      x-figbloom-authz: public
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MpesaCallback"
+      responses:
+        "200":
+          description: Accepted (settled, already settled, or quarantined)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MpesaCallbackAck"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: The provider could not confirm the result yet; redeliver.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -8947,4 +10538,1097 @@ components:
           maxLength: 200
       required:
         - reason
+      additionalProperties: false
+
+    # ---- Stage 11 finance: resources and request bodies. Request bodies are generated from the runtime zod schemas.
+    FinanceFeeItem:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - term_id
+        - name
+        - amount_minor
+        - currency
+        - applies_to
+        - form_level
+        - active
+        - archived_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        amount_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        currency:
+          type: string
+          const: KES
+          description: ISO currency. KES is the only supported currency.
+        applies_to:
+          type: string
+          enum:
+            - all
+            - boarders
+            - day
+            - form_level
+        form_level:
+          type:
+            - integer
+            - "null"
+        active:
+          type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    FinanceInvoice:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - learner_id
+        - term_id
+        - currency
+        - due_on
+        - lines_minor
+        - charges_minor
+        - adjustments_minor
+        - total_minor
+        - paid_minor
+        - balance_minor
+        - overpaid_minor
+        - status
+        - billing_run_id
+        - created_at
+        - voided_at
+        - void_reason
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          const: KES
+          description: ISO currency. KES is the only supported currency.
+        due_on:
+          type: string
+          format: date
+        lines_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        charges_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        adjustments_minor:
+          type: integer
+          description: Signed sum of recorded total adjustments.
+        total_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        paid_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        balance_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        overpaid_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        status:
+          type: string
+          enum:
+            - paid
+            - overdue
+            - part_paid
+            - unpaid
+            - voided
+          description: "Derived by the server with the school's local date: paid (nothing left), overdue (a balance and past the due date), part_paid (a balance, something paid), unpaid. voided is final."
+        billing_run_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - "null"
+    FinanceInvoiceLine:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - fee_item_id
+        - name
+        - amount_minor
+      properties:
+        id:
+          type: string
+          format: uuid
+        fee_item_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        amount_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+    FinanceCharge:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - amount_minor
+        - reason
+        - created_by
+        - created_at
+        - voided_at
+        - void_reason
+      properties:
+        id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        reason:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - "null"
+    FinanceAdjustment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - from_total_minor
+        - to_total_minor
+        - delta_minor
+        - reason
+        - created_by
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        from_total_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        to_total_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        delta_minor:
+          type: integer
+        reason:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    FinanceInvoiceDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - invoice
+        - lines
+        - charges
+        - adjustments
+      properties:
+        invoice:
+          $ref: "#/components/schemas/FinanceInvoice"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinanceInvoiceLine"
+        charges:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinanceCharge"
+        adjustments:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinanceAdjustment"
+    FinanceBillingRun:
+      type: object
+      additionalProperties: false
+      required:
+        - billing_run_id
+        - created
+        - already_billed
+        - nothing_to_bill
+        - total_minor
+      properties:
+        billing_run_id:
+          type: string
+          format: uuid
+        created:
+          type: integer
+        already_billed:
+          type: integer
+        nothing_to_bill:
+          type: integer
+        total_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+    FinancePayment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - invoice_id
+        - currency
+        - amount_minor
+        - method
+        - status
+        - reference
+        - mpesa_receipt
+        - failure_reason
+        - proof_id
+        - recorded_by
+        - created_at
+        - completed_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          const: KES
+          description: ISO currency. KES is the only supported currency.
+        amount_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        method:
+          type: string
+          enum:
+            - mpesa
+            - bank
+            - cash
+            - cheque
+        status:
+          type: string
+          enum:
+            - pending
+            - success
+            - failed
+            - cancelled
+            - timeout
+        reference:
+          type:
+            - string
+            - "null"
+        mpesa_receipt:
+          type:
+            - string
+            - "null"
+        failure_reason:
+          type:
+            - string
+            - "null"
+          enum:
+            - insufficient
+            - cancelled
+            - timeout
+            - wrong_pin
+            - duplicate
+            - unreachable
+            - not_sent
+            - null
+        proof_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        recorded_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    FinancePaymentRecorded:
+      type: object
+      additionalProperties: false
+      required:
+        - payment
+        - invoice
+      properties:
+        payment:
+          $ref: "#/components/schemas/FinancePayment"
+        invoice:
+          $ref: "#/components/schemas/FinanceInvoice"
+    FinanceMpesaPrompt:
+      type: object
+      additionalProperties: false
+      required:
+        - payment
+        - reused
+      properties:
+        payment:
+          $ref: "#/components/schemas/FinancePayment"
+        reused:
+          type: boolean
+          description: True when an identical pending prompt (same phone and amount, under 2 minutes old) was returned instead of a new one.
+    FinanceProof:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - invoice_id
+        - submitted_by
+        - submitted_via
+        - note
+        - file
+        - sms_text
+        - txn_source
+        - txn_code
+        - txn_amount_minor
+        - currency
+        - txn_at
+        - txn_payee
+        - txn_payee_number
+        - txn_account
+        - status
+        - payment_id
+        - reviewed_by
+        - reviewed_at
+        - rejection_reason
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        submitted_by:
+          type: string
+          format: uuid
+        submitted_via:
+          type: string
+          enum:
+            - office
+            - guardian
+        note:
+          type:
+            - string
+            - "null"
+        file:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - file_name
+                - content_type
+                - byte_size
+                - storage_status
+                - object_available
+              properties:
+                file_name:
+                  type: string
+                content_type:
+                  type: string
+                byte_size:
+                  type: integer
+                storage_status:
+                  type: string
+                  const: metadata_only
+                object_available:
+                  type: boolean
+                  const: false
+            - type: "null"
+          description: "File metadata only: no object storage exists and no byte is stored or served."
+        sms_text:
+          type:
+            - string
+            - "null"
+        txn_source:
+          type:
+            - string
+            - "null"
+          enum:
+            - mpesa
+            - airtel
+            - bank
+            - unknown
+            - null
+        txn_code:
+          type:
+            - string
+            - "null"
+        txn_amount_minor:
+          type:
+            - integer
+            - "null"
+        currency:
+          type: string
+          const: KES
+          description: ISO currency. KES is the only supported currency.
+        txn_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        txn_payee:
+          type:
+            - string
+            - "null"
+        txn_payee_number:
+          type:
+            - string
+            - "null"
+        txn_account:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum:
+            - pending
+            - confirmed
+            - rejected
+        payment_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        reviewed_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        reviewed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        rejection_reason:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+    FinanceReconciliationRun:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - started_by
+        - started_at
+        - stale_after_minutes
+        - findings_count
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        started_by:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+        stale_after_minutes:
+          type: integer
+        findings_count:
+          type: integer
+    FinanceReconciliationFinding:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - run_id
+        - kind
+        - subject_type
+        - subject_id
+        - detail
+        - status
+        - resolved_by
+        - resolved_at
+        - resolution_note
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        run_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - invoice_total_mismatch
+            - overpaid_invoice
+            - stale_pending_prompt
+            - prompt_never_sent
+            - callback_amount_mismatch
+            - proof_already_paid
+        subject_type:
+          type: string
+          enum:
+            - invoice
+            - payment
+            - proof
+        subject_id:
+          type: string
+          format: uuid
+        detail:
+          type: object
+          description: Evidence for the finding. Keys depend on `kind`; money keys end in _minor.
+          additionalProperties: true
+        status:
+          type: string
+          enum:
+            - open
+            - resolved
+        resolved_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        resolution_note:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+    FinanceReconciliationResult:
+      type: object
+      additionalProperties: false
+      required:
+        - run
+        - findings
+      properties:
+        run:
+          $ref: "#/components/schemas/FinanceReconciliationRun"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinanceReconciliationFinding"
+    FinanceAiHelperSettings:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - access_mode
+        - price_minor
+        - currency
+        - cancel_days
+        - billing_available
+        - billing_enabled
+        - updated_by
+        - updated_at
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        access_mode:
+          type: string
+          enum:
+            - all
+            - opt_in
+        price_minor:
+          type: integer
+          description: Money in minor units (cents; 100 = KES 1). Never a float.
+        currency:
+          type: string
+          const: KES
+          description: ISO currency. KES is the only supported currency.
+        cancel_days:
+          type: integer
+        billing_available:
+          type: boolean
+          const: false
+          description: "AI helper billing is not available: no charge is ever created. Turning it on is an owner decision."
+        billing_enabled:
+          type: boolean
+          const: false
+        updated_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    FinanceAiHelperOptin:
+      type: object
+      additionalProperties: false
+      required:
+        - learner_id
+        - term_id
+        - opted_in
+        - changed_by
+        - changed_at
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        opted_in:
+          type: boolean
+        changed_by:
+          type: string
+          format: uuid
+        changed_at:
+          type: string
+          format: date-time
+    MpesaCallbackAck:
+      type: object
+      additionalProperties: false
+      required:
+        - ResultCode
+        - ResultDesc
+      properties:
+        ResultCode:
+          type: integer
+        ResultDesc:
+          type: string
+    MpesaCallback:
+      type: object
+      description: "Safaricom Daraja STK callback. The body is the provider's; the API reads only the fields below and never trusts them for money: the outcome is re-confirmed with the provider's status query and the amount credited is the prompt's own."
+      required:
+        - Body
+      properties:
+        Body:
+          type: object
+          required:
+            - stkCallback
+          properties:
+            stkCallback:
+              type: object
+              required:
+                - CheckoutRequestID
+              properties:
+                MerchantRequestID:
+                  type: string
+                  maxLength: 80
+                CheckoutRequestID:
+                  type: string
+                  pattern: ^[A-Za-z0-9_-]{1,80}$
+                ResultCode:
+                  type: integer
+                ResultDesc:
+                  type: string
+                CallbackMetadata:
+                  type: object
+                  properties:
+                    Item:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          Name:
+                            type: string
+                          Value: {}
+    FinanceCreateFeeItemRequest:
+      type: object
+      properties:
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        amount_minor:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 100000000000
+        applies_to:
+          type: string
+          enum:
+            - all
+            - boarders
+            - day
+            - form_level
+        form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+      required:
+        - term_id
+        - name
+        - amount_minor
+        - applies_to
+      additionalProperties: false
+    FinancePatchFeeItemRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        amount_minor:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 100000000000
+        applies_to:
+          type: string
+          enum:
+            - all
+            - boarders
+            - day
+            - form_level
+        form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+      additionalProperties: false
+    FinanceBillingRunRequest:
+      type: object
+      properties:
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        due_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+      required:
+        - term_id
+        - due_on
+      additionalProperties: false
+    FinanceDueDateRequest:
+      type: object
+      properties:
+        due_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+      required:
+        - due_on
+      additionalProperties: false
+    FinanceReasonRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+      required:
+        - reason
+      additionalProperties: false
+    FinanceAddChargeRequest:
+      type: object
+      properties:
+        amount_minor:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 100000000000
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+        - amount_minor
+        - reason
+      additionalProperties: false
+    FinanceAdjustInvoiceRequest:
+      type: object
+      properties:
+        expected_total_minor:
+          type: integer
+          minimum: 0
+          maximum: 100000000000
+        new_total_minor:
+          type: integer
+          minimum: 0
+          maximum: 100000000000
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+      required:
+        - expected_total_minor
+        - new_total_minor
+        - reason
+      additionalProperties: false
+    FinanceRecordPaymentRequest:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        amount_minor:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 100000000000
+        method:
+          type: string
+          enum:
+            - mpesa
+            - bank
+            - cash
+            - cheque
+        reference:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 60
+            - type: "null"
+        proof_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - invoice_id
+        - amount_minor
+        - method
+      additionalProperties: false
+    FinanceMpesaPromptRequest:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        amount_minor:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 100000000000
+        msisdn:
+          type: string
+          pattern: ^254[17]\d{8}$
+      required:
+        - invoice_id
+        - amount_minor
+        - msisdn
+      additionalProperties: false
+    FinanceSubmitProofRequest:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        note:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 500
+            - type: "null"
+        file:
+          anyOf:
+            - type: object
+              properties:
+                file_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                content_type:
+                  type: string
+                  enum:
+                    - image/jpeg
+                    - image/png
+                    - image/webp
+                    - application/pdf
+                byte_size:
+                  type: integer
+                  minimum: 1
+                  maximum: 10485760
+              required:
+                - file_name
+                - content_type
+                - byte_size
+              additionalProperties: false
+            - type: "null"
+        sms_text:
+          anyOf:
+            - type: string
+              minLength: 10
+              maxLength: 2000
+            - type: "null"
+        txn_source:
+          anyOf:
+            - type: string
+              enum:
+                - mpesa
+                - airtel
+                - bank
+                - unknown
+            - type: "null"
+        txn_code:
+          anyOf:
+            - type: string
+              pattern: ^[A-Za-z0-9][A-Za-z0-9.-]{3,40}$
+            - type: "null"
+        txn_amount_minor:
+          anyOf:
+            - type: integer
+              exclusiveMinimum: 0
+              maximum: 100000000000
+            - type: "null"
+        txn_at:
+          anyOf:
+            - type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            - type: "null"
+        txn_payee:
+          anyOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        txn_payee_number:
+          anyOf:
+            - type: string
+              maxLength: 30
+            - type: "null"
+        txn_account:
+          anyOf:
+            - type: string
+              maxLength: 60
+            - type: "null"
+      required:
+        - invoice_id
+      additionalProperties: false
+    FinanceReconciliationRunRequest:
+      type: object
+      properties:
+        stale_after_minutes:
+          type: integer
+          minimum: 5
+          maximum: 10080
+      additionalProperties: false
+    FinanceResolveFindingRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 3
+          maxLength: 500
+      required:
+        - note
+      additionalProperties: false
+    FinanceAiHelperSettingsRequest:
+      type: object
+      properties:
+        access_mode:
+          type: string
+          enum:
+            - all
+            - opt_in
+        price_minor:
+          type: integer
+          minimum: 0
+          maximum: 10000000
+        cancel_days:
+          type: integer
+          minimum: 0
+          maximum: 60
+      required:
+        - access_mode
+        - price_minor
+        - cancel_days
+      additionalProperties: false
+    FinanceAiHelperOptinRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        opted_in:
+          type: boolean
+      required:
+        - learner_id
+        - term_id
+        - opted_in
       additionalProperties: false
