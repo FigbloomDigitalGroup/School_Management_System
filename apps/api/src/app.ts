@@ -18,6 +18,11 @@ import { registerGuardianRoutes } from "./http/routes/guardians.js";
 import { registerSchoolProfileRoutes } from "./http/routes/schoolProfile.js";
 import { registerStaffRoutes } from "./http/routes/staff.js";
 import { registerDocumentRoutes } from "./http/routes/documents.js";
+import { registerAcademicsStructureRoutes } from "./http/routes/academicsStructure.js";
+import { registerAcademicsAssessmentRoutes } from "./http/routes/academicsAssessments.js";
+import { registerAcademicsCbeRoutes } from "./http/routes/academicsCbe.js";
+import { registerAcademicsHigherRoutes } from "./http/routes/academicsHigher.js";
+import { registerAttendanceRoutes } from "./http/routes/attendance.js";
 
 export interface RouteEntry {
   method: string;
@@ -170,6 +175,11 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
   await registerSchoolProfileRoutes(app, pool);
   await registerStaffRoutes(app, pool);
   await registerDocumentRoutes(app, pool);
+  await registerAcademicsStructureRoutes(app, pool);
+  await registerAcademicsAssessmentRoutes(app, pool);
+  await registerAcademicsCbeRoutes(app, pool);
+  await registerAcademicsHigherRoutes(app, pool);
+  await registerAttendanceRoutes(app, pool);
 
   return app;
 }
