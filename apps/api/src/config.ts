@@ -172,6 +172,18 @@ const ConfigSchema = z.object({
   serverKeepAliveTimeoutMs: z.coerce.number().int().positive().max(600_000).default(65_000),
   serverHeadersTimeoutMs: z.coerce.number().int().positive().max(600_000).default(66_000),
   serverRequestTimeoutMs: z.coerce.number().int().positive().max(600_000).default(30_000),
+  // Stage 11 M-Pesa (Daraja). One platform shortcode, as in the legacy product (per-school credentials are
+  // an open owner decision). All credentials optional: M-Pesa is disabled until every one is set. Never logged.
+  mpesaEnv: z.enum(["sandbox", "production"]).default("sandbox"),
+  mpesaConsumerKey: z.string().min(1).optional(),
+  mpesaConsumerSecret: z.string().min(1).optional(),
+  mpesaShortcode: z.string().regex(/^\d{5,7}$/).optional(),
+  mpesaPasskey: z.string().min(1).optional(),
+  mpesaCallbackUrl: z.string().url().optional(),
+  mpesaCallbackSecret: z.string().min(32).max(256).optional(),
+  mpesaHttpTimeoutMs: z.coerce.number().int().positive().max(60_000).default(10_000),
+  /** Delay before the worker asks Daraja about a prompt with no callback yet. */
+  mpesaSettleDelaySeconds: z.coerce.number().int().min(30).max(3_600).default(120),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
@@ -241,6 +253,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     serverKeepAliveTimeoutMs: env.SERVER_KEEP_ALIVE_TIMEOUT_MS,
     serverHeadersTimeoutMs: env.SERVER_HEADERS_TIMEOUT_MS,
     serverRequestTimeoutMs: env.SERVER_REQUEST_TIMEOUT_MS,
+    mpesaEnv: env.MPESA_ENV || undefined,
+    mpesaConsumerKey: env.MPESA_CONSUMER_KEY || undefined,
+    mpesaConsumerSecret: env.MPESA_CONSUMER_SECRET || undefined,
+    mpesaShortcode: env.MPESA_SHORTCODE || undefined,
+    mpesaPasskey: env.MPESA_PASSKEY || undefined,
+    mpesaCallbackUrl: env.MPESA_CALLBACK_URL || undefined,
+    mpesaCallbackSecret: env.MPESA_CALLBACK_SECRET || undefined,
+    mpesaHttpTimeoutMs: env.MPESA_HTTP_TIMEOUT_MS,
+    mpesaSettleDelaySeconds: env.MPESA_SETTLE_DELAY_SECONDS,
   });
   if (!parsed.success) {
     throw new Error(
@@ -291,6 +312,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(
       "Invalid API config: SHUTDOWN_HARD_TIMEOUT_MS must exceed SHUTDOWN_GRACE_MS plus SHUTDOWN_DRAIN_DELAY_MS.",
     );
+  }
+  if (
+    config.mpesaCallbackUrl &&
+    config.appEnv !== "local" &&
+    config.appEnv !== "test" &&
+    !config.mpesaCallbackUrl.startsWith("https://")
+  ) {
+    throw new Error("Invalid API config: MPESA_CALLBACK_URL must be https outside local and test.");
+  }
+  if (config.mpesaEnv === "production" && config.appEnv !== "production") {
+    throw new Error("Invalid API config: MPESA_ENV=production is only allowed when APP_ENV=production.");
   }
   if (config.poolMax > POOL_MAX_CAP) {
     throw new Error(

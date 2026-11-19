@@ -76,7 +76,53 @@ const EXPECTED: Record<string, string[]> = {
   mark_corrections: ["INSERT", "SELECT"],
   cbe_result_revisions: ["INSERT", "SELECT"],
   he_grade_revisions: ["INSERT", "SELECT"],
+  // Migrations 036-039 (Stage 11 finance and the job runtime): INSERT + SELECT only; UPDATE is column-level.
+  jobs: ["INSERT", "SELECT"],
+  finance_fee_items: ["INSERT", "SELECT"],
+  finance_invoices: ["INSERT", "SELECT"],
+  finance_invoice_lines: ["INSERT", "SELECT"],
+  finance_charges: ["INSERT", "SELECT"],
+  finance_invoice_adjustments: ["INSERT", "SELECT"],
+  finance_payments: ["INSERT", "SELECT"],
+  finance_mpesa_events: ["INSERT", "SELECT"],
+  finance_payment_proofs: ["INSERT", "SELECT"],
+  finance_reconciliation_runs: ["INSERT", "SELECT"],
+  finance_reconciliation_findings: ["INSERT", "SELECT"],
+  finance_ai_helper_settings: ["INSERT", "SELECT"],
+  finance_ai_helper_optins: ["INSERT", "SELECT"],
+  finance_ai_helper_optin_log: ["INSERT", "SELECT"],
 };
+
+/**
+ * Stage 11: the ONLY columns each runtime role may UPDATE on the finance tables and jobs. Money (amounts, totals,
+ * paid, currency), identity, provenance and the payment's method/reference/msisdn are in no list: no
+ * application path changes them, and the privilege is absent as well as the code. Widening any list is a security change.
+ */
+const EXPECTED_FINANCE_UPDATE_COLUMNS: Record<"figbloom_app" | "figbloom_worker", Record<string, string[]>> = {
+  figbloom_app: {
+    finance_fee_items: ["active", "amount_minor", "applies_to", "archived_at", "form_level", "name", "updated_at"],
+    finance_invoices: ["due_on", "updated_at", "void_reason", "voided_at", "voided_by"],
+    finance_charges: ["void_reason", "voided_at", "voided_by"],
+    finance_payments: ["checkout_request_id", "completed_at", "failure_reason", "merchant_request_id", "mpesa_receipt", "status", "updated_at"],
+    finance_payment_proofs: ["payment_id", "rejection_reason", "reviewed_at", "reviewed_by", "status"],
+    finance_reconciliation_runs: ["findings_count"],
+    finance_reconciliation_findings: ["resolution_note", "resolved_at", "resolved_by", "status"],
+    finance_ai_helper_settings: ["access_mode", "cancel_days", "price_minor", "updated_at", "updated_by"],
+    finance_ai_helper_optins: ["changed_at", "changed_by", "opted_in"],
+  },
+  figbloom_worker: {
+    finance_payments: ["completed_at", "failure_reason", "mpesa_receipt", "status", "updated_at"],
+    finance_invoices: ["updated_at"],
+    jobs: ["attempts", "cancel_reason", "finished_at", "last_error_code", "lease_expires_at", "leased_by", "run_after", "status"],
+  },
+};
+const FINANCE_NEVER_UPDATABLE: Array<[string, string[]]> = [
+  ["finance_invoices", ["lines_minor", "charges_minor", "adjustments_minor", "total_minor", "paid_minor", "currency", "learner_id", "term_id", "tenant_id"]],
+  ["finance_payments", ["amount_minor", "currency", "method", "reference", "msisdn", "invoice_id", "proof_id", "recorded_by", "tenant_id"]],
+  ["finance_invoice_lines", ["amount_minor", "name"]],
+  ["finance_invoice_adjustments", ["to_total_minor", "delta_minor", "reason"]],
+  ["jobs", ["tenant_id", "job_type", "payload", "idempotency_key", "enqueued_by_user_id"]],
+];
 
 /**
  * Migration 027 (P3-AUDIT-009). Identity (`id`, `tenant_id`), provenance (`created_at`,
@@ -147,6 +193,39 @@ describe("migration 009 grants and policies", () => {
       org_admin_school_delegations: ["revoked_at", "revoked_by"],
       staff_resource_grants: ["revoke_reason", "revoked_at", "revoked_by"],
     });
+  });
+
+  it("finance tables and jobs: UPDATE is column-level and money, identity and provenance are never updatable (Stage 11)", async () => {
+    for (const role of ["figbloom_app", "figbloom_worker"] as const) {
+      const tables = Object.keys(EXPECTED_FINANCE_UPDATE_COLUMNS[role]);
+      const r = await ctx.pool.query<{ table_name: string; column_name: string }>(
+        `SELECT table_name, column_name FROM information_schema.column_privileges
+          WHERE grantee = $1 AND table_schema = 'public' AND privilege_type = 'UPDATE'
+            AND (table_name LIKE 'finance\\_%' OR table_name = 'jobs')
+          ORDER BY table_name, column_name`,
+        [role],
+      );
+      const by: Record<string, string[]> = {};
+      for (const row of r.rows) (by[row.table_name] ??= []).push(row.column_name);
+      expect(by, role).toEqual(EXPECTED_FINANCE_UPDATE_COLUMNS[role]);
+      for (const t of tables) {
+        const tbl = await ctx.pool.query<{ tbl: boolean }>(`SELECT has_table_privilege($1, $2, 'UPDATE') AS tbl`, [role, `public.${t}`]);
+        expect(tbl.rows[0]?.tbl, `${role} ${t} table-level UPDATE`).toBe(false);
+      }
+      for (const [t, cols] of FINANCE_NEVER_UPDATABLE) {
+        for (const col of cols) {
+          const eff = await ctx.pool.query<{ upd: boolean }>(`SELECT has_column_privilege($1, $2, $3, 'UPDATE') AS upd`, [role, `public.${t}`, col]);
+          expect(eff.rows[0]?.upd, `${role} ${t}.${col}`).toBe(false);
+        }
+      }
+    }
+    // neither runtime role may DELETE or TRUNCATE any finance table or jobs
+    const del = await ctx.pool.query(
+      `SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants
+        WHERE grantee IN ('figbloom_app', 'figbloom_worker') AND table_schema = 'public'
+          AND (table_name LIKE 'finance\\_%' OR table_name = 'jobs') AND privilege_type IN ('DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')`,
+    );
+    expect(del.rows).toEqual([]);
   });
 
   it("directory tables: UPDATE is column-level and names only the columns the modules write (P3-AUDIT-009)", async () => {

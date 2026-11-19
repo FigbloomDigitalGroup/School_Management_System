@@ -75,7 +75,30 @@ export type SecurityEventType =
   | "attendance.register.upserted"
   | "attendance.register.stale_ignored"
   | "attendance.early_sign_out.recorded"
-  | "attendance.early_sign_out.voided";
+  | "attendance.early_sign_out.voided"
+  | "finance.fee_item.created"
+  | "finance.fee_item.updated"
+  | "finance.fee_item.archived"
+  | "finance.term.billed"
+  | "finance.invoice.due_date_changed"
+  | "finance.invoice.voided"
+  | "finance.invoice.adjusted"
+  | "finance.charge.added"
+  | "finance.charge.voided"
+  | "finance.payment.recorded"
+  | "finance.payment.overpaid"
+  | "finance.mpesa.prompt_started"
+  | "finance.mpesa.prompt_failed"
+  | "finance.mpesa.settled"
+  | "finance.proof.submitted"
+  | "finance.proof.confirmed"
+  | "finance.proof.rejected"
+  | "finance.reconciliation.run"
+  | "finance.reconciliation.resolved"
+  | "finance.ai_helper.settings_updated"
+  | "job.retry_scheduled"
+  | "job.dead"
+  | "job.cancelled";
 
 export async function recordSecurityEvent(
   db: Db,

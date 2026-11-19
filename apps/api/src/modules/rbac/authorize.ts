@@ -57,6 +57,14 @@ export const ACADEMICS_AREA_IMPLIED: readonly string[] = [
  * Resource permissions implied by the Attendance admin area.
  * Collector PII (`resource.early_sign_out.collector.read`) is NOT implied — least privilege.
  */
+/**
+ * Resource permissions implied by the Fees admin area (legacy has_perm(tenant, 'fees')).
+ * `resource.finance.administer` (legacy may_administer: charges, total adjustments, voids, proof
+ * rejection, reconciliation finding resolution, AI helper settings) is NOT implied by the area:
+ * school admins only.
+ */
+export const FEES_AREA_IMPLIED: readonly string[] = ["resource.finance.read", "resource.finance.write"];
+
 export const ATTENDANCE_AREA_IMPLIED: readonly string[] = [
   "resource.attendance.read",
   "resource.attendance.write",
@@ -161,6 +169,9 @@ export async function loadEffectivePermissions(
     perms.add("resource.attendance.write");
     perms.add("resource.early_sign_out.read");
     perms.add("resource.early_sign_out.collector.read");
+    perms.add("resource.finance.read");
+    perms.add("resource.finance.write");
+    perms.add("resource.finance.administer");
     perms.add("tenant.read");
     perms.add("rbac.staff_areas.manage");
     perms.add("rbac.school_roles.manage");
@@ -179,6 +190,9 @@ export async function loadEffectivePermissions(
     }
     if (areas.has("academics")) {
       for (const code of ACADEMICS_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("fees")) {
+      for (const code of FEES_AREA_IMPLIED) perms.add(code);
     }
     if (areas.has("attendance")) {
       for (const code of ATTENDANCE_AREA_IMPLIED) perms.add(code);
@@ -200,6 +214,9 @@ export async function loadEffectivePermissions(
     }
     if (delegated.has("area.academics")) {
       for (const code of ACADEMICS_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.fees")) {
+      for (const code of FEES_AREA_IMPLIED) perms.add(code);
     }
     if (delegated.has("area.attendance")) {
       for (const code of ATTENDANCE_AREA_IMPLIED) perms.add(code);

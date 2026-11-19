@@ -27,6 +27,10 @@ export const ALLOWED_LOG_FIELDS = [
   "sqlstate",
   "outcome",
   "reason",
+  // Stage 11 worker observability: identifiers and counters only (never payloads or provider data).
+  "job_id",
+  "job_type",
+  "attempt",
 ] as const;
 
 export type LogField = (typeof ALLOWED_LOG_FIELDS)[number];

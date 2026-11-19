@@ -8,7 +8,14 @@ import { MIGRATIONS_DIR, tablesCreatedFrom } from "./support/migrationTables.js"
  * the earlier upper bound of 033 (with the Phase 3 inventory now capped at 028) meant a table added by a
  * future migration was covered by no catalogue check at all. Leave this range open-ended.
  */
-const STAGE910_TABLES = tablesCreatedFrom(29, MIGRATIONS_DIR);
+const ALL_NEW_TABLES = tablesCreatedFrom(29, MIGRATIONS_DIR);
+/**
+ * Stage 11: tables that deliberately have NO runtime policy because the runtime roles may not touch them at
+ * all (operator-only quarantine, written through a SECURITY DEFINER function). Each is asserted below to be
+ * RLS-forced and to hold no privilege for figbloom_app or figbloom_worker, so this is not a silent exemption.
+ */
+const OPERATOR_ONLY_TABLES = ["finance_mpesa_unmatched_callbacks"];
+const STAGE910_TABLES = ALL_NEW_TABLES.filter((t) => !OPERATOR_ONLY_TABLES.includes(t));
 
 describe("Stage 9/10 RLS catalogue", () => {
   let ctx: Awaited<ReturnType<typeof createTestApp>>;
@@ -67,6 +74,27 @@ describe("Stage 9/10 RLS catalogue", () => {
     expect(bad).toEqual([]);
   });
 
+  it("operator-only tables are RLS-forced and unreachable by the runtime roles", async () => {
+    for (const table of OPERATOR_ONLY_TABLES) {
+      expect(ALL_NEW_TABLES).toContain(table);
+      const flags = await ctx.pool.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1 AND relnamespace = 'public'::regnamespace`,
+        [table],
+      );
+      expect(flags.rows[0]).toEqual({ relrowsecurity: true, relforcerowsecurity: true });
+      const grants = await ctx.pool.query(
+        `SELECT 1 FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = $1 AND grantee IN ('figbloom_app', 'figbloom_worker')`,
+        [table],
+      );
+      expect(grants.rowCount).toBe(0);
+      const policies = await ctx.pool.query(
+        `SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = $1 AND NOT ('public' = ANY (roles::text[]))`,
+        [table],
+      );
+      expect(policies.rowCount).toBe(0);
+    }
+  });
+
   it("every figbloom_app policy on these tables is exactly the tenant predicate, and no table grants UPDATE/DELETE wholesale", async () => {
     const bad: string[] = [];
     for (const table of STAGE910_TABLES) {
@@ -75,7 +103,8 @@ describe("Stage 9/10 RLS catalogue", () => {
         [table],
       );
       for (const p of policies.rows) {
-        if (p.roles.includes("figbloom_app")) {
+        // Stage 11: the worker role (WORKER-ISOLATION-PROPOSAL.md) gets the same exact tenant predicate.
+        if (p.roles.includes("figbloom_app") || p.roles.includes("figbloom_worker")) {
           const tenantOnly = "(tenant_id = app_current_tenant_id())";
           if (p.qual !== tenantOnly || p.with_check !== tenantOnly) bad.push(`${table}.${p.policyname}: ${p.qual} / ${p.with_check}`);
         } else if (!p.policyname.endsWith("_owner")) {

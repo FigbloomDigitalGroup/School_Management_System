@@ -94,6 +94,10 @@ describe("FIG-1604 forced password change across the whole route table", () => {
     "PATCH /v1/tenants/{tenantId}/learners/{learnerId}": { full_name: "Fixture Learner" },
     "PATCH /v1/tenants/{tenantId}/school-profile": { county: "Nairobi" },
     "POST /v1/tenants/{tenantId}/staff": { full_name: "Fixture Staff" },
+    // Stage 11: the patch body requires at least one field, so the empty sample would answer 400 before the gate.
+    "PATCH /v1/tenants/{tenantId}/finance/fee-items/{feeItemId}": { name: "Fixture fee" },
+    // the phone number is pattern-constrained, so the generic "x" sample would answer 400 before the gate
+    "POST /v1/tenants/{tenantId}/finance/mpesa/prompts": { invoice_id: "00000000-0000-4000-8000-000000000001", amount_minor: 100000, msisdn: "254712345678" },
     "PATCH /v1/tenants/{tenantId}/staff/{staffId}": { full_name: "Fixture Staff" },
     // Stage 9/10: date/time patterns and ordering constraints are not produced by sampleBody.
     "POST /v1/tenants/{tenantId}/academic-years": {

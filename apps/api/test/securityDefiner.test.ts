@@ -34,7 +34,7 @@ interface FnRow {
  * a reviewer deciding its owner, search_path and EXECUTE grants.
  */
 const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: string }> = {
-  "app_current_tenant_id()": { secdef: false, grantees: ["figbloom_app"], why: "RLS helper evaluated by tenant policies" },
+  "app_current_tenant_id()": { secdef: false, grantees: ["figbloom_app", "figbloom_worker"], why: "RLS helper evaluated by tenant policies (API and worker)" },
   "app_current_user_id()": { secdef: false, grantees: ["figbloom_app"], why: "RLS helper evaluated by the self-read policy" },
   "consume_rate_token(text,numeric,numeric,numeric,integer)": { secdef: false, grantees: ["figbloom_app"], why: "called by the API for the PG token bucket" },
   "prune_rate_buckets(interval)": { secdef: false, grantees: [], why: "housekeeping; not an API call" },
@@ -211,6 +211,38 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: ["figbloom_app"],
     why: "paged counting twin (OD-4); invoker so RLS still applies; same rules as attendance_counted",
   },
+  // Migration 036 (job runtime, WORKER-ISOLATION-PROPOSAL.md).
+  "jobs_identity_immutable()": { secdef: false, grantees: [], why: "trigger; a job's tenant, type, payload and key never change; a finished job is final" },
+  "jobs_claim(text,integer,text[])": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "the ONLY cross-tenant step of the worker: leases one due job (SKIP LOCKED, skips suspended schools), returns ids and no payload; not executable by the API role",
+  },
+  // Migration 037 (finance core). All invoker functions: RLS applies.
+  "finance_school_today(uuid)": { secdef: false, grantees: ["figbloom_app", "figbloom_worker"], why: "the school's local date for invoice status" },
+  "finance_invoice_status(bigint,bigint,date,date)": { secdef: false, grantees: ["figbloom_app", "figbloom_worker"], why: "SQL twin of money.ts invoiceStatus (agreement tested)" },
+  "finance_invoices_recompute()": { secdef: false, grantees: [], why: "trigger; derives an invoice's totals from lines, live charges, adjustments and successful payments" },
+  "finance_touch_invoice()": { secdef: false, grantees: [], why: "trigger; a change to a source row recomputes its invoice" },
+  "finance_invoice_lines_guard()": { secdef: false, grantees: [], why: "trigger; lines are fixed once an invoice has payments or is voided" },
+  "finance_charges_guard()": { secdef: false, grantees: [], why: "trigger; void-only, never below what is paid; locks the invoice" },
+  "finance_adjustments_guard()": { secdef: false, grantees: [], why: "trigger; recorded 'from' must be the current total; new total covers paid and charges" },
+  "finance_payments_guard()": { secdef: false, grantees: [], why: "trigger; balance ceiling under the invoice lock, immutable once settled, single pending-to-final step" },
+  "finance_fee_items_guard()": { secdef: false, grantees: [], why: "trigger; a fee item cannot move; archive is one-way" },
+  // Migration 038 (M-Pesa, proofs, reconciliation).
+  "finance_mpesa_tenant_for_checkout(text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "the callback's only cross-tenant step: maps a provider CheckoutRequestID to its school, returns a tenant id only, reachable after the callback secret is verified",
+  },
+  "finance_mpesa_record_unmatched(text,text,integer,bigint,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "writes the operator-only quarantine of callbacks that match no prompt; no read path",
+  },
+  "finance_payment_proofs_guard()": { secdef: false, grantees: [], why: "trigger; proof starts pending, code appears in the message and is not already paid, reviewed proofs are final" },
+  "finance_invoices_proof_void_guard()": { secdef: false, grantees: [], why: "trigger; an invoice with payment proofs cannot be voided" },
+  "finance_payments_proof_guard()": { secdef: false, grantees: [], why: "trigger; a payment naming a proof must be for that proof's invoice and the proof must be pending" },
+  "finance_reconciliation_findings_guard()": { secdef: false, grantees: [], why: "trigger; a finding is resolved once and never otherwise changes" },
 };
 
 /** The only SECURITY DEFINER functions the runtime role may execute. */
@@ -226,6 +258,8 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_set_session_tenant(uuid,uuid,uuid,uuid,timestamp with time zone,text,text)",
   "auth_session_hmac_status(text,text)",
   "directory_update_tenant_identity(text,text)",
+  "finance_mpesa_tenant_for_checkout(text)",
+  "finance_mpesa_record_unmatched(text,text,integer,bigint,text,text)",
 ];
 
 async function inventory(pool: pg.Pool): Promise<FnRow[]> {
