@@ -26,6 +26,13 @@ apps/api/docs/RLS-CATALOGUE.md
 apps/api/docs/WORKER-ISOLATION-PROPOSAL.md
 apps/api/docs/sql/
 
+# Local Stage 9 / Stage 10 working docs (handoffs and reviews; not committed until owner accepts)
+apps/api/docs/STAGE9-*.md
+apps/api/docs/STAGE10-*.md
+
+# Cursor-agent local memory/rules (not team SoT)
+.cursor/
+
 # Native Android project (apps/mobile/android)
 .gradle/
 local.properties
