@@ -23,6 +23,9 @@ import { registerAcademicsAssessmentRoutes } from "./http/routes/academicsAssess
 import { registerAcademicsCbeRoutes } from "./http/routes/academicsCbe.js";
 import { registerAcademicsHigherRoutes } from "./http/routes/academicsHigher.js";
 import { registerAttendanceRoutes } from "./http/routes/attendance.js";
+import { registerFinanceRoutes } from "./http/routes/finance.js";
+import { registerMpesaRoutes } from "./http/routes/mpesa.js";
+import { mpesaProviderFromConfig, type MpesaProvider } from "./modules/finance/mpesaProvider.js";
 
 export interface RouteEntry {
   method: string;
@@ -36,6 +39,8 @@ declare module "fastify" {
     appConfig: AppConfig;
     /** Readiness state: flipped by the shutdown sequence (FIG-1617). */
     lifecycle: Lifecycle;
+    /** Stage 11 M-Pesa provider (Daraja when configured; a fake in tests). */
+    mpesaProvider: MpesaProvider;
   }
   interface FastifyRequest {
     /** Aborts when the client goes away before the response is finished (F-C3). */
@@ -43,7 +48,12 @@ declare module "fastify" {
   }
 }
 
-export async function buildApp(config: AppConfig, pool: AppPool) {
+export interface AppDependencies {
+  /** Overrides the provider built from config (tests use a deterministic fake). */
+  mpesaProvider?: MpesaProvider;
+}
+
+export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDependencies = {}) {
   const app = Fastify({
     logger: false,
     // R2-01: hop-count trust only when configured; never boolean `true`.
@@ -114,6 +124,7 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
   });
 
   app.decorate("appConfig", config);
+  app.decorate("mpesaProvider", deps.mpesaProvider ?? mpesaProviderFromConfig(config));
   const lifecycle: Lifecycle = { draining: false };
   app.decorate("lifecycle", lifecycle);
 
@@ -180,6 +191,8 @@ export async function buildApp(config: AppConfig, pool: AppPool) {
   await registerAcademicsCbeRoutes(app, pool);
   await registerAcademicsHigherRoutes(app, pool);
   await registerAttendanceRoutes(app, pool);
+  await registerFinanceRoutes(app, pool);
+  await registerMpesaRoutes(app, pool);
 
   return app;
 }
