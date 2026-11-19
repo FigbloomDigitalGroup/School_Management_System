@@ -111,6 +111,106 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: ["figbloom_app"],
     why: "select-tenant write with HMAC proof",
   },
+  // Migration 029: class membership year/learner guard. Trigger only.
+  "class_memberships_integrity_guard()": {
+    secdef: true,
+    grantees: [],
+    why: "trigger; class year and active-learner checks without widening the caller's grants",
+  },
+  // Migrations 030–031: storage keys for metadata-only rows. Invoker triggers.
+  "learning_materials_before_insert()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; discards a client storage key and forces metadata_only",
+  },
+  "evidence_assets_before_insert()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; discards a client storage key and forces metadata_only",
+  },
+  // Migration 033: attendance register rules and the counting twin. Not definers.
+  "attendance_afternoon_allowed()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; refuses an afternoon insert while the school register is off (SQLSTATE 23514)",
+  },
+  "attendance_register_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; school-today and term window, newest marked_at wins, identical replay is a no-op",
+  },
+  "attendance_counted(uuid,uuid)": {
+    secdef: false,
+    grantees: ["figbloom_app"],
+    why: "session/day counting twin; invoker so RLS still applies; live early sign-out drops afternoon absent/excused",
+  },
+  // Migration 034 (Stage 9/10 independent review): integrity triggers. Invokers, no grantees.
+  "early_sign_outs_void_once()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; an early sign-out goes live -> voided once, at the database clock (R10-3)",
+  },
+  "early_sign_out_collectors_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; collector details immutable, void reason set once and only on a voided sign-out (R10-3)",
+  },
+  "online_exam_attempts_forward_only()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a submitted attempt is final (A9-4)",
+  },
+  "mark_entries_version_step()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; every mark UPDATE advances row_version by exactly one (A9-15)",
+  },
+  // Migration 035 (owner decisions): revision-gated changes, forward-only status, paged counting. Invokers.
+  "mark_corrections_before_insert()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a mark correction must name the current score/grade and the next row_version (OD-1)",
+  },
+  "mark_entries_publication_lock()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a mark of a non-draft assessment changes only with its matching correction row (OD-1)",
+  },
+  "assessments_status_forward_only()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a published assessment cannot return to draft to unlock its marks (OD-1)",
+  },
+  "cbe_result_revisions_before_insert()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a CBE revision must name the current result and the next row_version (OD-3)",
+  },
+  "cbe_results_revision_required()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a CBE result changes only with its matching revision row (OD-3)",
+  },
+  "cbe_results_first_version()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; a new CBE result starts at row_version 1 (OD-3)",
+  },
+  "he_grade_revisions_before_insert()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; an HE grade revision must name the current grade and the next row_version (OD-5)",
+  },
+  "he_grades_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; first grade only for an enrolled learner; later changes only with a revision row (OD-5)",
+  },
+  "attendance_counted_page(uuid,uuid,uuid,date,uuid,text,integer)": {
+    secdef: false,
+    grantees: ["figbloom_app"],
+    why: "paged counting twin (OD-4); invoker so RLS still applies; same rules as attendance_counted",
+  },
 };
 
 /** The only SECURITY DEFINER functions the runtime role may execute. */
@@ -193,7 +293,8 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     // 3 before migration 025, plus org_delegation_guard, staff_resource_grants_guard and the
     // membership-change function, which is attached twice (UPDATE and DELETE). Migration 026 adds
     // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
-    expect(r.rows.length).toBe(11);
+    // Migration 029 adds class_memberships_integrity_guard. Later attendance triggers are invokers.
+    expect(r.rows.length).toBe(12);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 

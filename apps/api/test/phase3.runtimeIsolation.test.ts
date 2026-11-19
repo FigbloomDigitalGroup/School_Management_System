@@ -1,8 +1,13 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp, type FixtureIds } from "./support.js";
+import {
+  MIGRATIONS_DIR,
+  missingFromInventory,
+  tablesCreatedFrom,
+} from "./support/migrationTables.js";
+
+export { missingFromInventory, tablesCreatedFrom };
 
 /**
  * F-03 — runtime database isolation for every Phase 3 personal-data table.
@@ -160,27 +165,6 @@ const INVENTORY: InventoryEntry[] = [
     }),
   },
 ];
-
-const MIGRATIONS_DIR = fileURLToPath(new URL("../migrations/", import.meta.url));
-
-/** Tables created by migrations numbered `fromNumber` or higher (the Phase 3 range starts at 016). */
-export function tablesCreatedFrom(fromNumber: number, dir = MIGRATIONS_DIR): string[] {
-  const tables = new Set<string>();
-  for (const file of readdirSync(dir).filter((f) => /^\d+_.*\.sql$/.test(f))) {
-    if (Number(file.split("_")[0]) < fromNumber) continue;
-    const sql = readFileSync(`${dir}${file}`, "utf8");
-    for (const m of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi)) {
-      tables.add(m[1]!.toLowerCase());
-    }
-  }
-  return [...tables].sort();
-}
-
-/** Pure detector, exported so a negative control can prove it fires. */
-export function missingFromInventory(created: string[], inventory: string[]): string[] {
-  const have = new Set(inventory);
-  return created.filter((t) => !have.has(t));
-}
 
 describe("F-03 runtime isolation of Phase 3 personal-data tables", () => {
   let ctx: Ctx;
@@ -462,8 +446,8 @@ describe("F-03 runtime isolation of Phase 3 personal-data tables", () => {
   describe("catalogue completeness", () => {
     const PHASE3_FIRST_MIGRATION = 16;
 
-    it("every table created from migration 016 on is in the runtime-isolation inventory", () => {
-      const created = tablesCreatedFrom(PHASE3_FIRST_MIGRATION);
+    it("every table created from migration 016–028 is in the runtime-isolation inventory", () => {
+      const created = tablesCreatedFrom(PHASE3_FIRST_MIGRATION, MIGRATIONS_DIR, 28);
       expect(created.length).toBeGreaterThanOrEqual(3);
       expect(missingFromInventory(created, INVENTORY.map((e) => e.table))).toEqual([]);
     });

@@ -720,8 +720,9 @@ describe("Stage 8 adversarial audit", () => {
   // ============================================================ deferred work stays deferred
   it("deferred capabilities are not quietly present", async () => {
     const urls = ctx.app.routeTable!.map((r) => `${r.method.toUpperCase()} ${r.url}`);
-    // Object storage, imports, invitations and class assignment belong to other stages.
-    for (const forbidden of [/upload/i, /download/i, /\/import/i, /invite/i, /\/classes/i, /enrol/i]) {
+    // Object bytes, bulk import and invitations stay out of the directory API.
+    // Class assignment and higher-education enrolment are Stage 9 routes.
+    for (const forbidden of [/upload/i, /download/i, /\/import/i, /invite/i]) {
       const hit = urls.filter((u) => forbidden.test(u));
       expect(hit, `routes matching ${forbidden}`).toEqual([]);
     }
