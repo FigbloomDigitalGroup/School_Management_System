@@ -4,8 +4,9 @@ info:
   version: 0.2.0
   description: |
     FigBloom replacement modular monolith contracts.
-    Includes P1-A identity/tenancy/RBAC and Phase 3 School Directory (learners, guardians,
-    staff, school profile, document metadata). VS-1/VS-2 contracts are preserved.
+    Includes P1-A identity/tenancy/RBAC, Phase 3 School Directory (learners, guardians,
+    staff, school profile, document metadata), Stage 9 academics and Stage 10 attendance.
+    VS-1/VS-2 contracts are preserved.
     Authorization is server-enforced. Client-supplied role or permission lists
     are never accepted as evidence of access.
 servers:
@@ -18,6 +19,8 @@ tags:
   - name: org
   - name: rbac
   - name: directory
+  - name: academics
+  - name: attendance
 paths:
   /livez:
     get:
@@ -1717,6 +1720,4033 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/academic-years:
+    post:
+      tags:
+        - academics
+      summary: Create an academic year
+      operationId: createAcademicYear
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAcademicYearsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - academic_year
+                properties:
+                  academic_year:
+                    $ref: "#/components/schemas/AcademicYear"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List academic years
+      description: "Newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listAcademicYears
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - academic_years
+                  - page
+                properties:
+                  academic_years:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AcademicYear"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/academic-years/{academicYearId}:
+    get:
+      tags:
+        - academics
+      summary: Get an academic year
+      operationId: getAcademicYear
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: academicYearId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - academic_year
+                properties:
+                  academic_year:
+                    $ref: "#/components/schemas/AcademicYear"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/academic-years/{academicYearId}/set-current:
+    post:
+      tags:
+        - academics
+      summary: Mark an academic year as current
+      description: Concurrent calls are serialised; exactly one year stays current (A9-11).
+      operationId: setCurrentAcademicYear
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: academicYearId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - academic_year
+                properties:
+                  academic_year:
+                    $ref: "#/components/schemas/AcademicYear"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/academic-terms:
+    post:
+      tags:
+        - academics
+      summary: Create an academic term
+      operationId: createAcademicTerm
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAcademicTermsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - term
+                properties:
+                  term:
+                    $ref: "#/components/schemas/AcademicTerm"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List academic terms
+      description: "With academicYearId: by term index; otherwise newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listAcademicTerms
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: academicYearId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - terms
+                  - page
+                properties:
+                  terms:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AcademicTerm"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/academic-terms/{termId}:
+    get:
+      tags:
+        - academics
+      summary: Get an academic term
+      operationId: getAcademicTerm
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - term
+                properties:
+                  term:
+                    $ref: "#/components/schemas/AcademicTerm"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/academic-terms/{termId}/set-current:
+    post:
+      tags:
+        - academics
+      summary: Mark an academic term as current
+      description: Concurrent calls are serialised; exactly one term stays current (A9-11).
+      operationId: setCurrentAcademicTerm
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - term
+                properties:
+                  term:
+                    $ref: "#/components/schemas/AcademicTerm"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/subjects:
+    post:
+      tags:
+        - academics
+      summary: Create a subject
+      operationId: createSubject
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostSubjectsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - subject
+                properties:
+                  subject:
+                    $ref: "#/components/schemas/Subject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List subjects
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listSubjects
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - subjects
+                  - page
+                properties:
+                  subjects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Subject"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/classes:
+    post:
+      tags:
+        - academics
+      summary: Create a class
+      operationId: createSchoolClass
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostClassesRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - school_class
+                properties:
+                  school_class:
+                    $ref: "#/components/schemas/SchoolClass"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List classes
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listSchoolClasses
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: academicYearId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - classes
+                  - page
+                properties:
+                  classes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SchoolClass"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/classes/{classId}:
+    get:
+      tags:
+        - academics
+      summary: Get a class
+      operationId: getSchoolClass
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - school_class
+                properties:
+                  school_class:
+                    $ref: "#/components/schemas/SchoolClass"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/class-memberships:
+    post:
+      tags:
+        - academics
+      summary: Assign a learner to a class
+      operationId: assignClassMembership
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostClassMembershipsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - membership
+                properties:
+                  membership:
+                    $ref: "#/components/schemas/ClassMembership"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List class memberships
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listClassMemberships
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - memberships
+                  - page
+                properties:
+                  memberships:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClassMembership"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/class-memberships/{membershipId}/archive:
+    post:
+      tags:
+        - academics
+      summary: Archive a class membership
+      operationId: archiveClassMembership
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: membershipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - membership
+                properties:
+                  membership:
+                    $ref: "#/components/schemas/ClassMembership"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/teaching-assignments:
+    post:
+      tags:
+        - academics
+      summary: Create a teaching assignment
+      operationId: createTeachingAssignment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostTeachingAssignmentsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assignment
+                properties:
+                  assignment:
+                    $ref: "#/components/schemas/TeachingAssignment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List teaching assignments
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listTeachingAssignments
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: staffMemberId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assignments
+                  - page
+                properties:
+                  assignments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeachingAssignment"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/timetable-slots:
+    post:
+      tags:
+        - academics
+      summary: Create a timetable slot
+      description: A linked teaching_assignment_id must be the active assignment for the same class and subject (400 otherwise).
+      operationId: createTimetableSlot
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostTimetableSlotsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - slot
+                properties:
+                  slot:
+                    $ref: "#/components/schemas/TimetableSlot"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List timetable slots for a class
+      description: "classId is required. By day, then start time. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listTimetableSlots
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - slots
+                  - page
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TimetableSlot"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/assessments:
+    post:
+      tags:
+        - academics
+      summary: Create an assessment
+      operationId: createAssessment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssessmentsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assessment
+                properties:
+                  assessment:
+                    $ref: "#/components/schemas/Assessment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List assessments
+      description: "Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those classes (OD-2: read only, never a write). Anyone else gets 403. Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listAssessments
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assessments
+                  - page
+                properties:
+                  assessments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Assessment"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/assessments/{assessmentId}/publish:
+    post:
+      tags:
+        - academics
+      summary: Publish an assessment
+      description: "Draft to published. Publication is final: the assessment cannot return to draft (database-enforced), and its marks are then locked (OD-1)."
+      operationId: publishAssessment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assessment
+                properties:
+                  assessment:
+                    $ref: "#/components/schemas/Assessment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/assessments/{assessmentId}/marks:
+    post:
+      tags:
+        - academics
+      summary: Create or update a mark
+      description: "Create (no row_version) or update (row_version or If-Match equal to the current version; stale = 409) a mark on a DRAFT assessment. Once the assessment is published its marks are locked: 409, use mark-corrections (OD-1). Who: resource.academics.write, or an assigned teacher of the assessment's class and subject. The learner must be a member of the assessment's class. A caller without resource.academics.write who teaches no class gets 403 before any lookup; an assessment outside the classes they teach answers 404 exactly like a missing one (A9-9). Replays re-read the mark by id (current state)."
+      operationId: upsertMark
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssessmentsMarksRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - mark
+                properties:
+                  mark:
+                    $ref: "#/components/schemas/Mark"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - mark
+                properties:
+                  mark:
+                    $ref: "#/components/schemas/Mark"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List marks for an assessment
+      description: "Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those classes (OD-2: read only, never a write). Anyone else gets 403. An assessment outside the teacher's classes answers 404 like a missing one. By learner. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listMarks
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - marks
+                  - page
+                properties:
+                  marks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Mark"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/homework-items:
+    post:
+      tags:
+        - academics
+      summary: Create a homework item
+      operationId: createHomeworkItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostHomeworkItemsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - homework
+                properties:
+                  homework:
+                    $ref: "#/components/schemas/Homework"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List homework items
+      description: "By due date. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listHomeworkItems
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - homework
+                  - page
+                properties:
+                  homework:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Homework"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/learning-materials:
+    post:
+      tags:
+        - academics
+      summary: Register learning-material metadata
+      description: "Metadata only: no file bytes are stored (object storage is not authorised)."
+      operationId: registerLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostLearningMaterialsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - material
+                properties:
+                  material:
+                    $ref: "#/components/schemas/LearningMaterial"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List learning-material metadata
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listLearningMaterials
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - materials
+                  - page
+                properties:
+                  materials:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LearningMaterial"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/grading-schemes:
+    post:
+      tags:
+        - academics
+      summary: Create a grading scheme
+      description: |
+        Rules must cover 0 to 100 without gaps or overlaps.
+      operationId: createGradingScheme
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostGradingSchemesRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - scheme
+                properties:
+                  scheme:
+                    $ref: "#/components/schemas/GradingScheme"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List grading schemes
+      description: "Oldest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listGradingSchemes
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - schemes
+                  - page
+                properties:
+                  schemes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GradingScheme"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/report-cards:
+    post:
+      tags:
+        - academics
+      summary: Publish a report card
+      description: Snapshot of published scores. A later mark correction does not rewrite a published report card.
+      operationId: publishReportCard
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostReportCardsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - report_card
+                properties:
+                  report_card:
+                    $ref: "#/components/schemas/ReportCard"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/curriculum-provenance:
+    post:
+      tags:
+        - academics
+      summary: Record school curriculum provenance
+      description: 'D-5: only school_configured or import_pending. official_catalogue is always false; a free-text source_label (even "KICD Official") cannot establish official status. No official KICD/KNEC catalogue is seeded.'
+      operationId: createCurriculumProvenance
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostCurriculumProvenanceRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - provenance
+                properties:
+                  provenance:
+                    $ref: "#/components/schemas/CurriculumProvenance"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List curriculum provenance
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listCurriculumProvenance
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - provenance
+                  - page
+                properties:
+                  provenance:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CurriculumProvenance"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/learning-areas:
+    post:
+      tags:
+        - academics
+      summary: Create a school-configured learning area
+      operationId: createLearningArea
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostLearningAreasRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - learning_area
+                properties:
+                  learning_area:
+                    $ref: "#/components/schemas/LearningArea"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List learning areas
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listLearningAreas
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - learning_areas
+                  - page
+                properties:
+                  learning_areas:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LearningArea"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/strands:
+    post:
+      tags:
+        - academics
+      summary: Create a strand
+      operationId: createStrand
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostStrandsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - strand
+                properties:
+                  strand:
+                    $ref: "#/components/schemas/Strand"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List strands
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listStrands
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - strands
+                  - page
+                properties:
+                  strands:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Strand"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/sub-strands:
+    post:
+      tags:
+        - academics
+      summary: Create a sub-strand
+      operationId: createSubStrand
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostSubStrandsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - sub_strand
+                properties:
+                  sub_strand:
+                    $ref: "#/components/schemas/SubStrand"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List sub-strands
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listSubStrands
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - sub_strands
+                  - page
+                properties:
+                  sub_strands:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SubStrand"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/learning-outcomes:
+    post:
+      tags:
+        - academics
+      summary: Create a learning outcome
+      operationId: createLearningOutcome
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostLearningOutcomesRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - learning_outcome
+                properties:
+                  learning_outcome:
+                    $ref: "#/components/schemas/LearningOutcome"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List learning outcomes
+      description: "By code. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listLearningOutcomes
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - learning_outcomes
+                  - page
+                properties:
+                  learning_outcomes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LearningOutcome"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/rubric-configs:
+    post:
+      tags:
+        - academics
+      summary: Create a rubric descriptor config
+      operationId: createRubricConfig
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostRubricConfigsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - rubric_config
+                properties:
+                  rubric_config:
+                    $ref: "#/components/schemas/RubricConfig"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List rubric descriptor configs
+      description: "By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listRubricConfigs
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - rubric_configs
+                  - page
+                properties:
+                  rubric_configs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RubricConfig"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/cbe-assessments:
+    post:
+      tags:
+        - academics
+      summary: Create a CBE assessment
+      description: An unknown rubric_config_id is 400.
+      operationId: createCbeAssessment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostCbeAssessmentsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - cbe_assessment
+                properties:
+                  cbe_assessment:
+                    $ref: "#/components/schemas/CbeAssessment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List CBE assessments
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listCbeAssessments
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - cbe_assessments
+                  - page
+                properties:
+                  cbe_assessments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CbeAssessment"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/cbe-assessments/{cbeAssessmentId}/results:
+    post:
+      tags:
+        - academics
+      summary: Record a CBE result
+      description: "OD-3: one current result per (assessment, learner, strand, outcome). First write: 201 created. The same values again: 200 unchanged (safe retry, nothing audited as a change). Different values: send row_version (current version) and a reason (5-500 characters): 200 revised, the previous value is kept in the revision history; without them 409/400. The strand or outcome must belong to the assessment's learning area (an outcome also under the named strand) and the learner must be a member of its class (400). An idempotent replay returns the original response, even after later revisions."
+      operationId: recordCbeResult
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cbeAssessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostCbeAssessmentsResultsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - result
+                  - outcome
+                properties:
+                  result:
+                    $ref: "#/components/schemas/CbeResult"
+                  outcome:
+                    type: string
+                    enum:
+                      - revised
+                      - unchanged
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - result
+                  - outcome
+                properties:
+                  result:
+                    $ref: "#/components/schemas/CbeResult"
+                  outcome:
+                    type: string
+                    enum:
+                      - created
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List CBE results
+      description: "Current results, by learner. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listCbeResults
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cbeAssessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - results
+                  - page
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CbeResult"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/evidence-assets:
+    post:
+      tags:
+        - academics
+      summary: Register evidence metadata
+      description: Metadata only. An unknown learner_id is 400.
+      operationId: registerEvidenceAsset
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostEvidenceAssetsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - evidence
+                properties:
+                  evidence:
+                    $ref: "#/components/schemas/EvidenceAsset"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List evidence metadata
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listEvidenceAssets
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - evidence
+                  - page
+                properties:
+                  evidence:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvidenceAsset"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/he-courses:
+    post:
+      tags:
+        - academics
+      summary: Create a higher-education course
+      description: |
+        Allowed only when school_profiles.institution_type is higher_ed.
+      operationId: createHeCourse
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostHeCoursesRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - course
+                properties:
+                  course:
+                    $ref: "#/components/schemas/HeCourse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List higher-education courses
+      description: "By code. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listHeCourses
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - courses
+                  - page
+                properties:
+                  courses:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HeCourse"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/he-sections:
+    post:
+      tags:
+        - academics
+      summary: Create a higher-education section
+      operationId: createHeSection
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostHeSectionsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - section
+                properties:
+                  section:
+                    $ref: "#/components/schemas/HeSection"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List higher-education sections
+      description: "By label. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listHeSections
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - sections
+                  - page
+                properties:
+                  sections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HeSection"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/he-enrolments:
+    post:
+      tags:
+        - academics
+      summary: Enrol a learner on a section
+      operationId: createHeEnrolment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostHeEnrolmentsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - enrolment
+                properties:
+                  enrolment:
+                    $ref: "#/components/schemas/HeEnrolment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List higher-education enrolments
+      description: "Oldest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listHeEnrolments
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - enrolments
+                  - page
+                properties:
+                  enrolments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HeEnrolment"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade:
+    post:
+      tags:
+        - academics
+      summary: Record a higher-education grade
+      description: "OD-5: one current grade per enrolment. First grade: 201. The same grade again: 200 unchanged. A different grade: 409 (use grade-corrections). A withdrawn enrolment: 409 (no ordinary submission). Requires institution_type higher_ed (400 otherwise) in addition to the permission. An idempotent replay returns the original response, even after later corrections."
+      operationId: recordHeGrade
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: enrolmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostHeEnrolmentsGradeRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - grade
+                  - outcome
+                properties:
+                  grade:
+                    $ref: "#/components/schemas/HeGrade"
+                  outcome:
+                    type: string
+                    enum:
+                      - unchanged
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - grade
+                  - outcome
+                properties:
+                  grade:
+                    $ref: "#/components/schemas/HeGrade"
+                  outcome:
+                    type: string
+                    enum:
+                      - created
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: Get the current grade of an enrolment
+      description: The current grade, or null when none has been recorded.
+      operationId: getHeGrade
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: enrolmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - grade
+                properties:
+                  grade:
+                    anyOf:
+                      - $ref: "#/components/schemas/HeGrade"
+                      - type: "null"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/online-exam-papers:
+    post:
+      tags:
+        - academics
+      summary: Create an online exam paper
+      operationId: createOnlineExamPaper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostOnlineExamPapersRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - paper
+                properties:
+                  paper:
+                    $ref: "#/components/schemas/OnlineExamPaper"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List online exam papers
+      description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listOnlineExamPapers
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - papers
+                  - page
+                properties:
+                  papers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OnlineExamPaper"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/online-exam-papers/{paperId}/attempts:
+    post:
+      tags:
+        - academics
+      summary: Start an online exam attempt
+      description: The learner must be a member of the paper's class (400). One in-progress attempt per learner and paper (409). Replays return the original response.
+      operationId: startOnlineExamAttempt
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paperId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostOnlineExamPapersAttemptsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - attempt
+                properties:
+                  attempt:
+                    $ref: "#/components/schemas/OnlineExamAttempt"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/online-exam-attempts/{attemptId}/submit:
+    post:
+      tags:
+        - academics
+      summary: Submit an online exam attempt
+      description: A submitted attempt is final (409 on a second submit; database-enforced). Replays return the original response.
+      operationId: submitOnlineExamAttempt
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostOnlineExamAttemptsSubmitRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - attempt
+                properties:
+                  attempt:
+                    $ref: "#/components/schemas/OnlineExamSubmission"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/attendance-settings:
+    get:
+      tags:
+        - attendance
+      summary: Get attendance settings
+      description: |
+        afternoon_enabled defaults to false. percentage_mode is session or day and defaults to session.
+      operationId: getAttendanceSettings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - settings
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/AttendanceSettings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags:
+        - attendance
+      summary: Update attendance settings
+      operationId: putAttendanceSettings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutAttendanceSettingsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - settings
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/AttendanceSettings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/attendance-registers:
+    post:
+      tags:
+        - attendance
+      summary: Upsert a register mark
+      description: "Upsert one learner's mark. Omitted, null or `morning` session writes ONLY the morning register (legacy morning-only clients); `afternoon` writes only the afternoon register and is refused (400) while the school's afternoon register is off. Newest marked_at wins: an older submission does not change the stored mark and returns outcome stale_ignored (audited as attendance.register.stale_ignored, not as a change); an identical resend returns unchanged. Who: resource.attendance.write, or a teacher of the class (active teaching assignment or class teacher). The learner must be a member of class_id and term_id must belong to the class's academic year (400)."
+      operationId: upsertAttendanceRegister
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAttendanceRegistersRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - register
+                  - outcome
+                properties:
+                  register:
+                    $ref: "#/components/schemas/AttendanceRegister"
+                  outcome:
+                    type: string
+                    enum:
+                      - applied
+                      - unchanged
+                      - stale_ignored
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - attendance
+      summary: List register marks
+      description: "Both sessions unless session is given. Holders of resource.attendance.read see every class; a user without it who teaches sees only those classes (OD-2, read only); anyone else 403. Newest date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listAttendanceRegisters
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: takenOn
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: session
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - morning
+              - afternoon
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - registers
+                  - page
+                properties:
+                  registers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AttendanceRegister"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/attendance-counted:
+    get:
+      tags:
+        - attendance
+      summary: Count attendance for a term
+      description: "termId is required (no all-time scan). Optional classId. Session mode: one entry per register entry; day mode: one per learner and date. A live early sign-out drops an afternoon absent/excused entry. Ordered by date, learner, session. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listAttendanceCounted
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: termId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - entries
+                  - page
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AttendanceCountedEntry"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/early-sign-outs:
+    post:
+      tags:
+        - attendance
+      summary: Record an early sign-out
+      description: "Who: resource.attendance.write, or the class teacher of the learner's class. Collector fields are stored separately; `collector` is returned only to holders of resource.early_sign_out.collector.read (null otherwise). The audit event carries ids only."
+      operationId: recordEarlySignOut
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostEarlySignOutsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EarlySignOutRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - attendance
+      summary: List early sign-outs
+      description: "Holders of resource.early_sign_out.read see every sign-out; collector fields only with resource.early_sign_out.collector.read. A user without resource.early_sign_out.read who teaches sees a SANITISED list for learners of the classes they teach: collector is always null (no id number, phone, authoriser, note or void reason) (OD-2). Anyone else 403. Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listEarlySignOuts
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.early_sign_out.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: takenOn
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - sign_outs
+                  - page
+                properties:
+                  sign_outs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EarlySignOutRecord"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/early-sign-outs/{signOutId}:
+    get:
+      tags:
+        - attendance
+      summary: Get an early sign-out
+      description: resource.early_sign_out.read; collector fields only with resource.early_sign_out.collector.read (null otherwise).
+      operationId: getEarlySignOut
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.early_sign_out.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: signOutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EarlySignOutRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/early-sign-outs/{signOutId}/void:
+    post:
+      tags:
+        - attendance
+      summary: Void an early sign-out
+      description: "Who: resource.attendance.write, or the person who recorded it. A void is final (409 on a second void; the database refuses un-voiding or rewriting the void reason)."
+      operationId: voidEarlySignOut
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.attendance.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: signOutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostEarlySignOutsVoidRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EarlySignOutRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/assessments/{assessmentId}/mark-corrections:
+    post:
+      tags:
+        - academics
+      summary: Correct a mark on a published assessment
+      description: "OD-1 authorised correction of a mark on a published assessment. resource.academics.write only (class assessors cannot correct). Requires a reason (5-500 characters) and row_version equal to the current mark version (0 when the learner has no mark yet; stale = 409). The original score, the replacement, actor, time and reason are kept in an append-only history; the database refuses any change to a published mark without its matching correction row. A draft assessment is edited directly (409 here). A correction that changes nothing is 400. Two concurrent corrections from one version: one 201, one 409. An idempotent replay returns the original response, even after later corrections. The audit event carries ids and versions only."
+      operationId: correctMark
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssessmentsMarkCorrectionsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - correction
+                  - mark
+                properties:
+                  correction:
+                    $ref: "#/components/schemas/MarkCorrection"
+                  mark:
+                    $ref: "#/components/schemas/Mark"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+    get:
+      tags:
+        - academics
+      summary: List mark corrections of an assessment
+      description: "Correction history of an assessment, oldest first. Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those classes (OD-2: read only, never a write). Anyone else gets 403. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listMarkCorrections
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assessmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - corrections
+                  - page
+                properties:
+                  corrections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MarkCorrection"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade-corrections:
+    post:
+      tags:
+        - academics
+      summary: Correct the grade of an enrolment
+      description: "OD-5 authorised correction of an EXISTING grade: resource.academics.write, a reason (5-500 characters) and row_version equal to the current grade version (stale = 409). Allowed on a withdrawn enrolment (historical correction) but it never creates a first grade (409 when there is none), so it cannot re-open a withdrawn enrolment. The previous grade is kept in the revision history. An idempotent replay returns the original response."
+      operationId: correctHeGrade
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: enrolmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostHeEnrolmentsGradeCorrectionsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - grade
+                properties:
+                  grade:
+                    $ref: "#/components/schemas/HeGrade"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade-revisions:
+    get:
+      tags:
+        - academics
+      summary: List grade corrections of an enrolment
+      description: "Grade correction history, oldest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: listHeGradeRevisions
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: enrolmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - revisions
+                  - page
+                properties:
+                  revisions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HeGradeRevision"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   securitySchemes:
     bearerAuth:
@@ -2567,3 +6597,2354 @@ components:
                   field: { type: string }
                   code: { type: string }
                   message: { type: string }
+
+    # ---- Stage 9/10 (OA-1): resources and request bodies. Request bodies are generated from the runtime zod schemas.
+    AcademicYear:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - label
+        - starts_on
+        - ends_on
+        - is_current
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        label:
+          type: string
+        starts_on:
+          type: string
+          format: date
+        ends_on:
+          type: string
+          format: date
+        is_current:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AcademicTerm:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - academic_year_id
+        - index
+        - label
+        - starts_on
+        - ends_on
+        - is_current
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        academic_year_id:
+          type: string
+          format: uuid
+        index:
+          type: integer
+        label:
+          type: string
+        starts_on:
+          type: string
+          format: date
+        ends_on:
+          type: string
+          format: date
+        is_current:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Subject:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - code
+        - name
+        - active
+        - archived_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        active:
+          type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SchoolClass:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - academic_year_id
+        - name
+        - form_level
+        - stream
+        - class_teacher_staff_id
+        - active
+        - archived_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        academic_year_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        form_level:
+          type:
+            - integer
+            - "null"
+        stream:
+          type:
+            - string
+            - "null"
+        class_teacher_staff_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        active:
+          type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ClassMembership:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - learner_id
+        - class_id
+        - academic_year_id
+        - active
+        - archived_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        academic_year_id:
+          type: string
+          format: uuid
+        active:
+          type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TeachingAssignment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - staff_member_id
+        - class_id
+        - subject_id
+        - active
+        - archived_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        staff_member_id:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        active:
+          type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TimetableSlot:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - class_id
+        - subject_id
+        - teaching_assignment_id
+        - day_of_week
+        - starts_at
+        - ends_at
+        - room
+        - active
+        - archived_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        teaching_assignment_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 7
+        starts_at:
+          type: string
+          description: HH:MM:SS
+        ends_at:
+          type: string
+          description: HH:MM:SS
+        room:
+          type:
+            - string
+            - "null"
+        active:
+          type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Assessment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - class_id
+        - subject_id
+        - term_id
+        - title
+        - kind
+        - max_score
+        - status
+        - published_at
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        kind:
+          type: string
+          enum:
+            - exam
+            - homework
+            - cbe
+            - other
+        max_score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+            - closed
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Mark:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - assessment_id
+        - learner_id
+        - score
+        - grade
+        - marked_at
+        - marked_by
+        - row_version
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        assessment_id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        grade:
+          type:
+            - string
+            - "null"
+        marked_at:
+          type: string
+          format: date-time
+        marked_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        row_version:
+          type: integer
+          minimum: 1
+    MarkCorrection:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - assessment_id
+        - learner_id
+        - previous_score
+        - previous_grade
+        - new_score
+        - new_grade
+        - resulting_row_version
+        - reason
+        - corrected_by
+        - corrected_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        assessment_id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        previous_score:
+          type:
+            - string
+            - "null"
+          description: null when the correction added a missing mark
+        previous_grade:
+          type:
+            - string
+            - "null"
+        new_score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        new_grade:
+          type:
+            - string
+            - "null"
+        resulting_row_version:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+        corrected_by:
+          type: string
+          format: uuid
+        corrected_at:
+          type: string
+          format: date-time
+    Homework:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - class_id
+        - subject_id
+        - term_id
+        - title
+        - due_on
+        - body
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        due_on:
+          type: string
+          format: date
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    LearningMaterial:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - title
+        - description
+        - class_id
+        - subject_id
+        - storage_status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        class_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        subject_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        storage_status:
+          type: string
+          enum:
+            - metadata_only
+        created_at:
+          type: string
+          format: date-time
+    GradingScheme:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - name
+        - version
+        - rules
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+        rules:
+          type: object
+          additionalProperties: false
+          required:
+            - bands
+          properties:
+            bands:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - min
+                  - max
+                  - grade
+                properties:
+                  min:
+                    type: number
+                  max:
+                    type: number
+                  grade:
+                    type: string
+        created_at:
+          type: string
+          format: date-time
+    ReportCard:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - term_id
+        - class_id
+        - published_at
+        - published_by
+        - figures
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        published_at:
+          type: string
+          format: date-time
+        published_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        figures:
+          type: object
+          additionalProperties: false
+          required:
+            - method
+            - assessment_ids
+            - learners
+          properties:
+            method:
+              type: string
+              enum:
+                - sum_and_mean_of_published_scores
+            assessment_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+            learners:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - learner_id
+                  - sum
+                  - count
+                  - average
+                  - assessment_ids
+                properties:
+                  learner_id:
+                    type: string
+                    format: uuid
+                  sum:
+                    type: string
+                    description: Decimal number as text (exact PostgreSQL numeric).
+                  count:
+                    type: integer
+                  average:
+                    type:
+                      - string
+                      - "null"
+                  assessment_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+    CurriculumProvenance:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - source_kind
+        - source_label
+        - source_uri
+        - notes
+        - official_catalogue
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        source_kind:
+          type: string
+          enum:
+            - school_configured
+            - import_pending
+        source_label:
+          type: string
+        source_uri:
+          type:
+            - string
+            - "null"
+        notes:
+          type:
+            - string
+            - "null"
+        official_catalogue:
+          type: boolean
+          const: false
+          description: "Always false: school-entered content never claims official status (D-5)."
+        created_at:
+          type: string
+          format: date-time
+    LearningArea:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - provenance_id
+        - code
+        - name
+        - official_catalogue
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        provenance_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        official_catalogue:
+          type: boolean
+          const: false
+        created_at:
+          type: string
+          format: date-time
+    Strand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - learning_area_id
+        - code
+        - name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        learning_area_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    SubStrand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - strand_id
+        - code
+        - name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        strand_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    LearningOutcome:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - sub_strand_id
+        - code
+        - statement
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        sub_strand_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        statement:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    RubricConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - name
+        - version
+        - descriptors
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+        descriptors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - level_code
+              - label
+              - points
+            properties:
+              level_code:
+                type: string
+              label:
+                type: string
+              points:
+                type: number
+        created_at:
+          type: string
+          format: date-time
+    CbeAssessment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - class_id
+        - learning_area_id
+        - term_id
+        - rubric_config_id
+        - title
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        learning_area_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        rubric_config_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    CbeResult:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - cbe_assessment_id
+        - learner_id
+        - strand_id
+        - learning_outcome_id
+        - level_code
+        - points
+        - marked_at
+        - marked_by
+        - row_version
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        cbe_assessment_id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        strand_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        learning_outcome_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        level_code:
+          type: string
+        points:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        marked_at:
+          type: string
+          format: date-time
+        marked_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        row_version:
+          type: integer
+          minimum: 1
+    EvidenceAsset:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - provenance_id
+        - learner_id
+        - title
+        - description
+        - storage_status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        provenance_id:
+          type: string
+          format: uuid
+        learner_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        storage_status:
+          type: string
+          enum:
+            - metadata_only
+        created_at:
+          type: string
+          format: date-time
+    HeCourse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - code
+        - title
+        - credit_hours
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        title:
+          type: string
+        credit_hours:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        created_at:
+          type: string
+          format: date-time
+    HeSection:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - course_id
+        - term_id
+        - label
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    HeEnrolment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - section_id
+        - learner_id
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        section_id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - enrolled
+            - withdrawn
+        created_at:
+          type: string
+          format: date-time
+    HeGrade:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - enrolment_id
+        - score
+        - grade
+        - graded_at
+        - graded_by
+        - row_version
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        enrolment_id:
+          type: string
+          format: uuid
+        score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        grade:
+          type:
+            - string
+            - "null"
+        graded_at:
+          type: string
+          format: date-time
+        graded_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        row_version:
+          type: integer
+          minimum: 1
+    HeGradeRevision:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - grade_id
+        - previous_score
+        - previous_grade
+        - new_score
+        - new_grade
+        - resulting_row_version
+        - reason
+        - revised_by
+        - revised_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        grade_id:
+          type: string
+          format: uuid
+        previous_score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        previous_grade:
+          type:
+            - string
+            - "null"
+        new_score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        new_grade:
+          type:
+            - string
+            - "null"
+        resulting_row_version:
+          type: integer
+          minimum: 2
+        reason:
+          type: string
+        revised_by:
+          type: string
+          format: uuid
+        revised_at:
+          type: string
+          format: date-time
+    OnlineExamPaper:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - class_id
+        - subject_id
+        - title
+        - max_score
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        max_score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        created_at:
+          type: string
+          format: date-time
+    OnlineExamAttempt:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - paper_id
+        - learner_id
+        - status
+        - submitted_at
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        paper_id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - in_progress
+            - submitted
+        submitted_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    OnlineExamSubmission:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - submitted_at
+        - mark
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - submitted
+        submitted_at:
+          type: string
+          format: date-time
+        mark:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - score
+          properties:
+            id:
+              type: string
+              format: uuid
+            score:
+              type: string
+              description: Decimal number as text (exact PostgreSQL numeric).
+    AttendanceSettings:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - afternoon_enabled
+        - percentage_mode
+        - updated_at
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        afternoon_enabled:
+          type: boolean
+        percentage_mode:
+          type: string
+          enum:
+            - session
+            - day
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    AttendanceRegister:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - session
+        - learner_id
+        - class_id
+        - term_id
+        - taken_by
+        - taken_on
+        - mark
+        - note
+        - marked_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        session:
+          type: string
+          enum:
+            - morning
+            - afternoon
+        learner_id:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        term_id:
+          type: string
+          format: uuid
+        taken_by:
+          type: string
+          format: uuid
+        taken_on:
+          type: string
+          format: date
+        mark:
+          type: string
+          enum:
+            - present
+            - absent
+            - late
+            - excused
+        note:
+          type:
+            - string
+            - "null"
+        marked_at:
+          type: string
+          format: date-time
+    AttendanceCountedEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - class_id
+        - learner_id
+        - taken_on
+        - session
+        - here
+      properties:
+        class_id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        taken_on:
+          type: string
+          format: date
+        session:
+          type: string
+          enum:
+            - morning
+            - afternoon
+            - day
+          description: morning/afternoon in session mode; day in day mode
+        here:
+          type: boolean
+    EarlySignOut:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenantId
+        - learner_id
+        - class_id
+        - learner_name
+        - class_name
+        - taken_on
+        - signed_out_at
+        - signed_out_local
+        - reason
+        - collected_by_name
+        - collected_by_relationship
+        - recorded_by
+        - voided_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        class_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        learner_name:
+          type: string
+        class_name:
+          type:
+            - string
+            - "null"
+        taken_on:
+          type: string
+          format: date
+        signed_out_at:
+          type: string
+          format: date-time
+        signed_out_local:
+          type: string
+          description: HH:MM:SS, school local time
+        reason:
+          type: string
+        collected_by_name:
+          type: string
+        collected_by_relationship:
+          type: string
+        recorded_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        voided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    EarlySignOutCollector:
+      type: object
+      additionalProperties: false
+      required:
+        - id_number
+        - phone
+        - authorised_by
+        - note
+        - void_reason
+      properties:
+        id_number:
+          type: string
+        phone:
+          type: string
+        authorised_by:
+          type: string
+        note:
+          type:
+            - string
+            - "null"
+        void_reason:
+          type:
+            - string
+            - "null"
+      description: Collector PII. Returned ONLY to holders of resource.early_sign_out.collector.read, never in a teacher-scoped list.
+    EarlySignOutRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - sign_out
+        - collector
+      properties:
+        sign_out:
+          $ref: "#/components/schemas/EarlySignOut"
+        collector:
+          anyOf:
+            - $ref: "#/components/schemas/EarlySignOutCollector"
+            - type: "null"
+    PostAcademicYearsRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 32
+        starts_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        ends_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        is_current:
+          type: boolean
+      required:
+        - label
+        - starts_on
+        - ends_on
+      additionalProperties: false
+    PostAcademicTermsRequest:
+      type: object
+      properties:
+        academic_year_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        index:
+          type: integer
+          minimum: 1
+          maximum: 4
+        label:
+          type: string
+          minLength: 1
+          maxLength: 64
+        starts_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        ends_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        is_current:
+          type: boolean
+      required:
+        - academic_year_id
+        - index
+        - label
+        - starts_on
+        - ends_on
+      additionalProperties: false
+    PostSubjectsRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+      required:
+        - code
+        - name
+      additionalProperties: false
+    PostClassesRequest:
+      type: object
+      properties:
+        academic_year_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        stream:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 32
+            - type: "null"
+        class_teacher_staff_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - academic_year_id
+        - name
+      additionalProperties: false
+    PostClassMembershipsRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - learner_id
+        - class_id
+      additionalProperties: false
+    PostTeachingAssignmentsRequest:
+      type: object
+      properties:
+        staff_member_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - staff_member_id
+        - class_id
+        - subject_id
+      additionalProperties: false
+    PostTimetableSlotsRequest:
+      type: object
+      properties:
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        teaching_assignment_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 7
+        starts_at:
+          type: string
+          pattern: ^\d{2}:\d{2}(:\d{2})?$
+        ends_at:
+          type: string
+          pattern: ^\d{2}:\d{2}(:\d{2})?$
+        room:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: "null"
+      required:
+        - class_id
+        - subject_id
+        - day_of_week
+        - starts_at
+        - ends_at
+      additionalProperties: false
+    PostAssessmentsRequest:
+      type: object
+      properties:
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        kind:
+          type: string
+          enum:
+            - exam
+            - homework
+            - cbe
+            - other
+        max_score:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 10000
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 80
+              max_score:
+                type: number
+                exclusiveMinimum: 0
+                maximum: 10000
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                  - type: "null"
+              sort_order:
+                type: integer
+                minimum: -9007199254740991
+                maximum: 9007199254740991
+            required:
+              - name
+              - max_score
+            additionalProperties: false
+      required:
+        - class_id
+        - subject_id
+        - term_id
+        - title
+        - kind
+        - max_score
+      additionalProperties: false
+    PostAssessmentsMarksRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        score:
+          type: number
+        grade:
+          anyOf:
+            - type: string
+              maxLength: 16
+            - type: "null"
+        row_version:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            - type: "null"
+      required:
+        - learner_id
+        - score
+      additionalProperties: false
+    PostAssessmentsMarkCorrectionsRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        score:
+          type: number
+        grade:
+          anyOf:
+            - type: string
+              maxLength: 16
+            - type: "null"
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 500
+        row_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - learner_id
+        - score
+        - reason
+        - row_version
+      additionalProperties: false
+    PostHomeworkItemsRequest:
+      type: object
+      properties:
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        due_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        body:
+          type: string
+          minLength: 1
+          maxLength: 8000
+      required:
+        - class_id
+        - subject_id
+        - term_id
+        - title
+        - due_on
+        - body
+      additionalProperties: false
+    PostLearningMaterialsRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          anyOf:
+            - type: string
+              maxLength: 4000
+            - type: "null"
+        class_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        subject_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - title
+      additionalProperties: false
+    PostGradingSchemesRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        version:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        rules: {}
+      required:
+        - name
+        - rules
+      additionalProperties: false
+    PostReportCardsRequest:
+      type: object
+      properties:
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - term_id
+        - class_id
+      additionalProperties: false
+    PostCurriculumProvenanceRequest:
+      type: object
+      properties:
+        source_kind:
+          type: string
+          enum:
+            - school_configured
+            - import_pending
+        source_label:
+          type: string
+          minLength: 1
+          maxLength: 160
+        source_uri:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        notes:
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: "null"
+      required:
+        - source_kind
+        - source_label
+      additionalProperties: false
+    PostLearningAreasRequest:
+      type: object
+      properties:
+        provenance_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+      required:
+        - provenance_id
+        - code
+        - name
+      additionalProperties: false
+    PostStrandsRequest:
+      type: object
+      properties:
+        learning_area_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+      required:
+        - learning_area_id
+        - code
+        - name
+      additionalProperties: false
+    PostSubStrandsRequest:
+      type: object
+      properties:
+        strand_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+      required:
+        - strand_id
+        - code
+        - name
+      additionalProperties: false
+    PostLearningOutcomesRequest:
+      type: object
+      properties:
+        sub_strand_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        statement:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+        - sub_strand_id
+        - code
+        - statement
+      additionalProperties: false
+    PostRubricConfigsRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        version:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        descriptors: {}
+      required:
+        - name
+        - descriptors
+      additionalProperties: false
+    PostCbeAssessmentsRequest:
+      type: object
+      properties:
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        learning_area_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        rubric_config_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - class_id
+        - learning_area_id
+        - term_id
+        - title
+      additionalProperties: false
+    PostCbeAssessmentsResultsRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        strand_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        learning_outcome_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        level_code:
+          type: string
+          minLength: 1
+          maxLength: 16
+        points:
+          type: number
+        row_version:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            - type: "null"
+        reason:
+          anyOf:
+            - type: string
+              minLength: 5
+              maxLength: 500
+            - type: "null"
+      required:
+        - learner_id
+        - level_code
+        - points
+      additionalProperties: false
+    PostEvidenceAssetsRequest:
+      type: object
+      properties:
+        provenance_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          anyOf:
+            - type: string
+              maxLength: 4000
+            - type: "null"
+        learner_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - provenance_id
+        - title
+      additionalProperties: false
+    PostHeCoursesRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        credit_hours:
+          type: number
+          exclusiveMinimum: 0
+      required:
+        - code
+        - title
+      additionalProperties: false
+    PostHeSectionsRequest:
+      type: object
+      properties:
+        course_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        label:
+          type: string
+          minLength: 1
+          maxLength: 32
+      required:
+        - course_id
+        - term_id
+        - label
+      additionalProperties: false
+    PostHeEnrolmentsRequest:
+      type: object
+      properties:
+        section_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - section_id
+        - learner_id
+      additionalProperties: false
+    PostHeEnrolmentsGradeRequest:
+      type: object
+      properties:
+        score:
+          type: number
+        grade:
+          anyOf:
+            - type: string
+              maxLength: 16
+            - type: "null"
+      required:
+        - score
+      additionalProperties: false
+    PostHeEnrolmentsGradeCorrectionsRequest:
+      type: object
+      properties:
+        score:
+          type: number
+        grade:
+          anyOf:
+            - type: string
+              maxLength: 16
+            - type: "null"
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 500
+        row_version:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+      required:
+        - score
+        - reason
+        - row_version
+      additionalProperties: false
+    PostOnlineExamPapersRequest:
+      type: object
+      properties:
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        max_score:
+          type: number
+          exclusiveMinimum: 0
+      required:
+        - class_id
+        - subject_id
+        - title
+        - max_score
+      additionalProperties: false
+    PostOnlineExamPapersAttemptsRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - learner_id
+      additionalProperties: false
+    PostOnlineExamAttemptsSubmitRequest:
+      type: object
+      properties:
+        score:
+          type: number
+      required:
+        - score
+      additionalProperties: false
+    PutAttendanceSettingsRequest:
+      type: object
+      properties:
+        afternoon_enabled:
+          type: boolean
+        percentage_mode:
+          type: string
+          enum:
+            - session
+            - day
+      required:
+        - afternoon_enabled
+        - percentage_mode
+      additionalProperties: false
+    PostAttendanceRegistersRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        term_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        taken_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        mark:
+          type: string
+          enum:
+            - present
+            - absent
+            - late
+            - excused
+        note:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        marked_at:
+          anyOf:
+            - type: string
+              pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$
+            - type: "null"
+        session:
+          anyOf:
+            - type: string
+              enum:
+                - morning
+                - afternoon
+            - type: "null"
+      required:
+        - learner_id
+        - class_id
+        - term_id
+        - taken_on
+        - mark
+      additionalProperties: false
+    PostEarlySignOutsRequest:
+      type: object
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+        collected_by_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        collected_by_relationship:
+          type: string
+          minLength: 1
+          maxLength: 60
+        id_number:
+          type: string
+          minLength: 3
+          maxLength: 30
+        phone:
+          type: string
+          minLength: 6
+          maxLength: 21
+        authorised_by:
+          type: string
+          minLength: 1
+          maxLength: 120
+        note:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        signed_out_time:
+          anyOf:
+            - type: string
+              pattern: ^\d{2}:\d{2}(:\d{2})?$
+            - type: "null"
+      required:
+        - learner_id
+        - reason
+        - collected_by_name
+        - collected_by_relationship
+        - id_number
+        - phone
+        - authorised_by
+      additionalProperties: false
+    PostEarlySignOutsVoidRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+        - reason
+      additionalProperties: false
