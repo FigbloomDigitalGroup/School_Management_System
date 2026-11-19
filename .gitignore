@@ -30,6 +30,9 @@ apps/api/docs/sql/
 apps/api/docs/STAGE9-*.md
 apps/api/docs/STAGE10-*.md
 
+# Local Stage 11 working docs (handoffs and reviews; not committed until owner accepts)
+apps/api/docs/STAGE11-*.md
+
 # Cursor-agent local memory/rules (not team SoT)
 .cursor/
 
