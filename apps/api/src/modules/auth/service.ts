@@ -2,7 +2,7 @@ import type { AppPool, Db } from "../../db/pool.js";
 import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
 import type { AppConfig } from "../../config.js";
 import { unauthorized, validationError, forbidden, notFound } from "../../http/errors.js";
-import { hashPassword, verifyPassword } from "../identity/password.js";
+import { hashPassword, passwordNeedsRehash, verifyPassword } from "../identity/password.js";
 import { assertPasswordPolicy } from "../identity/passwordPolicy.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 import { normalizeIp } from "../../http/ip.js";
@@ -62,6 +62,21 @@ async function burnVerify(password: string): Promise<void> {
   await verifyPassword(password, await decoyHash);
 }
 
+/**
+ * Lazy migration (Argon2id): after a SUCCESSFUL verification against an old/weaker hash, store a fresh Argon2id hash with a
+ * compare-and-swap on the exact hash that was verified (auth_rehash_password). A concurrent login or password change makes the
+ * CAS change nothing; a failure here never blocks the login.
+ */
+async function migrateHashIfNeeded(db: Db, userId: string, password: string, storedHash: string): Promise<void> {
+  if (!passwordNeedsRehash(storedHash)) return;
+  try {
+    const fresh = await hashPassword(password);
+    await db.query(`SELECT public.auth_rehash_password($1::uuid, $2::text, $3::text)`, [userId, storedHash, fresh]);
+  } catch {
+    // best effort: the old hash stays valid and the next login retries
+  }
+}
+
 async function failLogin(
   db: Db,
   detail: Record<string, unknown>,
@@ -103,6 +118,7 @@ export async function loginWithEmail(
     if (!ok) {
       return await failLogin(db, { method: "email", reason: "bad_password", userId: row.id }, input.ip);
     }
+    await migrateHashIfNeeded(db, row.id, input.password, row.password_hash);
     return row.id;
   });
 
@@ -187,6 +203,7 @@ export async function loginWithLoginId(
         input.ip,
       );
     }
+    await migrateHashIfNeeded(db, row.user_id, input.password, row.password_hash);
     const { token, session } = await createSession(db, config, {
       userId: row.user_id,
       activeTenantId: input.tenantId,
@@ -359,3 +376,19 @@ export async function selectTenant(
 }
 
 export { loadUser };
+
+/**
+ * Re-authentication password check (migration 077). Lives here because this module is the ONLY place allowed to read a password hash
+ * (see test/passwordHash.security). Verify the password, throttled like every credential check. Run on an AUTOCOMMIT identity handle (not inside a transaction that
+ * the failure would roll back): the rate-limit token and the failure audit row must survive the refusal.
+ */
+export async function verifyReauthPassword(db: Db, config: AppConfig, input: { userId: string; password: string; ip?: string | null }): Promise<void> {
+  await consumeAuthToken(db, config, rateLimitBucketForIp("reauth:ip", input.ip));
+  await consumeAuthToken(db, config, `reauth:user:${input.userId}`);
+  const row = await db.query<{ password_hash: string; status: string }>(`SELECT password_hash, status FROM public.auth_password_credential($1)`, [input.userId]);
+  const cred = row.rows[0];
+  if (!cred || cred.status !== "active" || !(await verifyPassword(input.password, cred.password_hash))) {
+    await recordSecurityEvent(db, { eventType: "auth.login.failure", actorUserId: input.userId, detail: { method: "reauth", reason: "bad_password" }, ip: input.ip ?? null });
+    throw unauthorized("Invalid credentials");
+  }
+}

@@ -118,3 +118,41 @@ export function runtimePoolOptions(
     queryTimeoutMs: config.clientQueryTimeoutMs,
   };
 }
+
+/**
+ * Pool options for the worker process (Stage 11 M-3). Autocommit paths (jobs_claim) inherit the
+ * session baseline; tenant transactions still apply DEFAULT_TRANSACTION_LIMITS via SET LOCAL.
+ * clientQueryTimeoutMs must exceed every server-side statement timeout (stalled-network backstop).
+ */
+export function workerPoolOptions(
+  config: {
+    databaseUrl: string;
+    poolMax: number;
+    applicationName?: string;
+    poolAcquireTimeoutMs: number;
+    statementTimeoutMs: number;
+    lockTimeoutMs: number;
+    idleInTransactionSessionTimeoutMs: number;
+    clientQueryTimeoutMs: number;
+  },
+  overrides: { connectionString?: string; applicationName?: string } = {},
+): CreatePoolOptions {
+  if (config.clientQueryTimeoutMs <= config.statementTimeoutMs) {
+    throw new Error(
+      "Invalid worker config: client query timeout must exceed the server statement timeout " +
+        "(the server timer must fire first; the client timer is only the backstop for a stalled network).",
+    );
+  }
+  return {
+    connectionString: overrides.connectionString ?? config.databaseUrl,
+    max: config.poolMax,
+    applicationName: overrides.applicationName ?? config.applicationName ?? "figbloom-worker",
+    connectionTimeoutMillis: config.poolAcquireTimeoutMs,
+    baseline: {
+      statementTimeoutMs: config.statementTimeoutMs,
+      lockTimeoutMs: config.lockTimeoutMs,
+      idleInTransactionSessionTimeoutMs: config.idleInTransactionSessionTimeoutMs,
+    },
+    queryTimeoutMs: config.clientQueryTimeoutMs,
+  };
+}

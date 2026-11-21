@@ -21,6 +21,8 @@ import {
 } from "../../modules/tenancy/context.js";
 import { assertPasswordChangeNotRequired } from "../middleware/authContext.js";
 import { parseOrThrow } from "../validation.js";
+import { stampReauthenticated } from "../../modules/auth/reauth.js";
+import { verifyReauthPassword } from "../../modules/auth/service.js";
 import { conflict } from "../errors.js";
 
 // Bounded inputs: nothing oversized reaches the rate limiter, the DB or scrypt (AUD-13).
@@ -38,6 +40,8 @@ const LoginIdSchema = z.object({
 const SelectTenantSchema = z.object({
   tenantId: uuidString,
 });
+
+const ReauthSchema = z.strictObject({ password: z.string().min(1).max(256) });
 
 const ChangePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(256),
@@ -168,6 +172,20 @@ export async function registerAuthRoutes(
       activeTenantId: session.active_tenant_id,
       activeOrganizationId: session.active_organization_id,
     });
+  });
+
+  // Sensitive-action re-authentication (migration 077): confirm the password to open a short window in which administrator
+  // resets, deactivation, financial and unmatched-callback resolutions and similar actions are accepted.
+  app.post("/v1/auth/reauth", async (request) => {
+    const auth = await withIdentityAccess(pool, (db) => requireSessionAuth(db, request), { acquireTimeoutMs: config.poolAcquireTimeoutMs });
+    const parsed = parseOrThrow(ReauthSchema, request.body, "password is required");
+    await withIdentityAccess(
+      pool,
+      (db) => verifyReauthPassword(db, config, { userId: auth.user.id, password: parsed.password, ip: clientIp(request) }),
+      { acquireTimeoutMs: config.poolAcquireTimeoutMs },
+    );
+    await withIdentityUserScope(pool, auth.user.id, (db) => stampReauthenticated(db, auth.session.id), { acquireTimeoutMs: config.poolAcquireTimeoutMs });
+    return { ok: true, valid_for_seconds: config.sensitiveReauthWindowSeconds };
   });
 
   app.post("/v1/auth/password/change", async (request, reply) => {

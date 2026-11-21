@@ -98,8 +98,3 @@ export async function authenticateRequest(db: IdentityDb, request: FastifyReques
   return auth;
 }
 
-export async function requireTenantAuth(db: IdentityDb, request: FastifyRequest): Promise<RequestAuth> {
-  const auth = await authenticateRequest(db, request);
-  if (!auth.authz.tenantId) throw forbidden("Tenant context required");
-  return auth;
-}

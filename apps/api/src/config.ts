@@ -103,16 +103,36 @@ const ConfigSchema = z.object({
   databaseUrl: z.string().min(1),
   host: z.string().default("127.0.0.1"),
   port: z.coerce.number().int().positive().default(4100),
-  sessionTtlSeconds: z.coerce.number().int().positive().default(43_200),
+  /** Absolute session lifetime: approved policy is 8 h; a larger value is rejected at startup (migration 069 also constrains new rows). */
+  sessionTtlSeconds: z.coerce.number().int().positive().max(28_800).default(28_800),
   /**
    * last_seen_at is written at most once per interval per session (FIG-1624, AD-11).
    * Validity checks (expiry, revocation, user and tenant state) run on every request regardless.
    * 0 = write on every request.
    */
-  sessionLastSeenIntervalSeconds: z.coerce.number().int().min(0).max(3_600).default(300),
+  sessionLastSeenIntervalSeconds: z.coerce.number().int().min(0).max(120).default(60),
+  /** Sensitive actions need a login or password re-confirmation within this many seconds (owner decision 6.5). */
+  sensitiveReauthWindowSeconds: z.coerce.number().int().min(30).max(3600).default(300),
   authRateCapacity: z.coerce.number().positive().default(5),
   authRateRefill: z.coerce.number().positive().default(2),
   authRateIntervalMs: z.coerce.number().int().positive().default(5_000),
+  /**
+   * M-Pesa callback throttling (remediation batch 6). The callback is NOT a login: Safaricom calls it from a few
+   * addresses, in bursts at fee deadlines, and a throttled callback may never be redelivered. Two separate policies:
+   *   * AUTHENTICATED (the URL secret matched): one platform-wide bucket, sized for provider bursts. A last-resort
+   *     bound, not a per-school quota. Default 200 burst, +100 per second (engineering defaults: Safaricom's real
+   *     callback rate and retry behaviour are NOT verified here and must be measured in a Daraja sandbox).
+   *   * INVALID SECRET: a per-client-address bucket that only junk traffic can drain. Default 10 burst, +2 per 5 s.
+   * The secret is checked first (no database), so junk can never consume the authenticated bucket.
+   */
+  // Bounded on purpose: a capacity below 2 (or a fractional one) would refuse EVERY valid callback with no Retry-After, and an
+  // absurd value would switch the limit off. The API refuses to start with a value outside these ranges.
+  mpesaCallbackRateCapacity: z.coerce.number().int().min(2).max(100_000).default(200),
+  mpesaCallbackRateRefill: z.coerce.number().int().min(1).max(100_000).default(100),
+  mpesaCallbackRateIntervalMs: z.coerce.number().int().min(100).max(3_600_000).default(1_000),
+  mpesaCallbackInvalidRateCapacity: z.coerce.number().int().min(1).max(1_000).default(10),
+  mpesaCallbackInvalidRateRefill: z.coerce.number().int().min(1).max(1_000).default(2),
+  mpesaCallbackInvalidRateIntervalMs: z.coerce.number().int().min(100).max(3_600_000).default(5_000),
   /** Runtime login role. DATABASE_URL must be this role, never the migrator. */
   runtimeRole: z.string().min(1).default("figbloom_app"),
   poolMax: z.coerce.number().int().positive().default(10),
@@ -223,9 +243,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: env.API_PORT,
     sessionTtlSeconds: env.SESSION_TTL_SECONDS,
     sessionLastSeenIntervalSeconds: env.SESSION_LAST_SEEN_INTERVAL_SECONDS,
+    sensitiveReauthWindowSeconds: env.SENSITIVE_REAUTH_WINDOW_SECONDS,
     authRateCapacity: env.AUTH_RATE_CAPACITY,
     authRateRefill: env.AUTH_RATE_REFILL,
     authRateIntervalMs: env.AUTH_RATE_INTERVAL_MS,
+    mpesaCallbackRateCapacity: env.MPESA_CALLBACK_RATE_CAPACITY,
+    mpesaCallbackRateRefill: env.MPESA_CALLBACK_RATE_REFILL,
+    mpesaCallbackRateIntervalMs: env.MPESA_CALLBACK_RATE_INTERVAL_MS,
+    mpesaCallbackInvalidRateCapacity: env.MPESA_CALLBACK_INVALID_RATE_CAPACITY,
+    mpesaCallbackInvalidRateRefill: env.MPESA_CALLBACK_INVALID_RATE_REFILL,
+    mpesaCallbackInvalidRateIntervalMs: env.MPESA_CALLBACK_INVALID_RATE_INTERVAL_MS,
     runtimeRole: env.RUNTIME_ROLE,
     poolMax: env.POOL_MAX,
     poolAcquireTimeoutMs: env.POOL_ACQUIRE_TIMEOUT_MS,
