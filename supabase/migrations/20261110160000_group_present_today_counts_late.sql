@@ -6,6 +6,7 @@
 --
 -- The function is otherwise as it was (same columns, same security definer, same grants: create or replace keeps them). The summary's
 -- "today" is still current_date and the row is still refreshed when something is written; those are FIG-1444, a separate issue.
+-- Reconciled to preserve FIG-1514 afternoon attendance and percentage mode while counting late marks.
 
 create or replace function refresh_organization_tenant_summary(p_tenant_id uuid)
 returns void
@@ -21,12 +22,20 @@ begin
 
   insert into organization_tenant_summary (
     tenant_id, organization_id, name, institution_type, higher_ed_subtype, delivery_mode, status,
-    active_students, present_today, fees_billed_cents, fees_collected_cents, updated_at
+    active_students, present_today, present_today_pm, fees_billed_cents, fees_collected_cents, updated_at
   )
   select
     t.id, t.organization_id, t.name, t.institution_type, t.higher_ed_subtype, t.delivery_mode, t.status,
     (select count(*) from students s where s.tenant_id = t.id and s.active),
-    (select count(*) from attendance a where a.tenant_id = t.id and a.taken_on = current_date and a.mark in ('present', 'late')),
+    case when attendance_percentage_mode(t.id) = 'day' then
+      (select count(*) from (
+         select a.student_id from attendance a where a.tenant_id = t.id and a.taken_on = current_date and a.mark in ('present', 'late')
+         union
+         select p.student_id from attendance_afternoon p where p.tenant_id = t.id and p.taken_on = current_date and p.mark in ('present', 'late')) x)
+    else
+      (select count(*) from attendance a where a.tenant_id = t.id and a.taken_on = current_date and a.mark in ('present', 'late'))
+    end,
+    (select count(*) from attendance_afternoon p where p.tenant_id = t.id and p.taken_on = current_date and p.mark in ('present', 'late')),
     (select coalesce(sum(fi.total_cents), 0) from fee_invoices fi where fi.tenant_id = t.id),
     (select coalesce(sum(fi.paid_cents), 0) from fee_invoices fi where fi.tenant_id = t.id),
     now()
@@ -41,6 +50,7 @@ begin
     status = excluded.status,
     active_students = excluded.active_students,
     present_today = excluded.present_today,
+    present_today_pm = excluded.present_today_pm,
     fees_billed_cents = excluded.fees_billed_cents,
     fees_collected_cents = excluded.fees_collected_cents,
     updated_at = now();
