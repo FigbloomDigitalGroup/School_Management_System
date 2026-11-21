@@ -22,6 +22,10 @@ export interface PublicPayment {
   failure_reason: string | null;
   proof_id: string | null;
   recorded_by: string | null;
+  /** What reached the invoice: only for a success, never more than the invoice's outstanding balance at settlement. */
+  applied_minor: number | null;
+  /** The part of the confirmed payment that could not be applied (amount_minor - applied_minor); success only. */
+  unapplied_minor: number | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -38,12 +42,14 @@ type Row = {
   failure_reason: string | null;
   proof_id: string | null;
   recorded_by: string | null;
+  applied_minor: string | null;
+  unapplied_minor: string | null;
   created_at: Date;
   completed_at: Date | null;
 };
 
 export const PAYMENT_COLS = `id, tenant_id, invoice_id, amount_minor, method, status, reference, mpesa_receipt, failure_reason,
-  proof_id, recorded_by, created_at, completed_at`;
+  proof_id, recorded_by, applied_minor, unapplied_minor, created_at, completed_at`;
 
 export function mapPayment(row: Row): PublicPayment {
   return {
@@ -59,6 +65,8 @@ export function mapPayment(row: Row): PublicPayment {
     failure_reason: row.failure_reason,
     proof_id: row.proof_id,
     recorded_by: row.recorded_by,
+    applied_minor: row.applied_minor === null ? null : toMinor(row.applied_minor),
+    unapplied_minor: row.unapplied_minor === null ? null : toMinor(row.unapplied_minor),
     created_at: row.created_at.toISOString(),
     completed_at: row.completed_at ? row.completed_at.toISOString() : null,
   };
@@ -75,7 +83,7 @@ export async function getPayment(tx: Tx, input: { tenantId: string; paymentId: s
 
 export async function listPayments(
   tx: Tx,
-  input: { tenantId: string; invoiceId?: string; status?: PaymentStatus; page: PageInput },
+  input: { tenantId: string; invoiceId?: string; status?: PaymentStatus; hasUnapplied?: boolean; page: PageInput },
 ): Promise<Page<PublicPayment>> {
   const params: unknown[] = [input.tenantId];
   const where = ["tenant_id = $1"];
@@ -87,6 +95,7 @@ export async function listPayments(
     params.push(input.status);
     where.push(`status = $${params.length}`);
   }
+  if (input.hasUnapplied) where.push("unapplied_minor > 0"); // money confirmed but not applied to the invoice (review F9)
   const out = await pageQuery<Row>(
     tx,
     `SELECT ${PAYMENT_COLS} FROM finance_payments WHERE ${where.join(" AND ")}`,

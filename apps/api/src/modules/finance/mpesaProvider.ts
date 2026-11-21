@@ -9,6 +9,15 @@ import type { AppConfig } from "../../config.js";
  *   * STK query: errorCode 500.001.1001 = still on the PIN screen (not done); otherwise ResultCode.
  *   * Result code mapping: 1032 cancelled, 1037 timeout, anything else failed; reasons 1 insufficient,
  *     1032 cancelled, 1037 timeout, 2001 wrong_pin, 1001 duplicate, otherwise unreachable.
+ * Remediation batch 2 (review R2), these supersede the two result-code lines above where they differ:
+ *   * Result codes: only codes the legacy client documented as FINAL failures are final (1 insufficient,
+ *     1001 duplicate, 1032 cancelled, 1037 timeout, 2001 wrong_pin); 4999 is the provider's "still under
+ *     processing" ([A] from the Daraja documentation, unverified here); any other non-zero code is UNKNOWN.
+ *     Neither processing nor unknown ever fails a payment: the prompt stays pending, the settle job retries,
+ *     reconciliation shows it, and an administrator resolves it with evidence.
+ *   * A push is "refused" only when the provider gave a readable refusal (HTTP 2xx or 4xx with a non-zero
+ *     ResponseCode or an errorCode). A 5xx, an unreadable or empty body, or a transport error is UNCERTAIN: the
+ *     push may have reached the phone, so nothing is recorded as failed.
  * Credentials come only from typed configuration and are never logged or returned. Tests use a fake.
  */
 export interface StkPushRequest {
@@ -20,7 +29,7 @@ export interface StkPushRequest {
 }
 
 export type StkPushResult =
-  | { accepted: true; checkoutRequestId: string; merchantRequestId: string }
+  | { accepted: true; checkoutRequestId: string; merchantRequestId: string | null }
   | { accepted: false; responseCode: string };
 
 export type StkQueryResult = { done: true; resultCode: number } | { done: false };
@@ -34,7 +43,20 @@ export interface MpesaProvider {
 export type UnpaidOutcome = { status: "cancelled" | "timeout" | "failed"; failure_reason: string };
 
 const REASON: Record<number, string> = { 1: "insufficient", 1032: "cancelled", 1037: "timeout", 2001: "wrong_pin", 1001: "duplicate" };
+const PROCESSING_CODES = new Set([4999]);
 
+/**
+ * How a non-zero STK ResultCode is treated. Only a code known to be a final failure may fail a payment.
+ * 'processing' (the provider is still working) and 'unknown' (a code this system has no documented meaning
+ * for) leave the prompt pending: an uncertain provider outcome is never represented as a confirmed failure.
+ */
+export type ResultClass = "final_failure" | "processing" | "unknown";
+export function classifyResultCode(resultCode: number): ResultClass {
+  if (PROCESSING_CODES.has(resultCode)) return "processing";
+  return resultCode in REASON ? "final_failure" : "unknown";
+}
+
+/** Only meaningful for a 'final_failure' code (callers check classifyResultCode first). */
 export function unpaidOutcome(resultCode: number): UnpaidOutcome {
   return {
     status: resultCode === 1032 ? "cancelled" : resultCode === 1037 ? "timeout" : "failed",
@@ -127,7 +149,7 @@ export class DarajaProvider implements MpesaProvider {
   async stkPush(req: StkPushRequest): Promise<StkPushResult> {
     const ts = nairobiTimestamp();
     const token = await this.accessToken();
-    const { body } = await this.fetchJson("/mpesa/stkpush/v1/processrequest", {
+    const { status, body } = await this.fetchJson("/mpesa/stkpush/v1/processrequest", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -144,10 +166,25 @@ export class DarajaProvider implements MpesaProvider {
         TransactionDesc: req.description,
       }),
     });
-    if (body.ResponseCode === "0" && typeof body.CheckoutRequestID === "string" && typeof body.MerchantRequestID === "string") {
-      return { accepted: true, checkoutRequestId: body.CheckoutRequestID, merchantRequestId: body.MerchantRequestID };
+    // a rejected access token (401 or a 404.001.* errorCode) is certain not to have reached the phone; drop the cached
+    // token so the next push authenticates again instead of being refused until the cache would have expired
+    if (status === 401 || (typeof body.errorCode === "string" && body.errorCode.startsWith("404.001."))) this.token = null;
+    const ok = status >= 200 && status < 300;
+    if (ok && body.ResponseCode === "0" && typeof body.CheckoutRequestID === "string") {
+      // the provider accepted the prompt: a missing MerchantRequestID must not turn that into a failure
+      return {
+        accepted: true,
+        checkoutRequestId: body.CheckoutRequestID,
+        merchantRequestId: typeof body.MerchantRequestID === "string" ? body.MerchantRequestID : null,
+      };
     }
-    return { accepted: false, responseCode: String(body.ResponseCode ?? body.errorCode ?? "unknown").slice(0, 40) };
+    // an explicit, readable refusal (2xx or 4xx with a non-zero ResponseCode or an errorCode) is a confirmed refusal
+    const code =
+      typeof body.ResponseCode === "string" && body.ResponseCode !== "0" ? body.ResponseCode : typeof body.errorCode === "string" ? body.errorCode : null;
+    if (code && (ok || (status >= 400 && status < 500))) return { accepted: false, responseCode: code.slice(0, 40) };
+    // anything else (5xx, empty or unreadable body, an accepted-looking body without a checkout id) is UNCERTAIN:
+    // the push may have reached the phone, so it is never recorded as failed (the caller treats a throw as unknown)
+    throw new Error(`M-Pesa push outcome unknown (HTTP ${status})`);
   }
 
   async stkQuery(checkoutRequestId: string): Promise<StkQueryResult> {

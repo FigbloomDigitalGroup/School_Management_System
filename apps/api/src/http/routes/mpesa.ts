@@ -3,10 +3,11 @@ import type { AppPool } from "../../db/pool.js";
 import { createIdentityHandle } from "../../db/sql.js";
 import { withSystemTenantTransaction } from "../../db/systemTenantTransaction.js";
 import { logWarn } from "../../log.js";
-import { parseStkCallback, settlePrompt } from "../../modules/finance/mpesa.js";
+import { parseStkCallback, recordCallbackReceived, settlePrompt } from "../../modules/finance/mpesa.js";
 import { maskMsisdn } from "../../modules/finance/money.js";
 import { secretsMatch } from "../../modules/finance/mpesaProvider.js";
 import { consumeAuthToken } from "../../modules/auth/rateLimit.js";
+import { AppError } from "../errors.js";
 import { clientIp } from "../clientIp.js";
 import { rateLimitBucketForIp } from "../../modules/auth/rateLimitBuckets.js";
 
@@ -25,18 +26,74 @@ import { rateLimitBucketForIp } from "../../modules/auth/rateLimitBuckets.js";
  * A provider query that fails or is still processing answers 503 so the provider redelivers; the settle
  * job also settles it independently.
  */
+/**
+ * The address a junk sender is accounted under. An IPv6 sender controls a whole /64, so addresses are grouped by their first
+ * 64 bits (otherwise one sender could mint a fresh bucket per address); IPv4 and unknown addresses are used as they are.
+ */
+export function junkBucketAddress(ip: string | null): string | null {
+  if (!ip || !ip.includes(":")) return ip;
+  const [head = "", tail = ""] = ip.toLowerCase().split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = [...left, ...new Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right].slice(0, 8);
+  if (groups.length < 4) return ip;
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+/**
+ * Consume one token of a callback policy. A refusal is logged as an observable, secret-free event (the policy that
+ * refused, never the address or the token) and answered 429 with Retry-After by the standard error handler.
+ */
+async function consumeCallbackToken(
+  pool: AppPool,
+  policy: { authRateCapacity: number; authRateRefill: number; authRateIntervalMs: number },
+  bucketKey: string,
+  label: "invalid_secret" | "authenticated",
+): Promise<void> {
+  try {
+    await consumeAuthToken(createIdentityHandle(pool), policy, bucketKey);
+  } catch (err) {
+    if (err instanceof AppError && err.statusCode === 429) logWarn("mpesa_callback_rate_limited", { outcome: label });
+    throw err;
+  }
+}
+
 export async function registerMpesaRoutes(app: FastifyInstance, pool: AppPool): Promise<void> {
   app.post("/v1/mpesa/callback", async (request, reply) => {
     const config = app.appConfig;
-    // Abuse bound for every attempt (including wrong tokens), before any body is trusted.
-    await consumeAuthToken(createIdentityHandle(pool), config, rateLimitBucketForIp("mpesa_callback:ip", clientIp(request)));
+    // 1. The secret is checked FIRST (constant time, no database), so anonymous junk can never consume the bucket that
+    //    legitimate provider callbacks use. Only the URL secret authenticates a callback.
     const token = (request.query as { token?: unknown }).token;
-    if (!config.mpesaCallbackSecret || typeof token !== "string" || !secretsMatch(token, config.mpesaCallbackSecret)) {
-      return reply.status(403).send({ error: { code: "forbidden", message: "Access denied" } });
+    const secretOk = Boolean(config.mpesaCallbackSecret) && typeof token === "string" && secretsMatch(token, config.mpesaCallbackSecret as string);
+    if (!secretOk) {
+      // junk traffic is bounded per client address, in a bucket of its own
+      await consumeCallbackToken(
+        pool,
+        {
+          authRateCapacity: config.mpesaCallbackInvalidRateCapacity,
+          authRateRefill: config.mpesaCallbackInvalidRateRefill,
+          authRateIntervalMs: config.mpesaCallbackInvalidRateIntervalMs,
+        },
+        rateLimitBucketForIp("mpesa_callback_invalid:ip", junkBucketAddress(clientIp(request))),
+        "invalid_secret",
+      );
+      logWarn("mpesa_callback_rejected", { outcome: "bad_secret" });
+      return reply.status(403).send({ error: { code: "forbidden", message: "Access denied", request_id: request.id } });
     }
+    // 2. Authenticated callbacks share one platform-wide, burst-sized bucket (a last-resort bound, not a per-school quota).
+    await consumeCallbackToken(
+      pool,
+      {
+        authRateCapacity: config.mpesaCallbackRateCapacity,
+        authRateRefill: config.mpesaCallbackRateRefill,
+        authRateIntervalMs: config.mpesaCallbackRateIntervalMs,
+      },
+      "mpesa_callback:auth",
+      "authenticated",
+    );
 
     const parsed = parseStkCallback(request.body);
-    if (!parsed) return reply.status(400).send({ error: { code: "validation_error", message: "Invalid callback" } });
+    if (!parsed) return reply.status(400).send({ error: { code: "validation_error", message: "Invalid callback", request_id: request.id } });
     const { checkoutRequestId, merchantRequestId, evidence } = parsed;
 
     const found = await createIdentityHandle(pool).query<{ tenant_id: string | null }>(
@@ -67,17 +124,22 @@ export async function registerMpesaRoutes(app: FastifyInstance, pool: AppPool): 
     if (!payment) return reply.status(200).send({ ResultCode: 0, ResultDesc: "Accepted" });
 
     if (payment.status === "pending") {
+      // Persist the authenticated callback BEFORE asking the provider: a query that fails, a 503 or a stopped process
+      // must not lose the receipt it carried (the settle job and the operator reuse this evidence).
+      await withSystemTenantTransaction(pool, { tenantId }, (tx) =>
+        recordCallbackReceived(tx, { tenantId, paymentId: payment.id, checkoutRequestId, evidence }),
+      );
       let queried;
       try {
         queried = await app.mpesaProvider.stkQuery(checkoutRequestId);
       } catch {
-        return reply.status(503).header("Retry-After", "5").send({ error: { code: "service_unavailable", message: "Try again" } });
+        return reply.status(503).header("Retry-After", "5").send({ error: { code: "service_unavailable", message: "Try again", request_id: request.id } });
       }
       const outcome = await withSystemTenantTransaction(pool, { tenantId }, (tx) =>
         settlePrompt(tx, { tenantId, paymentId: payment.id, source: "callback", query: queried, evidence }),
       );
       if (outcome === "provider_pending") {
-        return reply.status(503).header("Retry-After", "5").send({ error: { code: "service_unavailable", message: "Try again" } });
+        return reply.status(503).header("Retry-After", "5").send({ error: { code: "service_unavailable", message: "Try again", request_id: request.id } });
       }
     } else {
       await withSystemTenantTransaction(pool, { tenantId }, (tx) =>

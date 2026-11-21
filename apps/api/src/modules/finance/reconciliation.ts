@@ -13,15 +13,32 @@ import { toMinor } from "./money.js";
  *
  * Checks (each derivable from stored evidence; no external statement import exists):
  *   invoice_total_mismatch   stored totals differ from the recomputation (should be impossible: tamper alarm)
- *   overpaid_invoice         paid more than the total (legacy "refund or carry forward" warning)
+ *   overpaid_invoice         paid more than the total (cannot arise since the overpayment policy: kept as a tamper alarm)
+ *   contradicted_success_callback  an authenticated callback CLAIMED success with a receipt, but the provider's own answer failed the payment
+ *                            (the provider is the authority, so the payment is failed; a person must check that no money was taken)
+ *   callback_receipt_mismatch   a payment was credited with one receipt while an authenticated callback claimed success with a DIFFERENT one
+ *                            (a planted or contradictory callback, or a provider inconsistency)
+ *   recovered_receipt_credit  a payment credited by the settle job or an operator with a receipt RECOVERED from a stored callback
+ *                            (authenticated only by the callback URL secret): raised until a person has checked it
+ *   operator_receipt_credit   a payment credited with a receipt TYPED BY AN OPERATOR (the one receipt the provider did not deliver):
+ *                            raised until a person has checked it against the M-Pesa statement
+ *   unapplied_payment        a confirmed payment whose amount exceeded the invoice's balance at settlement: the excess is
+ *                            held unapplied on the payment (never credited to the invoice, never discarded)
  *   stale_pending_prompt     an M-Pesa prompt still pending after `stale_after_minutes`
  *   prompt_never_sent        the provider never acknowledged the prompt (no checkout id): check with the family
  *   callback_amount_mismatch the callback claimed a different amount than the prompt credited
  *   proof_already_paid       a pending proof whose transaction code is already recorded as a payment
  */
 export type FindingKind =
+  | "dead_settlement_job"
+  | "paid_unconfirmed_no_callback"
   | "invoice_total_mismatch"
   | "overpaid_invoice"
+  | "unapplied_payment"
+  | "operator_receipt_credit"
+  | "recovered_receipt_credit"
+  | "contradicted_success_callback"
+  | "callback_receipt_mismatch"
   | "stale_pending_prompt"
   | "prompt_never_sent"
   | "callback_amount_mismatch"
@@ -40,7 +57,7 @@ const CHECKS: Array<{ kind: FindingKind; subject: "invoice" | "payment" | "proof
               COALESCE((SELECT sum(amount_minor) FROM finance_invoice_lines l WHERE l.tenant_id = i.tenant_id AND l.invoice_id = i.id), 0)
               + COALESCE((SELECT sum(amount_minor) FROM finance_charges ch WHERE ch.tenant_id = i.tenant_id AND ch.invoice_id = i.id AND ch.voided_at IS NULL), 0)
               + COALESCE((SELECT sum(delta_minor) FROM finance_invoice_adjustments a WHERE a.tenant_id = i.tenant_id AND a.invoice_id = i.id), 0) AS total,
-              COALESCE((SELECT sum(amount_minor) FROM finance_payments p WHERE p.tenant_id = i.tenant_id AND p.invoice_id = i.id AND p.status = 'success'), 0) AS paid) c
+              COALESCE((SELECT sum(applied_minor) FROM finance_payments p WHERE p.tenant_id = i.tenant_id AND p.invoice_id = i.id AND p.status = 'success'), 0) AS paid) c
            WHERE i.tenant_id = $1 AND (i.total_minor <> c.total OR i.paid_minor <> c.paid)
            ORDER BY i.id`,
   },
@@ -51,6 +68,61 @@ const CHECKS: Array<{ kind: FindingKind; subject: "invoice" | "payment" | "proof
                   'overpaid_minor', i.paid_minor - i.total_minor, 'learner_id', i.learner_id) AS detail
             FROM finance_invoices i WHERE i.tenant_id = $1 AND i.voided_at IS NULL AND i.paid_minor > i.total_minor
            ORDER BY i.id`,
+  },
+  {
+    kind: "unapplied_payment",
+    subject: "payment",
+    sql: `SELECT p.id AS subject_id, jsonb_build_object('invoice_id', p.invoice_id, 'method', p.method, 'amount_minor', p.amount_minor,
+                  'applied_minor', p.applied_minor, 'unapplied_minor', p.unapplied_minor, 'completed_at', p.completed_at) AS detail
+            FROM finance_payments p WHERE p.tenant_id = $1 AND p.status = 'success' AND p.unapplied_minor > 0
+           ORDER BY p.completed_at, p.id`,
+  },
+  {
+    kind: "operator_receipt_credit",
+    subject: "payment",
+    sql: `SELECT DISTINCT ON (p.id) p.id AS subject_id, jsonb_build_object('invoice_id', p.invoice_id, 'receipt', p.mpesa_receipt,
+                  'operator_user_id', e.actor_user_id, 'credited_at', e.received_at, 'provider_view', e.provider_view) AS detail
+            FROM finance_mpesa_events e
+            JOIN finance_payments p ON p.id = e.payment_id AND p.tenant_id = e.tenant_id
+           WHERE e.tenant_id = $1 AND e.source = 'operator' AND e.evidence_basis = 'operator_receipt'
+             AND e.outcome = 'settled_success' AND p.status = 'success'
+           ORDER BY p.id, e.received_at`,
+  },
+  {
+    kind: "recovered_receipt_credit",
+    subject: "payment",
+    sql: `SELECT DISTINCT ON (p.id) p.id AS subject_id, jsonb_build_object('invoice_id', p.invoice_id, 'receipt', p.mpesa_receipt,
+                  'acting_source', e.source, 'credited_at', e.received_at, 'callback_amount_minor', cb.callback_amount_minor,
+                  'confirmed_minor', p.amount_minor) AS detail
+            FROM finance_mpesa_events e
+            JOIN finance_payments p ON p.id = e.payment_id AND p.tenant_id = e.tenant_id
+            LEFT JOIN LATERAL (SELECT c.callback_amount_minor FROM finance_mpesa_events c
+                                WHERE c.tenant_id = e.tenant_id AND c.payment_id = e.payment_id AND c.outcome = 'callback_received'
+                                  AND c.receipt = p.mpesa_receipt ORDER BY c.received_at LIMIT 1) cb ON true
+           WHERE e.tenant_id = $1 AND e.evidence_basis = 'stored_callback' AND e.outcome = 'settled_success' AND p.status = 'success'
+           ORDER BY p.id, e.received_at`,
+  },
+  {
+    kind: "contradicted_success_callback",
+    subject: "payment",
+    sql: `SELECT DISTINCT ON (p.id) p.id AS subject_id, jsonb_build_object('invoice_id', p.invoice_id, 'payment_status', p.status,
+                  'failure_reason', p.failure_reason, 'claimed_receipt', c.receipt, 'claimed_at', c.received_at) AS detail
+            FROM finance_payments p
+            JOIN finance_mpesa_events c ON c.tenant_id = p.tenant_id AND c.payment_id = p.id AND c.source = 'callback'
+                 AND c.outcome = 'callback_received' AND c.result_code = 0 AND c.receipt IS NOT NULL
+           WHERE p.tenant_id = $1 AND p.method = 'mpesa' AND p.status IN ('failed', 'cancelled', 'timeout')
+           ORDER BY p.id, c.received_at`,
+  },
+  {
+    kind: "callback_receipt_mismatch",
+    subject: "payment",
+    sql: `SELECT DISTINCT ON (p.id) p.id AS subject_id, jsonb_build_object('invoice_id', p.invoice_id, 'credited_receipt', p.mpesa_receipt,
+                  'claimed_receipt', c.receipt, 'claimed_at', c.received_at) AS detail
+            FROM finance_payments p
+            JOIN finance_mpesa_events c ON c.tenant_id = p.tenant_id AND c.payment_id = p.id AND c.source = 'callback'
+                 AND c.outcome = 'callback_received' AND c.result_code = 0 AND c.receipt IS NOT NULL AND c.receipt <> p.mpesa_receipt
+           WHERE p.tenant_id = $1 AND p.method = 'mpesa' AND p.status = 'success'
+           ORDER BY p.id, c.received_at`,
   },
   {
     kind: "stale_pending_prompt",
@@ -69,14 +141,14 @@ const CHECKS: Array<{ kind: FindingKind; subject: "invoice" | "payment" | "proof
                   'status', p.status, 'created_at', p.created_at) AS detail
             FROM finance_payments p
            WHERE p.tenant_id = $1 AND p.method = 'mpesa' AND p.checkout_request_id IS NULL AND p.msisdn IS NOT NULL
-             AND (p.failure_reason = 'not_sent' OR (p.status = 'pending' AND p.created_at < now() - make_interval(mins => $2)))
+             AND (p.failure_reason = 'not_sent' /* legacy rows only: the database refuses new ones (migration 043) */ OR (p.status = 'pending' AND p.created_at < now() - make_interval(mins => $2)))
            ORDER BY p.created_at, p.id`,
   },
   {
     kind: "callback_amount_mismatch",
     subject: "payment",
     sql: `SELECT DISTINCT ON (p.id) p.id AS subject_id, jsonb_build_object('invoice_id', p.invoice_id,
-                  'credited_minor', p.amount_minor, 'callback_amount_minor', e.callback_amount_minor) AS detail
+                  'confirmed_minor', p.amount_minor, 'applied_minor', p.applied_minor, 'callback_amount_minor', e.callback_amount_minor) AS detail
             FROM finance_payments p
             JOIN finance_mpesa_events e ON e.tenant_id = p.tenant_id AND e.payment_id = p.id
            WHERE p.tenant_id = $1 AND p.status = 'success' AND e.callback_amount_minor IS NOT NULL
@@ -98,7 +170,7 @@ const CHECKS: Array<{ kind: FindingKind; subject: "invoice" | "payment" | "proof
 export interface PublicRun {
   id: string;
   tenantId: string;
-  started_by: string;
+  started_by: string | null;
   started_at: string;
   stale_after_minutes: number;
   findings_count: number;
@@ -116,10 +188,16 @@ export interface PublicFinding {
   resolved_by: string | null;
   resolved_at: string | null;
   resolution_note: string | null;
+  owner_user_id: string | null;
+  assigned_at: string | null;
+  escalated_at: string | null;
+  reopened_count: number;
+  resolution_evidence: string | null;
+  age_minutes: number;
   created_at: string;
 }
 
-type RunRow = { id: string; tenant_id: string; started_by: string; started_at: Date; stale_after_minutes: number; findings_count: number };
+type RunRow = { id: string; tenant_id: string; started_by: string | null; started_at: Date; stale_after_minutes: number; findings_count: number };
 type FindingRow = {
   id: string;
   tenant_id: string;
@@ -132,6 +210,11 @@ type FindingRow = {
   resolved_by: string | null;
   resolved_at: Date | null;
   resolution_note: string | null;
+  owner_user_id: string | null;
+  assigned_at: Date | null;
+  escalated_at: Date | null;
+  reopened_count: number;
+  resolution_evidence: string | null;
   created_at: Date;
 };
 
@@ -162,10 +245,16 @@ const mapFinding = (r: FindingRow): PublicFinding => ({
   resolved_by: r.resolved_by,
   resolved_at: r.resolved_at ? r.resolved_at.toISOString() : null,
   resolution_note: r.resolution_note,
+  owner_user_id: r.owner_user_id,
+  assigned_at: r.assigned_at ? r.assigned_at.toISOString() : null,
+  escalated_at: r.escalated_at ? r.escalated_at.toISOString() : null,
+  reopened_count: r.reopened_count,
+  resolution_evidence: r.resolution_evidence,
+  age_minutes: Math.max(0, Math.floor((Date.now() - r.created_at.getTime()) / 60_000)),
   created_at: r.created_at.toISOString(),
 });
 
-const FINDING_COLS = `id, tenant_id, run_id, kind, subject_type, subject_id, detail, status, resolved_by, resolved_at, resolution_note, created_at`;
+const FINDING_COLS = `id, tenant_id, run_id, kind, subject_type, subject_id, detail, status, resolved_by, resolved_at, resolution_note, owner_user_id, assigned_at, escalated_at, reopened_count, resolution_evidence, created_at`;
 
 export async function runReconciliation(
   tx: Tx,
@@ -252,22 +341,28 @@ export async function listRuns(tx: Tx, input: { tenantId: string; page: PageInpu
   return { items: out.rows.map(mapRun), page: out.page };
 }
 
+const EVIDENCE_REQUIRED_KINDS = new Set(["dead_settlement_job", "paid_unconfirmed_no_callback", "prompt_never_sent", "stale_pending_prompt", "contradicted_success_callback"]);
+
 export async function resolveFinding(
   tx: Tx,
-  input: { tenantId: string; actorUserId: string; findingId: string; note: string; ip?: string | null },
+  input: { tenantId: string; actorUserId: string; findingId: string; note: string; evidence?: string | null; ip?: string | null },
 ): Promise<PublicFinding> {
   const note = input.note.trim();
   if (note.length < 3 || note.length > 500) throw validationError("note must be 3–500 characters");
-  const cur = await tx.query<{ status: string }>(
-    `SELECT status FROM finance_reconciliation_findings WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+  const cur = await tx.query<{ status: string; kind: string }>(
+    `SELECT status, kind FROM finance_reconciliation_findings WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
     [input.tenantId, input.findingId],
   );
   if (!cur.rows[0]) throw notFound("Finding not found");
   if (cur.rows[0].status !== "open") throw conflict("This finding is already resolved");
+  // Payment-evidence cases need supporting evidence on resolution (owner decision 6.3): who, when, why AND on what basis.
+  const evidence = input.evidence?.trim() || null;
+  if (EVIDENCE_REQUIRED_KINDS.has(cur.rows[0].kind) && (!evidence || evidence.length < 3)) throw validationError("evidence is required to resolve this kind of case");
+  if (evidence && evidence.length > 1000) throw validationError("evidence must be at most 1000 characters");
   const res = await tx.query<FindingRow>(
-    `UPDATE finance_reconciliation_findings SET status = 'resolved', resolved_by = $3, resolution_note = $4
+    `UPDATE finance_reconciliation_findings SET status = 'resolved', resolved_by = $3, resolution_note = $4, resolution_evidence = $5
       WHERE tenant_id = $1 AND id = $2 RETURNING ${FINDING_COLS}`,
-    [input.tenantId, input.findingId, input.actorUserId, note],
+    [input.tenantId, input.findingId, input.actorUserId, note, evidence],
   );
   await recordSecurityEvent(tx, {
     eventType: "finance.reconciliation.resolved",

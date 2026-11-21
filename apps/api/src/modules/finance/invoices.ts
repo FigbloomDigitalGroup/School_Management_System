@@ -20,7 +20,10 @@ export interface PublicInvoice {
   total_minor: number;
   paid_minor: number;
   balance_minor: number;
+  /** 0 except for legacy or tampered rows: since the overpayment policy an invoice is never credited beyond its total. */
   overpaid_minor: number;
+  /** Money confirmed for this invoice that could not be applied to it (sum of its payments' unapplied amounts). */
+  unapplied_minor: number;
   status: InvoiceStatus | "voided";
   billing_run_id: string | null;
   created_at: string;
@@ -39,6 +42,7 @@ type Row = {
   adjustments_minor: string;
   total_minor: string;
   paid_minor: string;
+  unapplied_minor: string;
   status: InvoiceStatus;
   billing_run_id: string | null;
   created_at: Date;
@@ -49,6 +53,7 @@ type Row = {
 // Status is derived by the SQL rule with the school's local date: never stored, never computed by the client.
 const COLS = `i.id, i.tenant_id, i.learner_id, i.term_id, i.due_on::text AS due_on, i.lines_minor, i.charges_minor,
   i.adjustments_minor, i.total_minor, i.paid_minor,
+  COALESCE((SELECT sum(p.unapplied_minor) FROM finance_payments p WHERE p.tenant_id = i.tenant_id AND p.invoice_id = i.id AND p.status = 'success'), 0) AS unapplied_minor,
   finance_invoice_status(i.total_minor, i.paid_minor, i.due_on, finance_school_today(i.tenant_id)) AS status,
   i.billing_run_id, i.created_at, i.voided_at, i.void_reason`;
 
@@ -69,6 +74,7 @@ export function mapInvoice(row: Row): PublicInvoice {
     paid_minor: paid,
     balance_minor: balanceMinor(total, paid),
     overpaid_minor: Math.max(paid - total, 0),
+    unapplied_minor: toMinor(row.unapplied_minor),
     status: row.voided_at ? "voided" : row.status,
     billing_run_id: row.billing_run_id,
     created_at: row.created_at.toISOString(),

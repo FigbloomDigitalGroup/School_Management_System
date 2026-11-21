@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { calendarDateString } from "../schemas.js";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import { withSystemTenantTransaction } from "../../db/systemTenantTransaction.js";
@@ -21,13 +22,17 @@ import { createPrompt, recordPushOutcome } from "../../modules/finance/mpesa.js"
 import { callbackUrlWithToken } from "../../modules/finance/mpesaProvider.js";
 import { getProof, listProofs, rejectProof, submitProof } from "../../modules/finance/proofs.js";
 import { listFindings, listRuns, resolveFinding, runReconciliation } from "../../modules/finance/reconciliation.js";
+import { assertRecentAuth } from "../../modules/auth/reauth.js";
+import { assignFinding, withdrawUnacknowledgedPrompt } from "../../modules/finance/reconciliationCases.js";
 import { getAiHelperSettings, listAiHelperOptins, putAiHelperSettings, setAiHelperOptin } from "../../modules/finance/aiHelper.js";
 import { assertMayPayFor } from "../../modules/finance/payer.js";
+import { cancelSettlementJob } from "../../modules/finance/settlementJobs.js";
+import { listMpesaEvents, operatorReconcile, type ProviderView } from "../../modules/finance/mpesaReconcile.js";
 import { AppError, notFound, serviceUnavailable, validationError } from "../errors.js";
 import { assertUuid, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
-const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const DateString = calendarDateString;
 const Minor = z.number().int().positive().max(100_000_000_000);
 
 const FeeItemBody = z.strictObject({
@@ -87,7 +92,15 @@ const ProofBody = z.strictObject({
   txn_account: z.string().max(60).nullable().optional(),
 });
 const ReconBody = z.strictObject({ stale_after_minutes: z.number().int().min(5).max(10_080).optional() });
-const ResolveBody = z.strictObject({ note: z.string().min(3).max(500) });
+const ResolveBody = z.strictObject({ note: z.string().min(3).max(500), evidence: z.string().min(3).max(1000).optional() });
+const AssignBody = z.strictObject({ owner_user_id: z.guid().nullable() });
+const WithdrawBody = z.strictObject({ reason: z.string().min(3).max(300), evidence: z.string().min(3).max(1000) });
+const CancelJobBody = z.strictObject({ reason: z.string().min(10).max(300) });
+const ReconcileBody = z.strictObject({
+  action: z.enum(["refresh", "settle_success", "mark_failed"]),
+  receipt: z.string().min(6).max(40).optional(),
+  note: z.string().min(10).max(500),
+});
 const AiSettingsBody = z.strictObject({
   access_mode: z.enum(["all", "opt_in"]),
   price_minor: z.number().int().min(0).max(10_000_000),
@@ -112,6 +125,10 @@ export const FINANCE_REQUEST_SCHEMAS = {
   [`POST ${T}/proofs/{proofId}/reject`]: ReasonBody,
   [`POST ${T}/reconciliation-runs`]: ReconBody,
   [`POST ${T}/reconciliation-findings/{findingId}/resolve`]: ResolveBody,
+  [`POST ${T}/reconciliation-findings/{findingId}/assign`]: AssignBody,
+  [`POST ${T}/payments/{paymentId}/withdraw-unacknowledged-prompt`]: WithdrawBody,
+  [`POST ${T}/payments/{paymentId}/settlement-job/cancel`]: CancelJobBody,
+  [`POST ${T}/payments/{paymentId}/mpesa-reconciliation`]: ReconcileBody,
   [`PUT ${T}/ai-helper/settings`]: AiSettingsBody,
   [`PUT ${T}/ai-helper/optins`]: OptinBody,
 } as const;
@@ -373,7 +390,7 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
     const status = oneOf(q.status, PAYMENT_STATUS, "status");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, READ, { ip, deferAudit: true });
-      const out = await listPayments(tx, { tenantId: params.tenantId, invoiceId: optionalUuid(q.invoiceId, "invoiceId"), status, page });
+      const out = await listPayments(tx, { tenantId: params.tenantId, invoiceId: optionalUuid(q.invoiceId, "invoiceId"), status, hasUnapplied: optionalBool(q.unapplied, "unapplied") ?? undefined, page });
       return { payments: out.items, page: out.page };
     });
   });
@@ -529,7 +546,106 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       // Resolving permanently suppresses re-raising of financial alarms; Fees-area write is not enough.
       await requirePermission(tx, auth.authz, ADMIN, { ip, deferAudit: true });
-      return { finding: await resolveFinding(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, findingId: params.findingId, note: body.note, ip }) };
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
+      return { finding: await resolveFinding(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, findingId: params.findingId, note: body.note, evidence: body.evidence ?? null, ip }) };
+    });
+  });
+
+  // Case ownership (acceptance 6.3): who is responsible for an open reconciliation case.
+  app.post(`${P}/reconciliation-findings/:findingId/assign`, async (request) => {
+    const params = request.params as { tenantId: string; findingId: string };
+    assertUuid(params.findingId, "findingId");
+    const body = parseOrThrow(AssignBody, request.body, "owner_user_id is required (or null)");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, ADMIN, { ip, deferAudit: true });
+      return { finding: await assignFinding(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, findingId: params.findingId, ownerUserId: body.owner_user_id, ip }) };
+    });
+  });
+
+  // Recovery for a prompt the provider never acknowledged (no checkout id): attested, evidenced, audited (FIN-1).
+  app.post(`${P}/payments/:paymentId/withdraw-unacknowledged-prompt`, async (request) => {
+    const params = request.params as { tenantId: string; paymentId: string };
+    assertUuid(params.paymentId, "paymentId");
+    const body = parseOrThrow(WithdrawBody, request.body, "reason and evidence are required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, ADMIN, { ip, deferAudit: true });
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
+      return { result: await withdrawUnacknowledgedPrompt(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, paymentId: params.paymentId, reason: body.reason, evidence: body.evidence, ip }) };
+    });
+  });
+
+  // The provider evidence ledger of one M-Pesa payment (what an operator inspects before reconciling).
+  app.get(`${P}/payments/:paymentId/mpesa-events`, async (request) => {
+    const params = request.params as { tenantId: string; paymentId: string };
+    assertUuid(params.paymentId, "paymentId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, READ, { ip, deferAudit: true });
+      // operator notes are free text: only a finance administrator sees them
+      const includeNotes = await hasPermission(tx, auth.authz, ADMIN);
+      return listMpesaEvents(tx, { tenantId: params.tenantId, paymentId: params.paymentId, includeNotes });
+    });
+  });
+
+  // Operator reconciliation of a pending M-Pesa prompt (finance administrator). The provider is asked BETWEEN
+  // transactions; the decision is made by the system from evidence, never by the operator alone (see mpesaReconcile.ts).
+  app.post(`${P}/payments/:paymentId/mpesa-reconciliation`, async (request) => {
+    const params = request.params as { tenantId: string; paymentId: string };
+    assertUuid(params.paymentId, "paymentId");
+    const body = parseOrThrow(ReconcileBody, request.body, "action and a note of 10–500 characters are required");
+    const started = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, ADMIN, { ip, deferAudit: true });
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
+      const found = await tx.query<{ checkout_request_id: string | null; status: string }>(
+        `SELECT checkout_request_id, status FROM finance_payments WHERE tenant_id = $1 AND id = $2 AND method = 'mpesa'`,
+        [params.tenantId, params.paymentId],
+      );
+      if (!found.rows[0]) throw notFound("Payment not found");
+      return { userId: auth.user.id, ip, checkout: found.rows[0].checkout_request_id, status: found.rows[0].status };
+    });
+    let provider: ProviderView = { kind: "unavailable" };
+    if (started.status === "pending" && started.checkout && app.mpesaProvider.configured) {
+      try {
+        provider = { kind: "query", result: await app.mpesaProvider.stkQuery(started.checkout) };
+      } catch {
+        provider = { kind: "unavailable" }; // an unreachable provider is not evidence of anything
+      }
+    }
+    // The session and the administer permission are checked AGAIN after the provider call (a permission revoked while the
+    // provider was being asked is honoured). The settlement itself then runs in a system tenant transaction because the
+    // duplicate-receipt guard needs a savepoint, which user-session transactions refuse; the tenant and the acting user are
+    // the values that were just re-authorised. M-9: the authority is verified ONCE MORE inside the settlement transaction itself
+    // (finance_assert_administer_actor, row-locked), so no check-to-use window remains between authorization and the mutation.
+    // Everything the operator can do is additionally bounded by the evidence rules in mpesaReconcile.ts.
+    const actor = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, ADMIN, { ip, deferAudit: true });
+      return { userId: auth.user.id, ip };
+    });
+    return withSystemTenantTransaction(pool, { tenantId: params.tenantId, userId: actor.userId }, async (tx) => {
+      // M-9: the authority is re-checked INSIDE this transaction, with row locks on the actor's account, membership and the
+      // school, so a revocation either committed before (refused here) or waits until the settlement commits.
+      await tx.query(`SELECT public.finance_assert_administer_actor($1::uuid)`, [params.tenantId]);
+      return operatorReconcile(tx, {
+        tenantId: params.tenantId,
+        actorUserId: actor.userId,
+        paymentId: params.paymentId,
+        action: body.action,
+        receipt: body.receipt ?? null,
+        note: body.note,
+        provider,
+        ip: actor.ip,
+      });
+    });
+  });
+
+  // Operator cancellation of a queued settlement job. The job is a system obligation, so this is an explicit,
+  // reasoned, audited administrator act; the database refuses it while the payment is still pending.
+  app.post(`${P}/payments/:paymentId/settlement-job/cancel`, async (request) => {
+    const params = request.params as { tenantId: string; paymentId: string };
+    assertUuid(params.paymentId, "paymentId");
+    const body = parseOrThrow(CancelJobBody, request.body, "reason of 10–300 characters is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, ADMIN, { ip, deferAudit: true });
+      return cancelSettlementJob(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, paymentId: params.paymentId, reason: body.reason, ip });
     });
   });
 
