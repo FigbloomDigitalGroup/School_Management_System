@@ -68,28 +68,32 @@ jobs:
     services:
       postgres:
         # A throwaway container: its credentials belong to it alone and reach nothing real.
+        # Mapped to non-development port 59822 so the four-condition testTarget safety guard
+        # (non-forbidden port + explicit FIGBLOOM_TEST_DB_DESIGNATION + database marker) holds.
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: figbloom_api
-        ports: ["5432:5432"]
+        ports: ["59822:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres -d figbloom_api"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      # The suite resets this database, so it refuses anything but loopback + figbloom_api.
+      # The suite resets this database, so it requires loopback + figbloom_api on a non-dev port,
+      # an explicit FIGBLOOM_TEST_DB_DESIGNATION, and the disposable database comment marker.
       # The tests give figbloom_app a random per-run password, so the application under test
       # connects as that non-owner role, never as this owner.
-      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/figbloom_api
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:59822/figbloom_api
+      FIGBLOOM_TEST_DB_DESIGNATION: 127.0.0.1:59822/figbloom_api
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       # Reproducible install from the committed lockfile (fails if it and the manifests disagree);
       # --ignore-scripts so no dependency runs code at install time.
@@ -107,6 +111,8 @@ jobs:
       - run: npm run migrate:verify --workspace @figbloom/api
       - run: npm run migrate --workspace @figbloom/api
       - run: npm run openapi:check --workspace @figbloom/api
+      # Stamp the throwaway CI container with the disposable test-database marker before vitest globalSetup.
+      - run: node apps/api/scripts/designate-test-db.mjs
       # The whole API suite: RLS and tenant isolation through the real figbloom_app login,
       # runtime-role assertions, SECURITY DEFINER inventory, credential access, idempotency,
       # headers/CORS, logging redaction, delegation, forced password change, the architecture

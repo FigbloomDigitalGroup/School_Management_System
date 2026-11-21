@@ -21,24 +21,26 @@
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: figbloom_api
-        ports: ["5432:5432"]
+        ports: ["59822:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      # The suite resets this database, so it refuses anything but loopback + figbloom_api.
+      # The suite resets this database, so it refuses anything but loopback + figbloom_api on a
+      # non-development port, an explicit FIGBLOOM_TEST_DB_DESIGNATION, and the disposable marker.
       # The tests enable LOGIN on figbloom_app with a random per-run password and reset it afterwards,
       # so the application under test connects as figbloom_app, never as this owner.
-      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/figbloom_api
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:59822/figbloom_api
+      FIGBLOOM_TEST_DB_DESIGNATION: 127.0.0.1:59822/figbloom_api
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       # Lockfile integrity: npm ci fails if package-lock.json and the manifests disagree.
       - run: npm ci --ignore-scripts
@@ -47,12 +49,14 @@
       # decision D-T2 resolves the apps/mobile findings; it must not be narrowed to hide them.)
       - run: npm audit --workspace @figbloom/api
       - run: npm run typecheck --workspace @figbloom/api
+      - run: npx eslint apps/api/src apps/api/test
       - run: npm run build --workspace @figbloom/api
       # Compiled migrations as the migrator: apply, verify, and a second run must be a no-op.
       - run: npm run migrate --workspace @figbloom/api
       - run: npm run migrate:verify --workspace @figbloom/api
       - run: npm run migrate --workspace @figbloom/api
       - run: npm run openapi:check --workspace @figbloom/api
+      - run: node apps/api/scripts/designate-test-db.mjs
       # Unit and integration suites, including: RLS and tenant isolation through the real
       # figbloom_app login, role assertions, SECURITY DEFINER inventory and shadowing attacks,
       # credential access, idempotency, cancellation over a real socket, headers/CORS, logging
