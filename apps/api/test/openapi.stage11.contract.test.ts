@@ -75,7 +75,7 @@ describe("Stage 11 OpenAPI static contract", () => {
       }
     }
     expect(bad).toEqual([]);
-    expect(financeOps().length).toBe(30);
+    expect(financeOps().length).toBe(35);
     expect(spec.paths["/v1/mpesa/callback"].post["x-figbloom-authz"]).toBe("public");
   });
 
@@ -181,6 +181,14 @@ describe("Stage 11 OpenAPI runtime conformance", () => {
     v.paymentId = paid.payment.id;
     await call("GET", `${F}/payments`, v, undefined, `?invoiceId=${v.invoiceId}&status=success`);
     await call("GET", `${F}/payments/{paymentId}`, v);
+    // a queued settlement job whose payment is final (the office payment above): the operator may cancel it
+    await ctx.pool.query(
+      `INSERT INTO jobs (tenant_id, job_type, payload, idempotency_key, run_after) VALUES ($1, 'mpesa.stk_settle', $2::jsonb, $3, now() + interval '1 day')`,
+      [ids.tenantA, JSON.stringify({ paymentId: v.paymentId }), `settle:${v.paymentId}`],
+    );
+    await call("GET", `${F}/payments/{paymentId}/mpesa-events`, v);
+    await call("POST", `${F}/payments/{paymentId}/mpesa-reconciliation`, v, { action: "refresh", note: "Contract tour: nothing to reconcile" });
+    await call("POST", `${F}/payments/{paymentId}/settlement-job/cancel`, v, { reason: "Settled office payment; stop the redundant check" });
     const proof2 = await call("POST", `${F}/proofs`, v, { invoice_id: v.invoiceId, file: { file_name: "slip.png", content_type: "image/png", byte_size: 4096 } });
     await call("POST", `${F}/proofs/{proofId}/reject`, { ...v, proofId: proof2.proof.id }, { reason: "Unreadable" });
 
@@ -198,7 +206,11 @@ describe("Stage 11 OpenAPI runtime conformance", () => {
     }
     const open = (await call("GET", `${F}/reconciliation-findings`, v, undefined, "?status=open")).findings[0];
     v.findingId = open.id;
+    await call("POST", `${F}/reconciliation-findings/{findingId}/assign`, v, { owner_user_id: null });
     await call("POST", `${F}/reconciliation-findings/{findingId}/resolve`, v, { note: "Checked with the bursar" });
+    // an unacknowledged prompt (no checkout id) to withdraw
+    const unsent = (await ctx.pool.query<{ id: string }>(`INSERT INTO finance_payments (tenant_id, invoice_id, amount_minor, method, status, msisdn) VALUES ($1, $2, 100000, 'mpesa', 'pending', '254712345678') RETURNING id`, [ids.tenantA, v.invoiceId])).rows[0]!.id;
+    await call("POST", `${F}/payments/{paymentId}/withdraw-unacknowledged-prompt`, { ...v, paymentId: unsent }, { reason: "STK never sent", evidence: "Portal shows no STK request for this account" });
 
     // an unused invoice (second term, no payments) to void
     const term2 = (await plain("/academic-terms", { academic_year_id: year, index: 2, label: "C T2", starts_on: "2020-01-01", ends_on: "2035-12-31" })).term.id;

@@ -34,6 +34,51 @@ interface FnRow {
  * a reviewer deciding its owner, search_path and EXECUTE grants.
  */
 const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: string }> = {
+  // Migration 078 (residual closure)
+  "worker_housekeeping(text)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded retention cleanup; never touches money, reconciliation, audit or job rows" },
+  "finance_assert_administer_actor(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "M-9: re-verifies the acting administrator's live authority with row locks inside the settlement transaction" },
+  // Migrations 068-072 (acceptance programme)
+  "auth_session_recent(uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "is the caller's session recently authenticated (own user only)" },
+  "auth_mark_reauthenticated(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "stamp the caller's own session after a verified password (audited)" },
+  "finance_unmatched_evidence_key(text,integer,bigint,text)": { secdef: false, grantees: [], why: "pure fingerprint of provider evidence fields" },
+  "finance_unmatched_require_operator()": { secdef: true, grantees: [], why: "internal: refuses anyone who is not a platform operator" },
+  "finance_unmatched_severity(uuid)": { secdef: true, grantees: [], why: "internal: derived severity (provider success = high)" },
+  "finance_unmatched_try_match(uuid,uuid,boolean)": { secdef: true, grantees: [], why: "internal: idempotent evidence handover to a matching payment; never settles" },
+  "finance_ops_snapshot_base()": { secdef: true, grantees: [], why: "internal: worker/queue/reconciliation counters" },
+  "finance_unmatched_list(text,uuid,boolean,integer,text,integer)": { secdef: true, grantees: ["figbloom_app"], why: "operator listing of unmatched-callback cases" },
+  "finance_unmatched_get(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "operator inspection: provider fields, masked phone, notes" },
+  "finance_unmatched_assign(uuid,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "operator ownership; owner must be an active operator" },
+  "finance_unmatched_add_note(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "append-only operator note" },
+  "finance_unmatched_retry(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "operator retry of matching" },
+  "finance_unmatched_escalate(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "operator escalation with reason" },
+  "finance_unmatched_resolve(uuid,text,text,text)": { secdef: true, grantees: ["figbloom_app"], why: "operator resolution: reason and evidence mandatory; moves no money" },
+  "finance_unmatched_reopen(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "operator reopen with reason" },
+  "finance_unmatched_sweep(text)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only re-evaluation and escalation of open cases" },
+  "guardian_accept_invitation(text,text,boolean,text,text,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "accept: token + contact echo + explicit confirmation; one live login per guardian record" },
+  "guardian_accounts_on_membership_archive()": { secdef: true, grantees: [], why: "trigger; archiving a membership revokes the person's guardian links" },
+  "guardian_actor_may_manage(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "is the GUC actor a school administrator of the tenant in context (or super administrator)" },
+  "guardian_create_invitation(uuid,uuid,uuid,text,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "issue an invitation bound to tenant, guardian and live learner relationship" },
+  "guardian_list_invitations(uuid,text,integer)": { secdef: true, grantees: ["figbloom_app"], why: "staff listing, contact masked, no token material" },
+  "guardian_my_links()": { secdef: true, grantees: ["figbloom_app"], why: "the signed-in person's own live links" },
+  "guardian_preview_invitation(text)": { secdef: true, grantees: ["figbloom_app"], why: "public preview of a live token: school name and relationship only" },
+  "guardian_record_delivery(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "delivery outcome from the provider boundary; never accepts an invitation" },
+  "guardian_revoke_account_link(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "final, audited revocation of a live link" },
+  "guardian_revoke_invitation(uuid,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "revoke an open invitation" },
+  "account_accept_invitation(text,text,text,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "accept an invitation; token hash lookup, single use" },
+  "account_actor_is_super()": { secdef: true, grantees: ["figbloom_app"], why: "is the GUC actor a super administrator" },
+  "account_admin_issue_reset(uuid,uuid,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "administrator-issued password reset token" },
+  "account_complete_password_reset(text,text)": { secdef: true, grantees: ["figbloom_app"], why: "consume reset token, set Argon2id hash, revoke sessions" },
+  "account_create_invitation(uuid,text,text,text,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "issue an invitation token (hash only)" },
+  "account_deactivate_membership(uuid,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "archive membership and revoke sessions" },
+  "account_request_password_reset(text,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "enumeration-safe reset request" },
+  "account_revoke_invitation(uuid,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "revoke an open invitation" },
+  "auth_hash_format_ok(text)": { secdef: false, grantees: ["figbloom_app"], why: "pure format check for stored password hashes" },
+  "auth_rehash_password(uuid,text,text)": { secdef: true, grantees: ["figbloom_app"], why: "compare-and-swap Argon2id upgrade, no downgrade" },
+  "auth_session_idle_seconds(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "idle timeout by role (15/30 minutes)" },
+  "finance_ops_snapshot()": { secdef: true, grantees: ["figbloom_app"], why: "platform worker/queue/case counters, no PII" },
+  "finance_reconciliation_sweep(text,integer)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only case raise/re-raise/escalate" },
+  "platform_provision_school(uuid,text,text,text,text,text,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "super-administrator school provisioning" },
+  "worker_heartbeat(text,text)": { secdef: true, grantees: ["figbloom_worker"], why: "worker liveness signal" },
   "app_current_tenant_id()": { secdef: false, grantees: ["figbloom_app", "figbloom_worker"], why: "RLS helper evaluated by tenant policies (API and worker)" },
   "app_current_user_id()": { secdef: false, grantees: ["figbloom_app"], why: "RLS helper evaluated by the self-read policy" },
   "consume_rate_token(text,numeric,numeric,numeric,integer)": { secdef: false, grantees: ["figbloom_app"], why: "called by the API for the PG token bucket" },
@@ -218,6 +263,64 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: ["figbloom_worker"],
     why: "the ONLY cross-tenant step of the worker: leases one due job (SKIP LOCKED, skips suspended schools), returns ids and no payload; not executable by the API role",
   },
+  // Migration 061 (F8-A / M3-A worker lifecycle hardening).
+  "jobs_load_leased(uuid,text,integer)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "N-2 (065): the worker cannot SELECT jobs.lease_token, so the leased job payload is read through this function, which demands the token",
+  },
+  "import_batches_expire_due(integer)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "N-8 (067): worker-only maintenance; redacts expired import previews one row at a time under SKIP LOCKED and audits each",
+  },
+  "jobs_assert_lease(uuid,text,integer)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "F8-A (061): locks the job row FOR UPDATE and proves the worker still holds an active, non-expired lease in the current tenant with matching fencing token",
+  },
+  "jobs_complete(uuid,text,integer)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "F8-A (061): transitions a currently held leased job to succeeded and writes job.succeeded; not executable by the API role",
+  },
+  "jobs_retry(uuid,text,integer,integer,text)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "F8-A (061): releases a currently held leased job back to queued with bounded backoff and writes job.retry_scheduled; not executable by the API role",
+  },
+  "jobs_dead(uuid,text,integer,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "F8-A (061): transitions a currently held leased job to dead and writes job.dead; not executable by the API role",
+  },
+  "jobs_extend_lease(uuid,text,integer,integer)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "M3-A (061): extends an active, non-expired worker lease by bounded seconds; not executable by the API role",
+  },
+  // Migrations 041-042 (remediation batch 1: worker conformance).
+  "jobs_worker_transition_guard()": { secdef: false, grantees: [], why: "trigger; the worker role may only finish or release a job it has leased (no cancel, no fencing-token change)" },
+  "security_audit_events_worker_scope()": { secdef: false, grantees: [], why: "trigger; the worker role may write only tenant-bound, system-attributed events of an allowlisted type, with database-assigned id and time" },
+  "jobs_operator_cancel(uuid,uuid,text,inet)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "the only way a queued settlement job is cancelled: tenant-scoped by the session, acting user must be the signed-in user, refused while the payment is pending, audited with the caller's IP; not executable by the worker role",
+  },
+  // Migration 045 (remediation batches 4-5).
+  "finance_mpesa_quarantine_has_receipt(text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "answers only yes or no: does the owner-only unmatched-callback quarantine already hold this receipt for ANOTHER checkout id (an operator-typed receipt belonging to someone else's payment)",
+  },
+  "finance_worker_settle_payment(uuid,text,integer,uuid,text,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "F-8 (047): the only path by which the worker may change finance_payments status; lease-bound, tenant from the job row, success requires a stored authenticated callback receipt; not executable by the API role",
+  },
+  "finance_mpesa_events_source_guard()": { secdef: false, grantees: [], why: "trigger; the worker role may only record its own provider queries (never an authenticated callback or an operator act)" },
+  // Migration 043 (remediation batch 2).
+  "finance_payments_no_not_sent()": { secdef: false, grantees: [], why: "trigger; an unacknowledged prompt is never recorded as not sent (only the provider's own answer fails a prompt)" },
   // Migration 037 (finance core). All invoker functions: RLS applies.
   "finance_school_today(uuid)": { secdef: false, grantees: ["figbloom_app", "figbloom_worker"], why: "the school's local date for invoice status" },
   "finance_invoice_status(bigint,bigint,date,date)": { secdef: false, grantees: ["figbloom_app", "figbloom_worker"], why: "SQL twin of money.ts invoiceStatus (agreement tested)" },
@@ -243,10 +346,119 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "finance_invoices_proof_void_guard()": { secdef: false, grantees: [], why: "trigger; an invoice with payment proofs cannot be voided" },
   "finance_payments_proof_guard()": { secdef: false, grantees: [], why: "trigger; a payment naming a proof must be for that proof's invoice and the proof must be pending" },
   "finance_reconciliation_findings_guard()": { secdef: false, grantees: [], why: "trigger; a finding is resolved once and never otherwise changes" },
+  // Migration 048 (Stage 12 announcements).
+  "communications_audience_reaches(uuid,jsonb,uuid)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "audience membership for inbox visibility; reads school_memberships as owner with fixed search_path; class/form_level deferred until account linking",
+  },
+  "communications_announcements_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; identity immutable; published announcements are final",
+  },
+  // Migrations 050–051 (Stage 12 prefs, device tokens, gate visits).
+  "device_tokens_register(uuid,text,text)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "reclaims a globally unique device token for the signed-in user (app.user_id must match)",
+  },
+  "gate_visits_stamp()": {
+    secdef: true,
+    grantees: [],
+    why: "trigger; stamps host/learner names, escalation and status timestamps without widening grants",
+  },
+  // Migration 052 (sick bay core).
+  "medical_outcome_notifies(text,text)": {
+    secdef: false,
+    grantees: ["figbloom_app"],
+    why: "pure SQL twin of notifiesGuardians(); no table access",
+  },
+  "sick_bay_visits_guard()": {
+    secdef: true,
+    grantees: [],
+    why: "trigger (066/N-4): visit identity immutable; a discharged visit needs a fresh correction_reason in every statement, recorded in the append-only corrections table by this definer",
+  },
+  // Migration 053 (chat text).
+  "may_talk(uuid,uuid,uuid)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "pairing rule for chat/calls; staff↔staff and parent↔office now; parent↔child/teacher deferred",
+  },
+  "chat_pair_key(uuid,uuid)": {
+    secdef: false,
+    grantees: ["figbloom_app"],
+    why: "deterministic conversation pair key",
+  },
+  // Migration 054 & 063 (inventory).
+  "inventory_out_count(uuid)": {
+    secdef: false,
+    grantees: ["figbloom_app"],
+    why: "SECURITY INVOKER (063 S13-11): counts open/lost/damaged issues for availability checks under RLS / trigger owner",
+  },
+  // Migration 063 (Stage 12 push preference eligibility count).
+  "communications_announcement_push_eligible_count(uuid)": {
+    secdef: true,
+    grantees: ["figbloom_worker"],
+    why: "S12-12 (063): worker-only count of active tenant members reached by an announcement who opted into general_notices",
+  },
+  "inventory_items_stamp()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; trims fields and stamps updated_at",
+  },
+  "inventory_issues_guard()": {
+    secdef: true,
+    grantees: [],
+    why: "trigger; availability under FOR UPDATE; closed issues final",
+  },
+  // Migration 055 (leave).
+  "leave_requests_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; no self-review; reviewed leave final",
+  },
+  "leave_requests_no_overlap()": {
+    secdef: true,
+    grantees: [],
+    why: "trigger; pending/approved leave ranges cannot overlap for one staff member",
+  },
 };
 
 /** The only SECURITY DEFINER functions the runtime role may execute. */
 const RUNTIME_EXECUTABLE_DEFINERS = [
+  "finance_assert_administer_actor(uuid)",
+  "auth_session_recent(uuid,integer)",
+  "auth_mark_reauthenticated(uuid)",
+  "finance_unmatched_list(text,uuid,boolean,integer,text,integer)",
+  "finance_unmatched_get(uuid)",
+  "finance_unmatched_assign(uuid,uuid)",
+  "finance_unmatched_add_note(uuid,text)",
+  "finance_unmatched_retry(uuid)",
+  "finance_unmatched_escalate(uuid,text)",
+  "finance_unmatched_resolve(uuid,text,text,text)",
+  "finance_unmatched_reopen(uuid,text)",
+  "guardian_accept_invitation(text,text,boolean,text,text,uuid)",
+  "guardian_actor_may_manage(uuid)",
+  "guardian_create_invitation(uuid,uuid,uuid,text,text,timestamp with time zone)",
+  "guardian_list_invitations(uuid,text,integer)",
+  "guardian_my_links()",
+  "guardian_preview_invitation(text)",
+  "guardian_record_delivery(uuid,uuid,text)",
+  "guardian_revoke_account_link(uuid,uuid,text)",
+  "guardian_revoke_invitation(uuid,uuid)",
+  "account_accept_invitation(text,text,text,uuid)",
+  "account_actor_is_super()",
+  "account_admin_issue_reset(uuid,uuid,text,timestamp with time zone)",
+  "account_complete_password_reset(text,text)",
+  "account_create_invitation(uuid,text,text,text,text,timestamp with time zone)",
+  "account_deactivate_membership(uuid,uuid)",
+  "account_request_password_reset(text,text,timestamp with time zone)",
+  "account_revoke_invitation(uuid,uuid)",
+  "auth_rehash_password(uuid,text,text)",
+  "auth_session_idle_seconds(uuid)",
+  "finance_ops_snapshot()",
+  "platform_provision_school(uuid,text,text,text,text,text,text,timestamp with time zone)",
   "auth_credential_by_email(text)",
   "auth_credential_by_login_id(uuid,text)",
   "auth_password_credential(uuid)",
@@ -260,6 +472,11 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "directory_update_tenant_identity(text,text)",
   "finance_mpesa_tenant_for_checkout(text)",
   "finance_mpesa_record_unmatched(text,text,integer,bigint,text,text)",
+  "jobs_operator_cancel(uuid,uuid,text,inet)",
+  "finance_mpesa_quarantine_has_receipt(text,text)",
+  "communications_audience_reaches(uuid,jsonb,uuid)",
+  "device_tokens_register(uuid,text,text)",
+  "may_talk(uuid,uuid,uuid)",
 ];
 
 async function inventory(pool: pg.Pool): Promise<FnRow[]> {
@@ -328,7 +545,7 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     // membership-change function, which is attached twice (UPDATE and DELETE). Migration 026 adds
     // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
     // Migration 029 adds class_memberships_integrity_guard. Later attendance triggers are invokers.
-    expect(r.rows.length).toBe(12);
+    expect(r.rows.length).toBe(17);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 

@@ -25,7 +25,7 @@ import {
 const OWNER_URL =
   process.env.MIGRATION_DATABASE_URL ??
   process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+  "";
 const SCRIPT = fileURLToPath(new URL("../scripts/session-hmac.mjs", import.meta.url));
 
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;

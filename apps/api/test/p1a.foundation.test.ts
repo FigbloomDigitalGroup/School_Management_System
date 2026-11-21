@@ -58,7 +58,7 @@ describe("P1-A identity / tenancy / RBAC foundation", () => {
       `SELECT password_hash FROM users WHERE id = $1`,
       [ids.adminA],
     );
-    expect(row.rows[0]!.password_hash.startsWith("scrypt$")).toBe(true);
+    expect(row.rows[0]!.password_hash.startsWith("$argon2id$")).toBe(true);
   });
 
   it("authenticates email login and rejects bad password", async () => {

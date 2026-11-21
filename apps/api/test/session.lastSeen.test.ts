@@ -55,12 +55,12 @@ describe("session last_seen throttle", () => {
     await ctx.pool.end();
   });
 
-  it("default interval is 300 s and the config is range-checked", () => {
-    expect(ctx.config.sessionLastSeenIntervalSeconds).toBe(300);
+  it("default interval is 60 s and the config is range-checked", () => {
+    expect(ctx.config.sessionLastSeenIntervalSeconds).toBe(60);
     const base = { DATABASE_URL: "postgresql://figbloom_app:x@127.0.0.1:58322/figbloom_api" };
     expect(loadConfig({ ...base, SESSION_LAST_SEEN_INTERVAL_SECONDS: "0" }).sessionLastSeenIntervalSeconds).toBe(0);
     expect(() => loadConfig({ ...base, SESSION_LAST_SEEN_INTERVAL_SECONDS: "-1" })).toThrow(/sessionLastSeenIntervalSeconds/);
-    expect(() => loadConfig({ ...base, SESSION_LAST_SEEN_INTERVAL_SECONDS: "3601" })).toThrow(/sessionLastSeenIntervalSeconds/);
+    expect(() => loadConfig({ ...base, SESSION_LAST_SEEN_INTERVAL_SECONDS: "121" })).toThrow(/sessionLastSeenIntervalSeconds/);
   });
 
   it("N requests inside the interval write nothing", async () => {

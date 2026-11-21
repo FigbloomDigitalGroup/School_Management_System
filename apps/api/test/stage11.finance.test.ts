@@ -10,6 +10,7 @@ import type { MpesaProvider, StkPushRequest, StkPushResult, StkQueryResult } fro
 import { workerHandlers } from "../src/worker/handlers.js";
 import { runCycle } from "../src/worker/runtime.js";
 import { createTestApp, type FixtureIds } from "./support.js";
+import { enableWorkerLogin, resetWorkerLogin } from "./support/financeHarness.js";
 
 /**
  * Stage 11 finance: invariants, security and settlement, through the real HTTP app, the real runtime
@@ -37,8 +38,8 @@ class FakeProvider implements MpesaProvider {
   }
 }
 
-/** The tables the worker role may read (it has no grant on the others at all). */
-const WORKER_TABLES = ["finance_fee_items", "finance_invoices", "finance_invoice_lines", "finance_charges", "finance_invoice_adjustments", "finance_payments", "finance_mpesa_events", "finance_payment_proofs", "jobs"];
+/** The tables the worker role may read (it has no grant on the others at all; fee items were removed by migration 046). */
+const WORKER_TABLES = ["finance_invoices", "finance_invoice_lines", "finance_charges", "finance_invoice_adjustments", "finance_payments", "finance_mpesa_events", "finance_payment_proofs", "jobs"];
 const CALLBACK_SECRET = "callback-secret-for-tests-0123456789abcdef";
 const PASSWORD = "correct-horse-battery";
 
@@ -185,12 +186,8 @@ describe("Stage 11 finance", () => {
     parent = await login({ tenantId: A(), loginId: "PT-0001", password: PASSWORD });
 
     // the worker role is NOLOGIN until an operator enables it; the test enables it for this run only
-    const workerPassword = "w-" + randomUUID();
-    await ctx.pool.query(`ALTER ROLE figbloom_worker WITH LOGIN PASSWORD '${workerPassword}'`);
-    const wurl = new URL(ctx.runtimeUrl);
-    wurl.username = "figbloom_worker";
-    wurl.password = workerPassword;
-    workerPool = new pg.Pool({ connectionString: wurl.toString(), max: 1 });
+    // (random password, short VALID UNTIL, reset before and after: see test/support/financeHarness.ts, F-14)
+    workerPool = await enableWorkerLogin(ctx.pool, ctx.runtimeUrl);
 
     year = (await call("POST", `/v1/tenants/${A()}/academic-years`, admin, { label: "Fin 2026", starts_on: "2020-01-01", ends_on: "2035-12-31" })).json().academic_year.id;
     term = await created("/academic-terms", { academic_year_id: year, index: 1, label: "Fin T1", starts_on: "2020-01-01", ends_on: "2035-12-31" }, "term");
@@ -209,7 +206,7 @@ describe("Stage 11 finance", () => {
 
   afterAll(async () => {
     await workerPool?.end().catch(() => undefined);
-    await ctx.pool.query(`ALTER ROLE figbloom_worker WITH NOLOGIN PASSWORD NULL`).catch(() => undefined);
+    await resetWorkerLogin(ctx.pool).catch(() => undefined);
     await app.close();
     await ctx.app.close();
     await ctx.pool.end();
@@ -554,13 +551,17 @@ describe("Stage 11 finance", () => {
       const pay = (await get(`/payments/${payment.id}`)).json().payment;
       expect(pay).toMatchObject({ status: "success", amount_minor: 400_000, mpesa_receipt: "SETTLE0001" });
       expect(await invoice(inv)).toMatchObject({ paid_minor: 400_000, balance_minor: 600_000, status: "part_paid" });
-      const ev = await owner<{ outcome: string; callback_amount_minor: string; msisdn_masked: string }>(`SELECT outcome, callback_amount_minor, msisdn_masked FROM finance_mpesa_events WHERE payment_id = $1`, [payment.id]);
-      expect(ev).toEqual([{ outcome: "settled_success", callback_amount_minor: "100", msisdn_masked: "254*****5678" }]);
+      const ev = await owner<{ outcome: string; callback_amount_minor: string; msisdn_masked: string }>(`SELECT outcome, callback_amount_minor, msisdn_masked FROM finance_mpesa_events WHERE payment_id = $1 ORDER BY received_at, id`, [payment.id]);
+      // the authenticated callback is persisted BEFORE the provider is queried (batch 5), then the settlement is recorded
+      expect(ev).toEqual([
+        { outcome: "callback_received", callback_amount_minor: "100", msisdn_masked: "254*****5678" },
+        { outcome: "settled_success", callback_amount_minor: "100", msisdn_masked: "254*****5678" },
+      ]);
 
       for (let i = 0; i < 3; i++) expect((await sendCallback(body)).statusCode).toBe(200);
       expect((await invoice(inv)).paid_minor).toBe(400_000);
       const events = await owner<{ outcome: string }>(`SELECT outcome FROM finance_mpesa_events WHERE payment_id = $1 ORDER BY received_at`, [payment.id]);
-      expect(events.map((e) => e.outcome)).toEqual(["settled_success", "already_settled", "already_settled", "already_settled"]);
+      expect(events.map((e) => e.outcome)).toEqual(["callback_received", "settled_success", "already_settled", "already_settled", "already_settled"]);
     });
 
     it("simultaneous duplicate callbacks credit once", async () => {
@@ -585,7 +586,8 @@ describe("Stage 11 finance", () => {
     });
 
     it("maps failure result codes and keeps the prompt pending when the provider is unavailable", async () => {
-      const cases: Array<[number, string, string]> = [[1, "failed", "insufficient"], [1037, "timeout", "timeout"], [2001, "failed", "wrong_pin"], [9999, "failed", "unreachable"]];
+      const cases: Array<[number, string, string]> = [[1, "failed", "insufficient"], [1037, "timeout", "timeout"], [2001, "failed", "wrong_pin"], [1001, "failed", "duplicate"], [1032, "cancelled", "cancelled"]];
+      // an UNKNOWN code (e.g. 9999) no longer fails the prompt (remediation batch 2): see stage11.batch2.uncertainPrompt.test.ts
       for (const [code, status, reason] of cases) {
         const inv = await freshInvoice();
         const { payment, checkout } = await startPrompt(inv, 100_000);
@@ -678,12 +680,15 @@ describe("Stage 11 finance", () => {
       expect((await post("/payments", { invoice_id: inv, amount_minor: 1_000_000, method: "cash" })).statusCode).toBe(201);
       fake.queries.set(checkout, { done: true, resultCode: 0 });
       expect((await sendCallback(callbackBody(checkout, 0, { amount: 3, receipt: "OVERPAY001" }))).statusCode).toBe(200);
-      expect(await invoice(inv)).toMatchObject({ paid_minor: 2_000_000, balance_minor: 0, overpaid_minor: 1_000_000, status: "paid" });
+      // overpayment policy (remediation batch 3): the invoice is credited only up to its total; the confirmed excess is
+      // held unapplied on the prompt's payment, raised by reconciliation and audited
+      expect(await invoice(inv)).toMatchObject({ paid_minor: 1_000_000, balance_minor: 0, overpaid_minor: 0, status: "paid" });
       const run = await post("/reconciliation-runs", { stale_after_minutes: 30 });
       expect(run.statusCode).toBe(201);
-      const kinds = (run.json().findings as Json[]).filter((f) => f.subject_id === inv || f.detail.invoice_id === inv).map((f) => f.kind);
-      expect(kinds).toContain("overpaid_invoice");
-      expect((await owner(`SELECT 1 FROM security_audit_events WHERE event_type = 'finance.payment.overpaid' AND detail->>'invoiceId' = $1`, [inv])).length).toBe(1);
+      const kinds = (run.json().findings as Json[]).filter((f) => f.detail.invoice_id === inv).map((f) => f.kind);
+      expect(kinds).toContain("unapplied_payment");
+      expect(kinds).not.toContain("overpaid_invoice");
+      expect((await owner(`SELECT 1 FROM security_audit_events WHERE event_type = 'finance.payment.unapplied' AND detail->>'invoiceId' = $1`, [inv])).length).toBe(1);
     });
   });
 
@@ -835,7 +840,7 @@ describe("Stage 11 finance", () => {
       const inv = await freshInvoice();
       const { payment } = await startPrompt(inv, 100_000);
       await owner(
-        `UPDATE jobs SET status = 'leased', attempts = max_attempts, leased_by = 'dead-worker',
+        `UPDATE jobs SET status = 'leased', attempts = max_attempts, leased_by = 'dead-worker', lease_token = 'dead-worker', lease_started_at = now(),
                 lease_expires_at = now() - interval '1 minute', run_after = now() - interval '1 hour', last_error_code = 'provider_error'
           WHERE idempotency_key = $1`,
         [`settle:${payment.id}`],
@@ -852,7 +857,7 @@ describe("Stage 11 finance", () => {
       const inv = await freshInvoice(1_000_000);
       const { payment, checkout } = await startPrompt(inv, 100_000);
       fake.queries.set(checkout, { done: true, resultCode: 0 });
-      await owner(`UPDATE jobs SET status = 'leased', attempts = 1, leased_by = 'dead-worker', lease_expires_at = now() - interval '1 minute', run_after = now() - interval '1 hour' WHERE idempotency_key = $1`, [`settle:${payment.id}`]);
+      await owner(`UPDATE jobs SET status = 'leased', attempts = 1, leased_by = 'dead-worker', lease_token = 'dead-worker', lease_started_at = now(), lease_expires_at = now() - interval '1 minute', run_after = now() - interval '1 hour' WHERE idempotency_key = $1`, [`settle:${payment.id}`]);
       expect(await cycle()).toEqual(["retry"]); // query success without receipt
       expect((await owner<{ attempts: number }>(`SELECT attempts FROM jobs WHERE idempotency_key = $1`, [`settle:${payment.id}`]))[0]!.attempts).toBe(2);
       expect((await invoice(inv)).paid_minor).toBe(0);
@@ -864,7 +869,7 @@ describe("Stage 11 finance", () => {
       const inv = await freshInvoice(1_000_000);
       const { payment, checkout } = await startPrompt(inv, 100_000);
       fake.queries.set(checkout, { done: true, resultCode: 0 });
-      await owner(`UPDATE jobs SET status = 'leased', attempts = 1, leased_by = 'busy', lease_expires_at = now() + interval '5 minutes', run_after = now() - interval '1 hour' WHERE idempotency_key = $1`, [`settle:${payment.id}`]);
+      await owner(`UPDATE jobs SET status = 'leased', attempts = 1, leased_by = 'busy', lease_token = 'busy', lease_started_at = now(), lease_expires_at = now() + interval '5 minutes', run_after = now() - interval '1 hour' WHERE idempotency_key = $1`, [`settle:${payment.id}`]);
       expect(await cycle()).toEqual([]);
       await owner(`UPDATE jobs SET status = 'queued', lease_expires_at = NULL, leased_by = NULL, attempts = 0 WHERE idempotency_key = $1`, [`settle:${payment.id}`]);
       await owner(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, [A()]);
@@ -987,7 +992,7 @@ describe("Stage 11 finance", () => {
       expect(await invoice(inv)).toEqual(before); // reconciliation changes no money
 
       // resolve while the prompt is STILL stale and pending: a resolved (kind, subject) must not be raised again
-      const res = await post(`/reconciliation-findings/${stale.id}/resolve`, { note: "Parent confirmed payment" });
+      const res = await post(`/reconciliation-findings/${stale.id}/resolve`, { note: "Parent confirmed payment", evidence: "Parent supplied M-Pesa SMS; provider portal checked" });
       expect(res.statusCode).toBe(200);
       expect(res.json().finding).toMatchObject({ status: "resolved", resolved_by: ids.adminA, resolution_note: "Parent confirmed payment" });
       expect((await post(`/reconciliation-findings/${stale.id}/resolve`, { note: "again" })).statusCode).toBe(409);
@@ -1000,7 +1005,7 @@ describe("Stage 11 finance", () => {
       fake.queries.set(checkout, { done: true, resultCode: 0 });
       await sendCallback(callbackBody(checkout, 0, { amount: 9, receipt: "RECON00001" }));
       const run2 = await post("/reconciliation-runs", { stale_after_minutes: 30 });
-      expect((run2.json().findings as Json[]).some((f) => f.kind === "callback_amount_mismatch" && f.subject_id === payment.id && f.detail.callback_amount_minor === 900 && f.detail.credited_minor === 100_000)).toBe(true);
+      expect((run2.json().findings as Json[]).some((f) => f.kind === "callback_amount_mismatch" && f.subject_id === payment.id && f.detail.callback_amount_minor === 900 && f.detail.confirmed_minor === 100_000 && f.detail.applied_minor === 100_000)).toBe(true);
       expect((await invoice(inv)).paid_minor).toBe(100_000);
       expect(((await get("/reconciliation-findings?status=resolved")).json().findings as Json[]).some((f) => f.id === stale.id)).toBe(true);
       expect(((await get("/reconciliation-runs")).json().runs as Json[]).length).toBeGreaterThanOrEqual(3);

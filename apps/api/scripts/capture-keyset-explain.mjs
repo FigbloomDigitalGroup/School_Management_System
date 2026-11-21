@@ -7,10 +7,10 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ownerUrl =
-  process.env.MIGRATION_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+// No default target: the old default was the development stack (port 58322), which this programme's database-safety rules
+// forbid as an implicit target. The caller must name the database explicitly (see docs/TEST-DATABASE-SAFETY.md).
+const ownerUrl = process.env.MIGRATION_DATABASE_URL;
+if (!ownerUrl) throw new Error("MIGRATION_DATABASE_URL must be set explicitly (no default database)");
 
 const url = new URL(ownerUrl);
 if (url.pathname.replace(/^\//, "") !== "figbloom_api") {

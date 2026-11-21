@@ -8,7 +8,7 @@ const { Pool } = pg;
 const ownerUrl =
   process.env.MIGRATION_DATABASE_URL ??
   process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+  "";
 
 describe("runtime role assertion", () => {
   const pool = new Pool({ connectionString: ownerUrl, max: 4, application_name: "figbloom-role-test" });

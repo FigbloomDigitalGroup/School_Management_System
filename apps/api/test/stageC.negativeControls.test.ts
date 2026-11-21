@@ -128,7 +128,7 @@ describe("Stage C negative controls (in-suite)", () => {
     const url = new URL(
       process.env.MIGRATION_DATABASE_URL ??
         process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api",
+        "",
     );
     url.username = "figbloom_nc7_leaf";
     url.password = secret;

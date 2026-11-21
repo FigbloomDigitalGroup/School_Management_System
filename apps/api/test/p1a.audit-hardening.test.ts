@@ -601,10 +601,25 @@ describe("FIG-1573 audit regression suite", () => {
       expect(r.headers["Retry-After"]).toBeTruthy();
     });
 
-    it("test reset guard refuses non-isolated databases", () => {
-      expect(() => assertIsolatedTestDatabase("postgresql://u:p@db.example.com:5432/figbloom_api")).toThrow();
-      expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/postgres")).toThrow();
-      expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/figbloom_api")).not.toThrow();
+    it("test reset guard refuses non-isolated, development-port and undesignated databases", () => {
+      const prev = process.env.FIGBLOOM_TEST_DB_DESIGNATION;
+      try {
+        process.env.FIGBLOOM_TEST_DB_DESIGNATION = "127.0.0.1:59822/figbloom_api";
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@db.example.com:5432/figbloom_api")).toThrow();
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/postgres")).toThrow();
+        // the development stack is refused even when explicitly designated
+        process.env.FIGBLOOM_TEST_DB_DESIGNATION = "127.0.0.1:58322/figbloom_api";
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/figbloom_api")).toThrow(/development.default port/);
+        // an undesignated (inferred-from-.env) target is refused
+        delete process.env.FIGBLOOM_TEST_DB_DESIGNATION;
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:59822/figbloom_api")).toThrow(/explicit designation/);
+        expect(() => assertIsolatedTestDatabase(undefined as unknown as string)).toThrow();
+        process.env.FIGBLOOM_TEST_DB_DESIGNATION = "127.0.0.1:59822/figbloom_api";
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:59822/figbloom_api")).not.toThrow();
+      } finally {
+        if (prev === undefined) delete process.env.FIGBLOOM_TEST_DB_DESIGNATION;
+        else process.env.FIGBLOOM_TEST_DB_DESIGNATION = prev;
+      }
     });
   });
 });

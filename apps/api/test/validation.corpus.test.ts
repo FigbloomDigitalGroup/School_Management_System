@@ -64,7 +64,7 @@ describe("validation corpus: strict objects and configuration", () => {
     expect(c).toMatchObject({
       host: "127.0.0.1",
       port: 4100,
-      sessionTtlSeconds: 43_200,
+      sessionTtlSeconds: 28_800,
       authRateCapacity: 5,
       authRateRefill: 2,
       authRateIntervalMs: 5_000,

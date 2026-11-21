@@ -4,6 +4,14 @@ import net from "node:net";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp } from "./support.js";
+import { assertIsolatedTestDatabase } from "./support/testTarget.js";
+
+/** The compiled-migrate test needs an explicitly designated disposable URL; there is no default. */
+function requireDesignatedUrl(): string {
+  const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
+  assertIsolatedTestDatabase(url);
+  return url!;
+}
 
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
@@ -84,7 +92,7 @@ describe("compiled build (dist)", () => {
       env: {
         ...process.env,
         MIGRATION_DATABASE_URL:
-          process.env.MIGRATION_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api",
+          requireDesignatedUrl(),
         DATABASE_URL: "",
       },
       encoding: "utf8",

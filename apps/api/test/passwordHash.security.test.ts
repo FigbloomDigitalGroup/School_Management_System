@@ -106,7 +106,7 @@ describe("password_hash access justification", () => {
       ]),
     );
     expect(byEmail.rows).toHaveLength(1);
-    expect(byEmail.rows[0]!.password_hash.startsWith("scrypt$")).toBe(true);
+    expect(byEmail.rows[0]!.password_hash.startsWith("$argon2id$")).toBe(true);
     // Nothing enumerates: no key means no rows.
     const none = await withIdentityAccess(ctx.runtimePool, (db) =>
       db.query(`SELECT * FROM public.auth_credential_by_email($1)`, ["nobody@example.com"]),

@@ -174,7 +174,7 @@ describe("R-01: identity-path database operations are bounded", () => {
     });
     const token = login.json().token as string;
     // Make last_seen_at stale so the lookup tries to write, then hold the row lock.
-    await ctx.pool.query(`UPDATE sessions SET last_seen_at = now() - interval '1 hour' WHERE user_id = $1`, [ctx.ids.adminA]);
+    await ctx.pool.query(`UPDATE sessions SET last_seen_at = now() - interval '5 minutes' WHERE user_id = $1`, [ctx.ids.adminA]);
     const holder = await ctx.pool.connect();
     try {
       await holder.query("BEGIN");

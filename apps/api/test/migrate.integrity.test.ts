@@ -19,6 +19,7 @@ import {
 } from "../src/db/migrate.js";
 import { MIGRATIONS_DIR } from "../src/config.js";
 import { assertIsolatedTestDatabase } from "./support.js";
+import { assertDisposableMarker } from "./support/testTarget.js";
 
 const { Pool } = pg;
 
@@ -26,7 +27,7 @@ const { Pool } = pg;
 const ownerUrl =
   process.env.MIGRATION_DATABASE_URL ??
   process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+  "";
 
 describe("FIG-1610 migration integrity", () => {
   let pool: pg.Pool;
@@ -35,6 +36,7 @@ describe("FIG-1610 migration integrity", () => {
   beforeAll(async () => {
     assertIsolatedTestDatabase(ownerUrl);
     pool = new Pool({ connectionString: ownerUrl });
+    await assertDisposableMarker(pool); // structural guard before any DROP SCHEMA
     await pool.query(`
       DROP SCHEMA public CASCADE;
       CREATE SCHEMA public;

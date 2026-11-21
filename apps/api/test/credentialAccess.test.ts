@@ -172,7 +172,7 @@ describe("credential access (migration 011)", () => {
       call: `SELECT password_hash FROM public.auth_credential_by_email('admin-a@example.com')`,
     });
     expect(hashes).toHaveLength(1);
-    expect(hashes[0]!.startsWith("scrypt$")).toBe(true);
+    expect(hashes[0]!.startsWith("$argon2id$")).toBe(true);
   });
 
   it("NC-D3 negative control: the same lookup written the pre-hardening way is hijacked by the shadow", async () => {

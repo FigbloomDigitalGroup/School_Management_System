@@ -77,7 +77,7 @@ const EXPECTED: Record<string, string[]> = {
   cbe_result_revisions: ["INSERT", "SELECT"],
   he_grade_revisions: ["INSERT", "SELECT"],
   // Migrations 036-039 (Stage 11 finance and the job runtime): INSERT + SELECT only; UPDATE is column-level.
-  jobs: ["INSERT", "SELECT"],
+  // jobs: column-level only since migration 065 (INSERT of enqueue columns, SELECT excluding lease_token): no table-level grant
   finance_fee_items: ["INSERT", "SELECT"],
   finance_invoices: ["INSERT", "SELECT"],
   finance_invoice_lines: ["INSERT", "SELECT"],
@@ -91,6 +91,80 @@ const EXPECTED: Record<string, string[]> = {
   finance_ai_helper_settings: ["INSERT", "SELECT"],
   finance_ai_helper_optins: ["INSERT", "SELECT"],
   finance_ai_helper_optin_log: ["INSERT", "SELECT"],
+  // Migration 048 (Stage 12 announcements): UPDATE is column-level only.
+  communications_announcements: ["INSERT", "SELECT"],
+  communications_announcement_reads: ["INSERT", "SELECT"],
+  communications_announcement_deliveries: ["INSERT", "SELECT"],
+  // Migration 050–051.
+  notification_preferences: ["DELETE", "INSERT", "SELECT"],
+  device_tokens: ["DELETE", "INSERT", "SELECT"],
+  gate_visits: ["INSERT", "SELECT"],
+  medical_settings: ["INSERT", "SELECT"],
+  sick_bay_visit_corrections: ["SELECT"], // 066: append-only history, written only by the guard trigger
+  sick_bay_visits: ["INSERT", "SELECT"],
+  medical_notices: ["INSERT", "SELECT"],
+  conversations: ["INSERT", "SELECT"],
+  conversation_members: ["INSERT", "SELECT"],
+  chat_messages: ["INSERT", "SELECT"],
+  inventory_items: ["INSERT", "SELECT"],
+  inventory_issues: ["INSERT", "SELECT"],
+  leave_requests: ["INSERT", "SELECT"],
+  activities: ["INSERT", "SELECT"],
+  activity_patrons: ["INSERT", "SELECT"],
+  activity_members: ["INSERT", "SELECT"],
+  vehicles: ["INSERT", "SELECT"],
+  transport_routes: ["INSERT", "SELECT"],
+  route_stops: ["INSERT", "SELECT"],
+  vehicle_assignments: ["INSERT", "SELECT"],
+  learner_transport: ["INSERT", "SELECT"],
+  trips: ["INSERT", "SELECT"],
+  import_batches: ["INSERT", "SELECT"],
+};
+
+/** Stage 12: columns figbloom_app may UPDATE on announcements (identity/provenance never listed). */
+const EXPECTED_COMMUNICATIONS_UPDATE_COLUMNS: Record<string, string[]> = {
+  communications_announcements: ["audience", "body", "channels", "published_at", "subject"],
+  conversations: ["last_message_at"],
+  conversation_members: ["last_read_at"],
+  medical_settings: ["notify_guardians", "updated_at", "updated_by"],
+  medical_notices: ["read_at"],
+  notification_preferences: [
+    "absence_today",
+    "chat_messages",
+    "fee_reminders",
+    "general_notices",
+    "results_published",
+    "updated_at",
+  ],
+  gate_visits: [
+    "escalated",
+    "escalated_at",
+    "escalation_notified_at",
+    "host_notified_at",
+    "left_at",
+    "note",
+    "reception_at",
+    "status",
+    "updated_at",
+    "with_host_at",
+  ],
+  sick_bay_visits: [
+    "assessment",
+    "attendance_mark",
+    "attendance_marked_at",
+    "complaint",
+    "correction_reason",
+    "follow_up",
+    "observations",
+    "outcome",
+    "pulse_bpm",
+    "referred_to",
+    "row_version",
+    "temperature_c",
+    "time_out",
+    "treatment",
+    "updated_at",
+  ],
 };
 
 /**
@@ -106,22 +180,20 @@ const EXPECTED_FINANCE_UPDATE_COLUMNS: Record<"figbloom_app" | "figbloom_worker"
     finance_payments: ["checkout_request_id", "completed_at", "failure_reason", "merchant_request_id", "mpesa_receipt", "status", "updated_at"],
     finance_payment_proofs: ["payment_id", "rejection_reason", "reviewed_at", "reviewed_by", "status"],
     finance_reconciliation_runs: ["findings_count"],
-    finance_reconciliation_findings: ["resolution_note", "resolved_at", "resolved_by", "status"],
+    finance_reconciliation_findings: ["assigned_at", "owner_user_id", "resolution_evidence", "resolution_note", "resolved_at", "resolved_by", "status"],
     finance_ai_helper_settings: ["access_mode", "cancel_days", "price_minor", "updated_at", "updated_by"],
     finance_ai_helper_optins: ["changed_at", "changed_by", "opted_in"],
   },
   figbloom_worker: {
-    finance_payments: ["completed_at", "failure_reason", "mpesa_receipt", "status", "updated_at"],
-    finance_invoices: ["updated_at"],
-    jobs: ["attempts", "cancel_reason", "finished_at", "last_error_code", "lease_expires_at", "leased_by", "run_after", "status"],
+    // F-8 & F8-A (migrations 047, 061): worker has no direct UPDATE on finance_payments, finance_invoices or jobs.
   },
 };
 const FINANCE_NEVER_UPDATABLE: Array<[string, string[]]> = [
   ["finance_invoices", ["lines_minor", "charges_minor", "adjustments_minor", "total_minor", "paid_minor", "currency", "learner_id", "term_id", "tenant_id"]],
-  ["finance_payments", ["amount_minor", "currency", "method", "reference", "msisdn", "invoice_id", "proof_id", "recorded_by", "tenant_id"]],
+  ["finance_payments", ["amount_minor", "currency", "method", "reference", "msisdn", "invoice_id", "proof_id", "recorded_by", "tenant_id", "applied_minor", "unapplied_minor"]],
   ["finance_invoice_lines", ["amount_minor", "name"]],
   ["finance_invoice_adjustments", ["to_total_minor", "delta_minor", "reason"]],
-  ["jobs", ["tenant_id", "job_type", "payload", "idempotency_key", "enqueued_by_user_id"]],
+  ["jobs", ["tenant_id", "job_type", "payload", "idempotency_key", "enqueued_by_user_id", "attempts", "cancel_reason", "status", "leased_by", "lease_expires_at", "run_after", "last_error_code", "finished_at"]],
 ];
 
 /**
@@ -226,6 +298,59 @@ describe("migration 009 grants and policies", () => {
           AND (table_name LIKE 'finance\\_%' OR table_name = 'jobs') AND privilege_type IN ('DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')`,
     );
     expect(del.rows).toEqual([]);
+  });
+
+  it("communications announcements: UPDATE is column-level; identity and provenance are never updatable (Stage 12)", async () => {
+    const tables = Object.keys(EXPECTED_COMMUNICATIONS_UPDATE_COLUMNS);
+    const r = await ctx.pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND privilege_type = 'UPDATE'
+          AND table_name = ANY($1::text[])
+        ORDER BY table_name, column_name`,
+      [tables],
+    );
+    const by: Record<string, string[]> = {};
+    for (const row of r.rows) (by[row.table_name] ??= []).push(row.column_name);
+    expect(by).toEqual(EXPECTED_COMMUNICATIONS_UPDATE_COLUMNS);
+    const forbiddenByTable: Record<string, string[]> = {
+      communications_announcements: ["id", "tenant_id", "author_id", "created_at"],
+      conversations: ["id", "tenant_id", "pair_key", "created_by", "created_at"],
+      conversation_members: ["conversation_id", "tenant_id", "user_id"],
+      medical_settings: ["tenant_id"],
+      medical_notices: ["id", "tenant_id", "visit_id", "guardian_user_id", "learner_id", "outcome", "summary"],
+      notification_preferences: ["user_id"],
+      gate_visits: ["id", "tenant_id", "recorded_by", "arrived_at"],
+      sick_bay_visits: ["id", "tenant_id", "learner_id", "logged_by", "time_in"],
+    };
+    for (const [table, columns] of Object.entries(EXPECTED_COMMUNICATIONS_UPDATE_COLUMNS)) {
+      for (const column of forbiddenByTable[table] ?? ["id", "tenant_id"]) {
+        if (columns.includes(column)) continue;
+        const eff = await ctx.pool.query<{ upd: boolean }>(
+          `SELECT has_column_privilege('figbloom_app', $1, $2, 'UPDATE') AS upd`,
+          [`public.${table}`, column],
+        );
+        expect(eff.rows[0]?.upd, `${table}.${column}`).toBe(false);
+      }
+      const priv = await ctx.pool.query<{ tbl: boolean; any_col: boolean }>(
+        `SELECT has_table_privilege('figbloom_app', $1, 'UPDATE') AS tbl,
+                has_any_column_privilege('figbloom_app', $1, 'UPDATE') AS any_col`,
+        [`public.${table}`],
+      );
+      expect(priv.rows[0]?.tbl, `${table} table-level UPDATE`).toBe(false);
+      expect(priv.rows[0]?.any_col, `${table} any-column UPDATE`).toBe(true);
+    }
+    const worker = await ctx.pool.query<{ table_name: string; privilege_type: string }>(
+      `SELECT table_name, privilege_type FROM information_schema.role_table_grants
+        WHERE grantee = 'figbloom_worker' AND table_schema = 'public'
+          AND table_name LIKE 'communications\\_%'
+        ORDER BY table_name, privilege_type`,
+    );
+    const wBy: Record<string, string[]> = {};
+    for (const row of worker.rows) (wBy[row.table_name] ??= []).push(row.privilege_type);
+    expect(wBy).toEqual({
+      communications_announcement_deliveries: ["INSERT", "SELECT"],
+      communications_announcements: ["SELECT"],
+    });
   });
 
   it("directory tables: UPDATE is column-level and names only the columns the modules write (P3-AUDIT-009)", async () => {

@@ -124,7 +124,8 @@ describe("FIG-1605 live catalogue", () => {
     const policies = await ctx.pool.query<{ tablename: string; roles: string[]; qual: string | null }>(
       `SELECT tablename, roles::text[] AS roles, qual FROM pg_policies WHERE schemaname = 'public'`,
     );
-    const insertOnly = new Set(["security_audit_events"]);
+    // account_tokens (072) is owner-only by design: no runtime privilege at all, reached only through definer functions
+    const insertOnly = new Set(["security_audit_events", "account_tokens", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes"]);
     const missing = withTenant.rows
       .map((r) => r.table_name)
       .filter((t) => !insertOnly.has(t))

@@ -14,8 +14,12 @@ const ALL_NEW_TABLES = tablesCreatedFrom(29, MIGRATIONS_DIR);
  * all (operator-only quarantine, written through a SECURITY DEFINER function). Each is asserted below to be
  * RLS-forced and to hold no privilege for figbloom_app or figbloom_worker, so this is not a silent exemption.
  */
-const OPERATOR_ONLY_TABLES = ["finance_mpesa_unmatched_callbacks"];
-const STAGE910_TABLES = ALL_NEW_TABLES.filter((t) => !OPERATOR_ONLY_TABLES.includes(t));
+const OPERATOR_ONLY_TABLES = ["finance_mpesa_unmatched_callbacks", "account_tokens", "worker_heartbeats", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes"];
+/** User-scoped (session user GUC), not tenant-scoped school tables. */
+const USER_SCOPED_TABLES = ["notification_preferences", "device_tokens"] as const;
+const STAGE910_TABLES = ALL_NEW_TABLES.filter(
+  (t) => !OPERATOR_ONLY_TABLES.includes(t) && !(USER_SCOPED_TABLES as readonly string[]).includes(t),
+);
 
 describe("Stage 9/10 RLS catalogue", () => {
   let ctx: Awaited<ReturnType<typeof createTestApp>>;
@@ -95,18 +99,69 @@ describe("Stage 9/10 RLS catalogue", () => {
     }
   });
 
-  it("every figbloom_app policy on these tables is exactly the tenant predicate, and no table grants UPDATE/DELETE wholesale", async () => {
+  it("user-scoped prefs/tokens use own-row policies and remain RLS-forced", async () => {
+    for (const table of USER_SCOPED_TABLES) {
+      expect(ALL_NEW_TABLES).toContain(table);
+      const flags = await ctx.pool.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `SELECT relrowsecurity, relforcerowsecurity FROM pg_class
+          WHERE relname = $1 AND relnamespace = 'public'::regnamespace`,
+        [table],
+      );
+      expect(flags.rows[0]).toEqual({ relrowsecurity: true, relforcerowsecurity: true });
+      const policies = await ctx.pool.query<{ policyname: string; qual: string | null; with_check: string | null }>(
+        `SELECT policyname, qual, with_check FROM pg_policies
+          WHERE schemaname = 'public' AND tablename = $1 AND 'figbloom_app' = ANY (roles::text[])`,
+        [table],
+      );
+      expect(policies.rows.length).toBeGreaterThan(0);
+      for (const p of policies.rows) {
+        expect(p.qual).toBe("(user_id = app_current_user_id())");
+        expect(p.with_check).toBe("(user_id = app_current_user_id())");
+      }
+    }
+  });
+
+  it("every figbloom_app policy on these tables is the tenant predicate (plus RESTRICTIVE user-level policies on user-confidential tables), and no table grants UPDATE/DELETE wholesale", async () => {
+    const RESTRICTIVE_USER_TABLES = new Set([
+      "conversations",
+      "conversation_members",
+      "chat_messages",
+      "medical_notices",
+      "communications_announcement_reads",
+    ]);
     const bad: string[] = [];
     for (const table of STAGE910_TABLES) {
-      const policies = await ctx.pool.query<{ policyname: string; roles: string[]; qual: string | null; with_check: string | null }>(
-        `SELECT policyname, roles::text[] AS roles, qual, with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = $1`,
+      const policies = await ctx.pool.query<{
+        policyname: string;
+        permissive: string;
+        roles: string[];
+        qual: string | null;
+        with_check: string | null;
+        cmd: string;
+      }>(
+        `SELECT policyname, permissive, roles::text[] AS roles, qual, with_check, cmd
+           FROM pg_policies WHERE schemaname = 'public' AND tablename = $1`,
         [table],
       );
       for (const p of policies.rows) {
-        // Stage 11: the worker role (WORKER-ISOLATION-PROPOSAL.md) gets the same exact tenant predicate.
         if (p.roles.includes("figbloom_app") || p.roles.includes("figbloom_worker")) {
-          const tenantOnly = "(tenant_id = app_current_tenant_id())";
-          if (p.qual !== tenantOnly || p.with_check !== tenantOnly) bad.push(`${table}.${p.policyname}: ${p.qual} / ${p.with_check}`);
+          if (p.permissive === "PERMISSIVE") {
+            const tenantOnly = "(tenant_id = app_current_tenant_id())";
+            if (p.qual !== tenantOnly || p.with_check !== tenantOnly) {
+              bad.push(`${table}.${p.policyname}: ${p.qual} / ${p.with_check}`);
+            }
+          } else if (p.permissive === "RESTRICTIVE") {
+            if (!RESTRICTIVE_USER_TABLES.has(table)) {
+              bad.push(`${table}.${p.policyname}: unexpected RESTRICTIVE policy`);
+            }
+            // command-specific policies (N-7): a SELECT policy has only USING, an INSERT policy only WITH CHECK
+            const mentionsUser = (t: string | null) => /app_current_user_id()/.test(t ?? "");
+            const needsQual = p.cmd !== "INSERT";
+            const needsCheck = p.cmd === "INSERT" || p.cmd === "ALL" || p.cmd === "UPDATE";
+            if ((needsQual && !mentionsUser(p.qual)) || (needsCheck && !mentionsUser(p.with_check))) {
+              bad.push(`${table}.${p.policyname}: RESTRICTIVE policy missing app_current_user_id()`);
+            }
+          }
         } else if (!p.policyname.endsWith("_owner")) {
           bad.push(`${table}.${p.policyname}: unexpected policy for ${p.roles.join(",")}`);
         }

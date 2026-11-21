@@ -153,7 +153,7 @@ describe("runtime identity proof (HTTP path vs harness)", () => {
     expect(() =>
       loadConfig({
         DATABASE_URL: process.env.MIGRATION_DATABASE_URL ??
-          "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api",
+          "",
         API_TRUST_PROXY_HOPS: "0",
       }),
     ).toThrow(/DATABASE_URL user .* must equal RUNTIME_ROLE/);

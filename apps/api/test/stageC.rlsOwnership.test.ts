@@ -138,7 +138,7 @@ describe("Stage C RLS ownership, membership and TEMPORARY", () => {
     const ownerUrl = new URL(
       process.env.MIGRATION_DATABASE_URL ??
         process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api",
+        "",
     );
     ownerUrl.username = "figbloom_owner_rls";
     ownerUrl.password = password;

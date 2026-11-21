@@ -722,10 +722,13 @@ describe("Stage 8 adversarial audit", () => {
     const urls = ctx.app.routeTable!.map((r) => `${r.method.toUpperCase()} ${r.url}`);
     // Object bytes, bulk import and invitations stay out of the directory API.
     // Class assignment and higher-education enrolment are Stage 9 routes.
-    for (const forbidden of [/upload/i, /download/i, /\/import/i, /invite/i]) {
+    for (const forbidden of [/upload/i, /download/i, /invite/i]) {
       const hit = urls.filter((u) => forbidden.test(u));
       expect(hit, `routes matching ${forbidden}`).toEqual([]);
     }
+    // Stage 16 deterministic learner CSV import is intentional; other /import* surfaces remain forbidden.
+    const importHits = urls.filter((u) => /\/import/i.test(u));
+    expect(importHits.every((u) => u.includes("/imports/learners/"))).toBe(true);
     // Documents remain metadata-only, in the response and in the database CHECK.
     const doc = await req("POST", `/v1/tenants/${A()}/documents`, {
       subject_type: "learner",

@@ -12,21 +12,8 @@ import { LOCAL_SESSION_MINT_HMAC_KEY } from "../src/modules/auth/sessionProof.js
 
 const { Pool } = pg;
 
-/**
- * resetDatabase() runs DROP SCHEMA public CASCADE. Refuse anything that is not
- * the isolated local figbloom_api database (FIG-1573 audit AUD-12).
- */
-export function assertIsolatedTestDatabase(databaseUrl: string): void {
-  const url = new URL(databaseUrl);
-  const host = url.hostname;
-  const dbName = url.pathname.replace(/^\//, "");
-  const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
-  if (!loopback || dbName !== "figbloom_api") {
-    throw new Error(
-      "Refusing to reset a database that is not the isolated local figbloom_api database.",
-    );
-  }
-}
+import { assertDisposableMarker, assertIsolatedTestDatabase } from "./support/testTarget.js";
+export { assertIsolatedTestDatabase };
 
 function quoteLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
@@ -41,6 +28,7 @@ export function runtimeUrlFromOwner(ownerUrl: string, password: string): string 
 }
 
 export async function resetDatabase(pool: pg.Pool): Promise<void> {
+  await assertDisposableMarker(pool); // structural guard: never drop a schema on an unmarked database
   await pool.query(`
     DROP SCHEMA public CASCADE;
     CREATE SCHEMA public;
@@ -147,9 +135,7 @@ export async function createTestApp(): Promise<{
 }> {
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const ownerUrl =
-    process.env.MIGRATION_DATABASE_URL ??
-    process.env.DATABASE_URL ??
-    "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+    process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
   // Override .env defaults so the suite is not starved by the login token bucket.
   process.env.AUTH_RATE_CAPACITY = "1000";
   process.env.AUTH_RATE_REFILL = "1000";
@@ -170,7 +156,7 @@ export async function createTestApp(): Promise<{
   // Cluster-wide role: LOGIN is test-only and cleared when the owner pool ends.
   const password = randomBytes(24).toString("base64url");
   await pool.query(`ALTER ROLE figbloom_app WITH LOGIN PASSWORD ${quoteLiteral(password)}`);
-  const runtimeUrl = runtimeUrlFromOwner(ownerUrl, password);
+  const runtimeUrl = runtimeUrlFromOwner(ownerUrl!, password);
   process.env.DATABASE_URL = runtimeUrl;
   let config: AppConfig;
   try {
