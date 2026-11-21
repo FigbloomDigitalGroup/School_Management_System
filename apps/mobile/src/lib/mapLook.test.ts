@@ -13,7 +13,7 @@ function storageWith(saved: string | null) {
 }
 
 /** Lets the read of the saved look come back. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise((resolve) => setTimeout(() => resolve(undefined), 0));
 
 describe("the map's look on this phone", () => {
   it("is the plain road map, and the phone's storage is not read until a map asks", () => {
