@@ -140,3 +140,6 @@ Decided and recorded for this slice. None of these is a defect to fix in VS-2.
 ## Deferred (not in VS-2)
 
 Account provisioning and invitations; user-to-guardian binding; parent self-service endpoints; single primary-payer enforcement; guardian update/archive/unlink; learner list/update/archive; staff directory; admissions; documents; class assignment; client changes; FIG-1605 runtime role wiring.
+
+
+> **Correction (2026-11-17, owner decision):** the statement above that the guardian codes are delegable to org admins is superseded. `resource.guardian.*` is NOT delegable; guardian access is only the explicit per-person grant (FIG-1614 Option D). See `ORG-ADMIN-POLICY.md`.

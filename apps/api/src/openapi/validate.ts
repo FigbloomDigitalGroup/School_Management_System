@@ -89,7 +89,13 @@ for (const [path, item] of Object.entries<Json>(doc.paths ?? {})) {
     for (const [code, resp] of Object.entries<Json>(op.responses ?? {})) {
       const r = resolveRef(resp);
       const schema = r?.content?.["application/json"]?.schema;
-      if (schema) checkSchemaConstraints(schema, `${where} response ${code}`);
+      if (code === "204") {
+        if (schema) errors.push(`${where} response 204: must not define an application/json schema`);
+      } else if (!schema) {
+        errors.push(`${where} response ${code}: missing application/json schema`);
+      } else {
+        checkSchemaConstraints(schema, `${where} response ${code}`);
+      }
     }
   }
 }

@@ -8,8 +8,9 @@ Earlier wording (2026-11-12) that the API still connected as the table owner and
 
 | Role | Purpose |
 |---|---|
-| Migrator / table owner (`CURRENT_USER` at migrate time, typically `postgres` locally) | Owns tables, creates migrations, owns append-only trigger functions |
-| `figbloom_app` | Runtime application role — **not** table owner |
+| Migrator / table owner (`CURRENT_USER` at migrate time; `postgres` in local disposable Docker, dedicated non-superuser schema owner role in hosted staging/production per `F8-D` / `F-008`) | Owns tables, creates migrations, owns `SECURITY DEFINER` and append-only trigger functions |
+| `figbloom_app` | Runtime HTTP application role — **not** table owner (`NOINHERIT`, no `BYPASSRLS`, no `SUPERUSER`) |
+| `figbloom_worker` | Background worker role (`036`, `047`, `061`) — **not** table owner (`NOINHERIT`, no `BYPASSRLS`, no `SUPERUSER`, zero direct `UPDATE` on `finance_payments`, `finance_invoices`, or `jobs`) |
 
 ## Trust boundary
 

@@ -23,7 +23,18 @@ Requirements: (1) application authorization stays mandatory; (2) dedicated non-o
 
 Acceptance is grouped on FIG-1605 as: A policy existence, B role privileges, C runtime context establishment, D pool isolation, E actual cross-tenant enforcement, F governance. Each group needs its own evidence.
 
-## Mandatory application-role restrictions (approved 2026-11-12; not yet enforced)
+## Mandatory application-role restrictions (approved 2026-11-12; ENFORCED at runtime since WP-A1 Stage C)
+
+> **Status correction (Stage 8 completion, 2026-11-18).** This section's heading read "not yet
+> enforced" long after the enforcement landed. It is enforced: `src/index.ts` calls
+> `assertRuntimeRole` at startup before the server listens; `src/config.ts` defaults
+> `RUNTIME_ROLE` to `figbloom_app` and refuses a `DATABASE_URL` whose username is not that role;
+> `src/db/roleAssert.ts` refuses superuser, `BYPASSRLS`, `CREATEROLE`, membership in a privileged
+> role, ownership of protected objects and any successful `SET ROLE`. Every directory table ships
+> `ENABLE` + `FORCE ROW LEVEL SECURITY`, and `test/phase3.runtimeIsolation.test.ts` and
+> `test/stageC.rlsOwnership.test.ts` exercise all of it through the real `figbloom_app` login.
+> What remains open is hosted provisioning and the worker/admin tenant-context policy
+> (`WORKER-ISOLATION-PROPOSAL.md`, still design-only), not the role restrictions below.
 
 The application database role **must not be capable of bypassing RLS or assuming database-owner privileges**. Accepting a role that can is **not permitted and cannot be waived by risk acceptance**. Required: a dedicated non-owner role used only by the API; no `SUPERUSER`; no `BYPASSRLS`; no ownership of protected tables, functions, schemas or sequences; no direct or inherited membership in any privileged or owner role; no ability to assume a privileged role (`SET ROLE` / `SET SESSION AUTHORIZATION` must fail); safe transaction-scoped tenant context; connection-pool isolation; missing context fails closed; runtime cross-tenant tests using this actual role. API startup must refuse to run if any of these is false.
 
@@ -69,3 +80,32 @@ Status against this list: items 1-5 and 8 (for the tables that exist) are implem
 
 - Migrator / table owner (not `figbloom_app`) acts through the positive owner policy (`current_user = pg_get_userbyid(relowner)`), not through a mode GUC. A migrator that also holds `BYPASSRLS` bypasses `FORCE` regardless; `figbloom_app` must not (checked at startup).
 - There is no `app.authz_mode` bypass. Background or administrative work needs a separately designed, audited role (none exists yet).
+
+---
+
+## Standing rule for every new personal-data table (FIG-1605 criterion 15; binding)
+
+Written 2026-11-17. This rule applies to every table added after this date, in any module, without needing a new decision.
+
+1. A table that holds personal data, or any data owned by a school, ships in the **same migration** with `tenant_id uuid NOT NULL`, `ENABLE ROW LEVEL SECURITY`, `FORCE ROW LEVEL SECURITY`, one `FOR ALL TO figbloom_app` policy using `tenant_id = app_current_tenant_id()` in both `USING` and `WITH CHECK`, and the owner-only `PUBLIC` policy. No table is created first and protected later.
+2. Grants to `figbloom_app` are the minimum the module needs. No `DELETE`, `TRUNCATE` or ownership unless a documented rule requires it.
+3. The same pull request adds the table to `RLS-CATALOGUE.md` and to the runtime-isolation inventory in `test/phase3.runtimeIsolation.test.ts` (seed rows in two schools, an unfiltered `SELECT` returns only the current school, a write naming another school is refused, missing or malformed context sees nothing). Tests must run **as the `figbloom_app` login**, not as the owner and not with `SET ROLE` alone.
+4. Application authorization stays mandatory. RLS is defence in depth against an omitted filter, not a substitute for a permission check.
+5. Applied migrations are never edited; a correction is a new migration.
+6. `test/fig1605.policyCatalogue.test.ts` and `phase3.runtimeIsolation.test.ts` enforce points 1 and 3 automatically; a reviewer must reject a table that bypasses them.
+
+## Criterion 14: background jobs and administrative workers (approved design = binding prerequisite; NOT built)
+
+**Owner decision, 2026-11-17: worker isolation is an architectural prerequisite for any future background processing of tenant data. It is not an instruction to build workers.** The approved architecture is `WORKER-ISOLATION-PROPOSAL.md`: a separate `figbloom_worker` service identity and database role, the tenant taken from a stored job row, one transaction per attempt with transaction-local context, authorization at enqueue and re-validation at execution, least privilege, audited, and no cross-tenant execution; suspension, disablement and invalidation behaviours are defined there.
+
+**Release gate (binding):** no background job, scheduled task, import, report or administrative tool may touch tenant data until an implementation satisfies that design and has passed its own security verification (the checklist in section 8 of the proposal, through the real `figbloom_worker` login).
+
+State today: no worker role, job runner or administrative tenant-context mechanism exists and none was invented. There is therefore **no sanctioned way** for non-request code to read or write tenant data under `figbloom_app`; the migrator/owner role is the only other actor and it is not a runtime role. Criterion 14 is met as a documented, approved prerequisite; **worker isolation is not implemented and not verified.** Keep this separate from the verified API request path (criteria 1 to 13).
+
+## Criterion 16: hosted CI evidence
+
+Hosted evidence comes only from a remote run of the `api` job (FIG-1606). It has **not been produced**: the job exists in `.github/workflows/ci.yml` locally and nothing was pushed, and the job has not run on Node 22 or on GitHub. **Owner decision (2026-11-17): hosted CI is not a blocker for Execution Batch 01**; local CI-equivalent verification (every job step run locally in CI order, including a run without `apps/api/.env`) is sufficient for this batch. Local runs are still not hosted evidence, and this criterion is recorded as not performed, not as passed.
+
+### Criterion 14 investigation (2026-11-17)
+
+A search of `apps/api/src` for workers, queues, schedulers, timers and cron finds none: the only non-request database consumers are the migration runner (owner role, offline) and two owner-run housekeeping functions (`prune_idempotency_keys`, `prune_rate_buckets`) that no process calls. There is no code that acquires tenant context outside a request, no job table and no worker role, so nothing can be verified against a worker that does not exist. The concrete design, the open technical questions and the verification checklist are in `WORKER-ISOLATION-PROPOSAL.md`.

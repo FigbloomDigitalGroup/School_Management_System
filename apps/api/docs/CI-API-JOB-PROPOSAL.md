@@ -1,6 +1,6 @@
 # API CI job: proposal and team-approval request (FIG-1606, D-2)
 
-**Status: PREPARED. BLOCKED: EXTERNAL APPROVAL REQUIRED.** `.github/workflows/ci.yml` is team-owned and has **not** been modified. Nothing here is an active merge gate. Supersedes the 2026-11-12 proposal (Node 20, owner-role runtime, no build or audit gate).
+**Status (2026-11-17): ADDED LOCALLY, UNCOMMITTED, NOT PUSHED. Team approval still required before merge; no hosted run exists.** The `api` job is now in the working copy of `.github/workflows/ci.yml` (PostgreSQL **16** as the FIG-1606 issue requires, job-level `permissions: contents: read`, explicit `shell: bash`, lint scoped to `apps/api/src` and `apps/api/test`, otherwise as in `ci-api-job.patch.yml`). Triggers are the workflow's own: every `pull_request` and pushes to `main`, no path filters; a push to a feature branch with no PR does not run it. Superseded text below that says the file is unmodified is history. Nothing here is an active merge gate. Supersedes the 2026-11-12 proposal (Node 20, owner-role runtime, no build or audit gate).
 
 The job is in [`ci-api-job.patch.yml`](./ci-api-job.patch.yml) (YAML-validated locally: one additive job `api`, 11 steps, `needs: security-scan`).
 
@@ -14,7 +14,7 @@ The job is in [`ci-api-job.patch.yml`](./ci-api-job.patch.yml) (YAML-validated l
 | Permissions | inherits the workflow's `contents: read`; no new permission, no `GITHUB_TOKEN` write, no `id-token` |
 | Secrets | none. The Postgres service credentials (`postgres/postgres`) belong to a throwaway container. The `figbloom_app` login password is generated per test run inside the suite and reset afterwards |
 | Actions | the same SHA-pinned actions the workflow already uses (checkout v4.4.0, setup-node v4.4.0); Node 22 like the other jobs |
-| Database | `postgres:15` service container (matches the 15.x used locally; PostgreSQL 16 behaviour of role membership options has not been exercised) |
+| Database | `postgres:16` service container (matches `.github/workflows/ci.yml` and FIG-1606; the applied job deliberately uses 16, not 15) |
 | Expected cost | about 3-6 minutes of one `ubuntu-latest` runner per pull request and push to `main`, in parallel with the other jobs (local full API run: about 100 s). `timeout-minutes: 25` |
 | Deployment impact | none: no deploy step, no environment, no artifact upload, no release trigger |
 | Branch protection | **the job does not become a merge gate by being added**. Making it required needs a repository-admin ruleset change (not requested here and not performed). Until that exists and is verified, no document may call this a merge gate |

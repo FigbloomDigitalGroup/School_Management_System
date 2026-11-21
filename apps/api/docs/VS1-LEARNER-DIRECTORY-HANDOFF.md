@@ -104,7 +104,7 @@ Shape (always):
 | Existing surface | Today | VS-1 relevance |
 |---|---|---|
 | Web People → “Add a learner” | Supabase `students` insert (`People.tsx`) | Later: call `POST .../learners`; still needs class assignment (not in VS-1) |
-| Web People roster / Manage | `students` select by `tenant_id` | Later: `GET` by id; list API not yet shipped |
+| Web People roster / Manage | `students` select by `tenant_id` | `GET` by id **and** the keyset list `GET .../learners` (limit, cursor, `sort=name\|created`, `active`, `q`) shipped in Phase 3 — this row previously said the list API was not shipped |
 | CSV import columns | `admission_no, full_name, gender, class, boarding, date_of_birth` | Field names aligned; `class` deferred |
 | Shared `learners.ts` / `learnerBio.ts` | Legacy Supabase | Product terminology retained; do not copy schema wholesale |
 | Mobile parent/student | Read linked learners via shared | No VS-1 write path for parents |

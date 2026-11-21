@@ -66,3 +66,12 @@ Existing web/mobile continue to use Supabase Auth + RLS. This API exposes a para
 ## MFA
 
 Privileged MFA is **designed** for a later gate (programme D-6). P1-A does **not** enforce MFA.
+
+
+## Forced password change (FIG-1604): where it is enforced and its limit
+
+`requireSessionAuth` (`http/middleware/authContext.ts`) refuses every request with 403 "Password change required" while `must_change_password` is set, except `GET /v1/auth/me`, `POST /v1/auth/logout` and `POST /v1/auth/password/change` (exact method and registered path; trailing slashes, other methods and other case are not routes). `withTenantRequest` and `withDelegationRequest` reach it through the same function, so every authenticated route inherits it.
+
+**Architectural limitation (documented, not hidden):** the gate is a single choke point by convention, not a global hook. A new route that authenticates some other way (for example calling `findValidSession` directly) would skip it. `test/fig1604.passwordGate.test.ts` sweeps the live route table with valid bodies and required query parameters and fails if any non-public route does not answer the gate, so such a route is caught in CI. A global `preHandler` was not added: it would duplicate the session lookup on every request and change the ordering of 400/401 for unauthenticated callers across the whole API, which has not been shown to be compatible with the current tests and clients.
+
+New authenticated routes MUST authenticate through `requireSessionAuth` (usually via `withTenantRequest`).

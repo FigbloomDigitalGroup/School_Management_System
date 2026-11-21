@@ -5,8 +5,11 @@ info:
   description: |
     FigBloom replacement modular monolith contracts.
     Includes P1-A identity/tenancy/RBAC, Phase 3 School Directory (learners, guardians,
-    staff, school profile, document metadata), Stage 9 academics, Stage 10 attendance and Stage 11 finance
-    (fees, invoices, payments, M-Pesa, payment proofs, reconciliation, AI helper billing foundations).
+    staff, school profile, document metadata), Stage 9 academics, Stage 10 attendance, Stage 11 finance
+    (fees, invoices, payments, M-Pesa, payment proofs, reconciliation, AI helper billing foundations),
+    Stage 12 communications announcements/visits/prefs/chat/sick-bay (in-app/push; SMS/email/LiveKit/FCM deferred),
+    Stage 13 inventory/leave/activities/transport (GPS/LLM deferred), Stage 14 reporting aggregates,
+    and Stage 16 learner CSV import preview/apply foundations.
     VS-1/VS-2 contracts are preserved.
     Authorization is server-enforced. Client-supplied role or permission lists
     are never accepted as evidence of access.
@@ -14,6 +17,8 @@ servers:
   - url: http://127.0.0.1:4100
     description: Local development
 tags:
+  - name: platform
+  - name: accounts
   - name: health
   - name: auth
   - name: tenancy
@@ -23,6 +28,16 @@ tags:
   - name: academics
   - name: attendance
   - name: finance
+  - name: communications
+  - name: health_services
+  - name: chat
+  - name: inventory
+  - name: leave
+  - name: activities
+  - name: transport
+  - name: reporting
+  - name: import
+  - name: me
 paths:
   /livez:
     get:
@@ -36,6 +51,10 @@ paths:
       responses:
         "200":
           description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessStatus"
   /readyz:
     get:
       tags: [ health ]
@@ -54,11 +73,19 @@ paths:
       responses:
         "200":
           description: Ready to serve
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReady"
         "503":
           description: Draining or database unavailable
           headers:
             Retry-After:
               schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessUnavailable"
   /health:
     get:
       tags: [ health ]
@@ -72,6 +99,10 @@ paths:
       responses:
         "200":
           description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessStatus"
   /v1/health:
     get:
       tags: [ health ]
@@ -82,6 +113,704 @@ paths:
       responses:
         "200":
           description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LivenessStatus"
+  /v1/platform/schools:
+    post:
+      tags:
+        - platform
+      summary: Provision a school
+      description: "Super administrator only. Creates the school (and a single-school organisation unless organization_id is given) and issues the initial school-administrator invitation. No default credentials exist; the administrator sets their own password by accepting the invitation."
+      operationId: platformProvisionSchool
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: none
+      x-figbloom-note: super administrator (enforced in the database)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [school_name, slug, admin_email]
+              properties:
+                organization_id: { type: string, format: uuid }
+                organization_name: { type: string, minLength: 2, maxLength: 160 }
+                school_name: { type: string, minLength: 2, maxLength: 160 }
+                slug: { type: string, pattern: "^[a-z0-9][a-z0-9-]{2,35}$" }
+                admin_email: { type: string, minLength: 3, maxLength: 254 }
+                admin_name: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [school, invitation]
+                properties:
+                  school:
+                    type: object
+                    additionalProperties: false
+                    required: [tenant_id, organization_id]
+                    properties:
+                      tenant_id: { type: string, format: uuid }
+                      organization_id: { type: string, format: uuid }
+                  invitation:
+                    type: object
+                    additionalProperties: false
+                    required: [id, role, expires_at, delivery]
+                    properties:
+                      id: { type: string, format: uuid }
+                      role: { type: string, enum: [school_admin, teacher, staff, driver] }
+                      expires_at: { type: string, format: date-time }
+                      delivery: { type: string, enum: [sent, not_configured] }
+                      token: { type: string, description: "Returned ONCE, only when delivery is not_configured; never logged" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/invitations:
+    post:
+      tags:
+        - accounts
+      summary: Invite a staff member
+      description: "Issues a single-use, expiring (72 h), revocable invitation. A school administrator invites teacher/staff/driver for their own school; inviting a school_admin is a super-administrator act. Requires `identity.accounts.manage`."
+      operationId: accountsCreateInvitation
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, role]
+              properties:
+                email: { type: string, minLength: 3, maxLength: 254 }
+                role: { type: string, enum: [school_admin, teacher, staff, driver] }
+                full_name: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invitation]
+                properties:
+                  invitation:
+                    type: object
+                    additionalProperties: false
+                    required: [id, role, expires_at, delivery]
+                    properties:
+                      id: { type: string, format: uuid }
+                      role: { type: string, enum: [school_admin, teacher, staff, driver] }
+                      expires_at: { type: string, format: date-time }
+                      delivery: { type: string, enum: [sent, not_configured] }
+                      token: { type: string, description: "Returned ONCE, only when delivery is not_configured; never logged" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/invitations/{invitationId}/revoke:
+    post:
+      tags:
+        - accounts
+      summary: Revoke an open invitation
+      description: "Makes an unused invitation permanently unusable. Requires `identity.accounts.manage`."
+      operationId: accountsRevokeInvitation
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: invitationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/guardians/{guardianId}/invitations:
+    post:
+      tags:
+        - accounts
+      summary: Invite a guardian to link an account
+      description: "Invitation-based linking only. Issues a single-use, expiring (72 h), revocable invitation bound to this school, this guardian record and one live learner relationship; supersedes any open invitation for the guardian. Refused (409) when the guardian already has a live login. Requires `identity.accounts.manage`."
+      operationId: guardianCreateInvitation
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [learner_id, method]
+              properties:
+                learner_id: { type: string, format: uuid }
+                method: { type: string, enum: [email, sms] }
+      responses:
+        "201":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invitation]
+                properties:
+                  invitation:
+                    type: object
+                    additionalProperties: false
+                    required: [id, method, expires_at, delivery]
+                    properties:
+                      id: { type: string, format: uuid }
+                      method: { type: string, enum: [email, sms] }
+                      expires_at: { type: string, format: date-time }
+                      delivery: { type: string, enum: [sent, not_configured, failed] }
+                      token: { type: string, description: "Returned ONCE to the issuing administrator, only when delivery did not succeed; never logged" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/guardian-invitations:
+    get:
+      tags:
+        - accounts
+      summary: List guardian invitations
+      description: "Metadata only: contact masked, no token material. Requires `identity.accounts.manage`."
+      operationId: guardianListInvitations
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [pending, accepted, revoked, expired, superseded] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invitations]
+                properties:
+                  invitations:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, guardian_id, learner_id, contact_method, contact_hint, status, delivery_status, created_at, expires_at, accepted_at]
+                      properties:
+                        id: { type: string, format: uuid }
+                        guardian_id: { type: string, format: uuid }
+                        learner_id: { type: string, format: uuid }
+                        contact_method: { type: string, enum: [email, sms] }
+                        contact_hint: { type: string }
+                        status: { type: string, enum: [pending, accepted, revoked, expired, superseded] }
+                        delivery_status: { type: string, enum: [not_configured, pending, sent, failed] }
+                        created_at: { type: string, format: date-time }
+                        expires_at: { type: string, format: date-time }
+                        accepted_at: { type: [string, "null"], format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/guardian-invitations/{invitationId}/revoke:
+    post:
+      tags:
+        - accounts
+      summary: Revoke an open guardian invitation
+      description: "Makes an unused invitation permanently unusable. Requires `identity.accounts.manage`."
+      operationId: guardianRevokeInvitation
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: invitationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/guardians/{guardianId}/account-link/revoke:
+    post:
+      tags:
+        - accounts
+      summary: Revoke a guardian's account link
+      description: "Final and audited with a reason; the first half of relinking (then invite again). Requires `identity.accounts.manage`."
+      operationId: guardianRevokeAccountLink
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: guardianId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/guardian-invitations/preview:
+    post:
+      tags:
+        - accounts
+      summary: Preview a guardian invitation
+      description: "Public, rate limited. Reveals only the school name and relationship to the holder of a live token; every failure answers {valid:false}."
+      operationId: guardianPreviewInvitation
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [valid]
+                properties:
+                  valid: { type: boolean }
+                  school_name: { type: string }
+                  relationship: { type: string }
+                  contact_method: { type: string, enum: [email, sms] }
+                  existing_account: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/guardian-invitations/accept:
+    post:
+      tags:
+        - accounts
+      summary: Accept a guardian invitation
+      description: "Public, rate limited. Requires the token, the invited contact (echo) and explicit confirm=true. A new e-mail-invited person sets a password (Argon2id); an existing account (and every phone invitation) must send its own bearer token, otherwise 401. A guardian record is linked to at most one live login. Every failure cause answers identically."
+      operationId: guardianAcceptInvitation
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, contact, confirm]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+                contact: { type: string, minLength: 3, maxLength: 254 }
+                confirm: { type: boolean }
+                password: { type: string, minLength: 1, maxLength: 256 }
+                full_name: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, tenant_id]
+                properties:
+                  status: { type: string, enum: [accepted] }
+                  tenant_id: { type: string, format: uuid }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/me/guardian-links:
+    get:
+      tags:
+        - accounts
+      summary: The signed-in person's live guardian links
+      description: "Own links only (tenant, guardian record, learner). Links of a deactivated membership or disabled account are not returned."
+      operationId: guardianMyLinks
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: none
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [links]
+                properties:
+                  links:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [tenant_id, guardian_id, learner_id]
+                      properties:
+                        tenant_id: { type: string, format: uuid }
+                        guardian_id: { type: string, format: uuid }
+                        learner_id: { type: string, format: uuid }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/invitations/accept:
+    post:
+      tags:
+        - accounts
+      summary: Accept an invitation
+      description: "Public, rate limited. A new person sets a password (Argon2id). A person who already has an account must call this with their own bearer token; otherwise 401. Every failure cause (unknown, used, revoked, expired) answers identically."
+      operationId: accountsAcceptInvitation
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+                password: { type: string, minLength: 1, maxLength: 256 }
+                full_name: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, tenant_id]
+                properties:
+                  status: { type: string, enum: [accepted] }
+                  tenant_id: { type: [string, "null"], format: uuid }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/auth/password-reset/request:
+    post:
+      tags:
+        - auth
+      summary: Request a password reset
+      description: "Public, rate limited, enumeration-safe: always 202 with the same body whether or not the account exists. The token is delivered through the account notifier (no provider is configured by default, so a self-service reset cannot complete until one is)."
+      operationId: authRequestPasswordReset
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string, minLength: 3, maxLength: 254 }
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { type: string, enum: [accepted] }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/auth/password-reset/complete:
+    post:
+      tags:
+        - auth
+      summary: Complete a password reset
+      description: "Public, rate limited. Single-use, expiring token. Replaces the password and REVOKES EVERY SESSION of the user."
+      operationId: authCompletePasswordReset
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+                password: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/tenants/{tenantId}/members/{userId}/password-reset:
+    post:
+      tags:
+        - accounts
+      summary: Issue a password reset for a member
+      description: "A school administrator issues a reset token for another active member of their school (never themselves, never a platform administrator). The token is returned once. Requires `identity.accounts.manage`."
+      operationId: accountsIssueMemberReset
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [reset]
+                properties:
+                  reset:
+                    type: object
+                    additionalProperties: false
+                    required: [expires_at, delivery, token]
+                    properties:
+                      expires_at: { type: string, format: date-time }
+                      delivery: { type: string, enum: [not_configured] }
+                      token: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/members/{userId}/deactivate:
+    post:
+      tags:
+        - accounts
+      summary: Deactivate a member
+      description: "Archives the member's membership in this school and revokes their sessions that act in it (all sessions when it was their last school). Not for yourself or platform administrators. Requires `identity.accounts.manage`."
+      operationId: accountsDeactivateMember
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - identity.accounts.manage
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [deactivated]
+                properties:
+                  deactivated: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/auth/login/email:
     post:
       tags: [ auth ]
@@ -239,6 +968,46 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PasswordChangeResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/auth/reauth:
+    post:
+      tags: [ auth ]
+      summary: Confirm the password to authorise sensitive actions
+      operationId: authReauth
+      security: [ { bearerAuth: [] } ]
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: none
+      description: >
+        Verifies the signed-in person's password (throttled like every credential check; failures are audited) and
+        stamps the session as re-authenticated for the sensitive-action window (default 300 seconds). The session
+        itself is unchanged; no new token is issued.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ password ]
+              properties:
+                password: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        "200":
+          description: Re-authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ ok, valid_for_seconds ]
+                properties:
+                  ok: { type: boolean }
+                  valid_for_seconds: { type: integer }
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -6550,6 +7319,12 @@ paths:
               - failed
               - cancelled
               - timeout
+        - name: unapplied
+          in: query
+          required: false
+          description: When true, only successful payments that hold an unapplied amount (confirmed money that could not be applied to the invoice).
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/PageLimit"
         - $ref: "#/components/parameters/PageCursor"
         - $ref: "#/components/parameters/PageSortUnsupported"
@@ -6907,7 +7682,7 @@ paths:
       tags:
         - finance
       summary: Run reconciliation
-      description: "Checks the school's records against each other and against the M-Pesa evidence already received, and records findings: invoice_total_mismatch, overpaid_invoice, stale_pending_prompt, prompt_never_sent, callback_amount_mismatch, proof_already_paid. It never changes money; any corrective action is a separate, explicit, authorized operation. A resolved (kind, subject) is not raised again. `stale_after_minutes` defaults to 30."
+      description: "Checks the school's records against each other and against the M-Pesa evidence already received, and records findings: invoice_total_mismatch, overpaid_invoice, unapplied_payment, operator_receipt_credit, recovered_receipt_credit, contradicted_success_callback, callback_receipt_mismatch, stale_pending_prompt, prompt_never_sent, callback_amount_mismatch, proof_already_paid. It never changes money; any corrective action is a separate, explicit, authorized operation. A resolved (kind, subject) is not raised again. `stale_after_minutes` defaults to 30."
       operationId: financeRunReconciliation
       security:
         - bearerAuth: []
@@ -7109,6 +7884,820 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/reconciliation-findings/{findingId}/assign:
+    post:
+      tags:
+        - finance
+      summary: Assign a reconciliation case to a person
+      description: Sets (or clears with null) the person responsible for an OPEN case. The owner must be an active staff member of the school. Audited. Requires `resource.finance.administer`.
+      operationId: financeAssignFinding
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: findingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceAssignFindingRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - finding
+                properties:
+                  finding:
+                    type: object
+                    additionalProperties: false
+                    required: [id, owner_user_id, assigned_at]
+                    properties:
+                      id: { type: string, format: uuid }
+                      owner_user_id: { type: [string, "null"], format: uuid }
+                      assigned_at: { type: [string, "null"], format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/payments/{paymentId}/withdraw-unacknowledged-prompt:
+    post:
+      tags:
+        - finance
+      summary: Withdraw an M-Pesa prompt the provider never acknowledged
+      description: Recovery for a pending prompt with NO provider checkout id. Requires a reason and supporting evidence; refused when the provider acknowledged the prompt or any provider evidence exists. Marks the payment cancelled (operator_withdrawn), resolves its open cases and is audited. A callback that later arrives lands in the unmatched-callback quarantine. Requires `resource.finance.administer`.
+      operationId: financeWithdrawUnacknowledgedPrompt
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceWithdrawPromptRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - result
+                properties:
+                  result:
+                    type: object
+                    additionalProperties: false
+                    required: [payment_id, status, failure_reason, resolved_findings]
+                    properties:
+                      payment_id: { type: string, format: uuid }
+                      status: { type: string, enum: [cancelled] }
+                      failure_reason: { type: string, enum: [operator_withdrawn] }
+                      resolved_findings: { type: integer, minimum: 0 }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/platform/ops/status:
+    get:
+      tags:
+        - platform
+      summary: Worker and reconciliation operational status
+      description: Worker liveness, queue depth and lag, dead jobs, reconciliation backlog and unmatched callbacks as counts and ages only (no payloads or personal data). Super administrators only. Alert delivery is an external dependency.
+      operationId: platformOpsStatus
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.ops.read
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - status
+                properties:
+                  status:
+                    type: object
+                    additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/finance/unmatched-callbacks:
+    get:
+      tags:
+        - platform
+      summary: "List unmatched provider callbacks"
+      description: "Cases for callbacks whose CheckoutRequestID matched no payment: aging, ownership, retries, escalation and severity. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedList
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [open, resolved] } }
+        - { name: owner, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: unassigned, in: query, required: false, schema: { type: string, enum: ["true", "false"] } }
+        - { name: min_age_minutes, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 525600 } }
+        - { name: severity, in: query, required: false, schema: { type: string, enum: [high, normal] } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [cases]
+                properties:
+                  cases:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, checkout_request_id, status, severity, occurrences, contradictory, age_minutes, owner_user_id, escalated, retry_count, last_retry_at, last_retry_outcome, reopened_count, first_seen_at, last_seen_at, resolution]
+                      properties:
+                        id: { type: string, format: uuid }
+                        checkout_request_id: { type: string }
+                        status: { type: string, enum: [open, resolved] }
+                        severity: { type: string, enum: [high, normal], description: "high when any stored provider evidence reports success (result 0): money may be unattributed" }
+                        occurrences: { type: integer }
+                        contradictory: { type: boolean }
+                        age_minutes: { type: integer }
+                        owner_user_id: { type: [string, "null"], format: uuid }
+                        escalated: { type: boolean }
+                        retry_count: { type: integer }
+                        last_retry_at: { type: [string, "null"], format: date-time }
+                        last_retry_outcome: { type: [string, "null"], enum: [matched_payment, no_match, already_handed, null] }
+                        reopened_count: { type: integer }
+                        first_seen_at: { type: string, format: date-time }
+                        last_seen_at: { type: string, format: date-time }
+                        resolution: { type: [string, "null"] }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/finance/unmatched-callbacks/{caseId}:
+    get:
+      tags:
+        - platform
+      summary: "Inspect an unmatched callback case"
+      description: "Provider evidence fields only (masked phone), notes and case state. No credentials or raw bodies. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedGet
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [case, evidence, notes]
+                properties:
+                  case: { type: object, additionalProperties: true }
+                  evidence: { type: array, items: { type: object, additionalProperties: true } }
+                  notes: { type: array, items: { type: object, additionalProperties: true } }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/finance/unmatched-callbacks/{caseId}/assign:
+    post:
+      tags:
+        - platform
+      summary: "Assign a case to an operator"
+      description: "Owner must be an active platform operator (null unassigns). Open cases only; audited. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedAssign
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [owner_user_id]
+              properties:
+                owner_user_id:
+                  anyOf:
+                    - type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    - type: "null"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [assigned]
+                properties:
+                  assigned: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/platform/finance/unmatched-callbacks/{caseId}/notes:
+    post:
+      tags:
+        - platform
+      summary: "Add an investigation note"
+      description: "Append-only; audited. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedNote
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 1000 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [noted]
+                properties:
+                  noted: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/finance/unmatched-callbacks/{caseId}/retry:
+    post:
+      tags:
+        - platform
+      summary: "Retry matching"
+      description: "Hands stored provider evidence to a payment that now carries the checkout id as ordinary callback evidence (idempotent). Never settles, credits or fails a payment: the provider-confirmed paths still decide. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedRetry
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [outcome]
+                properties:
+                  outcome: { type: string, enum: [matched_payment, no_match, already_handed] }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/platform/finance/unmatched-callbacks/{caseId}/escalate:
+    post:
+      tags:
+        - platform
+      summary: "Escalate a case"
+      description: "Marks an open case escalated with a reason; audited. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedEscalate
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [escalated]
+                properties:
+                  escalated: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/platform/finance/unmatched-callbacks/{caseId}/resolve:
+    post:
+      tags:
+        - platform
+      summary: "Resolve a case"
+      description: "Requires a disposition, a reason AND supporting evidence. Refused while the checkout id belongs to a payment (retry instead). Moves no money; final until new distinct provider evidence arrives or an operator reopens it. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedResolve
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [resolution, reason, evidence]
+              properties:
+                resolution: { type: string, enum: [provider_confirmed_not_ours, provider_confirmed_failed, duplicate_of_settled, other_evidenced] }
+                reason: { type: string, minLength: 10, maxLength: 500 }
+                evidence: { type: string, minLength: 10, maxLength: 1000 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [resolved]
+                properties:
+                  resolved: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/platform/finance/unmatched-callbacks/{caseId}/reopen:
+    post:
+      tags:
+        - platform
+      summary: "Reopen a resolved case"
+      description: "Operator reopen with a reason; new distinct provider evidence reopens automatically. Requires `platform.finance.unmatched.manage` (super administrators)."
+      operationId: financeUnmatchedReopen
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.finance.unmatched.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 10, maxLength: 500 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [reopened]
+                properties:
+                  reopened: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/payments/{paymentId}/settlement-job/cancel:
+    post:
+      tags:
+        - finance
+      summary: Cancel a queued settlement job
+      description: Operator cancellation of the queued M-Pesa settlement job of a payment. The job is a system obligation and is never cancelled because its initiator became inactive; this explicit, audited act is refused while the payment is still pending (reconcile it instead). Requires `resource.finance.administer`.
+      operationId: financeCancelSettlementJob
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceCancelSettlementJobRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - job
+                properties:
+                  job:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - id
+                      - status
+                      - payment_id
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum:
+                          - cancelled
+                      payment_id:
+                        type: string
+                        format: uuid
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/finance/payments/{paymentId}/mpesa-events:
+    get:
+      tags:
+        - finance
+      summary: Provider evidence ledger of an M-Pesa payment
+      description: Append-only record of every provider answer about the prompt (authenticated callbacks, status queries, operator acts), oldest first, with the checkout id an operator needs. Requires `resource.finance.read`.
+      operationId: financeListMpesaEvents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - payment_id
+                  - status
+                  - checkout_request_id
+                  - event_count
+                  - events
+                properties:
+                  payment_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                  checkout_request_id:
+                    type:
+                      - string
+                      - "null"
+                  event_count:
+                    description: Total rows in the ledger for this payment. `events` holds the newest 200, oldest first.
+                    type: integer
+                    minimum: 0
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - id
+                        - source
+                        - outcome
+                        - result_code
+                        - result_desc
+                        - callback_amount_minor
+                        - receipt
+                        - msisdn_masked
+                        - actor_user_id
+                        - operator_note
+                        - evidence_basis
+                        - provider_view
+                        - received_at
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        source:
+                          type: string
+                          enum:
+                            - callback
+                            - status_query
+                            - operator
+                        outcome:
+                          type: string
+                        result_code:
+                          type:
+                            - integer
+                            - "null"
+                        result_desc:
+                          type:
+                            - string
+                            - "null"
+                        callback_amount_minor:
+                          type:
+                            - integer
+                            - "null"
+                        receipt:
+                          type:
+                            - string
+                            - "null"
+                        msisdn_masked:
+                          type:
+                            - string
+                            - "null"
+                        actor_user_id:
+                          type:
+                            - string
+                            - "null"
+                          format: uuid
+                        operator_note:
+                          type:
+                            - string
+                            - "null"
+                        evidence_basis:
+                          type:
+                            - string
+                            - "null"
+                        provider_view:
+                          description: What the provider said when an operator acted ('query:<code>', 'query:pending' or 'unavailable').
+                          type:
+                            - string
+                            - "null"
+                        received_at:
+                          type: string
+                          format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/payments/{paymentId}/mpesa-reconciliation:
+    post:
+      tags:
+        - finance
+      summary: Reconcile a pending M-Pesa prompt (operator)
+      description: A finance administrator asks the system to settle a pending prompt from evidence. The provider is queried; the decision is the system's, never the operator's alone. A provider-confirmed success with a receipt (from an authenticated callback stored earlier, or typed by the operator) credits the invoice up to its balance; a provider-confirmed final failure releases the pending slot; anything else (unknown or still-processing code, unreachable provider, conflicting receipts, no checkout id) leaves the prompt pending and records the act as inconclusive. Idempotent. Every act is recorded with the operator and the mandatory note. Requires `resource.finance.administer`.
+      operationId: financeReconcileMpesaPrompt
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.administer
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceMpesaReconcileRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - outcome
+                  - reason
+                  - payment
+                properties:
+                  outcome:
+                    type: string
+                    enum:
+                      - settled_success
+                      - settled_failure
+                      - already_settled
+                      - inconclusive
+                  reason:
+                    type:
+                      - string
+                      - "null"
+                  payment:
+                    $ref: "#/components/schemas/FinancePayment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/finance/ai-helper/settings:
     get:
       tags:
@@ -7338,6 +8927,1970 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/me/notification-preferences:
+    get:
+      tags: [me]
+      summary: Get my notification preferences
+      description: Returns persisted preferences or the product defaults when no row exists yet.
+      operationId: meGetNotificationPreferences
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [preferences]
+                properties:
+                  preferences:
+                    $ref: "#/components/schemas/NotificationPreferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [me]
+      summary: Update my notification preferences
+      operationId: mePatchNotificationPreferences
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreferencesPatch"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [preferences]
+                properties:
+                  preferences:
+                    $ref: "#/components/schemas/NotificationPreferences"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/device-tokens:
+    get:
+      tags: [me]
+      summary: List my device tokens
+      operationId: meListDeviceTokens
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [device_tokens]
+                properties:
+                  device_tokens:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeviceToken"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [me]
+      summary: Register or reclaim a device token
+      description: Upserts the globally unique token onto the signed-in user. FCM send is not performed here.
+      operationId: meRegisterDeviceToken
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceTokenRegisterRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [device_token]
+                properties:
+                  device_token:
+                    type: object
+                    additionalProperties: false
+                    required: [id, platform]
+                    properties:
+                      id: { type: string, format: uuid }
+                      platform: { type: string, enum: [android, ios] }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/device-tokens/{tokenId}:
+    delete:
+      tags: [me]
+      summary: Delete one of my device tokens
+      operationId: meDeleteDeviceToken
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/gate-visits:
+    post:
+      tags: [communications]
+      summary: Record a gate or reception visit
+      operationId: gateVisitsCreate
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.visitor.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GateVisitCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visit]
+                properties:
+                  visit:
+                    $ref: "#/components/schemas/GateVisit"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [communications]
+      summary: List gate visits
+      description: Holders of resource.visitor.read see the full log. Others see only visits hosted by them.
+      operationId: gateVisitsList
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: open
+          in: query
+          schema: { type: string, enum: ["true", "false", "1", "0"] }
+        - name: mine
+          in: query
+          schema: { type: string, enum: ["true", "false", "1", "0"] }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visits, page]
+                properties:
+                  visits:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GateVisit"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/gate-visits/{visitId}:
+    get:
+      tags: [communications]
+      summary: Get one gate visit
+      operationId: gateVisitsGet
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: visitId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visit]
+                properties:
+                  visit:
+                    $ref: "#/components/schemas/GateVisit"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/gate-visits/{visitId}/advance:
+    post:
+      tags: [communications]
+      summary: Advance a visit status
+      operationId: gateVisitsAdvance
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.visitor.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: visitId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GateVisitAdvanceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visit]
+                properties:
+                  visit:
+                    $ref: "#/components/schemas/GateVisit"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/communications/announcements:
+    post:
+      tags: [communications]
+      summary: Create a draft announcement
+      description: >
+        Creates an unpublished announcement. `in_app` is always required among channels.
+        SMS and email may be selected but are not delivered until the owner disposition is decided.
+        Requires `resource.announcement.write`.
+      operationId: communicationsCreateAnnouncement
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.announcement.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunicationsAnnouncementCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [announcement]
+                properties:
+                  announcement:
+                    $ref: "#/components/schemas/CommunicationsAnnouncement"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [communications]
+      summary: List announcements (composer)
+      description: Lists announcements for staff with `resource.announcement.read`. Optional `published=true` filters to published only.
+      operationId: communicationsListAnnouncements
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.announcement.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: published
+          in: query
+          required: false
+          schema: { type: string, enum: ["true", "false", "1", "0"] }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [announcements, page]
+                properties:
+                  announcements:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CommunicationsAnnouncement"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/communications/announcements/inbox:
+    get:
+      tags: [communications]
+      summary: Inbox of published announcements for the caller
+      description: >
+        Returns published announcements that reach the signed-in user (whole_school / role / user / people /
+        teacher class or form_level), or that they authored. Learner/guardian account-linked reach for class
+        and form_level remains deferred until OD-F1 user linking exists. Authenticated school membership is
+        sufficient; composer permission is not required.
+      operationId: communicationsAnnouncementInbox
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [announcements, page]
+                properties:
+                  announcements:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CommunicationsAnnouncement"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/communications/announcements/{announcementId}:
+    get:
+      tags: [communications]
+      summary: Get one announcement (composer)
+      operationId: communicationsGetAnnouncement
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.announcement.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: announcementId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [announcement, deliveries]
+                properties:
+                  announcement:
+                    $ref: "#/components/schemas/CommunicationsAnnouncement"
+                  deliveries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CommunicationsAnnouncementDelivery"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/communications/announcements/{announcementId}/publish:
+    post:
+      tags: [communications]
+      summary: Publish an announcement
+      description: >
+        Sets published_at once. Enqueues `announcement.push` when push is among channels.
+        SMS/email channels record `skipped_no_provider` delivery rows (owner disposition pending).
+        Requires `resource.announcement.write`. Idempotent when already published.
+      operationId: communicationsPublishAnnouncement
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.announcement.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: announcementId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [announcement]
+                properties:
+                  announcement:
+                    $ref: "#/components/schemas/CommunicationsAnnouncement"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/communications/announcements/{announcementId}/read:
+    post:
+      tags: [communications]
+      summary: Mark an inbox announcement as read
+      description: Records a read for the signed-in user when the announcement is published and reaches them.
+      operationId: communicationsMarkAnnouncementRead
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: announcementId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Marked read
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/health/medical-settings:
+    get:
+      tags: [health_services]
+      summary: Read medical settings
+      operationId: healthMedicalSettingsGet
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.medical.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [settings]
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/MedicalSettings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [health_services]
+      summary: Update medical settings
+      operationId: healthMedicalSettingsPut
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.medical.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MedicalSettingsPutRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [settings]
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/MedicalSettings"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/tenants/{tenantId}/health/sick-bay/visits:
+    post:
+      tags: [health_services]
+      summary: Log a sick-bay visit
+      operationId: sickBayVisitCreate
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.medical.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SickBayVisitCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visit]
+                properties:
+                  visit:
+                    $ref: "#/components/schemas/SickBayVisit"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/tenants/{tenantId}/health/sick-bay/board:
+    get:
+      tags: [health_services]
+      summary: Open sick-bay board
+      operationId: sickBayBoard
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.medical.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Open visits
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visits, page]
+                properties:
+                  visits:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SickBayVisit"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/tenants/{tenantId}/health/sick-bay/visits/{visitId}:
+    get:
+      tags: [health_services]
+      summary: Get one sick-bay visit
+      operationId: sickBayVisitGet
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.medical.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: visitId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Visit
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visit]
+                properties:
+                  visit:
+                    $ref: "#/components/schemas/SickBayVisit"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [health_services]
+      summary: Update a sick-bay visit
+      operationId: sickBayVisitPatch
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.medical.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: visitId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SickBayVisitPatchRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [visit]
+                properties:
+                  visit:
+                    $ref: "#/components/schemas/SickBayVisit"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/chat/conversations:
+    get:
+      tags: [chat]
+      summary: List my conversations
+      operationId: chatListConversations
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Conversations
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [conversations, page]
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ChatConversation"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [chat]
+      summary: Open a direct conversation
+      operationId: chatOpenConversation
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatOpenConversationRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [conversation]
+                properties:
+                  conversation:
+                    $ref: "#/components/schemas/ChatConversation"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/tenants/{tenantId}/chat/conversations/{conversationId}/messages:
+    get:
+      tags: [chat]
+      summary: List messages
+      operationId: chatListMessages
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [messages, page]
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ChatMessage"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [chat]
+      summary: Send a text message
+      operationId: chatSendMessage
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatSendMessageRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [message]
+                properties:
+                  message:
+                    $ref: "#/components/schemas/ChatMessage"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/chat/conversations/{conversationId}/read:
+    post:
+      tags: [chat]
+      summary: Mark conversation read
+      operationId: chatMarkRead
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Marked }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/inventory/items:
+    get:
+      tags: [inventory]
+      summary: List inventory items
+      operationId: inventoryListItems
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, page]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryItem"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [inventory]
+      summary: Create inventory item
+      operationId: inventoryCreateItem
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryItemCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [item]
+                properties:
+                  item:
+                    $ref: "#/components/schemas/InventoryItem"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/inventory/items/{itemId}:
+    get:
+      tags: [inventory]
+      summary: Get inventory item
+      operationId: inventoryGetItem
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Item
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [item]
+                properties:
+                  item:
+                    $ref: "#/components/schemas/InventoryItem"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/inventory/items/{itemId}/retire:
+    post:
+      tags: [inventory]
+      summary: Retire inventory item
+      operationId: inventoryRetireItem
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [item]
+                properties:
+                  item:
+                    $ref: "#/components/schemas/InventoryItem"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/inventory/issues:
+    get:
+      tags: [inventory]
+      summary: List inventory issues
+      operationId: inventoryListIssues
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Issues
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [issues, page]
+                properties:
+                  issues:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryIssue"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [inventory]
+      summary: Issue inventory
+      operationId: inventoryCreateIssue
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryIssueCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [issue]
+                properties:
+                  issue:
+                    $ref: "#/components/schemas/InventoryIssue"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/inventory/issues/{issueId}/close:
+    post:
+      tags: [inventory]
+      summary: Close inventory issue
+      operationId: inventoryCloseIssue
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.inventory.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: issueId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryIssueCloseRequest"
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [issue]
+                properties:
+                  issue:
+                    $ref: "#/components/schemas/InventoryIssue"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/leave-requests:
+    get:
+      tags: [leave]
+      summary: List leave requests
+      description: "A holder of `resource.leave.read` sees every request in the school; any other member sees only their OWN requests (never another person's)."
+      operationId: leaveList
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.leave.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Leave requests
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [leave_requests, page]
+                properties:
+                  leave_requests:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LeaveRequest"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [leave]
+      summary: Submit a leave request
+      operationId: leaveSubmit
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaveSubmitRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [leave_request]
+                properties:
+                  leave_request:
+                    $ref: "#/components/schemas/LeaveRequest"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/leave-requests/{leaveId}/review:
+    post:
+      tags: [leave]
+      summary: Review a leave request
+      operationId: leaveReview
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.leave.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: leaveId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaveReviewRequest"
+      responses:
+        "200":
+          description: Reviewed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [leave_request]
+                properties:
+                  leave_request:
+                    $ref: "#/components/schemas/LeaveRequest"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/leave-requests/{leaveId}/cancel:
+    post:
+      tags: [leave]
+      summary: Cancel a pending leave request
+      operationId: leaveCancel
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: leaveId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [leave_request]
+                properties:
+                  leave_request:
+                    $ref: "#/components/schemas/LeaveRequest"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/activities:
+    get:
+      tags: [activities]
+      summary: List activities
+      operationId: activitiesList
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.activity.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Activities
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [activities, page]
+                properties:
+                  activities:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Activity"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [activities]
+      summary: Create an activity
+      operationId: activitiesCreate
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.activity.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [activity]
+                properties:
+                  activity:
+                    $ref: "#/components/schemas/Activity"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/activities/{activityId}/patrons:
+    post:
+      tags: [activities]
+      summary: Add activity patron
+      operationId: activitiesAddPatron
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.activity.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityAddPatronRequest"
+      responses:
+        "204": { description: Added }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/activities/{activityId}/members:
+    get:
+      tags: [activities]
+      summary: List activity members
+      operationId: activitiesListMembers
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.activity.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [members, page]
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityMember"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [activities]
+      summary: Add activity member
+      operationId: activitiesAddMember
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.activity.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityAddMemberRequest"
+      responses:
+        "204": { description: Added }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/vehicles:
+    get:
+      tags: [transport]
+      summary: List vehicles
+      operationId: transportListVehicles
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Vehicles
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [vehicles, page]
+                properties:
+                  vehicles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Vehicle"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [transport]
+      summary: Create a vehicle
+      operationId: transportCreateVehicle
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [vehicle]
+                properties:
+                  vehicle:
+                    $ref: "#/components/schemas/Vehicle"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/vehicles/{vehicleId}/assignments:
+    post:
+      tags: [transport]
+      summary: Assign driver to vehicle
+      operationId: transportAssignDriver
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: vehicleId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleAssignDriverRequest"
+      responses:
+        "204": { description: Assigned }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/transport-routes:
+    get:
+      tags: [transport]
+      summary: List transport routes
+      operationId: transportListRoutes
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Routes
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [routes, page]
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TransportRoute"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [transport]
+      summary: Create transport route
+      operationId: transportCreateRoute
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransportRouteCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [route]
+                properties:
+                  route:
+                    $ref: "#/components/schemas/TransportRoute"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/transport-routes/{routeId}/stops:
+    post:
+      tags: [transport]
+      summary: Add route stop
+      operationId: transportAddStop
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: routeId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteStopCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [stop]
+                properties:
+                  stop:
+                    $ref: "#/components/schemas/RouteStop"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/learner-transport:
+    put:
+      tags: [transport]
+      summary: Assign learner to a route
+      operationId: transportAssignLearner
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LearnerTransportAssignRequest"
+      responses:
+        "200":
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [assignment]
+                properties:
+                  assignment:
+                    $ref: "#/components/schemas/LearnerTransport"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/trips:
+    post:
+      tags: [transport]
+      summary: Start a trip
+      operationId: transportStartTrip
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripStartRequest"
+      responses:
+        "201":
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [trip]
+                properties:
+                  trip:
+                    $ref: "#/components/schemas/TripStartResult"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/trips/{tripId}/complete:
+    post:
+      tags: [transport]
+      summary: Complete a trip
+      operationId: transportCompleteTrip
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.transport.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: tripId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Completed }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/reports/overview:
+    get:
+      tags: [reporting]
+      summary: School overview aggregates
+      operationId: reportsOverview
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.report.overview.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Overview counts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [overview]
+                properties:
+                  overview:
+                    $ref: "#/components/schemas/SchoolOverviewReport"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/tenants/{tenantId}/reports/attendance-daily:
+    get:
+      tags: [reporting]
+      summary: Daily attendance aggregate
+      operationId: reportsAttendanceDaily
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.report.attendance.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Daily attendance marks
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [report]
+                properties:
+                  report:
+                    $ref: "#/components/schemas/AttendanceDailyReport"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/tenants/{tenantId}/reports/finance-summary:
+    get:
+      tags: [reporting]
+      summary: Finance invoice/payment summary
+      operationId: reportsFinanceSummary
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.finance.read]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: termId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Finance summary
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [summary]
+                properties:
+                  summary:
+                    $ref: "#/components/schemas/FinanceSummaryReport"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/tenants/{tenantId}/imports/learners/preview:
+    post:
+      tags: [import]
+      summary: Preview deterministic learner CSV import
+      operationId: importLearnersPreview
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.import.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LearnerImportPreviewRequest"
+      responses:
+        "200":
+          description: Preview with row errors
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [preview]
+                properties:
+                  preview:
+                    $ref: "#/components/schemas/LearnerImportPreview"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+  /v1/tenants/{tenantId}/imports/learners/apply:
+    post:
+      tags: [import]
+      summary: Apply a previously previewed learner CSV import
+      operationId: importLearnersApply
+      security: [{ bearerAuth: [] }]
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.import.write]
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LearnerImportApplyRequest"
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [result]
+                properties:
+                  result:
+                    $ref: "#/components/schemas/LearnerImportApplyResult"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 components:
   securitySchemes:
     bearerAuth:
@@ -7430,6 +10983,13 @@ components:
         Authenticated but not authorized (default deny). Also returned, for every authenticated
         route except POST /v1/auth/password/change, POST /v1/auth/logout and GET /v1/auth/me,
         while the user's `must_change_password` flag is set ("Password change required", FIG-1604).
+        Sensitive operations (administrator password resets, membership deactivation, school provisioning,
+        school-administrator invitations, guardian-link revocation, finance reconciliation resolution,
+        unacknowledged-prompt withdrawal, operator M-Pesa reconciliation, unmatched-callback resolution/reopen,
+        organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes and a change of the
+        school name or timezone)
+        answer 403 with code `reauth_required` when the session was not created or password-confirmed within the
+        last 5 minutes: call POST /v1/auth/reauth and retry.
       content:
         application/json:
           schema:
@@ -7442,6 +11002,12 @@ components:
             $ref: "#/components/schemas/Error"
     Conflict:
       description: Resource conflict (for example duplicate admission number)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: Request body exceeds route or global bodyLimit (64 KiB global, 1.5 MiB for learner CSV import preview)
       content:
         application/json:
           schema:
@@ -8158,6 +11724,7 @@ components:
                 [
                   unauthorized,
                   forbidden,
+                  reauth_required,
                   not_found,
                   validation_error,
                   rate_limited,
@@ -10617,6 +14184,7 @@ components:
         - paid_minor
         - balance_minor
         - overpaid_minor
+        - unapplied_minor
         - status
         - billing_run_id
         - created_at
@@ -10662,7 +14230,10 @@ components:
           description: Money in minor units (cents; 100 = KES 1). Never a float.
         overpaid_minor:
           type: integer
-          description: Money in minor units (cents; 100 = KES 1). Never a float.
+          description: 0 except for legacy or tampered rows (since the overpayment policy an invoice is never credited beyond its total); retained as a tamper signal. Money in minor units (cents; 100 = KES 1).
+        unapplied_minor:
+          type: integer
+          description: Money confirmed for this invoice that could not be applied to it (the sum of its payments' unapplied amounts). Held on the payments pending an approved allocation or refund workflow. Minor units.
         status:
           type: string
           enum:
@@ -10836,6 +14407,8 @@ components:
         - failure_reason
         - proof_id
         - recorded_by
+        - applied_minor
+        - unapplied_minor
         - created_at
         - completed_at
       properties:
@@ -10889,7 +14462,6 @@ components:
             - wrong_pin
             - duplicate
             - unreachable
-            - not_sent
             - null
         proof_id:
           type:
@@ -10901,6 +14473,18 @@ components:
             - string
             - "null"
           format: uuid
+        applied_minor:
+          description: What reached the invoice. Only for a successful payment; never more than the invoice's outstanding balance at settlement.
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        unapplied_minor:
+          description: The part of the confirmed amount that could not be applied (amount_minor - applied_minor). Held on the payment, never discarded, pending an approved allocation or refund workflow. Only for a successful payment.
+          type:
+            - integer
+            - "null"
+          minimum: 0
         created_at:
           type: string
           format: date-time
@@ -11094,7 +14678,7 @@ components:
           type: string
           format: uuid
         started_by:
-          type: string
+          type: [string, "null"]
           format: uuid
         started_at:
           type: string
@@ -11118,6 +14702,12 @@ components:
         - resolved_by
         - resolved_at
         - resolution_note
+        - owner_user_id
+        - assigned_at
+        - escalated_at
+        - reopened_count
+        - resolution_evidence
+        - age_minutes
         - created_at
       properties:
         id:
@@ -11134,10 +14724,17 @@ components:
           enum:
             - invoice_total_mismatch
             - overpaid_invoice
+            - unapplied_payment
+            - operator_receipt_credit
+            - recovered_receipt_credit
+            - contradicted_success_callback
+            - callback_receipt_mismatch
             - stale_pending_prompt
             - prompt_never_sent
             - callback_amount_mismatch
             - proof_already_paid
+            - dead_settlement_job
+            - paid_unconfirmed_no_callback
         subject_type:
           type: string
           enum:
@@ -11170,6 +14767,23 @@ components:
           type:
             - string
             - "null"
+        owner_user_id:
+          type: [string, "null"]
+          format: uuid
+        assigned_at:
+          type: [string, "null"]
+          format: date-time
+        escalated_at:
+          type: [string, "null"]
+          format: date-time
+        reopened_count:
+          type: integer
+          minimum: 0
+        resolution_evidence:
+          type: [string, "null"]
+        age_minutes:
+          type: integer
+          minimum: 0
         created_at:
           type: string
           format: date-time
@@ -11590,7 +15204,69 @@ components:
           type: string
           minLength: 3
           maxLength: 500
+        evidence:
+          type: string
+          minLength: 3
+          maxLength: 1000
       required:
+        - note
+      additionalProperties: false
+    FinanceAssignFindingRequest:
+      type: object
+      properties:
+        owner_user_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - owner_user_id
+      additionalProperties: false
+    FinanceWithdrawPromptRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+        evidence:
+          type: string
+          minLength: 3
+          maxLength: 1000
+      required:
+        - reason
+        - evidence
+      additionalProperties: false
+    FinanceCancelSettlementJobRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 300
+      required:
+        - reason
+      additionalProperties: false
+    FinanceMpesaReconcileRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+            - refresh
+            - settle_success
+            - mark_failed
+        receipt:
+          type: string
+          minLength: 6
+          maxLength: 40
+        note:
+          type: string
+          minLength: 10
+          maxLength: 500
+      required:
+        - action
         - note
       additionalProperties: false
     FinanceAiHelperSettingsRequest:
@@ -11632,3 +15308,684 @@ components:
         - term_id
         - opted_in
       additionalProperties: false
+    CommunicationsAnnouncement:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenant_id
+        - author_id
+        - subject
+        - body
+        - audience
+        - channels
+        - published_at
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+          format: uuid
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        audience:
+          type: object
+          additionalProperties: true
+        channels:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [in_app, push, sms, email]
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    CommunicationsAnnouncementCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        audience:
+          type: object
+          additionalProperties: true
+        channels:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [in_app, push, sms, email]
+      required:
+        - subject
+        - body
+    NotificationPreferences:
+      type: object
+      additionalProperties: false
+      required: [fee_reminders, absence_today, results_published, general_notices, chat_messages]
+      properties:
+        fee_reminders: { type: boolean }
+        absence_today: { type: boolean }
+        results_published: { type: boolean }
+        general_notices: { type: boolean }
+        chat_messages: { type: boolean }
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    NotificationPreferencesPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        fee_reminders: { type: boolean }
+        absence_today: { type: boolean }
+        results_published: { type: boolean }
+        general_notices: { type: boolean }
+        chat_messages: { type: boolean }
+    DeviceToken:
+      type: object
+      additionalProperties: false
+      required: [id, platform, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        platform: { type: string, enum: [android, ios] }
+        created_at: { type: string, format: date-time }
+    DeviceTokenRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [token, platform]
+      properties:
+        token: { type: string, minLength: 16, maxLength: 512 }
+        platform: { type: string, enum: [android, ios] }
+    GateVisit:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenant_id
+        - visitor_name
+        - purpose
+        - host_kind
+        - entry_point
+        - status
+        - escalated
+        - arrived_at
+        - updated_at
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        visitor_name: { type: string }
+        visitor_phone: { type: [string, "null"] }
+        id_number: { type: [string, "null"] }
+        vehicle_plate: { type: [string, "null"] }
+        purpose: { type: string }
+        host_kind: { type: string, enum: [office, principal, teacher, learner] }
+        host_user_id: { type: [string, "null"], format: uuid }
+        learner_id: { type: [string, "null"], format: uuid }
+        host_name: { type: [string, "null"] }
+        learner_name: { type: [string, "null"] }
+        entry_point: { type: string, enum: [gate, reception] }
+        status: { type: string, enum: [expected, at_reception, with_host, left] }
+        escalated: { type: boolean }
+        escalated_at: { type: [string, "null"], format: date-time }
+        note: { type: [string, "null"] }
+        recorded_by: { type: [string, "null"], format: uuid }
+        arrived_at: { type: string, format: date-time }
+        reception_at: { type: [string, "null"], format: date-time }
+        with_host_at: { type: [string, "null"], format: date-time }
+        left_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: string, format: date-time }
+    GateVisitCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [visitor_name, purpose, host_kind]
+      properties:
+        visitor_name: { type: string, minLength: 1, maxLength: 120 }
+        visitor_phone: { type: [string, "null"], maxLength: 30 }
+        id_number: { type: [string, "null"], maxLength: 40 }
+        vehicle_plate: { type: [string, "null"], maxLength: 20 }
+        purpose: { type: string, minLength: 1, maxLength: 300 }
+        host_kind: { type: string, enum: [office, principal, teacher, learner] }
+        host_user_id: { type: [string, "null"], format: uuid }
+        learner_id: { type: [string, "null"], format: uuid }
+        entry_point: { type: string, enum: [gate, reception] }
+        note: { type: [string, "null"], maxLength: 500 }
+    GateVisitAdvanceRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [expected, at_reception, with_host, left] }
+        note: { type: [string, "null"], maxLength: 500 }
+    LivenessStatus:
+      type: object
+      additionalProperties: false
+      required: [status, service, phase]
+      properties:
+        status: { type: string, enum: [ok] }
+        service: { type: string }
+        phase: { type: string }
+    ReadinessReady:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [ready] }
+    ReadinessUnavailable:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [draining, unavailable] }
+        reason: { type: string, enum: [configuration] }
+    CommunicationsAnnouncementDelivery:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, announcement_id, channel, status, detail, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        announcement_id: { type: string, format: uuid }
+        channel: { type: string, enum: [push, sms, email] }
+        status: { type: string, enum: [queued, skipped_no_provider, failed, sent] }
+        detail: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    MedicalSettings:
+      type: object
+      additionalProperties: false
+      required: [notify_guardians, guardian_notices_available]
+      properties:
+        notify_guardians: { type: string, enum: [all, serious] }
+        guardian_notices_available: { type: boolean }
+    MedicalSettingsPutRequest:
+      type: object
+      additionalProperties: false
+      required: [notify_guardians]
+      properties:
+        notify_guardians: { type: string, enum: [all, serious] }
+    SickBayVisit:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tenant_id
+        - learner_id
+        - time_in
+        - complaint
+        - row_version
+        - updated_at
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        learner_id: { type: string, format: uuid }
+        time_in: { type: string, format: date-time }
+        complaint: { type: string }
+        temperature_c: { type: [string, number, "null"] }
+        pulse_bpm: { type: [integer, "null"] }
+        observations: { type: [string, "null"] }
+        assessment: { type: [string, "null"] }
+        treatment: { type: [string, "null"] }
+        outcome: { type: [string, "null"], enum: [class, rest, home, hospital, admitted, null] }
+        referred_to: { type: [string, "null"] }
+        time_out: { type: [string, "null"], format: date-time }
+        follow_up: { type: [string, "null"] }
+        attendance_mark: { type: [string, "null"], enum: [excused, absent, null] }
+        attendance_marked_at: { type: [string, "null"], format: date-time }
+        logged_by: { type: [string, "null"], format: uuid }
+        row_version: { type: integer, minimum: 1 }
+        correction_reason: { type: [string, "null"] }
+        updated_at: { type: string, format: date-time }
+    SickBayVisitCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [learner_id, complaint]
+      properties:
+        learner_id: { type: string, format: uuid }
+        complaint: { type: string, minLength: 1, maxLength: 300 }
+        temperature_c: { type: [number, "null"], minimum: 30, maximum: 45 }
+        pulse_bpm: { type: [integer, "null"], minimum: 20, maximum: 250 }
+        observations: { type: [string, "null"], maxLength: 2000 }
+        assessment: { type: [string, "null"], maxLength: 2000 }
+        treatment: { type: [string, "null"], maxLength: 2000 }
+    SickBayVisitPatchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        row_version: { type: integer, minimum: 1 }
+        correction_reason: { type: [string, "null"], minLength: 3, maxLength: 500 }
+        complaint: { type: string, minLength: 1, maxLength: 300 }
+        temperature_c: { type: [number, "null"], minimum: 30, maximum: 45 }
+        pulse_bpm: { type: [integer, "null"], minimum: 20, maximum: 250 }
+        observations: { type: [string, "null"], maxLength: 2000 }
+        assessment: { type: [string, "null"], maxLength: 2000 }
+        treatment: { type: [string, "null"], maxLength: 2000 }
+        outcome: { type: [string, "null"], enum: [class, rest, home, hospital, admitted, null] }
+        referred_to: { type: [string, "null"], maxLength: 200 }
+        time_out: { type: [string, "null"], format: date-time }
+        follow_up: { type: [string, "null"], maxLength: 2000 }
+    ChatConversation:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, pair_key, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        pair_key: { type: string }
+        created_by: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        last_message_at: { type: [string, "null"], format: date-time }
+        peer_user_id: { type: string, format: uuid }
+    ChatOpenConversationRequest:
+      type: object
+      additionalProperties: false
+      required: [peer_user_id]
+      properties:
+        peer_user_id: { type: string, format: uuid }
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, conversation_id, sender_id, body, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        sender_id: { type: string, format: uuid }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+    ChatSendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 4000 }
+    InventoryItem:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, name, category, tracking, quantity, condition, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        name: { type: string }
+        category:
+          type: string
+          enum: [textbooks, furniture, lab_equipment, sports, ict, uniforms, music, kitchen, stationery, tools, medical, other]
+        tracking: { type: string, enum: [asset, stock] }
+        quantity: { type: integer, minimum: 0 }
+        asset_tag: { type: [string, "null"] }
+        condition: { type: string, enum: [new, good, fair, poor, broken] }
+        location: { type: [string, "null"] }
+        retired_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    InventoryItemCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, category, tracking]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        category:
+          type: string
+          enum: [textbooks, furniture, lab_equipment, sports, ict, uniforms, music, kitchen, stationery, tools, medical, other]
+        tracking: { type: string, enum: [asset, stock] }
+        quantity: { type: integer, minimum: 1 }
+        asset_tag: { type: [string, "null"], minLength: 1, maxLength: 80 }
+        condition: { type: string, enum: [new, good, fair, poor, broken] }
+        location: { type: [string, "null"], maxLength: 120 }
+    InventoryIssue:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, item_id, quantity, status, issued_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        item_id: { type: string, format: uuid }
+        learner_id: { type: [string, "null"], format: uuid }
+        holder_user_id: { type: [string, "null"], format: uuid }
+        quantity: { type: integer, minimum: 1 }
+        status: { type: string, enum: [out, returned, damaged, lost] }
+        issued_at: { type: string, format: date-time }
+        due_on: { type: [string, "null"], format: date }
+        closed_at: { type: [string, "null"], format: date-time }
+    InventoryIssueCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [item_id]
+      properties:
+        item_id: { type: string, format: uuid }
+        learner_id: { type: [string, "null"], format: uuid }
+        holder_user_id: { type: [string, "null"], format: uuid }
+        quantity: { type: integer, minimum: 1 }
+        due_on: { type: [string, "null"], format: date }
+    InventoryIssueCloseRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [returned, damaged, lost] }
+        returned_condition: { type: [string, "null"], enum: [new, good, fair, poor, broken, null] }
+        note: { type: [string, "null"], maxLength: 1000 }
+    LeaveRequest:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, staff_user_id, start_on, end_on, reason, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        staff_user_id: { type: string, format: uuid }
+        start_on: { type: string, format: date }
+        end_on: { type: string, format: date }
+        reason: { type: string }
+        status: { type: string, enum: [pending, approved, declined, cancelled] }
+        reviewed_by: { type: [string, "null"], format: uuid }
+        reviewed_at: { type: [string, "null"], format: date-time }
+        review_note: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+    LeaveSubmitRequest:
+      type: object
+      additionalProperties: false
+      required: [start_on, end_on, reason]
+      properties:
+        start_on: { type: string, format: date }
+        end_on: { type: string, format: date }
+        reason: { type: string, minLength: 3, maxLength: 1000 }
+    LeaveReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [approved, declined] }
+        review_note: { type: [string, "null"], maxLength: 1000 }
+    Activity:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, name, category, description, meeting_schedule, active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        name: { type: string }
+        category: { type: string, enum: [sport, club, arts, other] }
+        description: { type: string }
+        meeting_schedule: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+    ActivityCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, category]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        category: { type: string, enum: [sport, club, arts, other] }
+        description: { type: string, maxLength: 2000 }
+        meeting_schedule: { type: string, maxLength: 300 }
+    ActivityAddPatronRequest:
+      type: object
+      additionalProperties: false
+      required: [teacher_user_id]
+      properties:
+        teacher_user_id: { type: string, format: uuid }
+    ActivityAddMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [learner_id]
+      properties:
+        learner_id: { type: string, format: uuid }
+        role: { type: [string, "null"], minLength: 1, maxLength: 60 }
+    ActivityMember:
+      type: object
+      additionalProperties: false
+      required: [learner_id, role, joined_on]
+      properties:
+        learner_id: { type: string, format: uuid }
+        role: { type: [string, "null"] }
+        joined_on: { type: string, format: date }
+    Vehicle:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, plate_number, active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        plate_number: { type: string }
+        make_model: { type: [string, "null"] }
+        capacity: { type: [integer, "null"], minimum: 1 }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+    VehicleCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [plate_number]
+      properties:
+        plate_number: { type: string, minLength: 1, maxLength: 40 }
+        make_model: { type: [string, "null"], maxLength: 120 }
+        capacity: { type: [integer, "null"], minimum: 1 }
+    VehicleAssignDriverRequest:
+      type: object
+      additionalProperties: false
+      required: [driver_user_id]
+      properties:
+        driver_user_id: { type: string, format: uuid }
+        route_id: { type: [string, "null"], format: uuid }
+    TransportRoute:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, name, description, active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+    TransportRouteCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+    RouteStop:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, route_id, name, sequence, lat, lng]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        route_id: { type: string, format: uuid }
+        name: { type: string }
+        sequence: { type: integer, minimum: 1 }
+        lat: { type: [number, "null"] }
+        lng: { type: [number, "null"] }
+    RouteStopCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, sequence]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        sequence: { type: integer, minimum: 1 }
+        lat: { type: [number, "null"], minimum: -90, maximum: 90 }
+        lng: { type: [number, "null"], minimum: -180, maximum: 180 }
+    LearnerTransport:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, learner_id, route_id, stop_id]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        learner_id: { type: string, format: uuid }
+        route_id: { type: string, format: uuid }
+        stop_id: { type: [string, "null"], format: uuid }
+    LearnerTransportAssignRequest:
+      type: object
+      additionalProperties: false
+      required: [learner_id, route_id]
+      properties:
+        learner_id: { type: string, format: uuid }
+        route_id: { type: string, format: uuid }
+        stop_id: { type: [string, "null"], format: uuid }
+    TripStartRequest:
+      type: object
+      additionalProperties: false
+      required: [vehicle_id, driver_user_id]
+      properties:
+        vehicle_id: { type: string, format: uuid }
+        driver_user_id: { type: string, format: uuid }
+        route_id: { type: [string, "null"], format: uuid }
+        direction: { type: string, enum: [to_school, from_school] }
+    TripStartResult:
+      type: object
+      additionalProperties: false
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [active, completed, cancelled] }
+    SchoolOverviewReport:
+      type: object
+      additionalProperties: false
+      required:
+        - learners_active
+        - staff_active
+        - classes_active
+        - vehicles_active
+        - routes_active
+        - inventory_items_active
+        - leave_pending
+        - announcements_published
+        - open_gate_visits
+        - sick_bay_open
+      properties:
+        learners_active: { type: integer, minimum: 0 }
+        staff_active: { type: integer, minimum: 0 }
+        classes_active: { type: integer, minimum: 0 }
+        vehicles_active: { type: integer, minimum: 0 }
+        routes_active: { type: integer, minimum: 0 }
+        inventory_items_active: { type: integer, minimum: 0 }
+        leave_pending: { type: integer, minimum: 0 }
+        announcements_published: { type: integer, minimum: 0 }
+        open_gate_visits: { type: integer, minimum: 0 }
+        sick_bay_open: { type: integer, minimum: 0 }
+    AttendanceDailyReport:
+      type: object
+      additionalProperties: false
+      required:
+        - date
+        - morning_present
+        - morning_absent
+        - morning_late
+        - morning_excused
+        - afternoon_present
+        - afternoon_absent
+        - afternoon_late
+        - afternoon_excused
+        - early_sign_outs
+      properties:
+        date: { type: string, format: date }
+        morning_present: { type: integer, minimum: 0 }
+        morning_absent: { type: integer, minimum: 0 }
+        morning_late: { type: integer, minimum: 0 }
+        morning_excused: { type: integer, minimum: 0 }
+        afternoon_present: { type: integer, minimum: 0 }
+        afternoon_absent: { type: integer, minimum: 0 }
+        afternoon_late: { type: integer, minimum: 0 }
+        afternoon_excused: { type: integer, minimum: 0 }
+        early_sign_outs: { type: integer, minimum: 0 }
+    FinanceSummaryReport:
+      type: object
+      additionalProperties: false
+      required:
+        - invoices_live
+        - invoices_paid
+        - invoices_part_paid
+        - invoices_unpaid
+        - invoices_overdue
+        - amount_due_minor
+        - amount_paid_minor
+        - payments_success
+        - payments_pending
+      properties:
+        invoices_live: { type: integer, minimum: 0 }
+        invoices_paid: { type: integer, minimum: 0 }
+        invoices_part_paid: { type: integer, minimum: 0 }
+        invoices_unpaid: { type: integer, minimum: 0 }
+        invoices_overdue: { type: integer, minimum: 0 }
+        amount_due_minor: { type: integer, minimum: 0 }
+        amount_paid_minor: { type: integer, minimum: 0 }
+        payments_success: { type: integer, minimum: 0 }
+        payments_pending: { type: integer, minimum: 0 }
+    LearnerImportPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [csv]
+      properties:
+        csv: { type: string, minLength: 1, maxLength: 1000000 }
+    LearnerImportRowError:
+      type: object
+      additionalProperties: false
+      required: [line, message]
+      properties:
+        line: { type: integer, minimum: 1 }
+        message: { type: string }
+    LearnerCsvRow:
+      type: object
+      additionalProperties: false
+      required: [line, admission_no, full_name, gender, date_of_birth, boarding]
+      properties:
+        line: { type: integer, minimum: 1 }
+        admission_no: { type: string }
+        full_name: { type: string }
+        gender: { type: string, enum: [male, female] }
+        date_of_birth: { type: [string, "null"], format: date }
+        boarding: { type: boolean }
+    LearnerImportPreview:
+      type: object
+      additionalProperties: false
+      required: [import_id, row_count, valid_count, error_count, errors_truncated, errors, sample_valid]
+      properties:
+        import_id: { type: string, format: uuid }
+        row_count: { type: integer, minimum: 0 }
+        valid_count: { type: integer, minimum: 0 }
+        error_count: { type: integer, minimum: 0 }
+        errors_truncated: { type: boolean }
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/LearnerImportRowError"
+        sample_valid:
+          type: array
+          items:
+            $ref: "#/components/schemas/LearnerCsvRow"
+    LearnerImportApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [import_id]
+      properties:
+        import_id: { type: string, format: uuid }
+    LearnerImportApplyResult:
+      type: object
+      additionalProperties: false
+      required: [created_count, import_id]
+      properties:
+        created_count: { type: integer, minimum: 0 }
+        import_id: { type: string, format: uuid }
+        replayed: { type: boolean }
