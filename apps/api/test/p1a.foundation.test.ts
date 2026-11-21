@@ -58,7 +58,7 @@ describe("P1-A identity / tenancy / RBAC foundation", () => {
       `SELECT password_hash FROM users WHERE id = $1`,
       [ids.adminA],
     );
-    expect(row.rows[0]!.password_hash.startsWith("scrypt$")).toBe(true);
+    expect(row.rows[0]!.password_hash.startsWith("$argon2id$")).toBe(true);
   });
 
   it("authenticates email login and rejects bad password", async () => {
@@ -103,7 +103,7 @@ describe("P1-A identity / tenancy / RBAC foundation", () => {
       userId: ids.adminA,
       activeTenantId: ids.tenantA,
     });
-    await revokeSession(pool, again.session.id);
+    await revokeSession(pool, config, again.session.id, again.session.user_id);
     const revoked = await app.inject({
       method: "GET",
       url: "/v1/auth/me",
@@ -190,7 +190,7 @@ describe("P1-A identity / tenancy / RBAC foundation", () => {
       headers: { authorization: `Bearer ${teacherToken}` },
     });
     expect(before.statusCode).toBe(200);
-    expect(before.json().permissions).not.toContain("area.fees");
+    expect(before.json().items).not.toContain("area.fees");
 
     const adminLogin = await loginEmail("admin-a@example.com");
     const adminToken = adminLogin.json().token as string;
@@ -207,7 +207,7 @@ describe("P1-A identity / tenancy / RBAC foundation", () => {
       url: "/v1/rbac/permissions",
       headers: { authorization: `Bearer ${teacherToken}` },
     });
-    expect(after.json().permissions).toContain("area.fees");
+    expect(after.json().items).toContain("area.fees");
 
     const audit = await pool.query(
       `SELECT event_type FROM security_audit_events

@@ -266,8 +266,9 @@ describe("FIG-1573 closure programme", () => {
         headers: { authorization: `Bearer ${token}` },
       });
       expect(schools.statusCode).toBe(200);
-      expect(schools.json().schools.some((s: { id: string }) => s.id === ctx.ids.tenantA)).toBe(true);
-      expect(schools.json().schools.some((s: { id: string }) => s.id === ctx.ids.tenantB)).toBe(false);
+      expect(schools.json().items.some((s: { id: string }) => s.id === ctx.ids.tenantA)).toBe(true);
+      expect(schools.json().items.some((s: { id: string }) => s.id === ctx.ids.tenantB)).toBe(false);
+      expect(schools.json().page).toEqual(expect.objectContaining({ limit: 50, next_cursor: null }));
 
       await ctx.app.inject({
         method: "POST",
@@ -283,8 +284,8 @@ describe("FIG-1573 closure programme", () => {
       expect(perms.statusCode).toBe(200);
       expect(perms.json().mayAdminister).toBe(false);
       expect(perms.json().isOrgAdminForTenant).toBe(true);
-      expect(perms.json().permissions).not.toContain("rbac.staff_areas.manage");
-      expect(perms.json().permissions).not.toContain("resource.learner.read");
+      expect(perms.json().items).not.toContain("rbac.staff_areas.manage");
+      expect(perms.json().items).not.toContain("resource.learner.read");
       expect(perms.json().delegatedPermissions).toEqual([]);
 
       const staff = await ctx.app.inject({
@@ -328,7 +329,8 @@ describe("FIG-1573 closure programme", () => {
         headers: { authorization: `Bearer ${admin}`, "x-tenant-id": ctx.ids.tenantA },
         payload: {
           delegateUserId: ctx.ids.orgAdmin,
-          permissionCodes: ["rbac.staff_areas.manage", "tenant.read"],
+          // area.attendance: a delegate may only assign the areas delegated to them (owner principle).
+          permissionCodes: ["rbac.staff_areas.manage", "tenant.read", "area.attendance"],
         },
       });
       expect(grant.statusCode).toBe(200);
@@ -342,7 +344,7 @@ describe("FIG-1573 closure programme", () => {
         headers: { authorization: `Bearer ${org}`, "x-tenant-id": ctx.ids.tenantA },
       });
       expect(perms.json().mayAdminister).toBe(false);
-      expect(perms.json().permissions).toContain("rbac.staff_areas.manage");
+      expect(perms.json().items).toContain("rbac.staff_areas.manage");
       expect(perms.json().delegatedPermissions).toEqual(
         expect.arrayContaining(["rbac.staff_areas.manage", "tenant.read"]),
       );

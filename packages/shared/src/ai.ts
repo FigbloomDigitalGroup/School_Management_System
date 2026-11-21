@@ -12,6 +12,9 @@ import type { ReportCardData } from "./reportCards";
  * is saved or sent until they do.
  */
 
+/** A label for what AI drafting is, shown beside every AI button. */
+export const AI_DRAFT_NOTE = "Bloom is an AI and can get things wrong. Read and edit before you save or send.";
+
 /** Drafting a class's comments or a question paper can take a while. */
 const AI_TIMEOUT_MS = 120_000;
 

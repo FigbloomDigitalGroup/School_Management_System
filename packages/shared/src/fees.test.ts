@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCents, formatMoney, invoiceStatus, itemsForStudent, normaliseMsisdn, overpaidCents, parseShillings, payableSuggestions, planTermBilling, totalCents,
+  balanceCents, formatMoney, itemsForStudent, normaliseMsisdn, overpaidCents, parseShillings, payableSuggestions, planTermBilling, totalCents,
   wholeShillings,
 } from "./fees";
 import type { FeeInvoice, FeeItem } from "./types";
@@ -44,46 +44,6 @@ describe("overpaidCents", () => {
   it("is nothing while a balance is owed or exactly cleared", () => {
     expect(overpaidCents({ total_cents: 10000, paid_cents: 4000 })).toBe(0);
     expect(overpaidCents({ total_cents: 10000, paid_cents: 10000 })).toBe(0);
-  });
-});
-
-describe("invoiceStatus", () => {
-  const today = new Date("2026-06-01");
-  it("is paid once the balance is zero, even if overdue", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 10000, due_on: "2026-01-01" });
-    expect(invoiceStatus(i, today)).toBe("paid");
-  });
-  it("is overdue when unpaid past the due date", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 0, due_on: "2026-01-01" });
-    expect(invoiceStatus(i, today)).toBe("overdue");
-  });
-  it("is part_paid when something has been paid but not overdue", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 4000, due_on: "2026-12-01" });
-    expect(invoiceStatus(i, today)).toBe("part_paid");
-  });
-  it("is unpaid when nothing has been paid and not yet due", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 0, due_on: "2026-12-01" });
-    expect(invoiceStatus(i, today)).toBe("unpaid");
-  });
-  it("is overdue, not part_paid, when something is paid but the balance is past due", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 4000, due_on: "2026-01-01" });
-    expect(invoiceStatus(i, today)).toBe("overdue");
-  });
-  it("is paid when overpaid, and when the total is zero", () => {
-    expect(invoiceStatus(invoice({ total_cents: 10000, paid_cents: 15000, due_on: "2026-12-01" }), today)).toBe("paid");
-    expect(invoiceStatus(invoice({ total_cents: 0, paid_cents: 0, due_on: "2026-12-01" }), today)).toBe("paid");
-  });
-  it("is overdue the day AFTER the due date, matching the database's `due_on < current_date`", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 0, due_on: "2026-06-01" });
-    expect(invoiceStatus(i, new Date("2026-06-02T00:30:00Z"))).toBe("overdue");
-  });
-  // Known quirk, no bug filed: the due date is read as midnight UTC, so an unpaid invoice reads overdue from 03:00 Nairobi time on
-  // its due day, while `apply_payment` in the database only calls it overdue once `due_on < current_date`. Nothing calls
-  // invoiceStatus() today (the screens work the balance out themselves), so it has no effect on screen. If a screen starts using
-  // it this will matter. it.fails flips to a failure when it is fixed: then change it to `it` and delete the note.
-  it.fails("is still unpaid during the due date itself, as the database has it", () => {
-    const i = invoice({ total_cents: 10000, paid_cents: 0, due_on: "2026-06-01" });
-    expect(invoiceStatus(i, new Date("2026-06-01T10:00:00Z"))).toBe("unpaid");
   });
 });
 

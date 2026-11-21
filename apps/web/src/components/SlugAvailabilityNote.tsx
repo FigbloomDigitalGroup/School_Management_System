@@ -16,14 +16,14 @@ export function SlugAvailabilityNote({ slug, noun, base = "schoolmanagement.figb
   const { status, alternatives } = availability;
   if (status === "idle" || status === "unknown") return null;
   if (status === "checking") {
-    return <p className="mt-1.5 text-[11.5px] text-ink-faint">Checking {base}{slug}…</p>;
+    return <p className="mt-1.5 break-words text-[11.5px] text-ink-faint">Checking {base}{slug}…</p>;
   }
   if (status === "free") {
-    return <p className="mt-1.5 text-[11.5px] text-ok-ink">✓ {base}{slug} is free. It can't be changed later, so check the spelling.</p>;
+    return <p className="mt-1.5 break-words text-[11.5px] text-ok-ink">✓ {base}{slug} is free. It can't be changed later, so check the spelling.</p>;
   }
   return (
     <div className="mt-1.5 text-[11.5px] text-warn-ink" role="alert">
-      <p>✕ {base}{slug} is already taken by another {noun}.</p>
+      <p className="break-words">✕ {base}{slug} is already taken by another {noun}.</p>
       {alternatives.length > 0 && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="text-ink-muted">Try:</span>

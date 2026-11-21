@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { validateQuestions } from "./examPapers";
 import {
-  CHECK, IMPORT_MAX_BYTES, checkImportFiles, draftFromImport, importFileKind, paperImportPath, parseImportedPaper, questionsToCheck,
-  type ImportedPaper, type ImportedQuestion,
+  CHECK, IMPORT_MAX_BYTES, applyPaperImport, checkImportFiles, curriculumFromClassName, draftFromImport, flaggedQuestionsBanner,
+  flaggedQuestionsProblem, importFileKind, paperImportPath, parseImportedPaper, questionsToCheck,
+  type ImportedPaper, type ImportedQuestion, type PaperImportDraft, type ReviewQuestion,
 } from "./paperImport";
 
 const q = (over: Partial<ImportedQuestion> = {}): ImportedQuestion => ({
@@ -143,5 +144,79 @@ describe("draftFromImport", () => {
     expect(d.durationMinutes).toBe(null);
     expect(d.title).toHaveLength(160);
     expect(d.warnings.at(-1)).toMatch(/Only the first 200/);
+  });
+});
+
+describe("what an import does to the paper editor's fields", () => {
+  const typed = (prompt: string): ReviewQuestion => ({ kind: "short", prompt, options: [], points: 2, correctOption: null, modelAnswer: "" });
+  const draft = (over: Partial<PaperImportDraft> = {}): PaperImportDraft => ({
+    title: "Form 2 Biology End of Term 1", instructions: "Answer all questions.", durationMinutes: 90,
+    questions: [{ ...typed("Imported 1"), check: [CHECK.unsure] }, typed("Imported 2")], warnings: ["Page 3 is missing."], ...over,
+  });
+  const empty = { title: "", instructions: "", duration: "60", questions: [] as ReviewQuestion[], isNew: true };
+
+  it("puts the imported questions after the ones already in the paper", () => {
+    const r = applyPaperImport({ ...empty, questions: [typed("Mine")] }, draft(), false);
+    expect(r.questions.map((x) => x.prompt)).toEqual(["Mine", "Imported 1", "Imported 2"]);
+  });
+
+  it("puts them in place of the ones already there when asked to replace", () => {
+    const r = applyPaperImport({ ...empty, questions: [typed("Mine")] }, draft(), true);
+    expect(r.questions.map((x) => x.prompt)).toEqual(["Imported 1", "Imported 2"]);
+  });
+
+  it("keeps what Bloom flagged, so the teacher is asked to check it", () => {
+    const r = applyPaperImport(empty, draft(), false);
+    expect(questionsToCheck(r.questions)).toBe(1);
+  });
+
+  it("fills the title and instructions only where they are empty", () => {
+    expect(applyPaperImport(empty, draft(), false)).toMatchObject({ title: "Form 2 Biology End of Term 1", instructions: "Answer all questions." });
+    const kept = applyPaperImport({ ...empty, title: "My title", instructions: "My notes" }, draft(), false);
+    expect(kept).toMatchObject({ title: "My title", instructions: "My notes" });
+    expect(applyPaperImport({ ...empty, title: "   " }, draft(), false).title).toBe("Form 2 Biology End of Term 1");
+  });
+
+  it("does not blank a title or instructions because the paper had none", () => {
+    const r = applyPaperImport({ ...empty, title: "Mine", instructions: "Mine too" }, draft({ title: "", instructions: "" }), false);
+    expect(r).toMatchObject({ title: "Mine", instructions: "Mine too" });
+  });
+
+  it("gives a new paper the imported paper's own time, over the 60-minute default", () => {
+    expect(applyPaperImport({ ...empty, duration: "60" }, draft({ durationMinutes: 90 }), false).duration).toBe("90");
+  });
+
+  it("keeps the time of a paper that already has one, and fills it in for one that has none", () => {
+    expect(applyPaperImport({ ...empty, isNew: false, duration: "45" }, draft({ durationMinutes: 90 }), false).duration).toBe("45");
+    expect(applyPaperImport({ ...empty, isNew: false, duration: " " }, draft({ durationMinutes: 90 }), false).duration).toBe("90");
+  });
+
+  it("leaves the time alone when the imported paper gives none", () => {
+    expect(applyPaperImport(empty, draft({ durationMinutes: null }), false).duration).toBe("60");
+  });
+
+  it("hands back what Bloom said about the paper as a whole", () => {
+    expect(applyPaperImport(empty, draft(), false).warnings).toEqual(["Page 3 is missing."]);
+  });
+});
+
+describe("the words about flagged questions", () => {
+  it("says how many need checking before the paper can be published", () => {
+    expect(flaggedQuestionsBanner(1)).toBe("Imported by Bloom. 1 question needs checking against the paper before you can publish.");
+    expect(flaggedQuestionsBanner(3)).toBe("Imported by Bloom. 3 questions need checking against the paper before you can publish.");
+  });
+  it("says why a paper with flagged questions cannot be published, and that a draft can be saved", () => {
+    expect(flaggedQuestionsProblem(1)).toBe('1 question is flagged for checking. Look at each one and press "Looks right", or save a draft for now.');
+    expect(flaggedQuestionsProblem(2)).toBe('2 questions are flagged for checking. Look at each one and press "Looks right", or save a draft for now.');
+  });
+});
+
+describe("the curriculum a class is guessed to follow", () => {
+  it("takes a Form class as 8-4-4 and everything else as CBC", () => {
+    expect(curriculumFromClassName("Form 2 West")).toBe("844");
+    expect(curriculumFromClassName("  form 4")).toBe("844");
+    expect(curriculumFromClassName("Grade 6 Blue")).toBe("cbc");
+    expect(curriculumFromClassName("PP2")).toBe("cbc");
+    expect(curriculumFromClassName("Formal 1")).toBe("cbc");
   });
 });

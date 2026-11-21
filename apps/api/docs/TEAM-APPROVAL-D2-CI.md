@@ -1,3 +1,5 @@
+> **Superseded 2026-11-15** by `CI-API-JOB-PROPOSAL.md` and `ci-api-job.patch.yml` (current design: Node 22, `figbloom_app` runtime role, build, audit gate, compiled migrations). The text below is the 2026-11-12 request and is kept as history.
+
 # TEAM APPROVAL — D-2: Integrate `@figbloom/api` into CI
 
 **Status:** APPLY-READY PROPOSAL · **OPEN — TEAM APPROVAL** · Not landed in `.github/workflows/ci.yml`  

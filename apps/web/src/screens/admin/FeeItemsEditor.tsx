@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { formatMoney, levelsForTenant, parseShillings, supabase, targetYearLabel, yearGroupKey, yearGroupsOf, yearLabel, yearsFor, type FeeItem, type YearGroup } from "@figbloom/shared";
+import {
+  createFeeItem, deleteFeeItem, fetchSchoolYearGroups, fetchTermFeeItems, formatMoney, levelsForTenant, parseShillings, targetYearLabel, updateFeeItem, yearGroupKey,
+  yearLabel, yearsFor, type FeeItem, type YearGroup,
+} from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -17,17 +20,8 @@ const APPLIES_TO_OPTIONS: { value: FeeItem["applies_to"]; label: string }[] = [
 
 /** Year groups the school has classes in; every year it could run when it has none yet. */
 async function fetchYearGroups(tenantId: string, tenantLevel: Parameters<typeof levelsForTenant>[0]): Promise<YearGroup[]> {
-  const { data, error } = await supabase().from("classes").select("level, form_level").eq("tenant_id", tenantId)
-    .returns<{ level: YearGroup["level"]; form_level: number }[]>();
-  if (error) throw new Error(error.message);
-  const groups = yearGroupsOf(data ?? []);
+  const groups = await fetchSchoolYearGroups(tenantId);
   return groups.length ? groups : levelsForTenant(tenantLevel).flatMap((l) => yearsFor(l).map((y) => ({ key: yearGroupKey(l, y), level: l, year: y })));
-}
-
-async function fetchTermFeeItems(termId: string): Promise<FeeItem[]> {
-  const { data, error } = await supabase().from("fee_items").select("*").eq("term_id", termId).order("name").returns<FeeItem[]>();
-  if (error) throw new Error(error.message);
-  return data ?? [];
 }
 
 function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
@@ -47,8 +41,7 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
     if (!name.trim() || cents <= 0) { toast("Give it a name and a positive amount.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("fee_items").update({ name: name.trim(), amount_cents: cents }).eq("id", item.id);
-      if (error) throw error;
+      await updateFeeItem(item.id, { name: name.trim(), amountCents: cents });
       onSaved();
     } catch (err) {
       toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
@@ -59,8 +52,12 @@ function FeeItemRow({ item, country, onSaved, onDeleted, toast }: {
 
   async function remove() {
     if (!(await confirmDialog({ title: `Remove "${item.name}" from this term's fee structure?`, confirmLabel: "Remove", danger: true }))) return;
-    const { error } = await supabase().from("fee_items").delete().eq("id", item.id);
-    if (error) { toast(`Could not remove that item: ${error.message}`, "error"); return; }
+    try {
+      await deleteFeeItem(item.id);
+    } catch (err) {
+      toast(`Could not remove that item: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
     onDeleted();
   }
 
@@ -130,13 +127,7 @@ export function FeeItemsEditor({ termId, termName, tenantId, country, onClose }:
     if (appliesTo === "form_level" && !yearGroup) { toast("Pick which year group this item is for.", "error"); return; }
     setCreating(true);
     try {
-      const { error: err } = await supabase().from("fee_items").insert({
-        tenant_id: tenantId, term_id: termId, name: name.trim(), amount_cents: cents,
-        applies_to: appliesTo,
-        form_level: appliesTo === "form_level" ? yearGroup!.year : null,
-        level: appliesTo === "form_level" ? yearGroup!.level : null,
-      });
-      if (err) throw err;
+      await createFeeItem({ tenantId, termId, name: name.trim(), amountCents: cents, appliesTo, yearGroup });
       toast(`${name.trim()} added.`);
       setName("");
       setAmount("");

@@ -30,7 +30,7 @@
  * (the platform sends no Supabase JWT; config.toml says so too).
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { verifyFigbloomWebhook } from "../_shared/platformWebhook.ts";
 import { decisionsEnabled } from "../_shared/platformSync.ts";
 

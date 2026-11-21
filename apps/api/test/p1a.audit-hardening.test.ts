@@ -81,7 +81,7 @@ describe("FIG-1573 audit regression suite", () => {
     it("ships the programme defaults: capacity 5, +2 per 5s", async () => {
       const { loadConfig } = await import("../src/config.js");
       const c = loadConfig({
-        DATABASE_URL: "postgresql://x@127.0.0.1/figbloom_api",
+        DATABASE_URL: "postgresql://figbloom_app@127.0.0.1/figbloom_api",
       } as NodeJS.ProcessEnv);
       expect(c.authRateCapacity).toBe(5);
       expect(c.authRateRefill).toBe(2);
@@ -488,7 +488,7 @@ describe("FIG-1573 audit regression suite", () => {
       await pool.query(`INSERT INTO school_role_assignments (tenant_id, user_id, role_id) VALUES ($1,$2,$3)`, [ids.tenantA, ids.teacherA, role.rows[0]!.id]);
       const t = (await loginId(ids.tenantA, "TC-0001")).json().token as string;
       const perms = await app.inject({ method: "GET", url: "/v1/rbac/permissions", headers: bearer(t) });
-      expect(perms.json().permissions).toContain("area.fees");
+      expect(perms.json().items).toContain("area.fees");
       await pool.query(`DELETE FROM school_role_assignments WHERE role_id=$1`, [role.rows[0]!.id]);
     });
   });
@@ -601,10 +601,25 @@ describe("FIG-1573 audit regression suite", () => {
       expect(r.headers["Retry-After"]).toBeTruthy();
     });
 
-    it("test reset guard refuses non-isolated databases", () => {
-      expect(() => assertIsolatedTestDatabase("postgresql://u:p@db.example.com:5432/figbloom_api")).toThrow();
-      expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/postgres")).toThrow();
-      expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/figbloom_api")).not.toThrow();
+    it("test reset guard refuses non-isolated, development-port and undesignated databases", () => {
+      const prev = process.env.FIGBLOOM_TEST_DB_DESIGNATION;
+      try {
+        process.env.FIGBLOOM_TEST_DB_DESIGNATION = "127.0.0.1:59822/figbloom_api";
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@db.example.com:5432/figbloom_api")).toThrow();
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/postgres")).toThrow();
+        // the development stack is refused even when explicitly designated
+        process.env.FIGBLOOM_TEST_DB_DESIGNATION = "127.0.0.1:58322/figbloom_api";
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:58322/figbloom_api")).toThrow(/development.default port/);
+        // an undesignated (inferred-from-.env) target is refused
+        delete process.env.FIGBLOOM_TEST_DB_DESIGNATION;
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:59822/figbloom_api")).toThrow(/explicit designation/);
+        expect(() => assertIsolatedTestDatabase(undefined as unknown as string)).toThrow();
+        process.env.FIGBLOOM_TEST_DB_DESIGNATION = "127.0.0.1:59822/figbloom_api";
+        expect(() => assertIsolatedTestDatabase("postgresql://u:p@127.0.0.1:59822/figbloom_api")).not.toThrow();
+      } finally {
+        if (prev === undefined) delete process.env.FIGBLOOM_TEST_DB_DESIGNATION;
+        else process.env.FIGBLOOM_TEST_DB_DESIGNATION = prev;
+      }
     });
   });
 });

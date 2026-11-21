@@ -66,7 +66,11 @@ describe("secrets in the client code", () => {
   ];
 
   it("no server-side secret name or private key appears in the web or phone source", () => {
-    const hits = clientFiles().flatMap((f) => FORBIDDEN.filter((s) => read(f).includes(s)).map((s) => `${f}: ${s}`));
+    // Each file is read once (not once per forbidden string): same assertion, 12x fewer reads.
+    const hits = clientFiles().flatMap((f) => {
+      const text = read(f);
+      return FORBIDDEN.filter((s) => text.includes(s)).map((s) => `${f}: ${s}`);
+    });
     expect(hits).toEqual([]);
   });
 
@@ -206,7 +210,7 @@ describe("the GitHub workflows", () => {
 
   // The release job installs, then writes the signing keystore and its passwords and builds the app people install. An install script
   // from a hijacked package runs on that machine first.
-  it.fails("QA14-RELEASE-INSTALL FIG-1458: the mobile release workflow installs with --ignore-scripts too", () => {
+  it("QA14-RELEASE-INSTALL FIG-1458: the mobile release workflow installs with --ignore-scripts too", () => {
     const lines = installs(WORKFLOWS[1]!);
     expect(lines.length).toBeGreaterThan(0);
     for (const l of lines) expect(l).toContain("--ignore-scripts");

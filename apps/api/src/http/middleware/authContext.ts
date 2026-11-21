@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify";
-import type { Db } from "../../db/pool.js";
+import type { IdentityDb } from "../../db/sql.js";
 import { bearerToken, requireSession, type SessionRow } from "../../modules/auth/session.js";
 import { loadUser, type PublicUser } from "../../modules/auth/service.js";
 import { buildAuthzContext, type AuthzContext } from "../../modules/rbac/authorize.js";
@@ -44,10 +44,13 @@ export function routeKey(request: FastifyRequest): string {
   return `${method} ${path}`;
 }
 
-export async function requireSessionAuth(db: Db, request: FastifyRequest): Promise<SessionAuth> {
+export async function requireSessionAuth(db: IdentityDb, request: FastifyRequest): Promise<SessionAuth> {
   const token = bearerToken(request.headers.authorization);
-  const session = await requireSession(db, token);
+  const session = await requireSession(db, token, request.server.appConfig.sessionLastSeenIntervalSeconds);
   const user = await loadUser(db, session.user_id);
+  // FIG-1604: the forced-password-change gate lives in the one function every authenticated
+  // route must call, so a new route cannot forget it. Only the three allowlisted routes pass.
+  assertPasswordChangeNotRequired(user, request);
   return { session, user };
 }
 
@@ -64,7 +67,7 @@ export function assertPasswordChangeNotRequired(user: PublicUser, request: Fasti
  * re-derives access from membership / organisation / platform tables on every
  * request and throws 403 otherwise. A client role/permission list is never read.
  */
-export async function authenticateRequest(db: Db, request: FastifyRequest): Promise<RequestAuth> {
+export async function authenticateRequest(db: IdentityDb, request: FastifyRequest): Promise<RequestAuth> {
   const { session, user } = await requireSessionAuth(db, request);
   assertPasswordChangeNotRequired(user, request);
 
@@ -95,8 +98,3 @@ export async function authenticateRequest(db: Db, request: FastifyRequest): Prom
   return auth;
 }
 
-export async function requireTenantAuth(db: Db, request: FastifyRequest): Promise<RequestAuth> {
-  const auth = await authenticateRequest(db, request);
-  if (!auth.authz.tenantId) throw forbidden("Tenant context required");
-  return auth;
-}

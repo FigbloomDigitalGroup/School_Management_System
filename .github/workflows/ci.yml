@@ -50,6 +50,75 @@ jobs:
       - run: npm run lint
       - run: npm run test:unit
 
+  # FIG-1606: the @figbloom/api workspace. The root `checks` job does not cover it (the root
+  # typecheck script omits it and the root unit tests are web/shared only), so without this job
+  # no API change, migration or RLS regression is gated. Every step fails the job on a genuine
+  # error: no continue-on-error, no excluded test, no allowlisted advisory.
+  api:
+    name: API (typecheck, lint, migrations, RLS and tests, OpenAPI, audit)
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Read-only token; the job writes nothing and publishes nothing.
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        # A throwaway container: its credentials belong to it alone and reach nothing real.
+        # Mapped to non-development port 59822 so the four-condition testTarget safety guard
+        # (non-forbidden port + explicit FIGBLOOM_TEST_DB_DESIGNATION + database marker) holds.
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: figbloom_api
+        ports: ["59822:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d figbloom_api"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The suite resets this database, so it requires loopback + figbloom_api on a non-dev port,
+      # an explicit FIGBLOOM_TEST_DB_DESIGNATION, and the disposable database comment marker.
+      # The tests give figbloom_app a random per-run password, so the application under test
+      # connects as that non-owner role, never as this owner.
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:59822/figbloom_api
+      FIGBLOOM_TEST_DB_DESIGNATION: 127.0.0.1:59822/figbloom_api
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      # Reproducible install from the committed lockfile (fails if it and the manifests disagree);
+      # --ignore-scripts so no dependency runs code at install time.
+      - run: npm ci --ignore-scripts
+      # Audit gate for the API workspace, production and development dependencies: any finding fails.
+      - run: npm audit --workspace @figbloom/api
+      - run: npm run typecheck --workspace @figbloom/api
+      # The root flat config, scoped to the API source and tests. apps/api/scripts/*.mjs is left
+      # out on purpose: the root config gives those two committed scripts no Node globals, so
+      # linting them fails today ('process' is not defined). That is a separate config fix.
+      - run: npx eslint apps/api/src apps/api/test
+      - run: npm run build --workspace @figbloom/api
+      # Compiled migrations as the migrator: apply, verify, and a second run must be a no-op.
+      - run: npm run migrate --workspace @figbloom/api
+      - run: npm run migrate:verify --workspace @figbloom/api
+      - run: npm run migrate --workspace @figbloom/api
+      - run: npm run openapi:check --workspace @figbloom/api
+      # Stamp the throwaway CI container with the disposable test-database marker before vitest globalSetup.
+      - run: node apps/api/scripts/designate-test-db.mjs
+      # The whole API suite: RLS and tenant isolation through the real figbloom_app login,
+      # runtime-role assertions, SECURITY DEFINER inventory, credential access, idempotency,
+      # headers/CORS, logging redaction, delegation, forced password change, the architecture
+      # rules and a compiled-build smoke test.
+      - run: npm run test --workspace @figbloom/api
+
   edge-functions:
     name: Edge function tests (Deno)
     needs: security-scan

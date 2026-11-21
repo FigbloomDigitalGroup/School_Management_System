@@ -183,15 +183,21 @@ export async function loadParentData(profileId: string): Promise<ParentData> {
 
   const studentIds = kids.map((k) => k.id);
 
-  const [{ data: term }, { data: invoiceRows }, [attendanceRows, signOutDays, attendanceSettings], examsByStudent] = await Promise.all([
-    supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle(),
+  const { data: term } = await supabase().from("terms").select("id, name").eq("is_current", true).maybeSingle();
+
+  const [{ data: invoiceRows }, [attendanceRows, signOutDays, attendanceSettings], examsByStudent] = await Promise.all([
     studentIds.length
       // The current term's invoice only: invoices are keyed by child below, so
       // once a second term is billed any term's balance could otherwise win.
       ? supabase().from("fee_invoices").select("id, student_id, total_cents, paid_cents, due_on, terms!inner(is_current)").in("student_id", studentIds).eq("terms.is_current", true)
       : Promise.resolve({ data: [] as { id: string; student_id: string; total_cents: number; paid_cents: number; due_on: string }[] }),
     // Both registers (FIG-1514); the counting below follows the school's mode and leaves out an afternoon absence of a child signed out early.
-    Promise.all([fetchSessionEntries({ studentIds }), fetchSignOutDays({ studentIds }), fetchMyAttendanceSettings()]),
+    // The current term's rows only (FIG-1404): prior terms must not pollute "this term" percentage, days missed and below-90% alert.
+    Promise.all([
+      studentIds.length ? fetchSessionEntries({ studentIds, termId: term?.id }) : Promise.resolve([]),
+      fetchSignOutDays({ studentIds }),
+      fetchMyAttendanceSettings(),
+    ]),
     // Each child's own list: an exam only one class's teachers have published must not stand in for this child's results.
     fetchPublishedExams(studentIds),
   ]);

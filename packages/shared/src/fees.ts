@@ -1,4 +1,4 @@
-import type { ClassLevel, FeeInvoice, FeeItem, InvoiceStatus, Payment, Student } from "./types";
+import type { ClassLevel, FeeInvoice, FeeItem, Payment, Student } from "./types";
 import { yearMatches } from "./levels";
 import { countryProfile } from "./countries";
 import { normalisePhoneForCountry } from "./phone";
@@ -41,13 +41,6 @@ export const balanceCents = (i: FeeInvoice): number => Math.max(i.total_cents - 
 
 /** What was paid above the total: two payments that crossed, or a charge cancelled after paying (FIG-1316). */
 export const overpaidCents = (i: Pick<FeeInvoice, "total_cents" | "paid_cents">): number => Math.max(i.paid_cents - i.total_cents, 0);
-
-export function invoiceStatus(i: Pick<FeeInvoice, "total_cents" | "paid_cents" | "due_on">, today = new Date()): InvoiceStatus {
-  const bal = Math.max(i.total_cents - i.paid_cents, 0);
-  if (bal === 0) return "paid";
-  if (new Date(i.due_on) < today) return "overdue";
-  return i.paid_cents > 0 ? "part_paid" : "unpaid";
-}
 
 /** classLevel keeps a Grade 1 item off a Form 1 learner's bill in a school that runs both. */
 export function itemsForStudent(items: FeeItem[], student: Pick<Student, "boarding">, formLevel: number, classLevel?: ClassLevel | null): FeeItem[] {

@@ -1,38 +1,47 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { loadConfig } from "../src/config.js";
 import { hashPassword } from "../src/modules/identity/password.js";
 import { buildApp } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
+import { createPool, runtimePoolOptions } from "../src/db/pool.js";
 import { runMigrations } from "../src/db/migrate.js";
+import { assertRuntimeRole } from "../src/db/roleAssert.js";
+import { setLogSink } from "../src/log.js";
+import { LOCAL_SESSION_MINT_HMAC_KEY } from "../src/modules/auth/sessionProof.js";
 
 const { Pool } = pg;
 
-/**
- * resetDatabase() runs DROP SCHEMA public CASCADE. Refuse anything that is not
- * the isolated local figbloom_api database (FIG-1573 audit AUD-12).
- */
-export function assertIsolatedTestDatabase(databaseUrl: string): void {
-  const url = new URL(databaseUrl);
-  const host = url.hostname;
-  const dbName = url.pathname.replace(/^\//, "");
-  const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
-  if (!loopback || dbName !== "figbloom_api") {
-    throw new Error(
-      "Refusing to reset a database that is not the isolated local figbloom_api database.",
-    );
-  }
+import { assertDisposableMarker, assertIsolatedTestDatabase } from "./support/testTarget.js";
+export { assertIsolatedTestDatabase };
+
+function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Build a figbloom_app URL from the owner URL without logging either string. */
+export function runtimeUrlFromOwner(ownerUrl: string, password: string): string {
+  const url = new URL(ownerUrl);
+  url.username = "figbloom_app";
+  url.password = password;
+  return url.toString();
 }
 
 export async function resetDatabase(pool: pg.Pool): Promise<void> {
+  await assertDisposableMarker(pool); // structural guard: never drop a schema on an unmarked database
   await pool.query(`
     DROP SCHEMA public CASCADE;
     CREATE SCHEMA public;
-    GRANT ALL ON SCHEMA public TO postgres;
-    GRANT ALL ON SCHEMA public TO public;
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    GRANT USAGE ON SCHEMA public TO PUBLIC;
   `);
   // Use the real migration runner (advisory lock + checksums) — R2-09 / R3.
   await runMigrations(pool);
+  // Migration 014: install the local/test session-mint HMAC secret (owner only).
+  await pool.query(`SELECT public.auth_install_session_hmac_secret($1, $2)`, [
+    "local",
+    LOCAL_SESSION_MINT_HMAC_KEY,
+  ]);
 }
 
 export interface FixtureIds {
@@ -115,23 +124,69 @@ export async function seedFixtures(pool: pg.Pool): Promise<FixtureIds> {
 
 export async function createTestApp(): Promise<{
   config: AppConfig;
+  /** Owner/migrator pool: fixtures, resets, catalogue assertions. */
   pool: pg.Pool;
+  /** Application pool. The app under test uses only this login (figbloom_app). */
+  runtimePool: pg.Pool;
+  /** Runtime URL used for the application pool (password is per-run random). */
+  runtimeUrl: string;
   app: Awaited<ReturnType<typeof buildApp>>;
   ids: FixtureIds;
 }> {
-  process.env.DATABASE_URL ??= "postgresql://postgres:postgres@127.0.0.1:58322/figbloom_api";
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const ownerUrl =
+    process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
   // Override .env defaults so the suite is not starved by the login token bucket.
   process.env.AUTH_RATE_CAPACITY = "1000";
   process.env.AUTH_RATE_REFILL = "1000";
   // Default: proxy trust off for the shared suite (R2 tests enable it explicitly).
   process.env.API_TRUST_PROXY_HOPS = "0";
   delete process.env.API_TRUST_PROXY_CIDRS;
-  const config = loadConfig();
-  assertIsolatedTestDatabase(config.databaseUrl);
-  const pool = new Pool({ connectionString: config.databaseUrl });
+  assertIsolatedTestDatabase(ownerUrl);
+  // Access logs would drown test output; tests that assert on logs install their own sink.
+  setLogSink(() => undefined);
+  const pool = new Pool({
+    connectionString: ownerUrl,
+    max: 10,
+    application_name: "figbloom-test-owner",
+  });
   await resetDatabase(pool);
   const ids = await seedFixtures(pool);
-  const app = await buildApp(config, pool);
+
+  // Cluster-wide role: LOGIN is test-only and cleared when the owner pool ends.
+  const password = randomBytes(24).toString("base64url");
+  await pool.query(`ALTER ROLE figbloom_app WITH LOGIN PASSWORD ${quoteLiteral(password)}`);
+  const runtimeUrl = runtimeUrlFromOwner(ownerUrl!, password);
+  process.env.DATABASE_URL = runtimeUrl;
+  let config: AppConfig;
+  try {
+    config = loadConfig();
+  } finally {
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  }
+  const runtimePool = createPool(
+    runtimePoolOptions(config, { connectionString: runtimeUrl, applicationName: "figbloom-api-test" }),
+  );
+  const probe = await runtimePool.connect();
+  try {
+    await assertRuntimeRole(probe, { expectedRole: config.runtimeRole });
+  } finally {
+    probe.release();
+  }
+  const app = await buildApp(config, runtimePool);
   await app.ready();
-  return { config, pool, app, ids };
+
+  const originalEnd = pool.end.bind(pool);
+  pool.end = async () => {
+    await runtimePool.end().catch(() => undefined);
+    try {
+      await pool.query(`ALTER ROLE figbloom_app WITH NOLOGIN PASSWORD NULL`);
+    } catch {
+      /* best-effort; the role is cluster-wide */
+    }
+    return originalEnd();
+  };
+
+  return { config, pool, runtimePool, runtimeUrl, app, ids };
 }

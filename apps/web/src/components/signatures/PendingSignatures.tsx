@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CAPACITY_LABEL, fetchMySignatureRequests, signDocuments, supabase, type SignatureRequest } from "@figbloom/shared";
+import { CAPACITY_LABEL, fetchMySignatureRequests, fileLink, signDocuments, supabase, type SignatureRequest } from "@figbloom/shared";
 import { fileHash } from "../../lib/signing";
 import { Button } from "../ui/Button";
 import { useToast } from "../ui/Toast";
@@ -25,9 +25,11 @@ export function PendingSignatures({ onlyDocIds, compact }: { onlyDocIds?: string
 
   async function open(r: SignatureRequest) {
     if (!r.filePath) return;
-    const { data: url, error } = await supabase().storage.from(r.bucket).createSignedUrl(r.filePath, 600);
-    if (error || !url) { toast("Could not open the file.", "error"); return; }
-    window.open(url.signedUrl, "_blank", "noopener");
+    try {
+      window.open(await fileLink(r.bucket, r.filePath, 600), "_blank", "noopener");
+    } catch {
+      toast("Could not open the file.", "error");
+    }
   }
 
   async function sign(r: SignatureRequest, mark: Parameters<typeof signDocuments>[3]) {

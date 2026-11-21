@@ -103,6 +103,47 @@ export const blankQuestion = (kind: QuestionKind = "choice"): QuestionDraft => (
   kind, prompt: "", options: kind === "choice" ? ["", ""] : [], points: 1, correctOption: null, modelAnswer: "",
 });
 
+// The paper editor's question changes, on the web and on the phone: one set of rules for what a type change, a move or an option removal does.
+
+/** The question as another kind: choice keeps its options and key (or starts with two empty options), written ones lose both. */
+export function changeQuestionKind<Q extends QuestionDraft>(q: Q, kind: QuestionKind): Q {
+  return {
+    ...q, kind,
+    options: kind === "choice" ? (q.options.length >= OPTIONS_MIN ? q.options : Array.from({ length: OPTIONS_MIN }, () => "")) : [],
+    correctOption: kind === "choice" ? q.correctOption : null,
+  };
+}
+
+/** The list with the item at `from` moved by `by` places; the same list when that would take it past either end. */
+export function moveQuestion<Q>(questions: Q[], from: number, by: number): Q[] {
+  const to = from + by;
+  if (from < 0 || from >= questions.length || to < 0 || to >= questions.length) return questions;
+  const next = [...questions];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved!);
+  return next;
+}
+
+/** A choice question with option `k` removed. The key follows its option, and is cleared when the keyed option itself goes. Never below two options. */
+export function removeOption<Q extends QuestionDraft>(q: Q, k: number): Q {
+  if (q.options.length <= OPTIONS_MIN || k < 0 || k >= q.options.length) return q;
+  const key = q.correctOption;
+  return {
+    ...q,
+    options: q.options.filter((_, j) => j !== k),
+    correctOption: key === k ? null : key !== null && key > k ? key - 1 : key,
+  };
+}
+
+/** A choice question with one more empty option, up to the most a question may have. */
+export function addOption<Q extends QuestionDraft>(q: Q): Q {
+  return q.options.length >= OPTIONS_MAX ? q : { ...q, options: [...q.options, ""] };
+}
+
+/** Whether another option can be added to (or one removed from) a choice question. */
+export const canAddOption = (q: QuestionDraft): boolean => q.options.length < OPTIONS_MAX;
+export const canRemoveOption = (q: QuestionDraft): boolean => q.options.length > OPTIONS_MIN;
+
 /** Checks every question in the builder. Messages name the question by number. */
 export function validateQuestions(questions: QuestionDraft[]): Checked<QuestionDraft[]> {
   const value: QuestionDraft[] = [];
@@ -224,6 +265,19 @@ export function paperWindow(p: { opensAt: string; closesAt: string | null }, now
   if (nowMs < Date.parse(p.opensAt)) return "upcoming";
   if (p.closesAt && nowMs >= Date.parse(p.closesAt)) return "closed";
   return "open";
+}
+
+export type PaperStatusTone = "muted" | "ok" | "info" | "warn";
+
+/** The badge staff see on a paper: a draft, published but not open yet, open now, closed, or with its results out. */
+export function paperStatus(
+  p: { publishedAt: string | null; resultsReleasedAt: string | null; opensAt: string; closesAt: string | null },
+  nowMs: number,
+): { label: string; tone: PaperStatusTone } {
+  if (!p.publishedAt) return { label: "Draft", tone: "muted" };
+  if (p.resultsReleasedAt) return { label: "Results out", tone: "ok" };
+  const w = paperWindow(p, nowMs);
+  return w === "upcoming" ? { label: "Published", tone: "info" } : w === "open" ? { label: "Open now", tone: "warn" } : { label: "Closed", tone: "muted" };
 }
 
 const fmtWhen = (iso: string) =>
@@ -370,6 +424,15 @@ export async function fetchPaperContent(paperId: string): Promise<{ body: string
       };
     }),
   };
+}
+
+/**
+ * Why a paper already saved can't be published yet, or null. The typed text isn't in the list row,
+ * so it is only looked up for a read-only paper that has no file.
+ */
+export async function savedPaperPublishProblem(p: Pick<ExamPaperRow, "id" | "mode" | "filePath" | "questionCount">): Promise<string | null> {
+  const hasContent = !!p.filePath || (p.mode === "read" && !!(await fetchPaperContent(p.id)).body);
+  return publishProblem({ mode: p.mode, hasContent, questionCount: p.questionCount });
 }
 
 function paperColumns(input: PaperInput) {

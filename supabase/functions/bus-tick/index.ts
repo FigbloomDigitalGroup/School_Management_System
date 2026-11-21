@@ -15,7 +15,7 @@
  * (push; without it updates still reach the in-app feed).
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { injectedServerKeys, matchesAnyKey } from "../_shared/serviceKeys.ts";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { fcmAccessToken, sendToToken, serviceAccountFromEnv } from "../_shared/fcm.ts";
@@ -166,18 +166,24 @@ export async function handle(req: Request, deps: Deps, fetchImpl: typeof fetch =
 
   // Record each update; the unique key drops any a racing tick already sent.
   const sent: { stopId: string; title: string; body: string }[] = [];
+  // Updates the table refused for any reason but "already said" (FIG-770): without this count the answer
+  // for a tick whose insert failed was identical to a tick with nothing to say.
+  let failed = 0;
   for (const u of final.flatMap((p) => p.updates)) {
     const { error } = await admin.from("bus_updates").insert({
       tenant_id: trip.tenant_id, trip_id: trip.id, vehicle_id: trip.vehicle_id, stop_id: u.stopId,
       student_ids: riders.get(u.stopId)!.map((r) => r.id), kind: u.kind, title: u.title, body: u.body,
       distance_m: u.distanceM, eta_at: u.etaAt?.toISOString() ?? null, dedupe_key: u.key,
     });
-    if (error) { if (error.code !== "23505") console.error("bus-tick: insert failed", error); continue; }
+    if (error) {
+      if (error.code !== "23505") { failed++; console.error("bus-tick: insert failed", error); }
+      continue;
+    }
     sent.push({ stopId: u.stopId, title: u.title, body: u.body });
   }
 
   const pushed = sent.length ? await pushToGuardians(admin, fetchImpl, trip.id, sent, riders) : 0;
-  return json({ updates: sent.length, pushed, eta: fetched ? "traffic" : "estimate", stopsAhead: ahead.length, at: routeProgress(stops, pos) });
+  return json({ updates: sent.length, pushed, failed, eta: fetched ? "traffic" : "estimate", stopsAhead: ahead.length, at: routeProgress(stops, pos) });
 }
 
 /** Each update to the phones of the guardians of that stop's riders, named for their own children. */

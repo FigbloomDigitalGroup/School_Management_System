@@ -8,6 +8,11 @@ import { defineConfig } from "vitest/config";
 // (`npm test` inside apps/mobile), so they are not listed here.
 export default defineConfig({
   test: {
+    // Vitest 4 starts one worker per core minus one by default. Several of these suites are file-system and process heavy
+    // (tests/security reads the whole client source and runs scripts/security-scan.sh in throwaway repos); on a 12-core Windows
+    // machine that many workers pushed them past the 5 s test timeout (measured: all 1765 pass with 4 workers, 5 time out with the
+    // default). A fixed small cap keeps timings the same on every machine without raising any timeout.
+    maxWorkers: 4,
     include: [
       "packages/shared/src/**/*.test.ts",
       "apps/web/src/lib/**/*.test.ts",

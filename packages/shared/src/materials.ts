@@ -1,3 +1,4 @@
+import { deleteFiles, fileLink } from "./files";
 import { supabase } from "./supabase";
 
 /**
@@ -362,11 +363,7 @@ export function mediaSummary(m: MediaItem): string {
 
 /** A signed, time-limited URL for a file in learning-media. Works on web and both apps. */
 export async function mediaUrl(path: string, expiresInSeconds = 3600, download?: string): Promise<string> {
-  const { data, error } = await supabase().storage
-    .from(LEARNING_MEDIA_BUCKET)
-    .createSignedUrl(path, expiresInSeconds, download ? { download } : undefined);
-  if (error) throw new Error(error.message);
-  return data.signedUrl;
+  return fileLink(LEARNING_MEDIA_BUCKET, path, expiresInSeconds, download);
 }
 
 /** Where to send someone who taps an item: a signed file URL, or the link itself. */
@@ -378,10 +375,7 @@ export async function openableUrl(m: Pick<MediaItem, "filePath" | "url">): Promi
 
 /** Removes files from learning-media. Best-effort callers catch; a file left behind is tidied by the office. */
 export async function removeMediaFiles(paths: (string | null | undefined)[]): Promise<void> {
-  const list = paths.filter((p): p is string => !!p);
-  if (!list.length) return;
-  const { error } = await supabase().storage.from(LEARNING_MEDIA_BUCKET).remove(list);
-  if (error) throw new Error(error.message);
+  await deleteFiles(LEARNING_MEDIA_BUCKET, paths);
 }
 
 // ---------------------------------------------------------------- data: materials

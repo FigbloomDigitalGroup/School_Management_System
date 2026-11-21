@@ -24,7 +24,7 @@
  * asking Daraja, as mpesa-callback would, never credited from here.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { darajaToken, darajaUrl, queryStk as darajaQueryStk, stkPassword, type StkOutcome, timestamp, unpaidOutcome } from "../_shared/daraja.ts";
 import { dbLimiter, type Limiter, userKey } from "../_shared/rateLimit.ts";

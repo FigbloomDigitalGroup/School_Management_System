@@ -18,6 +18,8 @@ export type FileSource = "camera" | "gallery" | "document";
 export const PDF_OR_IMAGE: string[] = [types.pdf, types.images];
 /** Anything, for a chat: the chat then checks the type against what its storage takes. */
 export const ANY_FILE: string[] = [types.allFiles];
+/** What Bloom can read to import an exam paper (IMPORT_ACCEPT in shared): a PDF, a Word (.docx) file, or photos of the pages. */
+export const PAPER_IMPORT_FILES: string[] = [types.pdf, types.docx, types.images];
 /** What Figbloom HR takes with a leave application (LEAVE_DOCUMENT_TYPES in shared): a PDF, a photo, a Word document. */
 export const LEAVE_DOCUMENT_FILES: string[] = [types.pdf, types.images, types.doc, types.docx];
 
