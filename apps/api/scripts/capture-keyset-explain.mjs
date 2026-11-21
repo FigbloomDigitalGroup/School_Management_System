@@ -54,7 +54,6 @@ try {
   if (org.rowCount === 0) {
     push("\n_No organizations present; run API suite once or seed fixtures before capture._\n");
   } else {
-    const orgId = org.rows[0].id;
     const user = await pool.query(`SELECT user_id FROM organization_memberships WHERE role = 'org_admin' LIMIT 1`);
     const userId = user.rows[0]?.user_id;
 

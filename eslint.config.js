@@ -14,6 +14,7 @@ export default tseslint.config(
       "apps/mobile/ios/**",
       "supabase/.temp/**",
       "playwright-report/**",
+      ".personal-ai/**",
     ],
   },
   js.configs.recommended,
@@ -54,7 +55,7 @@ export default tseslint.config(
     rules: { "no-console": "error" },
   },
   {
-    files: ["apps/api/test/negative-controls/**/*.mjs"],
+    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs"],
     languageOptions: { sourceType: "module", globals: globals.node },
   },
   {

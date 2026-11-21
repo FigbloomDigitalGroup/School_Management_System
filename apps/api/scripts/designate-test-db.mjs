@@ -2,7 +2,6 @@
 // Operator action: mark a THROWAWAY database as an allowed destructive test target.
 //   MIGRATION_DATABASE_URL=postgresql://postgres:***@127.0.0.1:<port>/figbloom_api node scripts/designate-test-db.mjs
 // Refuses development/default ports. Never run against a database whose contents you need.
-/* global process, URL, console */
 import pg from "pg";
 
 const FORBIDDEN_PORTS = new Set([5432, 54322, 58322, 15432, 25432]);

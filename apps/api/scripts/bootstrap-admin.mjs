@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global process, console */
 // Controlled, auditable bootstrap of the FIRST platform (super) administrator. Operator action, run once per environment:
 //
 //   MIGRATION_DATABASE_URL=postgresql://<owner>@<host>/<db> \
