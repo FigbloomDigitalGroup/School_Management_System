@@ -1,4 +1,4 @@
-import { fetchAiStatus, type AiStatus } from "@figbloom/shared";
+import { AI_DRAFT_NOTE, fetchAiStatus, type AiStatus } from "@figbloom/shared";
 import { useAsync } from "./useAsync";
 import { useTenantSession } from "./sessionContext";
 
@@ -13,5 +13,4 @@ export function useAiStatus(): AiStatus | null {
   return data ?? null;
 }
 
-/** A label for what AI drafting is, shown beside every AI button. */
-export const AI_DRAFT_NOTE = "Bloom is an AI and can get things wrong. Read and edit before you save or send.";
+export { AI_DRAFT_NOTE };

@@ -7,6 +7,7 @@ const from = vi.fn(() => ({ upload, createSignedUploadUrl }));
 vi.mock("./supabase", () => ({ supabase: () => ({ storage: { from } }) }));
 
 import { uploadFile } from "./storageUpload";
+import { initFiles } from "./files";
 
 const SIGNED = "http://127.0.0.1:54321/storage/v1/object/upload/sign/chat-files/t1/a.pdf?token=abc";
 const file = (over: Partial<{ name: string; mimeType: string; bytes: string }> = {}) => {
@@ -20,7 +21,9 @@ const sent = () => {
   return { url: call[0] as string, init: call[1] as { method: string; headers: Record<string, string>; body: Blob } };
 };
 
+// These tests are about Supabase Storage: no files_service row, so no lookup either.
 beforeEach(() => {
+  initFiles(null);
   upload.mockReset().mockResolvedValue({ data: {}, error: null });
   createSignedUploadUrl.mockReset().mockResolvedValue({ data: { signedUrl: SIGNED, token: "abc", path: "t1/a.pdf" }, error: null });
   from.mockClear();

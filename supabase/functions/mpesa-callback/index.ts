@@ -20,7 +20,7 @@
  * delivery is retried rather than the payment silently staying pending.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { queryStk, secretsMatch, type StkOutcome, unpaidOutcome } from "../_shared/daraja.ts";
 
 export interface Deps {

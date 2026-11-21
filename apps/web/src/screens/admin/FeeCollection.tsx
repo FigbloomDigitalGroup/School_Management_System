@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  PAYMENT_METHODS, fetchAllPages, formatMoney, learnerNameOf, paymentFormStart, planTermBilling, readPaymentEntry, recordPayment, searchPayableInvoices, supabase,
-  type ClassLevel, type FeeItem, type PayableInvoice, type PaymentMethodValue, type ProofToConfirm, type Term,
+  PAYMENT_METHODS, billTerm, fetchBillingInputs, formatMoney, learnerNameOf, paymentFormStart, planTermBilling, readPaymentEntry, recordPayment, searchPayableInvoices,
+  type FeeItem, type PayableInvoice, type PaymentMethodValue, type ProofToConfirm, type Term,
 } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -10,20 +10,6 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 
 // ---------------------------------------------------------------- billing run
-
-interface StudentRow { id: string; boarding: boolean; classes: { form_level: number; level: ClassLevel } | null }
-
-async function fetchBillingInputs(tenantId: string, termId: string) {
-  const sb = supabase();
-  const [students, invoiced] = await Promise.all([
-    fetchAllPages<StudentRow>((from, to) =>
-      sb.from("students").select("id, boarding, classes(form_level, level)")
-        .eq("tenant_id", tenantId).eq("active", true).order("id").range(from, to).returns<StudentRow[]>()),
-    fetchAllPages<{ student_id: string }>((from, to) =>
-      sb.from("fee_invoices").select("student_id").eq("term_id", termId).order("id").range(from, to)),
-  ]);
-  return { students, invoiced: new Set(invoiced.map((i) => i.student_id)) };
-}
 
 /** Fees are due on opening day; billing after that gives families two weeks rather than an instant "overdue". */
 function defaultDueOn(term: Term): string {
@@ -46,27 +32,18 @@ export function BillTermModal({ term, feeItems, tenantId, country, onClose, onBi
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  const plan = data
-    ? planTermBilling(
-        data.students.map((s) => ({ id: s.id, boarding: s.boarding, formLevel: s.classes?.form_level ?? null, classLevel: s.classes?.level ?? null })),
-        feeItems, data.invoiced,
-      )
-    : null;
+  const plan = data ? planTermBilling(data.students, feeItems, data.invoiced) : null;
 
   async function bill() {
     if (!plan || !dueOn) return;
     setSaving(true);
     setSaveError("");
     try {
-      // One call, one transaction: the invoices and their audit event are what the
-      // database saved, not what this dialog planned (FIG-1331, bill_term).
-      const { data: result, error: billError } = await supabase().rpc("bill_term", {
-        p_term_id: term.id,
-        p_due_on: dueOn,
-        p_invoices: plan.invoices.map((i) => ({ student_id: i.student_id, total_cents: i.total_cents })),
+      const { created, alreadyBilled: already } = await billTerm({
+        termId: term.id,
+        dueOn,
+        invoices: plan.invoices.map((i) => ({ student_id: i.student_id, total_cents: i.total_cents })),
       });
-      if (billError) throw new Error(billError.message);
-      const { created, already_billed: already } = result as { created: number; total_cents: number; already_billed: number };
       onBilled(
         `${created.toLocaleString()} invoice${created === 1 ? "" : "s"} created for ${term.name}`
         + (already > 0 ? ` (${already.toLocaleString()} already billed by someone else)` : ""),

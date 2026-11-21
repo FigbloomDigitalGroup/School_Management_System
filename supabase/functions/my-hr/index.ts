@@ -53,7 +53,7 @@
  * Deploy: supabase functions deploy my-hr   (verify_jwt = true)
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { PlatformClient, platformConfigFromEnv } from "../_shared/platformClient.ts";
 import { callHr, errorCode, hrMessage, hrUrlFromEnv, readJson } from "../_shared/hrApi.ts";

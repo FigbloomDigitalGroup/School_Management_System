@@ -1,9 +1,10 @@
 import { useState } from "react";
 import {
-  fetchAllRows, formatMoney, supabase, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays, REGISTER_TABLE,
+  fetchAllRows, formatMoney, supabase, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
+  remindClassTeacher, today,
+  type ClassGroup, type Term,
 } from "@figbloom/shared";
-import { classRegisterFigures, figureText, latestDate, type ClassRegisterFigures } from "../../lib/classRegisters";
-import type { ClassGroup, Term } from "@figbloom/shared";
+import { classRegisterFigures, figureText, type ClassRegisterFigures } from "../../lib/classRegisters";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -77,28 +78,21 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
   const settings = await fetchAttendanceSettings(tenantId);
 
   if (termId) {
-    const [{ data: latest }, latestPm] = await Promise.all([
-      sb.from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
-        .order("taken_on", { ascending: false }).limit(1)
-        .returns<{ taken_on: string }[]>(),
-      // An afternoon read that fails (older database) must not hide the morning figures.
-      sb.from(REGISTER_TABLE.afternoon).select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
-        .order("taken_on", { ascending: false }).limit(1)
-        .returns<{ taken_on: string }[]>().then((r) => (r.error ? null : r.data?.[0]?.taken_on ?? null)),
-    ]);
-    attendanceDate = latestDate(latest?.[0]?.taken_on, latestPm);
+    // Attendance today is today (FIG-1401): never fall back to an earlier date when no register has been taken today.
+    attendanceDate = today();
 
-    if (attendanceDate) {
-      // A late arrival still attended: only "absent"/"excused" read as not-here. Both registers count, in the school's mode.
-      const [entries, signOuts] = await Promise.all([
-        fetchSessionEntries({ tenantId, termId, from: attendanceDate, to: attendanceDate }),
-        fetchSignOutDays({ tenantId, from: attendanceDate, to: attendanceDate }),
-      ]);
-      figures = classRegisterFigures(entries, settings.percentage_mode, signOuts);
-      for (const [id, f] of figures) {
-        if (f.amIn) submittedClasses.add(id);
-        if (f.pmIn) submittedPm.add(id);
-      }
+    // A late arrival still attended: only "absent"/"excused" read as not-here. Both registers count, in the school's mode.
+    const [rawEntries, signOuts] = await Promise.all([
+      fetchSessionEntries({ tenantId, termId, from: attendanceDate, to: attendanceDate }),
+      fetchSignOutDays({ tenantId, from: attendanceDate, to: attendanceDate }),
+    ]);
+    // Active learners only (FIG-1409): exclude archived learners from both numerator and denominator.
+    const activeStudentIds = new Set((studentRows ?? []).map((s) => s.id));
+    const entries = rawEntries.filter((e) => activeStudentIds.has(e.student_id));
+    figures = classRegisterFigures(entries, settings.percentage_mode, signOuts);
+    for (const [id, f] of figures) {
+      if (f.amIn) submittedClasses.add(id);
+      if (f.pmIn) submittedPm.add(id);
     }
   }
 
@@ -137,16 +131,7 @@ export function AdminDashboard() {
     }
     setRemindingClassId(cls.id);
     try {
-      const { error: sendError } = await supabase().from("announcements").insert({
-        tenant_id: tenant.id,
-        author_id: profile.id,
-        subject: `Attendance not yet taken — ${cls.name}`,
-        body: `${cls.name} hasn't submitted today's attendance register yet. Please take it as soon as you can.`,
-        audience: { kind: "user", user_id: cls.class_teacher_id },
-        channels: ["in_app"],
-        published_at: new Date().toISOString(),
-      });
-      if (sendError) throw sendError;
+      await remindClassTeacher(tenant.id, profile.id, cls);
       toast(`Reminded the class teacher for ${cls.name}`);
     } catch (err) {
       toast(err instanceof Error ? `Could not send reminder: ${err.message}` : "Could not send reminder.", "error");
@@ -241,31 +226,29 @@ export function AdminDashboard() {
             <header className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-body font-semibold">Attendance by class · {data?.attendanceDate ?? "today"}</h2>
             </header>
-            <div>
-              {error ? (
-                <p className="px-4 py-3.5 text-[12.5px] text-warn-ink">Could not load attendance.</p>
-              ) : loading || !data ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
-                    <Skeleton className="h-3 flex-1" />
-                    <Skeleton className="h-3 w-16" />
+            <div className="divide-y divide-line">
+              {loading || !data ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-3">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-20" />
                   </div>
                 ))
               ) : (
                 data.classes.map((c) => {
-                  const fig = data.figures.get(c.id);
-                  const total = fig?.total ?? 0;
-                  const present = fig?.here ?? 0;
-                  const late = fig?.late ?? 0;
-                  const absent = fig?.absent ?? 0;
+                  const f = data.figures.get(c.id);
+                  const total = f?.total ?? data.studentsByClass.get(c.id) ?? 0;
+                  const present = f?.here ?? 0;
+                  const late = f?.late ?? 0;
+                  const absent = f?.absent ?? 0;
                   const submitted = data.submittedClasses.has(c.id);
                   return (
-                    <div key={c.id} className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
+                    <div key={c.id} className="flex items-center gap-3 px-4 py-3">
                       <span className="min-w-0 flex-1 truncate text-[13px]">{c.name}</span>
                       {data.afternoonOn && (
-                        data.submittedPm.has(c.id)
-                          ? <Badge tone="ok">Afternoon in</Badge>
-                          : <Badge tone="warn">Afternoon not taken</Badge>
+                        <span className="text-[11px] text-ink-muted">
+                          {data.submittedPm.has(c.id) ? "PM in" : "PM waiting"}
+                        </span>
                       )}
                       {!submitted ? (
                         <>

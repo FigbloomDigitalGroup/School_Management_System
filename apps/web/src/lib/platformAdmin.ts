@@ -239,6 +239,30 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<DeleteAc
   return data as DeleteAccountResult;
 }
 
+export interface SchoolAdmin {
+  id: string;
+  full_name: string;
+  email: string | null;
+  staff_title: string | null;
+}
+
+/**
+ * A school's administrators (role school_admin). Figbloom staff read every
+ * profile and an organization's admins read their schools' (profile_admin_manage,
+ * which also lets the school's own admin read them; this list is shown to the first two).
+ */
+export async function fetchSchoolAdmins(tenantId: string): Promise<SchoolAdmin[]> {
+  const { data, error } = await supabase()
+    .from("profiles")
+    .select("id, full_name, email, staff_title")
+    .eq("tenant_id", tenantId)
+    .eq("role", "school_admin")
+    .order("full_name")
+    .returns<SchoolAdmin[]>();
+  if (error) throw error;
+  return data ?? [];
+}
+
 // ---------------------------------------------------------------- organizations (FIG-331)
 
 export interface NewOrganizationInput {

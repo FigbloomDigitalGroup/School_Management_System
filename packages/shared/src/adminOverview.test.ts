@@ -99,6 +99,68 @@ describe("fetchSchoolOverview", () => {
     expect(o.classes.map((c) => c.name)).toEqual(["Form 1A", "Form 1B", "Form 2A"]);
   });
 
+  // The tests below stand in for the date only: the database mock above filters by day exactly as the real one does.
+  async function atTime(iso: string, run: () => Promise<void>): Promise<void> {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try { vi.setSystemTime(new Date(iso)); await run(); } finally { vi.useRealTimers(); }
+  }
+
+  it("FIG-1401: asked for today, a day on which no class has taken a register reads as nothing taken, not as the last day that has one", async () => {
+    await atTime("2026-11-06T09:00:00Z", async () => {
+      // the newest register in the data is 5 Nov; today is 6 Nov
+      const o = await fetchSchoolOverview("school-1", "today");
+      expect(o.attendanceDate).toBe("2026-11-06");
+      expect(o.submittedClasses.size).toBe(0);
+      expect(o.presentByClass.size).toBe(0);
+      expect(overviewAttendanceRate(o)).toBeNull();
+      expect(classesWithoutRegister(o).map((c) => c.name)).toEqual(["Form 1A", "Form 1B", "Form 2A"]);
+    });
+  });
+
+  it("FIG-1401: asked for today, the classes that did take today's register are counted as before", async () => {
+    await atTime("2026-11-05T09:00:00Z", async () => {
+      const o = await fetchSchoolOverview("school-1", "today");
+      expect(o.attendanceDate).toBe("2026-11-05");
+      expect([...o.submittedClasses].sort()).toEqual(["c1", "c2"]);
+      expect(o.presentByClass.get("c1")).toBe(3);
+      expect(classesWithoutRegister(o).map((c) => c.name)).toEqual(["Form 2A"]);
+    });
+  });
+
+  it("FIG-1401: today is the school's own day, so at 00:30 in Nairobi it is already the next date, whatever the date is in UTC", async () => {
+    await atTime("2026-11-05T21:30:00Z", async () => {
+      const o = await fetchSchoolOverview("school-1", "today");
+      expect(o.attendanceDate).toBe("2026-11-06");
+      expect(o.submittedClasses.size).toBe(0);
+    });
+  });
+
+  it("FIG-1401: the default is still the newest register day, which is what the phone shows with a note that names the day", async () => {
+    await atTime("2026-11-09T09:00:00Z", async () => {
+      const o = await fetchSchoolOverview("school-1");
+      expect(o.attendanceDate).toBe("2026-11-05");
+      expect(o.submittedClasses.size).toBe(2);
+    });
+  });
+
+  it("FIG-1409: a learner archived after the register was taken is in neither number, and the class still has its register", async () => {
+    const archived = (row: Row): Row => ({ ...row, students: { active: false } });
+    db.tables.attendance = [
+      mark("c1", 0, "present", "2026-11-05"),
+      archived(mark("c1", 1, "present", "2026-11-05")),
+      mark("c1", 2, "late", "2026-11-05"),
+      archived(mark("c1", 3, "absent", "2026-11-05")),
+      // a class whose only row is an archived learner's: its register is in, with nobody on the roll to count
+      archived(mark("c2", 0, "present", "2026-11-05")),
+    ];
+    const o = await fetchSchoolOverview("school-1");
+    expect(o.presentByClass.get("c1")).toBe(2); // the present one and the late one; the archived present learner is left out
+    expect(o.lateByClass.get("c1")).toBe(1);
+    expect(o.absentByClass.get("c1") ?? 0).toBe(0); // the archived absent learner is left out
+    expect([...o.submittedClasses].sort()).toEqual(["c1", "c2"]);
+    expect(o.presentByClass.get("c2") ?? 0).toBe(0);
+  });
+
   it("has no register day and no fee totals when the school has no current term", async () => {
     db.tables.terms = [];
     const o = await fetchSchoolOverview("school-1");

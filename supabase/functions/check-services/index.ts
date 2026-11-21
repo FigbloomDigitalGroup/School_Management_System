@@ -14,7 +14,7 @@
  * deliberately deferred piece of work (see FIG-295).
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { failure } from "../_shared/failure.ts";
 

@@ -35,7 +35,7 @@
  * closed rather than leaving accounts nobody can confirm.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { callerKey, dbLimiter, type Limiter, overallKey, unlimited } from "../_shared/rateLimit.ts";
 import { type Mailer, NO_MAILER, resendMailer } from "../_shared/email.ts";

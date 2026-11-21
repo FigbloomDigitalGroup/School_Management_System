@@ -126,9 +126,9 @@ select pg_temp.check('a resubmit changes the row in place: same id, same created
 select pg_temp.check('a plain second insert for the same learner and day is refused (unique key student_id, taken_on)',
   pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
     values (%L, %L, %L, %L, %L, '2020-03-06', 'late')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23505');
-select pg_temp.check('the same learner cannot have a second register that day under another class (the key ignores the class)',
+select pg_temp.check('the same learner cannot have a second register that day under another class: refused as not their class (FIG-1407), before the key (which ignores the class) is reached',
   pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
-    values (%L, %L, %L, %L, %L, '2020-03-06', 'late')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23505');
+    values (%L, %L, %L, %L, %L, '2020-03-06', 'late')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
 select pg_temp.info('so when a learner has changed class, whoever takes that day''s register second overwrites the first one''s mark and class_id');
 
 -- ---------------------------------------------------------------- what a row may hold
@@ -217,16 +217,17 @@ select pg_temp.check('a register saved with no time of its own is stamped with t
 
 create temp table qa_s1 as select pg_temp.send(current_setting('t.teacher')::uuid, 'present', now() - interval '2 hours') as outcome;
 create temp table qa_s2 as select pg_temp.send(current_setting('t.admin')::uuid, 'absent', now() - interval '1 hour') as outcome;
-select pg_temp.check('the office''s correction, stamped later than the teacher''s register, replaces it',
+select pg_temp.check('the office''s correction, stamped later than the teacher''s register, replaces it, and the teacher is still the one who took the register (FIG-1406)',
   (select outcome from qa_s1) = 'allowed' and (select outcome from qa_s2) = 'allowed'
   and (select mark from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = 'absent'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = current_setting('t.teacher')::uuid
   and (select marked_at from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = now() - interval '1 hour');
 
 create temp table qa_s3 as select pg_temp.send(current_setting('t.teacher')::uuid, 'present', now() - interval '2 hours') as outcome;
 select pg_temp.check('the teacher''s register, held on a phone and sent later, is accepted without an error but does not replace the newer correction (mark, who took it and time all stay)',
   (select outcome from qa_s3) = 'allowed'
   and (select mark from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = 'absent'
-  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = current_setting('t.admin')::uuid
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = current_setting('t.teacher')::uuid
   and (select marked_at from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-20') = now() - interval '1 hour');
 
 create temp table qa_s4 as select pg_temp.send(current_setting('t.teacher')::uuid, 'late', now() - interval '30 minutes') as outcome;
@@ -259,7 +260,6 @@ select pg_temp.check('no register in the database is stamped in the future',
 -- ---------------------------------------------------------------- changing a register: who may, and what is kept
 -- A seeded register of Form 2 West (the first ten school days of the term, to 2026-09-11). The teacher is its class teacher; the Form 1 East checks use
 -- a learner of a class the teacher is assigned to but is NOT the class teacher of.
-create temp table qa_audit_before as select count(*) as n from audit_events;
 select pg_temp.put(current_setting('t.kid_y')::uuid, current_setting('t.cy')::uuid, current_setting('t.term')::uuid, current_setting('t.admin')::uuid, '2020-03-10', 'present');
 -- (An action and the read that checks it go in separate statements: a subquery in the same statement runs before the action.)
 create temp table qa_rewrite as
@@ -268,30 +268,72 @@ select pg_temp.check('a teacher assigned to a class (not its class teacher) can 
   (select outcome from qa_rewrite) = 'allowed'
   and (select mark from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = 'absent');
 select pg_temp.info('who may rewrite a register: the school admin, any teacher assigned to the class for any subject, and its class teacher. There is no time limit: the screen only offers today, the API takes any date');
--- The screen's own write is an upsert that sends taken_by, so a correction replaces whoever took the register with whoever corrected it.
+-- The screen's own write is an upsert that sends taken_by. Until FIG-1406 a correction replaced whoever took the register with whoever
+-- corrected it. Now taken_by stays, and the audit log (20261104000000) names the one who changed the mark.
 create temp table qa_upsert as
   select pg_temp.as_user(current_setting('t.teacher')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
       values (%L, %L, %L, %L, %L, '2020-03-10', 'late')
       on conflict (student_id, taken_on) do update set mark = excluded.mark, taken_by = excluded.taken_by$q$,
       current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.teacher'))) as outcome;
-select pg_temp.check('the row still says who took the register after someone else corrected it (taken_by is not replaced by the editor)',
+select pg_temp.check('the row still says who took the register after someone else corrected it (taken_by is not replaced by the editor), and the correction itself went in (FIG-1406)',
   (select outcome from qa_upsert) = 'allowed'
-  and (select taken_by from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = current_setting('t.admin')::uuid,
-  'QA10-TRACE FIG-1406');
-select pg_temp.check('changing a register leaves a trace: an audit event or a history row (the table has neither, and no trigger writes one)',
-  (select count(*) from audit_events) > (select n from qa_audit_before)
-  or exists (select 1 from information_schema.tables where table_name in ('attendance_history', 'attendance_audit', 'attendance_changes')),
-  'QA10-TRACE FIG-1406');
+  and (select mark from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = 'late'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-10') = current_setting('t.admin')::uuid);
+select pg_temp.check('the correction is in the audit log: who changed it, and the mark from and to, and the log does not say the taker changed (FIG-1406)',
+  exists (select 1 from audit_events e
+           where e.tenant_id = current_setting('t.a')::uuid and e.actor_id = current_setting('t.teacher')::uuid
+             and e.created_at >= now()  -- written in this transaction, not left by an earlier run
+             and e.event = 'Attendance: 1 record changed (mark)'
+             and jsonb_path_exists(e.metadata, '$.changes[*].changes.mark ? (@.from == "absent" && @.to == "late")')));
 
--- ---------------------------------------------------------------- a learner filed in another class's register
--- The policy checks the class on the ROW (is the teacher assigned to it?) and the trigger checks the learner's school. Nothing checks
--- that the learner belongs to that class.
+-- The same register sent again by someone else is not an edit (FIG-1410's rule: nothing moved, so nothing changes and it keeps its time).
+-- The sender used to defeat that, because taken_by counted as a change.
+create function pg_temp.send_on(p_user uuid, p_on date, p_mark text, p_stamp timestamptz) returns text language sql as $$
+  select pg_temp.as_user(p_user, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark, marked_at)
+    values (%L, %L, %L, %L, %L, %L, %L, %L)
+    on conflict (student_id, taken_on) do update set mark = excluded.mark, taken_by = excluded.taken_by, marked_at = excluded.marked_at$q$,
+    current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), p_user, p_on, p_mark, p_stamp))
+$$;
+create temp table qa_t1 as select pg_temp.send_on(current_setting('t.teacher')::uuid, '2020-03-23', 'present', now() - interval '3 hours') as outcome;
+create temp table qa_t2 as select pg_temp.send_on(current_setting('t.admin')::uuid, '2020-03-23', 'present', now() - interval '3 hours') as outcome;
+select pg_temp.check('the same register sent again by someone else (same marks, same time) changes nothing: the teacher still took it, and it keeps its time (FIG-1406)',
+  (select outcome from qa_t1) = 'allowed' and (select outcome from qa_t2) = 'allowed'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = current_setting('t.teacher')::uuid
+  and (select marked_at from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = now() - interval '3 hours');
+
+create temp table qa_t3 as
+  select pg_temp.as_user(current_setting('t.admin')::uuid, format($q$update attendance set taken_by = %L where student_id = %L and taken_on = '2020-03-23'$q$,
+    current_setting('t.admin'), current_setting('t.kid_x'))) as outcome;
+select pg_temp.check('a signed-in user cannot put their own name on a register someone else took, even by changing taken_by directly (FIG-1406)',
+  (select outcome from qa_t3) = 'allowed'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = current_setting('t.teacher')::uuid);
+
+-- With nobody signed in (the service role, the database owner) taken_by can still be changed: it is how an account with registers on file
+-- is handed over before it can be removed (attendance.taken_by is on delete restrict).
+select set_config('request.jwt.claims', '', true);
+create temp table qa_t4 as
+  select pg_temp.run(format($q$update attendance set taken_by = %L where student_id = %L and taken_on = '2020-03-23'$q$,
+    current_setting('t.admin'), current_setting('t.kid_x'))) as outcome;
+select pg_temp.check('with nobody signed in, taken_by can still be changed: how an account with registers on file is handed over (FIG-1406)',
+  (select outcome from qa_t4) = 'allowed'
+  and (select taken_by from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on = '2020-03-23') = current_setting('t.admin')::uuid);
+
+-- ---------------------------------------------------------------- a learner filed in another class's register (FIG-1407)
+-- The policy checks the class on the ROW (is the teacher assigned to it?); attendance_class_is_learners_class checks that the learner belongs
+-- to that class. Without it a teacher could put a Form 1 East learner into the Form 2 West register, and the stray row (the key is learner and
+-- day) then stopped the learner's own teacher from taking that learner's register.
 select pg_temp.check('a teacher cannot file a learner of another class in their own class''s register',
   pg_temp.as_user(current_setting('t.teacher')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
-    values (%L, %L, %L, %L, %L, '2020-03-13', 'absent')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.teacher'))) like 'refused%',
-  'QA10-CLASS FIG-1407');
--- Whatever the row above did, make the stray row exist, so the next check shows what it does to the learner's own class teacher.
-select pg_temp.put(current_setting('t.kid_y')::uuid, current_setting('t.cx')::uuid, current_setting('t.term')::uuid, current_setting('t.teacher')::uuid, '2020-03-13', 'absent');
+    values (%L, %L, %L, %L, %L, '2020-03-13', 'absent')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.teacher'))) = 'refused 23514');
+select pg_temp.check('nor can the school admin: the rule is the database''s, not the policy''s',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-13', 'absent')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
+select pg_temp.check('and the refused rows were not saved',
+  (select count(*) from attendance where student_id = current_setting('t.kid_y')::uuid and taken_on = '2020-03-13') = 0);
+-- The learner's own register (their real class) goes in, as ever.
+select pg_temp.put(current_setting('t.kid_y')::uuid, current_setting('t.cy')::uuid, current_setting('t.term')::uuid, current_setting('t.teacher')::uuid, '2020-03-13', 'absent');
+select pg_temp.check('a saved row cannot be moved into another class than the learner''s',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format('update attendance set class_id = %L where student_id = %L and taken_on = %L', current_setting('t.cx'), current_setting('t.kid_y'), '2020-03-13')) = 'refused 23514');
 -- The teacher is now the teacher of the learner's real class (Form 1 East) only.
 delete from teaching_assignments where teacher_id = current_setting('t.teacher')::uuid and class_id = current_setting('t.cx')::uuid;
 update classes set class_teacher_id = null where id = current_setting('t.cx')::uuid;
@@ -300,9 +342,44 @@ create temp table qa_blocked as
       values (%L, %L, %L, %L, %L, '2020-03-13', 'present')
       on conflict (student_id, taken_on) do update set mark = excluded.mark, class_id = excluded.class_id$q$,
       current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.teacher'))) as outcome;
-select pg_temp.check('the learner''s own teacher can still take that learner''s register after a stray row for the day was filed under another class',
-  (select outcome from qa_blocked) = 'allowed', 'QA10-CLASS FIG-1407');
-select pg_temp.info('that teacher''s attempt to take their own learner''s register was: ' || (select outcome from qa_blocked) || ' (42501 is the row-level security refusal)');
+select pg_temp.check('the learner''s own teacher can take that learner''s register: no stray row can stand in the way any more',
+  (select outcome from qa_blocked) = 'allowed');
+
+-- ---------------------------------------------------------------- a learner who moved class after the register was taken (FIG-1407)
+-- A register is taken for a class and reaches the server later (a phone with no signal on Friday, sent on Monday), and in between the learner was
+-- moved to another class. They WERE in that class on that day, so the row is right, and refusing it would refuse the whole register (it goes in one
+-- request). The database remembers each learner's most recent move (previous_class_id, class_since): a row is accepted for the learner's current
+-- class, or for the class they came from if the register is dated on or before the day they moved. Nothing else is.
+select set_config('t.cz', (select id::text from classes where tenant_id = current_setting('t.a')::uuid and id not in (current_setting('t.cx')::uuid, current_setting('t.cy')::uuid) order by name limit 1), true);
+update students set class_id = current_setting('t.cy')::uuid where id = current_setting('t.kid_x')::uuid;
+select pg_temp.check('moving a learner to another class remembers the class they came from and the day',
+  (select previous_class_id from students where id = current_setting('t.kid_x')::uuid) = current_setting('t.cx')::uuid
+  and (select class_since from students where id = current_setting('t.kid_x')::uuid) = school_today(current_setting('t.a')::uuid));
+select pg_temp.check('a register taken for the class they were in, and sent after they moved, still goes in (the learner was in that class that day)',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-16', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'allowed');
+select pg_temp.check('their register in the class they are in now goes in too',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-17', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'allowed');
+select pg_temp.check('but a class they were never in is still refused, however old the date',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-18', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cz'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
+select pg_temp.check('a learner who has not moved is still held to their class: the class they came from is refused for a learner who never moved',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-19', 'present')$q$, current_setting('t.a'), current_setting('t.kid_y'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514');
+-- only the most recent move is remembered: moved again, the class before that one is no longer accepted
+update students set class_id = current_setting('t.cz')::uuid where id = current_setting('t.kid_x')::uuid;
+select pg_temp.check('only the most recent move is remembered: after a second move the class before the last one is refused again, and the last one is accepted',
+  pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-22', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cx'), current_setting('t.term'), current_setting('t.admin'))) = 'refused 23514'
+  and pg_temp.as_user(current_setting('t.admin')::uuid, format($q$insert into attendance (tenant_id, student_id, class_id, term_id, taken_by, taken_on, mark)
+    values (%L, %L, %L, %L, %L, '2020-03-22', 'present')$q$, current_setting('t.a'), current_setting('t.kid_x'), current_setting('t.cy'), current_setting('t.term'), current_setting('t.admin'))) = 'allowed');
+update students set full_name = full_name || ' ' where id = current_setting('t.kid_x')::uuid;
+select pg_temp.check('a change that is not a move of class leaves the remembered move alone',
+  (select previous_class_id from students where id = current_setting('t.kid_x')::uuid) = current_setting('t.cy')::uuid);
+
+select pg_temp.check('students has exactly one foreign key to classes: a second one makes every students -> classes(...) embed (the parent app, the lists) fail with "more than one relationship was found"',
+  (select count(*) from pg_constraint where conrelid = 'public.students'::regclass and confrelid = 'public.classes'::regclass and contype = 'f') = 1);
 
 -- ---------------------------------------------------------------- a row that names another school's class or term
 select pg_temp.check('the school admin cannot save a register row that points at another school''s class and term',
@@ -337,9 +414,7 @@ select pg_temp.check('the ten made-up marks are what the counts below start from
 select pg_temp.check('the share of those ten that were here, the way the school screens count it (present + late), is 7 of 10 = 70%',
   (select count(*) filter (where mark in ('present', 'late')) from attendance where tenant_id = current_setting('t.k')::uuid and taken_on = current_date) = 7);
 select pg_temp.check('the group dashboard''s "present today" for the school (organization_tenant_summary.present_today) counts the 7 who were here, late arrivals included',
-  (select present_today from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = 7,
-  'QA10-GROUP FIG-1408');
-select pg_temp.info('present_today is ' || (select present_today from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid)
-  || ' for those ten (current_date is the UTC date, and only mark = present is counted)');
+  (select present_today from organization_tenant_summary where tenant_id = current_setting('t.k')::uuid) = 7);
+-- (the summary's "today" is current_date, the UTC date, and it is refreshed when something is written: FIG-1444, a separate issue)
 
 rollback;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  attemptDeadline, autoMark, blankQuestion, formatTimeLeft, paperWindow, publishProblem, scaleToExam, scoreLabel,
+  addOption, attemptDeadline, autoMark, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind, formatTimeLeft, moveQuestion,
+  paperStatus, paperWindow, publishProblem, removeOption, scaleToExam, scoreLabel,
   timeLeftMs, validatePaper, validateQuestions, type PaperInput, type QuestionDraft,
 } from "./examPapers";
 
@@ -125,5 +126,95 @@ describe("the clock", () => {
     expect(paperWindow(p, Date.parse(start))).toBe("open");
     expect(paperWindow(p, Date.parse("2026-11-03T07:00:00.000Z"))).toBe("closed");
     expect(paperWindow({ opensAt: start, closesAt: null }, Date.parse("2030-01-01"))).toBe("open");
+  });
+});
+
+describe("changing a question's kind", () => {
+  const choice: QuestionDraft = { kind: "choice", prompt: "2 + 2?", options: ["3", "4", "5"], points: 2, correctOption: 1, modelAnswer: "" };
+
+  it("drops the options and the key when a choice question becomes a written one", () => {
+    expect(changeQuestionKind(choice, "short")).toEqual({ ...choice, kind: "short", options: [], correctOption: null });
+  });
+  it("starts a written question as a choice one with two empty options and no key", () => {
+    const written: QuestionDraft = { ...blankQuestion("long"), prompt: "Discuss." };
+    expect(changeQuestionKind(written, "choice")).toEqual({ ...written, kind: "choice", options: ["", ""], correctOption: null });
+  });
+  it("keeps the options and the key when a choice question is set to choice again", () => {
+    expect(changeQuestionKind(choice, "choice")).toEqual(choice);
+  });
+  it("keeps the prompt and the marks whatever the kind", () => {
+    const r = changeQuestionKind(choice, "long");
+    expect([r.prompt, r.points]).toEqual(["2 + 2?", 2]);
+  });
+});
+
+describe("moving a question", () => {
+  it("moves one place down and up", () => {
+    expect(moveQuestion(["a", "b", "c"], 0, 1)).toEqual(["b", "a", "c"]);
+    expect(moveQuestion(["a", "b", "c"], 2, -1)).toEqual(["a", "c", "b"]);
+  });
+  it("leaves the list alone when the move would go past either end", () => {
+    const list = ["a", "b", "c"];
+    expect(moveQuestion(list, 0, -1)).toBe(list);
+    expect(moveQuestion(list, 2, 1)).toBe(list);
+    expect(moveQuestion(list, 5, -1)).toBe(list);
+  });
+  it("does not change the list it was given", () => {
+    const list = ["a", "b", "c"];
+    moveQuestion(list, 0, 1);
+    expect(list).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("options of a choice question", () => {
+  const q = (options: string[], correctOption: number | null): QuestionDraft => ({ ...blankQuestion("choice"), prompt: "x", options, correctOption });
+
+  it("removing an option before the key moves the key down with its option", () => {
+    expect(removeOption(q(["a", "b", "c"], 2), 0)).toMatchObject({ options: ["b", "c"], correctOption: 1 });
+  });
+  it("removing an option after the key leaves the key where it was", () => {
+    expect(removeOption(q(["a", "b", "c"], 0), 2)).toMatchObject({ options: ["a", "b"], correctOption: 0 });
+  });
+  it("removing the keyed option clears the key, so the teacher has to choose again", () => {
+    expect(removeOption(q(["a", "b", "c"], 1), 1)).toMatchObject({ options: ["a", "c"], correctOption: null });
+  });
+  it("never goes below two options", () => {
+    const two = q(["a", "b"], 0);
+    expect(removeOption(two, 0)).toBe(two);
+    expect(canRemoveOption(two)).toBe(false);
+    expect(canRemoveOption(q(["a", "b", "c"], 0))).toBe(true);
+  });
+  it("ignores an option that is not there", () => {
+    const three = q(["a", "b", "c"], 0);
+    expect(removeOption(three, 3)).toBe(three);
+    expect(removeOption(three, -1)).toBe(three);
+  });
+  it("adds an empty option, up to eight", () => {
+    expect(addOption(q(["a", "b"], 0)).options).toEqual(["a", "b", ""]);
+    const eight = q(["1", "2", "3", "4", "5", "6", "7", "8"], 0);
+    expect(canAddOption(eight)).toBe(false);
+    expect(addOption(eight)).toBe(eight);
+  });
+});
+
+describe("a paper's status badge", () => {
+  const opens = "2026-11-03T05:00:00.000Z";
+  const closes = "2026-11-03T07:00:00.000Z";
+  const at = (iso: string) => Date.parse(iso);
+  const p = (over: Partial<Parameters<typeof paperStatus>[0]> = {}) => ({ publishedAt: "2026-11-01T00:00:00.000Z", resultsReleasedAt: null, opensAt: opens, closesAt: closes, ...over });
+
+  it("is a draft until it is published, whatever the clock says", () => {
+    expect(paperStatus(p({ publishedAt: null }), at("2026-11-03T06:00:00.000Z"))).toEqual({ label: "Draft", tone: "muted" });
+  });
+  it("is published before it opens, open now while it is open, and closed after", () => {
+    expect(paperStatus(p(), at("2026-11-02T00:00:00.000Z"))).toEqual({ label: "Published", tone: "info" });
+    expect(paperStatus(p(), at("2026-11-03T06:00:00.000Z"))).toEqual({ label: "Open now", tone: "warn" });
+    expect(paperStatus(p(), at("2026-11-03T07:00:00.000Z"))).toEqual({ label: "Closed", tone: "muted" });
+  });
+  it("says results are out once they are released, even after it has closed", () => {
+    expect(paperStatus(p({ resultsReleasedAt: "2026-11-04T00:00:00.000Z" }), at("2026-11-05T00:00:00.000Z"))).toEqual({ label: "Results out", tone: "ok" });
+  });
+  it("stays open with no closing time", () => {
+    expect(paperStatus(p({ closesAt: null }), at("2030-01-01T00:00:00.000Z"))).toEqual({ label: "Open now", tone: "warn" });
   });
 });

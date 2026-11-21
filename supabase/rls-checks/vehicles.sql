@@ -79,4 +79,42 @@ select pg_temp.expect_rows('the school admin can change a vehicle''s speed limit
 reset role;
 select pg_temp.check('the new limit is stored', (select speed_limit_kmh = 60 from vehicles where id = current_setting('t.veh')::uuid));
 
+-- ---------------------------------------------------------------- alerts: acknowledge only (20261110100000, audit F-031)
+select set_config('request.jwt.claims', '', true);
+select set_config('t.teacher', (select id::text from profiles where role = 'teacher' and tenant_id = current_setting('t.a')::uuid limit 1), true);
+insert into vehicle_alerts (tenant_id, vehicle_id, kind, detail, lat, lng)
+  values (current_setting('t.a')::uuid, current_setting('t.veh')::uuid, 'speed', 'KAA 001A at 92 km/h', -1.29, 36.82);
+select set_config('t.alert', (select id::text from vehicle_alerts where detail = 'KAA 001A at 92 km/h'), true);
+
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+select pg_temp.expect_error('staff cannot change what an alert says happened',
+  format($q$update vehicle_alerts set detail = 'nothing happened' where id = %L$q$, current_setting('t.alert')), '42501');
+select pg_temp.expect_error('staff cannot move where an alert happened',
+  format($q$update vehicle_alerts set lat = 0, lng = 0 where id = %L$q$, current_setting('t.alert')), '42501');
+select pg_temp.expect_error('an acknowledgement cannot carry another change with it',
+  format($q$update vehicle_alerts set acknowledged_at = now(), kind = 'geofence' where id = %L$q$, current_setting('t.alert')), '42501');
+reset role;
+
+select pg_temp.act_as(current_setting('t.admin'));
+set local role authenticated;
+select pg_temp.expect_rows('the office can acknowledge an alert, even naming someone else and a made-up time',
+  format($q$update vehicle_alerts set acknowledged_at = '2020-01-01', acknowledged_by = %L where id = %L$q$, current_setting('t.teacher'), current_setting('t.alert')), 1);
+reset role;
+select pg_temp.check('the database records who really acknowledged it, and when',
+  (select acknowledged_by = current_setting('t.admin')::uuid and acknowledged_at > now() - interval '1 minute'
+     from vehicle_alerts where id = current_setting('t.alert')::uuid));
+
+select pg_temp.act_as(current_setting('t.teacher'));
+set local role authenticated;
+select pg_temp.expect_rows('acknowledging it again is accepted',
+  format($q$update vehicle_alerts set acknowledged_at = now() where id = %L$q$, current_setting('t.alert')), 1);
+select pg_temp.expect_rows('clearing the acknowledgement is accepted but changes nothing',
+  format($q$update vehicle_alerts set acknowledged_at = null, acknowledged_by = null where id = %L$q$, current_setting('t.alert')), 1);
+reset role;
+select pg_temp.check('the first acknowledgement stands',
+  (select acknowledged_by = current_setting('t.admin')::uuid and acknowledged_at is not null from vehicle_alerts where id = current_setting('t.alert')::uuid));
+select pg_temp.check('the alert still says what happened',
+  (select detail = 'KAA 001A at 92 km/h' and kind = 'speed' and lat = -1.29 from vehicle_alerts where id = current_setting('t.alert')::uuid));
+
 rollback;

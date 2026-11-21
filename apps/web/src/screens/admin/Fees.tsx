@@ -1,9 +1,9 @@
 import { useState } from "react";
 import {
-  PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feeFigures, fetchFeesCollection, fetchTenantCurrentTerm, formatMoney, itemsForStudent, proofFlags, proofToConfirm,
-  rejectPaymentProof, rejectionReason, supabase, targetYearLabel, totalCents, yearGroupsOf, yearLabel,
+  PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feeFigures, fetchFeesCollection, fetchSchoolYearGroups, fetchTenantCurrentTerm, fetchTermFeeItems, formatMoney,
+  itemsForStudent, proofFlags, proofToConfirm, rejectPaymentProof, rejectionReason, targetYearLabel, totalCents, yearLabel,
 } from "@figbloom/shared";
-import type { ClassLevel, FeeItem, FeesCollection, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof, YearGroup } from "@figbloom/shared";
+import type { FeeItem, FeesCollection, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof, YearGroup } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
@@ -27,18 +27,14 @@ interface FeesData extends FeesCollection {
 }
 
 async function fetchFees(tenantId: string): Promise<FeesData> {
-  const sb = supabase();
   const term = await fetchTenantCurrentTerm(tenantId);
-  const termId = term?.id ?? null;
-  const [collection, { data: feeItemRows }, { data: classRows }] = await Promise.all([
+  const [collection, feeItems, formLevels] = await Promise.all([
     fetchFeesCollection(tenantId, term),
-    termId
-      ? sb.from("fee_items").select("*").eq("tenant_id", tenantId).eq("term_id", termId).returns<FeeItem[]>()
-      : Promise.resolve({ data: [] as FeeItem[] }),
-    sb.from("classes").select("level, form_level").eq("tenant_id", tenantId).returns<{ level: ClassLevel; form_level: number }[]>(),
+    term ? fetchTermFeeItems(term.id) : Promise.resolve([] as FeeItem[]),
+    // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
+    fetchSchoolYearGroups(tenantId),
   ]);
-  // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
-  return { ...collection, feeItems: feeItemRows ?? [], formLevels: yearGroupsOf(classRows ?? []) };
+  return { ...collection, feeItems, formLevels };
 }
 
 export function Fees() {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { formatMoney, itemsForStudent, supabase } from "@figbloom/shared";
+import { fetchCurrentInvoiceId, formatMoney, itemsForStudent } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -22,20 +22,6 @@ import { ChildSwitcher } from "./ChildSwitcher";
 
 const PROOF_TONE: Record<PaymentProof["status"], Tone> = { pending: "muted", confirmed: "ok", rejected: "warn" };
 const PROOF_LABEL: Record<PaymentProof["status"], string> = { pending: "Pending review", confirmed: "Confirmed", rejected: "Rejected" };
-
-/** The current-term invoice id for a child — not exposed by useParentData(), so
- *  fetched the same way admin/Fees.tsx finds "the current term". */
-async function fetchCurrentInvoiceId(studentId: string): Promise<string | null> {
-  const { data: term } = await supabase().from("terms").select("id").eq("is_current", true).maybeSingle();
-  if (!term) return null;
-  const { data: invoice } = await supabase()
-    .from("fee_invoices")
-    .select("id")
-    .eq("student_id", studentId)
-    .eq("term_id", term.id)
-    .maybeSingle();
-  return invoice?.id ?? null;
-}
 
 /**
  * Real fee items for the term, real receipts, and the M-Pesa pay dialog

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { APIProvider, Map as GoogleMap, Marker, Polyline, useApiIsLoaded, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
-import { activeDirections, distanceM, fmtEta, isLive, roughEta, stopsInTravelOrder, subscribeVehiclePositions, type BusOnRoute, type EtaResult, type RouteStop } from "@figbloom/shared";
+import { activeDirections, DEFAULT_MAP_LOOK, distanceM, fmtEta, isLive, parseMapLook, roughEta, stopsInTravelOrder, subscribeVehiclePositions, type BusOnRoute, type EtaResult, type MapLook, type RouteStop } from "@figbloom/shared";
 
 // The ETA wording and fallback guess are shared with the phone apps.
 export { fmtEta };
@@ -192,18 +192,18 @@ function MapLayers({ view, ...rest }: LayerProps & { view: MapView }) {
 
 // ---------------------------------------------------------------- map views
 
-export interface MapView { base: "map" | "satellite"; traffic: boolean }
+/** The same two choices the phone's map offers, read and saved the same way (packages/shared mapLook.ts). */
+export type MapView = MapLook;
 
 /** Remembered per browser, so a parent who likes traffic on keeps it on. */
 function useMapView(): [MapView, (v: MapView) => void] {
   const [view, setView] = useState<MapView>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("fb-map-view") ?? "null") as MapView | null;
-      if (saved && (saved.base === "map" || saved.base === "satellite")) return { base: saved.base, traffic: !!saved.traffic };
+      return parseMapLook(localStorage.getItem("fb-map-view"));
     } catch {
-      // unreadable or blocked storage: defaults
+      // blocked storage: defaults
+      return { ...DEFAULT_MAP_LOOK };
     }
-    return { base: "map", traffic: false };
   });
   const save = (v: MapView) => {
     setView(v);

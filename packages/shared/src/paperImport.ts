@@ -277,3 +277,40 @@ export function draftFromImport(paper: ImportedPaper): PaperImportDraft {
 
 /** How many questions still have something to check. */
 export const questionsToCheck = (questions: ReviewQuestion[]): number => questions.filter((q) => q.check?.length).length;
+
+/** "Form 2 West" is 8-4-4; "Grade 6 Blue", "PP2" and the rest are CBC. The teacher can change it. */
+export const curriculumFromClassName = (name: string): "844" | "cbc" => (/^\s*form\b/i.test(name) ? "844" : "cbc");
+
+/** What the paper editor holds that an import fills in. `duration` is the time-allowed box's text. */
+export interface PaperImportTarget {
+  title: string;
+  instructions: string;
+  duration: string;
+  questions: ReviewQuestion[];
+}
+
+/**
+ * Bloom's paper into the editor's fields: its questions added after the ones already there (or in their place),
+ * and its title, instructions and time only where those are still empty. A new paper's 60 minutes is only a
+ * default, so the imported paper's own time wins there; an existing paper's time is kept unless it has none.
+ * Also hands back what Bloom said about the paper as a whole.
+ */
+export function applyPaperImport(
+  current: PaperImportTarget & { isNew: boolean }, draft: PaperImportDraft, replace: boolean,
+): PaperImportTarget & { warnings: string[] } {
+  return {
+    questions: replace ? draft.questions : [...current.questions, ...draft.questions],
+    title: !current.title.trim() && draft.title ? draft.title : current.title,
+    instructions: !current.instructions.trim() && draft.instructions ? draft.instructions : current.instructions,
+    duration: draft.durationMinutes && (current.isNew || !current.duration.trim()) ? String(draft.durationMinutes) : current.duration,
+    warnings: draft.warnings,
+  };
+}
+
+/** Said above the questions while some still need checking. */
+export const flaggedQuestionsBanner = (count: number): string =>
+  `Imported by Bloom. ${count} question${count === 1 ? " needs" : "s need"} checking against the paper before you can publish.`;
+
+/** Why a paper with flagged questions can't be published yet (it can still be saved as a draft). */
+export const flaggedQuestionsProblem = (count: number): string =>
+  `${count} question${count === 1 ? " is" : "s are"} flagged for checking. Look at each one and press "Looks right", or save a draft for now.`;

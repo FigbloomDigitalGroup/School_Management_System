@@ -51,7 +51,8 @@ async function signInAsTeacher(page: Page) {
 async function openColumn(page: Page) {
   await signInAsTeacher(page);
   await page.goto("/s/alliance/teacher/gradebook");
-  await page.getByLabel("Class").selectOption({ label: CLASS });
+  // exact: getByLabel matches by substring, so "Class" alone would also match any other label with that word in it.
+  await page.getByLabel("Class", { exact: true }).selectOption({ label: CLASS });
   await page.getByLabel("Subject").selectOption({ label: SUBJECT });
   await page.getByLabel("Exam").selectOption({ label: EXAM });
   await expect(page.getByText("Draft: school staff only")).toBeVisible();
