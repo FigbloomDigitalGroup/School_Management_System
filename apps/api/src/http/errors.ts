@@ -3,6 +3,7 @@ import { isConnectionFailure } from "../db/clientHealth.js";
 export type ErrorCode =
   | "unauthorized"
   | "forbidden"
+  | "reauth_required"
   | "not_found"
   | "validation_error"
   | "rate_limited"
@@ -167,6 +168,21 @@ export function toClientError(err: unknown): {
       statusCode: 400,
       body: { error: { code: "validation_error", message: "Invalid request" } },
     };
+  }
+  // Database-raised conditions that are the CLIENT's doing (a duplicate, a missing or still-referenced row, a refused state
+  // transition, a policy denial, a "not found" raised by one of our definer functions). Routes that know better map them
+  // themselves; this is the safety net so such a case is never an opaque 500. Messages stay generic: no constraint, table or
+  // column name ever reaches the client.
+  if (typeof sqlstate === "string") {
+    if (sqlstate === "23505" || sqlstate === "23503" || sqlstate === "23P01" || sqlstate === "55000") {
+      return { statusCode: 409, body: { error: { code: "conflict", message: "The request conflicts with existing data" } } };
+    }
+    if (sqlstate === "42501") {
+      return { statusCode: 403, body: { error: { code: "forbidden", message: "Access denied" } } };
+    }
+    if (sqlstate === "P0002") {
+      return { statusCode: 404, body: { error: { code: "not_found", message: "Not found" } } };
+    }
   }
   if (isDatabaseUnavailable(err)) {
     return {

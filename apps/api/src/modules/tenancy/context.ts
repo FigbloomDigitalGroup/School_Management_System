@@ -51,40 +51,6 @@ export async function resolveSchoolMembership(
   return membership;
 }
 
-export async function assertTenantAccess(
-  db: TxOrIdentity,
-  userId: string,
-  tenantId: string,
-  opts?: { allowSuperAdmin?: boolean; allowOrgAdmin?: boolean },
-): Promise<{ via: "membership" | "super_admin" | "org_admin"; membership?: SchoolMembership }> {
-  if (opts?.allowSuperAdmin) {
-    const platform = await db.query(
-      `SELECT 1 FROM platform_roles WHERE user_id = $1 AND role = 'super_admin'`,
-      [userId],
-    );
-    if ((platform.rowCount ?? 0) > 0) return { via: "super_admin" };
-  }
-
-  if (opts?.allowOrgAdmin) {
-    const org = await db.query(
-      `SELECT 1
-       FROM organization_memberships om
-       JOIN tenants t ON t.organization_id = om.organization_id
-       JOIN organizations o ON o.id = om.organization_id
-       WHERE om.user_id = $1
-         AND t.id = $2
-         AND om.role = 'org_admin'
-         AND o.status = 'active'
-         AND t.status <> 'suspended'`,
-      [userId, tenantId],
-    );
-    if ((org.rowCount ?? 0) > 0) return { via: "org_admin" };
-  }
-
-  const membership = await resolveSchoolMembership(db, userId, tenantId);
-  return { via: "membership", membership };
-}
-
 /** Default deny when requested resource tenant differs from established context. */
 export function assertSameTenant(contextTenantId: string | null | undefined, resourceTenantId: string): void {
   if (!contextTenantId) throw forbidden("Tenant context required");

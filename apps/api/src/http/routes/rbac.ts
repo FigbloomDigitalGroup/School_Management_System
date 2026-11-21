@@ -32,6 +32,7 @@ import {
 import { clientIp } from "../clientIp.js";
 import { forbidden, notFound, validationError } from "../errors.js";
 import { pageFromKeysetRows, parseListQuery } from "../pagination.js";
+import { assertRecentAuth } from "../../modules/auth/reauth.js";
 import { withDelegationRequest, withTenantRequest } from "../tenantRequest.js";
 import { parseOrThrow } from "../validation.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
@@ -167,7 +168,8 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
       "delegateUserId and permissionCodes[] are required",
     );
     const key = parseIdempotencyKey(request.headers["idempotency-key"]);
-    const out = await withDelegationRequest(pool, app.appConfig, request, "grant", async ({ tx, actor }) => {
+    const out = await withDelegationRequest(pool, app.appConfig, request, "grant", async ({ tx, actor, auth }) => {
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
       const tenantId = actor.tenantId;
       // Current-state checks run BEFORE the idempotency lookup, so a stored success is never
       // replayed into a suspended school (the actor's authority was just re-resolved above).
@@ -216,7 +218,8 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
 
   app.delete("/v1/rbac/org-delegations", async (request) => {
     const parsed = parseOrThrow(DelegationRevokeSchema, request.body, "delegateUserId is required");
-    return withDelegationRequest(pool, app.appConfig, request, "revoke", async ({ tx, actor }) => {
+    return withDelegationRequest(pool, app.appConfig, request, "revoke", async ({ tx, actor, auth }) => {
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
       const result = await revokeOrgAdminDelegations(tx, {
         actor,
         delegateUserId: parsed.delegateUserId,
@@ -255,6 +258,7 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         ip: clientIp(request),
         deferAudit: true,
       });
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
       const tenantId = auth.authz.tenantId!;
       const result = await grantGuardianAccess(tx, {
         actorUserId: auth.user.id,
@@ -274,6 +278,7 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         ip: clientIp(request),
         deferAudit: true,
       });
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
       const tenantId = auth.authz.tenantId!;
       const result = await revokeGuardianAccess(tx, {
         actorUserId: auth.user.id,
@@ -294,6 +299,7 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         deferAudit: true,
       });
 
+      await assertRecentAuth(tx, app.appConfig, auth.session.id);
       const tenantId = auth.authz.tenantId!;
       if (parsed.userId === auth.user.id) {
         throw forbidden("Cannot change your own admin areas");

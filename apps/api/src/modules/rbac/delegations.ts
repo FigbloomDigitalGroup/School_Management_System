@@ -544,11 +544,3 @@ export async function listOrgAdminDelegationsPage(
   }));
 }
 
-/** @deprecated Prefer listOrgAdminDelegationsPage — retained for non-paginated callers. */
-export async function listOrgAdminDelegations(
-  db: TxOrIdentity,
-  tenantId: string,
-  status: DelegationListStatus = "active",
-): Promise<OrgDelegationListRow[]> {
-  return listOrgAdminDelegationsPage(db, { tenantId, status, limit: 10_000, after: null });
-}

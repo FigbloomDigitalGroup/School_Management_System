@@ -65,6 +65,42 @@ export const ACADEMICS_AREA_IMPLIED: readonly string[] = [
  */
 export const FEES_AREA_IMPLIED: readonly string[] = ["resource.finance.read", "resource.finance.write"];
 
+/** Resource permissions implied by the Communication admin area (legacy announcements composer). */
+export const COMMUNICATION_AREA_IMPLIED: readonly string[] = [
+  "resource.announcement.read",
+  "resource.announcement.write",
+];
+
+export const VISITORS_AREA_IMPLIED: readonly string[] = [
+  "resource.visitor.read",
+  "resource.visitor.write",
+];
+
+export const MEDICAL_AREA_IMPLIED: readonly string[] = [
+  "resource.medical.read",
+  "resource.medical.write",
+];
+
+export const INVENTORY_AREA_IMPLIED: readonly string[] = [
+  "resource.inventory.read",
+  "resource.inventory.write",
+];
+
+export const LEAVE_AREA_IMPLIED: readonly string[] = [
+  "resource.leave.read",
+  "resource.leave.write",
+];
+
+export const ACTIVITIES_AREA_IMPLIED: readonly string[] = [
+  "resource.activity.read",
+  "resource.activity.write",
+];
+
+export const TRANSPORT_AREA_IMPLIED: readonly string[] = [
+  "resource.transport.read",
+  "resource.transport.write",
+];
+
 export const ATTENDANCE_AREA_IMPLIED: readonly string[] = [
   "resource.attendance.read",
   "resource.attendance.write",
@@ -172,6 +208,25 @@ export async function loadEffectivePermissions(
     perms.add("resource.finance.read");
     perms.add("resource.finance.write");
     perms.add("resource.finance.administer");
+    perms.add("resource.announcement.read");
+    perms.add("resource.announcement.write");
+    perms.add("resource.visitor.read");
+    perms.add("resource.visitor.write");
+    perms.add("resource.medical.read");
+    perms.add("resource.medical.write");
+    perms.add("resource.inventory.read");
+    perms.add("resource.inventory.write");
+    perms.add("resource.leave.read");
+    perms.add("resource.leave.write");
+    perms.add("resource.activity.read");
+    perms.add("resource.activity.write");
+    perms.add("resource.transport.read");
+    perms.add("resource.transport.write");
+    perms.add("identity.accounts.manage");
+    perms.add("resource.report.read");
+    perms.add("resource.report.overview.read");
+    perms.add("resource.report.attendance.read");
+    perms.add("resource.import.write");
     perms.add("tenant.read");
     perms.add("rbac.staff_areas.manage");
     perms.add("rbac.school_roles.manage");
@@ -193,6 +248,27 @@ export async function loadEffectivePermissions(
     }
     if (areas.has("fees")) {
       for (const code of FEES_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("communication")) {
+      for (const code of COMMUNICATION_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("visitors")) {
+      for (const code of VISITORS_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("medical")) {
+      for (const code of MEDICAL_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("inventory")) {
+      for (const code of INVENTORY_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("leave")) {
+      for (const code of LEAVE_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("activities")) {
+      for (const code of ACTIVITIES_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("transport")) {
+      for (const code of TRANSPORT_AREA_IMPLIED) perms.add(code);
     }
     if (areas.has("attendance")) {
       for (const code of ATTENDANCE_AREA_IMPLIED) perms.add(code);
@@ -217,6 +293,27 @@ export async function loadEffectivePermissions(
     }
     if (delegated.has("area.fees")) {
       for (const code of FEES_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.communication")) {
+      for (const code of COMMUNICATION_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.visitors")) {
+      for (const code of VISITORS_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.medical")) {
+      for (const code of MEDICAL_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.inventory")) {
+      for (const code of INVENTORY_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.leave")) {
+      for (const code of LEAVE_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.activities")) {
+      for (const code of ACTIVITIES_AREA_IMPLIED) perms.add(code);
+    }
+    if (delegated.has("area.transport")) {
+      for (const code of TRANSPORT_AREA_IMPLIED) perms.add(code);
     }
     if (delegated.has("area.attendance")) {
       for (const code of ATTENDANCE_AREA_IMPLIED) perms.add(code);
