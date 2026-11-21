@@ -12,6 +12,7 @@ import {
   CONTACT_PHONE_PATTERN,
 } from "../../modules/directory/contact.js";
 import { getSchoolProfile, patchSchoolProfile } from "../../modules/directory/schoolProfile.js";
+import { assertRecentAuth } from "../../modules/auth/reauth.js";
 import { clientIp } from "../clientIp.js";
 import { forbidden, validationError } from "../errors.js";
 import { withTenantRequest } from "../tenantRequest.js";
@@ -82,6 +83,9 @@ export async function registerSchoolProfileRoutes(app: FastifyInstance, pool: Ap
         });
         throw err;
       }
+      // The school's identity and clock (name, timezone: the timezone defines every school-local date) need recent authentication.
+      // Other profile fields (address, county, contacts, logo key) are ordinary content and are deliberately not gated.
+      if (parsed.name !== undefined || parsed.timezone !== undefined) await assertRecentAuth(tx, app.appConfig, auth.session.id);
       const schoolProfile = await patchSchoolProfile(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,

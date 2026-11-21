@@ -25,6 +25,21 @@ import { registerAcademicsHigherRoutes } from "./http/routes/academicsHigher.js"
 import { registerAttendanceRoutes } from "./http/routes/attendance.js";
 import { registerFinanceRoutes } from "./http/routes/finance.js";
 import { registerMpesaRoutes } from "./http/routes/mpesa.js";
+import { registerCommunicationsRoutes } from "./http/routes/communications.js";
+import { registerMeNotificationRoutes } from "./http/routes/meNotifications.js";
+import { registerVisitRoutes } from "./http/routes/visits.js";
+import { registerSchoolHealthRoutes } from "./http/routes/schoolHealth.js";
+import { registerChatRoutes } from "./http/routes/chat.js";
+import { registerInventoryRoutes } from "./http/routes/inventory.js";
+import { registerLeaveRoutes } from "./http/routes/leave.js";
+import { registerActivitiesRoutes } from "./http/routes/activities.js";
+import { registerTransportRoutes } from "./http/routes/transport.js";
+import { registerReportingRoutes } from "./http/routes/reporting.js";
+import { registerImportRoutes } from "./http/routes/imports.js";
+import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
+import { registerUnmatchedCallbackRoutes } from "./http/routes/unmatchedCallbacks.js";
+import { registerAccountRoutes } from "./http/routes/accounts.js";
+import { registerGuardianInvitationRoutes } from "./http/routes/guardianInvitations.js";
 import { mpesaProviderFromConfig, type MpesaProvider } from "./modules/finance/mpesaProvider.js";
 
 export interface RouteEntry {
@@ -193,6 +208,21 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerAttendanceRoutes(app, pool);
   await registerFinanceRoutes(app, pool);
   await registerMpesaRoutes(app, pool);
+  await registerCommunicationsRoutes(app, pool);
+  await registerMeNotificationRoutes(app, pool);
+  await registerVisitRoutes(app, pool);
+  await registerSchoolHealthRoutes(app, pool);
+  await registerChatRoutes(app, pool);
+  await registerInventoryRoutes(app, pool);
+  await registerLeaveRoutes(app, pool);
+  await registerActivitiesRoutes(app, pool);
+  await registerTransportRoutes(app, pool);
+  await registerReportingRoutes(app, pool);
+  await registerImportRoutes(app, pool);
+  await registerOpsStatusRoutes(app, pool);
+  await registerUnmatchedCallbackRoutes(app, pool);
+  await registerAccountRoutes(app, pool);
+  await registerGuardianInvitationRoutes(app, pool);
 
   return app;
 }

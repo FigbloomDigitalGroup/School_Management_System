@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { calendarDateString } from "../schemas.js";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
@@ -33,7 +34,7 @@ import { AppError, validationError } from "../errors.js";
 import { assertUuid, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
-const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const DateString = calendarDateString;
 const TimeString = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/);
 
 const YearBody = z.strictObject({

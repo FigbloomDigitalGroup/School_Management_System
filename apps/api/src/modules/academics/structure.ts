@@ -406,18 +406,6 @@ export async function setCurrentTerm(
   return mapTerm(row);
 }
 
-/** Assert a calendar date falls inside the named term (school-local date as YYYY-MM-DD). */
-export async function assertDateInTerm(
-  tx: Tx,
-  input: { tenantId: string; termId: string; on: string },
-): Promise<PublicTerm> {
-  const term = await getTermById(tx, { tenantId: input.tenantId, termId: input.termId });
-  if (input.on < term.starts_on || input.on > term.ends_on) {
-    throw validationError("Date is outside the named term");
-  }
-  return term;
-}
-
 // ── Subjects ────────────────────────────────────────────────────────────────
 
 export interface PublicSubject {

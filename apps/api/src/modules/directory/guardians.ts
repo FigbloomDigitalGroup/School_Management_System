@@ -463,13 +463,6 @@ export async function listGuardiansForLearnerPage(
   }));
 }
 
-export async function listGuardiansForLearner(
-  db: Tx,
-  input: { tenantId: string; learnerId: string; actorUserId: string },
-): Promise<LearnerGuardian[]> {
-  return listGuardiansForLearnerPage(db, { ...input, limit: 10_000, after: null });
-}
-
 export async function updateGuardian(
   db: Tx,
   input: {

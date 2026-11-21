@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { calendarDateString, isRealCalendarDate } from "../schemas.js";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import {
@@ -25,7 +26,7 @@ import { validationError } from "../errors.js";
 import { assertUuid, classReadScope, inTenant, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
-const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const DateString = calendarDateString;
 const SettingsBody = z.strictObject({
   afternoon_enabled: z.boolean(),
   percentage_mode: z.enum(["session", "day"]),
@@ -129,7 +130,7 @@ export async function registerAttendanceRoutes(app: FastifyInstance, pool: AppPo
         ? undefined
         : resolveSession(String(sessionRaw));
     const takenOn = query.takenOn === undefined || query.takenOn === "" ? undefined : String(query.takenOn);
-    if (takenOn !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) throw validationError("takenOn must be YYYY-MM-DD");
+    if (takenOn !== undefined && !isRealCalendarDate(takenOn)) throw validationError("takenOn must be a real date in YYYY-MM-DD form");
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       // OD-2: attendance readers see every class; a teacher sees only the classes they teach.
@@ -197,7 +198,7 @@ export async function registerAttendanceRoutes(app: FastifyInstance, pool: AppPo
     const params = request.params as { tenantId: string };
     const takenOnRaw = (request.query as { takenOn?: unknown }).takenOn;
     const takenOn = takenOnRaw === undefined || takenOnRaw === "" ? undefined : String(takenOnRaw);
-    if (takenOn !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) throw validationError("takenOn must be YYYY-MM-DD");
+    if (takenOn !== undefined && !isRealCalendarDate(takenOn)) throw validationError("takenOn must be a real date in YYYY-MM-DD form");
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       // OD-2: holders of resource.early_sign_out.read see every sign-out; a teacher sees a sanitised list

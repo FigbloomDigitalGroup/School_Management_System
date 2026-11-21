@@ -1,4 +1,6 @@
 import type { Tx } from "../../db/sql.js";
+import { schoolToday } from "../tenancy/schoolClock.js";
+import { isRealCalendarDate } from "../../http/schemas.js";
 import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 import { LIKE_ESCAPE_CLAUSE, likeContains } from "./search.js";
@@ -48,11 +50,11 @@ export interface PublicLearner {
 function isoDate(value: Date | string | null): string | null {
   if (value == null) return null;
   if (typeof value === "string") return value.slice(0, 10);
-  // pg returns JS Date for `date` using local midnight; use UTC calendar parts
-  // only when the driver already normalized — prefer SQL ::text when possible.
-  const y = value.getUTCFullYear();
-  const m = String(value.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(value.getUTCDate()).padStart(2, "0");
+  // node-pg parses a DATE as LOCAL midnight of the Node process, so the calendar day is read with LOCAL parts (UTC parts shift the
+  // day in any process timezone other than UTC). The SELECT lists cast dates to text, so this branch is a defence in depth.
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, "0");
+  const d = String(value.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -113,38 +115,143 @@ const SELECT_COLS = `
   active, archived_at, created_by, created_at, updated_at
 `;
 
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+/**
+ * S16-6 / S16-2: Neutralize spreadsheet formula injection without corrupting stored learner PII.
+ * Leading formula trigger characters (=, +, -, @, tab, CR) on either the raw cell or the trimmed
+ * value are rejected, while legitimate internal hyphens/apostrophes (e.g. "Anne-Marie O'Connor")
+ * remain valid and untouched.
+ */
+export function hasFormulaTrigger(raw: string): boolean {
+  if (!raw) return false;
+  return FORMULA_PREFIX.test(raw) || FORMULA_PREFIX.test(raw.trim());
+}
+
+export interface ValidatedLearnerFields {
+  admission_no: string;
+  full_name: string;
+  gender: LearnerGender;
+  date_of_birth: string | null;
+  boarding: boolean;
+}
+
+/**
+ * S16-2: Single shared validation contract used by CSV preview, CSV apply, createLearner, and updateLearner.
+ */
+export function validateLearnerFields(input: {
+  admission_no: string;
+  full_name: string;
+  gender: string;
+  date_of_birth?: string | null;
+  boarding?: boolean | string | null;
+  /** The school's local calendar date (see schoolToday). When omitted the UTC date is used (callers without a tenant clock). */
+  today?: string;
+}): {
+  valid: boolean;
+  messages: string[];
+  value?: ValidatedLearnerFields;
+} {
+  const messages: string[] = [];
+  const rawAdm = input.admission_no ?? "";
+  const rawName = input.full_name ?? "";
+  const admission_no = rawAdm.trim();
+  const full_name = rawName.trim();
+  const genderRaw = (input.gender ?? "").trim().toLowerCase();
+
+  if (rawAdm.includes("\0") || rawName.includes("\0")) {
+    messages.push("NUL characters are not allowed");
+  }
+  if (!admission_no) {
+    messages.push("admission_no is required");
+  } else if ([...admission_no].length > 32) {
+    messages.push("admission_no is too long");
+  } else if (hasFormulaTrigger(rawAdm)) {
+    messages.push("admission_no cannot start with a formula character");
+  }
+
+  if (!full_name) {
+    messages.push("full_name is required");
+  } else if ([...full_name].length > 120) {
+    messages.push("full_name is too long");
+  } else if (hasFormulaTrigger(rawName)) {
+    messages.push("full_name cannot start with a formula character");
+  }
+
+  if (genderRaw !== "male" && genderRaw !== "female") {
+    messages.push("gender must be male or female");
+  }
+
+  let date_of_birth: string | null = null;
+  if (input.date_of_birth != null && String(input.date_of_birth).trim() !== "") {
+    const rawDob = String(input.date_of_birth).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDob)) {
+      messages.push("date_of_birth must be YYYY-MM-DD");
+    } else {
+      const parsed = new Date(`${rawDob}T00:00:00Z`);
+      if (!isRealCalendarDate(rawDob) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== rawDob) {
+        messages.push("date_of_birth is not a valid date");
+      } else {
+        // "In the future" is judged against the SCHOOL's calendar date, not the UTC date: in a school ahead of UTC, a learner born
+        // today (local) must not be refused during the first hours of the local day.
+        const nowUtc = new Date();
+        const todayDate = input.today ?? new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate())).toISOString().slice(0, 10);
+        if (rawDob > todayDate) {
+          messages.push("date_of_birth cannot be in the future");
+        } else {
+          date_of_birth = rawDob;
+        }
+      }
+    }
+  }
+
+  let boarding = false;
+  if (typeof input.boarding === "boolean") {
+    boarding = input.boarding;
+  } else if (input.boarding != null && String(input.boarding).trim() !== "") {
+    const bRaw = String(input.boarding).trim().toLowerCase();
+    if (bRaw === "true" || bRaw === "1" || bRaw === "yes") {
+      boarding = true;
+    } else if (bRaw === "false" || bRaw === "0" || bRaw === "no") {
+      boarding = false;
+    } else {
+      messages.push("boarding must be true/false, yes/no, or 1/0");
+    }
+  }
+
+  if (messages.length > 0) {
+    return { valid: false, messages };
+  }
+  return {
+    valid: true,
+    messages: [],
+    value: {
+      admission_no,
+      full_name,
+      gender: genderRaw as LearnerGender,
+      date_of_birth,
+      boarding,
+    },
+  };
+}
+
 /**
  * Learner writes run on the caller's tenant transaction (FIG-1605).
  * The route sets app.tenant_id / app.user_id. This module does not open a second transaction.
  */
 export async function createLearner(db: Tx, input: CreateLearnerInput): Promise<PublicLearner> {
-  const admission_no = input.admission_no.trim();
-  const full_name = input.full_name.trim();
-  if (!admission_no) throw validationError("Admission number is required");
-  if (!full_name) throw validationError("Full name is required");
-  if (admission_no.length > 32) throw validationError("Admission number is too long");
-  if (full_name.length > 120) throw validationError("Full name is too long");
-  if (input.gender !== "male" && input.gender !== "female") {
-    throw validationError("Gender must be male or female");
+  const checked = validateLearnerFields({
+    admission_no: input.admission_no,
+    full_name: input.full_name,
+    gender: input.gender,
+    date_of_birth: input.date_of_birth,
+    boarding: input.boarding ?? false,
+    today: await schoolToday(db, input.tenantId),
+  });
+  if (!checked.valid || !checked.value) {
+    throw validationError(checked.messages[0] ?? "Invalid learner data");
   }
-
-  let dateOfBirth: string | null = null;
-  if (input.date_of_birth != null && String(input.date_of_birth).trim() !== "") {
-    const raw = String(input.date_of_birth).trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      throw validationError("date_of_birth must be YYYY-MM-DD");
-    }
-    const parsed = new Date(`${raw}T00:00:00Z`);
-    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== raw) {
-      throw validationError("date_of_birth is not a valid date");
-    }
-    const today = new Date();
-    const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    if (parsed > todayUtc) throw validationError("date_of_birth cannot be in the future");
-    dateOfBirth = raw;
-  }
-
-  const boarding = input.boarding === true;
+  const { admission_no, full_name, gender, date_of_birth: dateOfBirth, boarding } = checked.value;
 
   try {
     const created = await (async () => {
@@ -170,7 +277,7 @@ export async function createLearner(db: Tx, input: CreateLearnerInput): Promise<
             input.tenantId,
             admission_no,
             full_name,
-            input.gender,
+            gender,
             boarding,
             dateOfBirth,
             input.actorUserId,
@@ -352,32 +459,26 @@ export async function updateLearner(db: Tx, input: UpdateLearnerInput): Promise<
   });
   if (!current.active) throw validationError("Archived learners cannot be updated; restore first");
 
-  const admission_no =
-    input.admission_no !== undefined ? input.admission_no.trim() : current.admission_no;
-  const full_name = input.full_name !== undefined ? input.full_name.trim() : current.full_name;
-  const gender = input.gender !== undefined ? input.gender : current.gender;
-  const boarding = input.boarding !== undefined ? input.boarding : current.boarding;
-  let dateOfBirth = current.date_of_birth;
-  if (input.date_of_birth !== undefined) {
-    if (input.date_of_birth == null || String(input.date_of_birth).trim() === "") {
-      dateOfBirth = null;
-    } else {
-      const raw = String(input.date_of_birth).trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) throw validationError("date_of_birth must be YYYY-MM-DD");
-      const parsed = new Date(`${raw}T00:00:00Z`);
-      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== raw) {
-        throw validationError("date_of_birth is not a valid date");
-      }
-      const today = new Date();
-      const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-      if (parsed > todayUtc) throw validationError("date_of_birth cannot be in the future");
-      dateOfBirth = raw;
-    }
-  }
+  const rawAdmissionNo =
+    input.admission_no !== undefined ? input.admission_no : current.admission_no;
+  const rawFullName = input.full_name !== undefined ? input.full_name : current.full_name;
+  const rawGender = input.gender !== undefined ? input.gender : current.gender;
+  const rawBoarding = input.boarding !== undefined ? input.boarding : current.boarding;
+  const rawDateOfBirth =
+    input.date_of_birth !== undefined ? input.date_of_birth : current.date_of_birth;
 
-  if (!admission_no || admission_no.length > 32) throw validationError("Admission number is invalid");
-  if (!full_name || full_name.length > 120) throw validationError("Full name is invalid");
-  if (gender !== "male" && gender !== "female") throw validationError("Gender must be male or female");
+  const checked = validateLearnerFields({
+    admission_no: rawAdmissionNo,
+    full_name: rawFullName,
+    gender: rawGender,
+    boarding: rawBoarding,
+    date_of_birth: rawDateOfBirth,
+    today: await schoolToday(db, input.tenantId),
+  });
+  if (!checked.valid || !checked.value) {
+    throw validationError(checked.messages[0] ?? "Invalid learner data");
+  }
+  const { admission_no, full_name, gender, boarding, date_of_birth: dateOfBirth } = checked.value;
 
   try {
     const result = await db.query<{
@@ -503,11 +604,3 @@ export async function restoreLearner(
   return toPublicLearner(mapRow(row));
 }
 
-/** Direct pool queries for least-privilege / RLS tests (SET ROLE figbloom_app). */
-export async function countLearnersVisibleAsAppRole(db: Tx, tenantId: string): Promise<number> {
-  const result = await db.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM learners WHERE tenant_id = $1`,
-    [tenantId],
-  );
-  return Number(result.rows[0]?.n ?? 0);
-}

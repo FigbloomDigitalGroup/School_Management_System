@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { calendarDateString } from "../schemas.js";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import {
@@ -35,7 +36,7 @@ import { AppError, notFound, validationError } from "../errors.js";
 import { assertUuid, classReadScope, inTenant, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
-const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const DateString = calendarDateString;
 
 const AssessmentBody = z.strictObject({
   class_id: z.guid(),

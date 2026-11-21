@@ -533,10 +533,9 @@ export async function recordEarlySignOut(
     input.note === undefined || input.note === null || input.note.trim() === "" ? null : input.note.trim();
   if (note && note.length > 500) throw validationError("The note can be up to 500 characters.");
 
-  await tx.query(`SELECT id FROM learners WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [
-    input.tenantId,
-    input.learner_id,
-  ]);
+  // Authorization FIRST: a caller who may not record sign-outs must learn nothing about whether a learner id exists, is archived or
+  // is in a class (every such failure is the same 403 for them). The row lock is taken only after the gate.
+  const canWrite = await hasPermission(tx, input.authz, "resource.attendance.write");
   const learner = await tx.query<{ full_name: string; active: boolean; class_id: string | null; class_name: string | null }>(
     `SELECT l.full_name, l.active, c.id AS class_id, c.name AS class_name
        FROM learners l
@@ -550,19 +549,16 @@ export async function recordEarlySignOut(
     [input.tenantId, input.learner_id],
   );
   const who = learner.rows[0];
-  if (!who) throw validationError("learner_id must belong to this school");
-  if (!who.active) throw validationError("This learner is archived.");
-  if (!who.class_id) throw validationError("This learner is not in a class.");
+  const refuse = () => forbidden("You can't record a sign-out for this learner.");
+  if (!who) throw canWrite ? validationError("learner_id must belong to this school") : refuse();
+  if (!who.active) throw canWrite ? validationError("This learner is archived.") : refuse();
+  if (!who.class_id) throw canWrite ? validationError("This learner is not in a class.") : refuse();
 
-  const canWrite = await hasPermission(tx, input.authz, "resource.attendance.write");
-  const classTeacher = await userIsClassTeacher(tx, {
-    tenantId: input.tenantId,
-    userId: input.actorUserId,
-    classId: who.class_id,
-  });
-  if (!canWrite && !classTeacher) {
-    throw forbidden("You can't record a sign-out for this learner.");
-  }
+  const classTeacher = canWrite
+    ? false
+    : await userIsClassTeacher(tx, { tenantId: input.tenantId, userId: input.actorUserId, classId: who.class_id });
+  if (!canWrite && !classTeacher) throw refuse();
+  await tx.query(`SELECT id FROM learners WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [input.tenantId, input.learner_id]);
 
   const clock = await tx.query<{ at: Date; local_time: string; today: string; too_future: boolean }>(
     `SELECT v.at,

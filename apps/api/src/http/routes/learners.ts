@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { uuidString } from "../schemas.js";
+import { uuidString, calendarDateString } from "../schemas.js";
 import type { AppPool } from "../../db/pool.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import {
@@ -25,7 +25,7 @@ const CreateLearnerSchema = z.object({
   full_name: z.string().min(1).max(120),
   gender: z.enum(["male", "female"]),
   boarding: z.boolean().optional(),
-  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  date_of_birth: calendarDateString.nullable().optional(),
 });
 
 const PatchLearnerSchema = z
@@ -34,7 +34,7 @@ const PatchLearnerSchema = z
     full_name: z.string().min(1).max(120).optional(),
     gender: z.enum(["male", "female"]).optional(),
     boarding: z.boolean().optional(),
-    date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    date_of_birth: calendarDateString.nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
 

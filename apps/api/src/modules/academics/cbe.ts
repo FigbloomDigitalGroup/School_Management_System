@@ -837,11 +837,6 @@ export async function listCbeResults(tx: Tx, input: { tenantId: string; cbeAsses
   return { items, page: res.page };
 }
 
-/** A9-6: by-id lookup through the same query and scope as the list. */
-export async function getCbeResultById(tx: Tx, input: { tenantId: string; id: string; cbeAssessmentId: string }) {
-  return (await listCbeResults(tx, { ...input, page: ONE_ROW })).items[0] ?? null;
-}
-
 export async function registerEvidence(
   tx: Tx,
   input: {
