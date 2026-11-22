@@ -4,6 +4,7 @@ export type ErrorCode =
   | "unauthorized"
   | "forbidden"
   | "reauth_required"
+  | "mfa_required"
   | "not_found"
   | "validation_error"
   | "rate_limited"

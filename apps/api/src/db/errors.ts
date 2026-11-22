@@ -12,7 +12,8 @@ export interface DenialAuditPayload {
     | "rbac.permission.denied"
     | "rbac.org_delegation.denied"
     | "rbac.guardian_access.denied"
-    | "rbac.staff_areas.denied";
+    | "rbac.staff_areas.denied"
+    | "ai.bloom.denied";
   actorUserId: string;
   tenantId: string | null;
   detail: Record<string, unknown>;

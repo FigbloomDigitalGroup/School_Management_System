@@ -137,6 +137,8 @@ export async function createTestApp(): Promise<{
   const ownerUrl =
     process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
   // Override .env defaults so the suite is not starved by the login token bucket.
+  // MFA enforcement is exercised by test/mfa.enforcement.test.ts (MFA_ENFORCEMENT_TEST=enforce); the shared suite logs in as admins without a factor.
+  process.env.MFA_ENFORCEMENT = process.env.MFA_ENFORCEMENT_TEST ?? "off";
   process.env.AUTH_RATE_CAPACITY = "1000";
   process.env.AUTH_RATE_REFILL = "1000";
   // Default: proxy trust off for the shared suite (R2 tests enable it explicitly).

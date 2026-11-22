@@ -13,6 +13,7 @@ const SECRET_PW = "p@ss-SECRET-DB-9981";
 const SECRET_KEY = "k-SECRET-FINGERPRINT-KEY-0123456789abcdef";
 const SECRET_MINT = "k-SECRET-SESSION-MINT-HMAC-0123456789abcdef";
 const SECRET_MIG = "mig-SECRET-7731";
+const SECRET_MFA = "k-SECRET-MFA-ENCRYPTION-KEY-0123456789abcdef";
 
 const loopback = `postgresql://figbloom_app:${SECRET_PW}@127.0.0.1:58322/figbloom_api`;
 const remote = (q = "") => `postgresql://figbloom_app:${SECRET_PW}@db.internal.example:5432/figbloom_api${q}`;
@@ -22,6 +23,7 @@ const prod = (over: Record<string, string | undefined> = {}): NodeJS.ProcessEnv 
   DATABASE_URL: remote("?sslmode=verify-full"),
   IDEMPOTENCY_FINGERPRINT_KEY: SECRET_KEY,
   SESSION_MINT_HMAC_KEY: SECRET_MINT,
+  MFA_ENCRYPTION_KEY: SECRET_MFA,
   ...over,
 });
 
@@ -45,6 +47,9 @@ describe("environment mode and production refusals", () => {
     ["missing fingerprint key", prod({ IDEMPOTENCY_FINGERPRINT_KEY: undefined }), /IDEMPOTENCY_FINGERPRINT_KEY is required/],
     ["short fingerprint key", prod({ IDEMPOTENCY_FINGERPRINT_KEY: "short" }), /idempotencyFingerprintKey/],
     ["missing session mint HMAC key", prod({ SESSION_MINT_HMAC_KEY: undefined }), /SESSION_MINT_HMAC_KEY is required/],
+    ["missing MFA encryption key", prod({ MFA_ENCRYPTION_KEY: undefined }), /MFA_ENCRYPTION_KEY is required/],
+    ["MFA encryption key equal to the session HMAC key", prod({ MFA_ENCRYPTION_KEY: SECRET_MINT }), /must differ from SESSION_MINT_HMAC_KEY/],
+    ["MFA enforcement switched off", prod({ MFA_ENFORCEMENT: "off" }), /MFA_ENFORCEMENT must be/],
     ["short session mint HMAC key", prod({ SESSION_MINT_HMAC_KEY: "short" }), /sessionMintHmacKey/],
     ["documented local development key", prod({ SESSION_MINT_HMAC_KEY: LOCAL_SESSION_MINT_HMAC_KEY }), /development key/],
     ["remote database without verified TLS", prod({ DATABASE_URL: remote() }), /DATABASE_URL must set sslmode=verify-full/],
