@@ -31,6 +31,11 @@ apps/api/docs/STAGE10-*.md
 # Local Stage 11 working docs (handoffs and reviews; not committed until owner accepts)
 apps/api/docs/STAGE11-*.md
 
+# Local backend feature working docs (kept on disk; not committed)
+apps/api/docs/FIGBLOOM-AI-INTEGRATION.md
+apps/api/docs/MFA-ENFORCEMENT.md
+apps/api/docs/TRANSPORT-OPERATIONS.md
+
 # Cursor-agent local memory/rules (not team SoT)
 .cursor/
 
