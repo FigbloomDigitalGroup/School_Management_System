@@ -1,4 +1,4 @@
-import { supabase, type EmailOutcome, type Organization, type Tenant } from "@figbloom/shared";
+import { currentUserId, supabase, type EmailOutcome, type Organization, type Tenant } from "@figbloom/shared";
 
 /** A super_admin may insert tenants directly — RLS allows it, no edge function needed. */
 export interface NewSchoolInput {
@@ -277,10 +277,10 @@ export interface NewOrganizationInput {
 
 /** Org creation is staff-only, same as tenant creation — RLS (organization_write_super) allows a super_admin to insert directly. */
 export async function createOrganization(input: NewOrganizationInput): Promise<Organization> {
-  const { data: { user } } = await supabase().auth.getUser();
+  const userId = await currentUserId();
   const { data, error } = await supabase()
     .from("organizations")
-    .insert({ ...input, created_by: user?.id ?? null })
+    .insert({ ...input, created_by: userId })
     .select("*")
     .single<Organization>();
   if (error) throw error;

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  DEMO_LOGINS, homeRouteFor, isBannedAuthError, isSchoolSuspendedError, mySchoolSuspended, passwordResetRequestedMessage,
-  requestPasswordReset, resolveLoginId, searchSchools, supabase,
-  type ResolvedLogin, type Role, type SchoolSearchResult, type Tenant,
+  DEMO_LOGINS, fetchHomeDestination, fetchSignInProfile, homeRouteFor, isBannedAuthError, isSchoolSuspendedError, mySchoolSuspended,
+  passwordResetRequestedMessage, requestPasswordReset, resolveLoginId, searchSchools, sendPasswordResetEmail, signInWithEmail, signOutHere,
+  type ResolvedLogin, type Role, type SchoolSearchResult,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { SuspendedNotice } from "../components/SuspendedNotice";
@@ -169,10 +169,7 @@ export function SignIn() {
     setError("");
     setResetBusy(true);
     try {
-      const { error: err } = await supabase().auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (err) throw err;
+      await sendPasswordResetEmail(email.trim(), `${window.location.origin}/reset-password`);
       setResetSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the reset link.");
@@ -203,55 +200,37 @@ export function SignIn() {
       const signInEmail = mode === "email" ? email.trim() : resolved?.email;
       if (!signInEmail) { setError("Enter your ID and wait for it to be recognized first."); return; }
 
-      const { data, error: err } = await supabase().auth.signInWithPassword({ email: signInEmail, password });
-      if (err) {
+      let userId: string | null;
+      try {
+        userId = await signInWithEmail(signInEmail, password);
+      } catch (err) {
         // Auth's own answer for a banned account: it already says the account exists, so this adds nothing to that
         if (isBannedAuthError(err)) { setSuspended(true); return; }
         setError(mode === "email" ? "Check the email and password." : "Check your ID and password.");
         return;
       }
-      const userId = data.user?.id;
       if (!userId) { setError("Something went wrong signing you in."); return; }
 
       // Route by the account's REAL school, not a hardcoded one — every
       // school onboarded after "alliance" needs this to ever reach its console.
-      const { data: profile } = await supabase()
-        .from("profiles").select("role, tenant_id").eq("id", userId).maybeSingle();
+      const profile = await fetchSignInProfile(userId);
       if (!profile) { setError("Your account isn't fully set up yet. Contact the school office."); return; }
 
       const chosen = PORTALS.find((p) => p.id === portal);
-      if (chosen && !chosen.roles.includes(profile.role as Role)) {
-        await supabase().auth.signOut({ scope: "local" });
-        const right = portalOfRole(profile.role as Role);
+      if (chosen && !chosen.roles.includes(profile.role)) {
+        await signOutHere();
+        const right = portalOfRole(profile.role);
         setError(`That's not a ${chosen.label.toLowerCase()} account.${right ? ` Use the ${right.label} portal instead.` : ""}`);
         return;
       }
 
-      let destSlug: string | null = null;
-      let institutionType: Tenant["institution_type"] | undefined;
-      if (profile.tenant_id) {
-        const { data: tenant } = await supabase().from("tenants").select("slug, institution_type").eq("id", profile.tenant_id).maybeSingle();
-        destSlug = tenant?.slug ?? null;
-        institutionType = tenant?.institution_type;
-      } else if (profile.role === "org_admin") {
-        // Not tenant-scoped at all — resolve which organization(s) this
-        // profile administers via organization_admins instead (the same
-        // mapping-table pattern guardians uses for parents), then reuse
-        // homeRouteFor's `slug` param for the organization's own slug. A
-        // profile can administer more than one organization (no per-profile
-        // uniqueness on organization_admins, only per profile+org) — one
-        // match goes straight there, several land on the workspace picker
-        // instead of a plain .maybeSingle() erroring on multiple rows.
-        const { data: links } = await supabase()
-          .from("organization_admins").select("organizations(slug)").eq("profile_id", userId)
-          .returns<{ organizations: { slug: string } | null }[]>();
-        const slugs = (links ?? []).map((l) => l.organizations?.slug).filter((s): s is string => !!s);
-        if (slugs.length > 1) { nav("/org-picker"); return; }
-        destSlug = slugs[0] ?? null;
-      }
+      // An org_admin has no school: one organization goes straight there, several land on the workspace picker.
+      const home = await fetchHomeDestination(userId, profile);
+      if (home.pickOrganization) { nav("/org-picker"); return; }
+      const destSlug = home.slug;
       // Signed in, but the school can't be read: suspended in the moment since the ban (my_tenant() hides it).
       if (profile.tenant_id && !destSlug && await mySchoolSuspended()) {
-        await supabase().auth.signOut({ scope: "local" });
+        await signOutHere();
         setSuspended(true);
         return;
       }
@@ -259,7 +238,7 @@ export function SignIn() {
         setError(profile.role === "org_admin" ? "Could not find your organization. Contact Figbloom support." : "Could not find your school. Contact Figbloom support.");
         return;
       }
-      nav(homeRouteFor(profile.role as Role, destSlug, institutionType));
+      nav(homeRouteFor(profile.role, destSlug, home.institutionType));
     } finally {
       setBusy(false);
     }

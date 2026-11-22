@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Organization, Profile } from "@figbloom/shared";
-import { supabase } from "@figbloom/shared";
+import { loadOrgSession, onSessionChange } from "@figbloom/shared";
 
 export interface OrgSession {
   loading: boolean;
@@ -30,23 +30,16 @@ export function useOrgSession(orgSlug: string | null): OrgSession {
     let alive = true;
 
     async function load() {
-      const { data: { user } } = await supabase().auth.getUser();
-      if (!user) { if (alive) setState({ loading: false, profile: null, organization: null, resolvedFor: orgSlug }); return; }
+      // Who is signed in and the organization at this address (packages/shared/src/session.ts).
+      const snapshot = await loadOrgSession(orgSlug);
+      if (!snapshot) { if (alive) setState({ loading: false, profile: null, organization: null, resolvedFor: orgSlug }); return; }
 
-      const { data: profile } = await supabase().from("profiles").select("*").eq("id", user.id).single<Profile>();
-
-      let organization: Organization | null = null;
-      if (orgSlug) {
-        const { data } = await supabase().from("organizations").select("*").eq("slug", orgSlug).maybeSingle<Organization>();
-        organization = data ?? null;
-      }
-
-      if (alive) setState({ loading: false, profile: profile ?? null, organization, resolvedFor: orgSlug });
+      if (alive) setState({ loading: false, profile: snapshot.profile, organization: snapshot.organization, resolvedFor: orgSlug });
     }
 
     load().catch((err) => { if (alive) { console.error(err); setState({ loading: false, profile: null, organization: null, resolvedFor: orgSlug }); } });
-    const { data: sub } = supabase().auth.onAuthStateChange(() => { load().catch(console.error); });
-    return () => { alive = false; sub.subscription.unsubscribe(); };
+    const stop = onSessionChange(() => { load().catch(console.error); });
+    return () => { alive = false; stop(); };
   }, [orgSlug]);
 
   // Switching orgs client-side (the workspace switcher) changes orgSlug

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
+import { signOutHere, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { useOnline } from "../../lib/useOnline";
@@ -193,7 +193,7 @@ export function DriverTrip() {
   }
 
   async function handleSignOut() {
-    await supabase().auth.signOut({ scope: "local" });
+    await signOutHere();
     navigate("/signin", { replace: true });
   }
 

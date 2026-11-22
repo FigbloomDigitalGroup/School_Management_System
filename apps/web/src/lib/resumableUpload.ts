@@ -1,7 +1,7 @@
 import { Upload, type DetailedError } from "tus-js-client";
 import {
   LEARNING_MEDIA_BUCKET, RESUMABLE_THRESHOLD_BYTES, addAttachment, attachmentFilePath, draftTitle, filesOnS3, kindForLink, kindForMime,
-  mimeForFile, removeMediaFiles, storeFile, supabase, type AttachmentOwner, type MediaDraft,
+  currentAccessToken, mimeForFile, removeMediaFiles, storeFile, type AttachmentOwner, type MediaDraft,
 } from "@figbloom/shared";
 
 /**
@@ -32,8 +32,7 @@ export interface UploadHandle {
 const CHUNK_BYTES = 6 * 1024 * 1024;
 
 async function accessToken(): Promise<string> {
-  const { data } = await supabase().auth.getSession();
-  const token = data.session?.access_token;
+  const token = await currentAccessToken();
   if (!token) throw new Error("You've been signed out. Sign in again and retry.");
   return token;
 }

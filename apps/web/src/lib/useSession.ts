@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AdminArea, Profile, Tenant } from "@figbloom/shared";
-import { fetchMyAdminAreas, mayHoldAdminAreas, sessionSchoolSuspended, supabase } from "@figbloom/shared";
+import { loadSchoolSession, onSessionChange } from "@figbloom/shared";
 
 export interface Session {
   loading: boolean;
@@ -60,54 +60,19 @@ export function useSession(slug: string | null): Session {
     let alive = true;
 
     async function load() {
-      const { data: { user } } = await supabase().auth.getUser();
-      if (!user) { if (alive) setState({ ...EMPTY, resolvedFor: slug }); return; }
-
-      const { data: profile } = await supabase()
-        .from("profiles").select("*").eq("id", user.id).single<Profile>();
-
-      let tenant: Tenant | null = null;
-      if (slug) {
-        // maybeSingle, not single — zero rows is an expected outcome here
-        // (wrong school, or someone unauthorized for it, e.g. an org_admin
-        // acting on a school outside their own organization), not an
-        // exceptional one; .single() would still resolve to the same
-        // `tenant: null` via the ?? below, just with a noisy 406 on the wire
-        // for every legitimately-unauthorized visit.
-        const { data } = await supabase()
-          .from("tenants").select("*").eq("slug", slug).maybeSingle<Tenant>();
-        tenant = data ?? null;
-      }
-
-      // org_admin's own tenant_id is always null, so a resolved tenant here
-      // can only ever be one they're acting within via their organization —
-      // organization_read_own RLS (FIG-391) already denied the tenant fetch
-      // above if they don't actually administer it.
-      const actingForTenant = profile?.role === "org_admin" && !!tenant;
-      let actingOrganization: Session["actingOrganization"] = null;
-      if (actingForTenant && tenant?.organization_id) {
-        const { data: org } = await supabase()
-          .from("organizations").select("id, name, slug").eq("id", tenant.organization_id).maybeSingle();
-        actingOrganization = org ?? null;
-      }
-
-      // A failed lookup leaves them with their own console only, never more.
-      const adminAreas = profile && tenant && mayHoldAdminAreas(profile.role)
-        ? await fetchMyAdminAreas().catch((err: unknown) => { console.error(err); return [] as AdminArea[]; })
-        : [];
-
-      // Only asked inside a school's routes, and only when that school couldn't be read.
-      const schoolSuspended = slug ? await sessionSchoolSuspended(profile ?? null, !!tenant) : false;
+      // Who is signed in, the school at this address and their place in it (packages/shared/src/session.ts).
+      const snapshot = await loadSchoolSession(slug);
+      if (!snapshot) { if (alive) setState({ ...EMPTY, resolvedFor: slug }); return; }
 
       const raw = sessionStorage.getItem("figbloom.impersonation");
       const impersonating = raw ? (JSON.parse(raw) as Session["impersonating"]) : null;
 
-      if (alive) setState({ loading: false, profile: profile ?? null, tenant, impersonating, actingForTenant, actingOrganization, adminAreas, schoolSuspended, resolvedFor: slug });
+      if (alive) setState({ loading: false, ...snapshot, impersonating, resolvedFor: slug });
     }
 
     load().catch((err) => { if (alive) { console.error(err); setState({ ...EMPTY, resolvedFor: slug }); } });
-    const { data: sub } = supabase().auth.onAuthStateChange(() => { load().catch(console.error); });
-    return () => { alive = false; sub.subscription.unsubscribe(); };
+    const stop = onSessionChange(() => { load().catch(console.error); });
+    return () => { alive = false; stop(); };
   }, [slug]);
 
   if (state.resolvedFor !== slug) {

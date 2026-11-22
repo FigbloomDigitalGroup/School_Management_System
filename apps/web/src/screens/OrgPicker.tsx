@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { fetchAllMyOrganizationTenantSummaries, fetchMyOrganizations, formatMoney, supabase } from "@figbloom/shared";
+import { formatMoney, loadMyWorkspaces, signOutHere } from "@figbloom/shared";
 import { useAsync } from "../lib/useAsync";
 import { Skeleton } from "../components/ui/Skeleton";
 
@@ -11,21 +11,11 @@ import { Skeleton } from "../components/ui/Skeleton";
  */
 export function OrgPicker() {
   const nav = useNavigate();
-  const { data, loading, error } = useAsync(async () => {
-    const { data: auth } = await supabase().auth.getUser();
-    if (!auth.user) return null;
-    const { data: profile } = await supabase()
-      .from("profiles").select("id, full_name, role").eq("id", auth.user.id).maybeSingle();
-    if (!profile || profile.role !== "org_admin") return null;
-    const [orgs, schools] = await Promise.all([
-      fetchMyOrganizations(profile.id),
-      fetchAllMyOrganizationTenantSummaries(),
-    ]);
-    return { name: profile.full_name, orgs, schools };
-  }, []);
+  // Null for anyone who is not a signed-in org_admin (packages/shared/src/session.ts).
+  const { data, loading, error } = useAsync(() => loadMyWorkspaces(), []);
 
   async function signOut() {
-    await supabase().auth.signOut({ scope: "local" });
+    await signOutHere();
     nav("/signin", { replace: true });
   }
 
