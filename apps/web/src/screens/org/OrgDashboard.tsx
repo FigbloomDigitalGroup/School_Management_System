@@ -91,6 +91,7 @@ export function OrgDashboard() {
   const totalCollected = data.reduce((a, s) => a + s.fees_collected_cents, 0);
   const totalStudents = data.reduce((a, s) => a + s.active_students, 0);
   const totalPresentToday = data.reduce((a, s) => a + s.present_today, 0);
+  const totalPresentPm = data.reduce((a, s) => a + (s.present_today_pm ?? 0), 0);
 
   return (
     <>
@@ -104,7 +105,7 @@ export function OrgDashboard() {
         <StatRow
           stats={[
             { label: "Schools", value: String(data.length), sub: `${k12.length} K-12 · ${higherEd.length} higher-ed` },
-            { label: "Active students", value: totalStudents.toLocaleString(), sub: `${totalPresentToday.toLocaleString()} present today` },
+            { label: "Active students", value: totalStudents.toLocaleString(), sub: `${totalPresentToday.toLocaleString()} present today${totalPresentPm > 0 ? ` · ${totalPresentPm.toLocaleString()} present this afternoon` : ""}` },
             // Every school in an org is Kenyan today (country selector
             // locked to Kenya) — a cross-country org's aggregate is a real
             // multi-currency problem to solve when it's first needed.

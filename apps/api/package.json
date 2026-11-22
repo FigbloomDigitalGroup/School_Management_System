@@ -1,0 +1,40 @@
+{
+  "name": "@figbloom/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "FigBloom replacement modular monolith — identity, tenancy and RBAC (P1-A / FIG-1573)",
+  "engines": {
+    "node": ">=24.7"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "migrate": "node dist/db/migrate.js",
+    "migrate:verify": "node dist/db/migrate.js --verify",
+    "migrate:dev": "tsx src/db/migrate.ts",
+    "migrate:verify:dev": "tsx src/db/migrate.ts --verify",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "openapi:check": "tsx src/openapi/validate.ts",
+    "session-hmac": "node scripts/session-hmac.mjs",
+    "bench:argon2": "tsx scripts/argon2-benchmark.mts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.4.3",
+    "@fastify/helmet": "^13.2.0",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/pg": "^8.11.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.12",
+    "yaml": "^2.7.0"
+  }
+}

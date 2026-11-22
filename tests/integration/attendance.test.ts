@@ -70,9 +70,12 @@ const countBy = (rows: { mark: AttendanceMark }[]) => ({
   present: rows.filter((r) => r.mark === "present").length, absent: rows.filter((r) => r.mark === "absent").length,
   late: rows.filter((r) => r.mark === "late").length, excused: rows.filter((r) => r.mark === "excused").length, total: rows.length,
 });
-const auditCount = async () => {
-  const { count } = await admin.client.from("audit_events").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId);
-  return count ?? 0;
+/** The audit log's attendance events made by one person, newest first (an earlier run's are in it too: compare ids before and after). */
+const attendanceEventsBy = async (actorId: string) => {
+  const { data, error } = await admin.client.from("audit_events").select("id, event, metadata")
+    .eq("tenant_id", tenantId).eq("actor_id", actorId).like("event", "Attendance:%").order("created_at", { ascending: false }).limit(300);
+  if (error) throw new Error(error.message);
+  return data as { id: string; event: string; metadata: unknown }[];
 };
 async function addLearner(label: string, classId: string): Promise<string> {
   const { data, error } = await admin.client.from("students")
@@ -236,28 +239,39 @@ describe("changing a register", () => {
     expect(rows[roster[8]!.id]).toBe("absent");
   });
 
-  it("QA10-TRACE FIG-1406 (fixed on main): a correction leaves a trace: the row still says who took the register, or an audit event is written", async () => {
+  it("QA10-TRACE FIG-1406: a correction leaves a trace: the row still says who took the register, and the audit log says who changed it, from what to what", async () => {
     const D2 = "2019-01-13";
     await admin.client.from("attendance").upsert(toRecords(register(D2, { 9: "absent" }), tenantId, admin.userId), { onConflict: "student_id,taken_on" });
-    const before = await auditCount();
     await actAsRole("teacher");
+    const seen = new Set((await attendanceEventsBy(teacher.userId)).map((e) => e.id));
+    // The screen's own save: a whole register, of which one learner's mark differs from the stored one.
     await writeAttendance(register(D2, { 9: "present" }), tenantId, teacher.userId);
-    const row = (await rowsOn(D2)).find((r) => r.student_id === roster[9]!.id)!;
+    const rows = await rowsOn(D2);
+    const row = rows.find((r) => r.student_id === roster[9]!.id)!;
     expect(row.mark).toBe("present");
-    const traced = row.taken_by === admin.userId || (await auditCount()) > before;
-    expect(traced, "the correction is not recorded anywhere: taken_by now names the person who corrected it, and no audit event was written").toBe(true);
+    expect(row.taken_by, "taken_by now names the person who corrected the register, not the one who took it").toBe(admin.userId);
+    expect(rows.every((r) => r.taken_by === admin.userId), "the learners whose marks were not changed were re-credited too").toBe(true);
+
+    // The log: one event, by the corrector, naming only the mark that changed (not "taken by"), from and to.
+    const events = (await attendanceEventsBy(teacher.userId)).filter((e) => !seen.has(e.id));
+    expect(events.map((e) => e.event)).toEqual(["Attendance: 1 record changed (mark)"]);
+    const changes = (events[0]!.metadata as { changes: { key: { id: string }; changes: Record<string, { from: unknown; to: unknown }> }[] }).changes;
+    expect(changes).toEqual([{ key: { id: row.id }, changes: { mark: { from: "absent", to: "present" } } }]);
   });
 });
 
 // ---------------------------------------------------------------- 3. a learner in another class's register
 
 describe("a learner of another class", () => {
-  it.fails("QA10-CLASS FIG-1407 (open): a teacher cannot file a learner of another class in their own class's register", async () => {
+  it("QA10-CLASS FIG-1407: a teacher cannot file a learner of another class in their own class's register, and nothing is saved", async () => {
     const y = await addLearner("2", form1East);
     await actAsRole("teacher");
     const { error } = await supabase().from("attendance")
       .insert({ tenant_id: tenantId, student_id: y, class_id: form2West, term_id: termId, taken_by: teacher.userId, taken_on: "2019-02-04", mark: "absent" });
-    expect(error, "the database took a Form 1 East learner into the Form 2 West register").not.toBeNull();
+    expect(error?.code, "the database must not take a Form 1 East learner into the Form 2 West register").toBe("23514");
+    expect(error?.message).toMatch(/not in this class/);
+    const saved = await admin.client.from("attendance").select("id", { count: "exact", head: true }).eq("student_id", y).eq("taken_on", "2019-02-04");
+    expect(saved.count, "no stray row was saved").toBe(0);
   });
 });
 
@@ -269,7 +283,7 @@ describe("a child's attendance figure, for this term", () => {
     return (data ?? []) as { mark: AttendanceMark }[];
   };
 
-  it.fails("QA10-PARENT FIG-1404 (open): ten absences in another term do not change the parent's 'this term' percentage or the days missed", async () => {
+  it("QA10-PARENT FIG-1404: ten absences in another term do not change the parent's 'this term' percentage or the days missed", async () => {
     await actAsRole("parent");
     const before = (await loadParentData(parent.userId)).children.find((c) => c.id === faith)!;
     expect(before.attendancePct, "the seed gives Faith attendance rows in the current term").not.toBeNull();
@@ -300,6 +314,23 @@ describe("a register held on the phone, sent for real", () => {
     queue.setUser(teacher.userId);
     return queue;
   };
+
+  it("FIG-1407: a register held on the phone for a class still goes out whole after one of its learners was moved to another class", async () => {
+    // Friday's register is taken with no signal and held. Before it is sent an admin moves one learner to the class they belong in. The register goes
+    // up as ONE request, so refusing that learner's row would have refused the whole class's register, and the phone could only discard it.
+    const D = "2019-02-20";
+    const queue = await phone();
+    const probe = await addLearner("moved", form2West);
+    const ids = [...roster.map((r) => r.id), probe];
+    await queue.enqueue("attendance", toRecords(newRegister(form2West, termId, ids, D), tenantId, teacher.userId));
+    const moved = await admin.client.from("students").update({ class_id: form1East }).eq("id", probe);
+    expect(moved.error).toBeNull();
+    expect(await queue.flush()).toEqual({ sent: 1, remaining: 0 });
+    expect(await queue.rejected(), "nothing was set aside").toHaveLength(0);
+    const rows = await rowsOn(D);
+    expect(rows, "every learner of the register is in it, the moved one too").toHaveLength(ids.length);
+    expect(rows.some((r) => r.student_id === probe)).toBe(true);
+  });
 
   it("the same held register queued twice goes out twice and leaves one row per learner", async () => {
     const D = "2019-02-09";
@@ -347,7 +378,8 @@ describe("a register held on the phone, sent for real", () => {
     expect(await queue.flush()).toEqual({ sent: 1, remaining: 0 });
     const row = (await rowsOn(D)).find((r) => r.student_id === roster[0]!.id)!;
     expect(row.mark).toBe("late");
-    expect(row.taken_by).toBe(teacher.userId);
+    // The newer register's mark stands, but the row still names whoever took the register first (FIG-1406); the audit log names the teacher.
+    expect(row.taken_by).toBe(admin.userId);
   });
 
   it("a register the server refuses (another school's teacher) is set aside, not retried, and nothing is written", async () => {

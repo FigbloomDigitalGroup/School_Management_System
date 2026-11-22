@@ -1,0 +1,3 @@
+# FigBloom API migrations: canonical LF in the index and on checkout (FIG-1610 / AD-14).
+# Do not rely on core.autocrlf; checksum verification hashes the LF form.
+apps/api/migrations/*.sql text eol=lf

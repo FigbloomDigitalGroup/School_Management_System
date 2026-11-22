@@ -4,12 +4,16 @@ import { CalendarOff, Users } from "lucide-react-native";
 import {
   fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks, isRetryable, writeAttendance,
   fetchHealthFlagsForStudents, healthFlags, type HealthFlags,
-  MARK_LABEL, MARK_SHORT, newRegister, nextMark, submitWarning, tally, toRecords,
-  type AttendanceMark, type ClassGroup, type Register, type Student,
+  MARK_LABEL, MARK_SHORT, newRegister, nextMark, signOutTime, submitWarning, tally, today,
+  DEFAULT_ATTENDANCE_SETTINGS, SESSION_LABEL, fetchAttendanceSettings,
+  type AttendanceMark, type AttendanceSession, type AttendanceSettings, type ClassGroup, type Register, type Student,
 } from "@figbloom/shared";
+import { defaultSession, queuedRegister, registerInTitle, sessionChoices, validSession } from "../../lib/registerSession";
 import { accentFor, HIT } from "../../theme";
 import { MARK_TONE } from "../../components/markTone";
 import { queue } from "../../storage";
+import { useRosterSignOuts } from "../../lib/useRosterSignOuts";
+import { leftEarlyLines } from "../../lib/leftEarlyList";
 import { PillPicker } from "../../components/PillPicker";
 import { QueueNotice } from "../../components/QueueNotice";
 import type { TeacherSession } from "../../teacherNavigation";
@@ -44,6 +48,23 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
   const [busy, setBusy] = useState(false);
   /** Allergies and conditions by learner, shown as a chip while marking. A failed read just shows none. */
   const [health, setHealth] = useState<Map<string, HealthFlags>>(new Map());
+  /** FIG-1514: the school's attendance settings (defaults, afternoon off, if the read fails) and the register being taken. */
+  const [settings, setSettings] = useState<AttendanceSettings>(DEFAULT_ATTENDANCE_SETTINGS);
+  const [picked, setPicked] = useState<AttendanceSession | null>(null);
+  const timezone = session.timezone || "Africa/Nairobi";
+  // The default is fixed at the moment the screen opened: re-reading the clock on every render would flip a register being marked at
+  // 11:59 to the afternoon at 12:00 and throw away the unsaved marks. The teacher switches by hand.
+  const [openedAt] = useState(() => new Date());
+  const regSession: AttendanceSession = validSession(picked ?? defaultSession(settings, timezone, openedAt), settings);
+  const choices = sessionChoices(settings);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAttendanceSettings(session.tenantId)
+      .then((st) => { if (alive) setSettings(st); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [session.tenantId]);
 
   useEffect(() => {
     if (!roster?.length) { setHealth(new Map()); return; }
@@ -58,6 +79,10 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       .catch(() => { if (alive) setHealth(new Map()); });
     return () => { alive = false; };
   }, [roster]);
+  /** Learners signed out early today, for a read-only badge. Its own read: a failure just shows no badge. */
+  const signOuts = useRosterSignOuts(useMemo(() => (roster ?? []).map((r) => r.id), [roster]));
+  /** The same read, as lines for the "register is in" summary. Empty when there are none or the read failed. */
+  const leftEarly = useMemo(() => leftEarlyLines(roster, signOuts), [roster, signOuts]);
   /** The server refused the register (not a connection problem): shown instead of pretending it was saved. */
   const [saveError, setSaveError] = useState<string | null>(null);
   // Registers saved on this phone that haven't gone out yet. Re-read on a timer so it
@@ -90,18 +115,18 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
     let alive = true;
     setSubmitted(null);
     setReg(null);
-    Promise.all([fetchClassRoster(classId), fetchTodayAttendanceMarks(classId)])
+    Promise.all([fetchClassRoster(classId), fetchTodayAttendanceMarks(classId, regSession, timezone)])
       .then(([r, marks]) => {
         if (!alive) return;
         setRoster(r);
-        const base = newRegister(classId, termId, r.map((s) => s.id));
+        const base = newRegister(classId, termId, r.map((s) => s.id), today(timezone));
         for (const m of marks) if (m.student_id in base.marks) base.marks[m.student_id] = m.mark;
         setReg(base);
         setSubmitted(marks.length > 0);
       })
       .catch(() => { if (alive) { setRoster([]); setSubmitted(false); } });
     return () => { alive = false; };
-  }, [classId, termId]);
+  }, [classId, termId, regSession, timezone]);
 
   const counts = useMemo(
     () => (reg ? tally(reg) : { present: 0, absent: 0, late: 0, excused: 0, total: 0 }),
@@ -124,7 +149,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
     setSaveError(null);
     setBusy(true);
     try {
-      await writeAttendance(reg, session.tenantId, session.profileId);
+      await writeAttendance(reg, session.tenantId, session.profileId, regSession);
       setSubmitted(true);
     } catch (err) {
       if (!isRetryable(err)) {
@@ -135,7 +160,8 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       }
       // No signal, or the server isn't answering: hold it on this phone.
       try {
-        await queue.enqueue("attendance", toRecords(reg, session.tenantId, session.profileId));
+        const q = queuedRegister(reg, session.tenantId, session.profileId, regSession);
+        await queue.enqueue(q.table, q.rows);
         setHeld((await queue.pending()).length);
         setSubmitted(true);
       } catch {
@@ -201,7 +227,7 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
     return (
       <View style={s.screen}>
         <View style={[s.header, { backgroundColor: a.deep }]}>
-          <Text style={s.headerTitle}>{cls.name} register is in</Text>
+          <Text style={s.headerTitle}>{registerInTitle(cls.name, regSession, settings)}</Text>
           <Text style={s.headerSub}>
             {counts.present} present · {counts.absent} absent · {counts.late} late
             {held > 0 ? ` · ${held} saved on this phone, sending when you have signal` : ""}
@@ -216,6 +242,29 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
           >
             <Text style={s.primaryLabel}>Correct a mark</Text>
           </Tap>
+
+          {leftEarly.length > 0 && (
+            <View style={[s.card, { marginTop: 16, padding: 12 }]}>
+              <Text style={[s.small, { fontWeight: "600", marginBottom: 6 }]}>Left early</Text>
+              {leftEarly.map((l) => (
+                <Text
+                  key={l.studentId}
+                  accessible
+                  accessibilityLabel={l.text}
+                  style={{ color: t.appSurface.ink, fontSize: 14, marginTop: 2 }}
+                >
+                  {l.text}
+                </Text>
+              ))}
+            </View>
+          )}
+
+          {choices.length > 0 && (
+            <View style={{ marginTop: 20 }}>
+              <Text style={[s.small, { fontWeight: "600", marginBottom: 8 }]}>Register</Text>
+              <PillPicker items={choices} selectedId={regSession} onPick={(id) => setPicked(id as AttendanceSession)} accent={session.accent} />
+            </View>
+          )}
 
           {classes.length > 1 && (
             <View style={{ marginTop: 20 }}>
@@ -233,8 +282,14 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
       <View style={[s.header, { backgroundColor: a.deep }]}>
         <Text style={s.headerEyebrow}>ATTENDANCE · {todayLabel.toUpperCase()}</Text>
         <Text style={s.headerTitle}>{cls.name}</Text>
-        <Text style={s.headerSub}>{roster?.length ?? 0} learners</Text>
+        <Text style={s.headerSub}>{choices.length > 0 ? `${SESSION_LABEL[regSession]} register · ` : ""}{roster?.length ?? 0} learners</Text>
       </View>
+
+      {choices.length > 0 && (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <PillPicker items={choices} selectedId={regSession} onPick={(id) => setPicked(id as AttendanceSession)} accent={session.accent} />
+        </View>
+      )}
 
       {classes.length > 1 && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
@@ -261,6 +316,17 @@ export function TeacherAttendance({ session }: { session: TeacherSession }) {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Text style={s.faint}>ADM {student.admission_no}</Text>
                   <HealthChip flags={health.get(student.id)} name={student.full_name} />
+                  {signOuts.has(student.id) && (
+                    <View
+                      accessible
+                      accessibilityLabel={`${student.full_name}: left early at ${signOutTime(signOuts.get(student.id)!)}`}
+                      style={{ borderRadius: 999, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1, backgroundColor: t.status.mutedBg, borderColor: t.appSurface.line }}
+                    >
+                      <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: t.status.mutedInk }}>
+                        LEFT EARLY {signOutTime(signOuts.get(student.id)!)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </Tap>
               <View style={{ flexDirection: "row", gap: 6 }}>

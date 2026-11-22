@@ -66,6 +66,8 @@ export interface TeacherSession {
   fullName: string;
   accent: string;
   country: string;
+  /** The school's IANA time zone (FIG-1514: registers are dated and sessioned by school time). Absent means Africa/Nairobi. */
+  timezone?: string;
 }
 
 /** Timetable/Classes/Leave/Account live under the "More" tab rather than as

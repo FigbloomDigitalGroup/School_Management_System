@@ -72,6 +72,8 @@ const KEY = "figbloom.queue.v1";
  */
 export const QUEUE_CONFLICT_KEYS: Readonly<Record<string, string>> = {
   attendance: "student_id,taken_on",
+  // FIG-1514: the afternoon register, same key. Additive: builds that predate it never queue this table.
+  attendance_afternoon: "student_id,taken_on",
   marks: "exam_id,student_id,subject_id",
   cbe_results: "assessment_id,student_id,strand_id",
   cbe_assessment_comments: "assessment_id,student_id",

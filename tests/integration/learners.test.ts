@@ -257,7 +257,12 @@ describe("archive, restore and delete, as the People screen calls them", () => {
 
   it("deleting a learner who has records is refused in words that name the records and say to archive; one refusal removes none of the batch", async () => {
     const id = await addLearner("D1");
-    await expect(deleteLearners([id, faith])).rejects.toThrow(/has attendance, exam marks, fee records on file, so they can't be deleted\. Archive them instead/);
+    // Faith's seeded records are named first, in the guard's fixed order. The guard then names every other table that holds a row
+    // for her (early sign-outs, afternoon registers, ...), and which of those exist depends on what else has run on this database
+    // (e2e specs keep their voided sign-outs on purpose), so further names are allowed but the three seeded ones and the advice are not optional.
+    await expect(deleteLearners([id, faith])).rejects.toThrow(
+      /^Faith Achieng has attendance, exam marks, fee records(, [A-Za-z -]+)* on file, so they can't be deleted\. Archive them instead/,
+    );
     expect(await countMine(num("D1")), "the learner with no records, in the same batch, is still there").toBe(1);
     await expect(deleteLearners([id])).resolves.toBeUndefined();
     expect(await countMine(num("D1"))).toBe(0);

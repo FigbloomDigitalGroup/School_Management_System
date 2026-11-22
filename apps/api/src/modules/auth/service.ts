@@ -1,0 +1,394 @@
+import type { AppPool, Db } from "../../db/pool.js";
+import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
+import type { AppConfig } from "../../config.js";
+import { unauthorized, validationError, forbidden, notFound } from "../../http/errors.js";
+import { hashPassword, passwordNeedsRehash, verifyPassword } from "../identity/password.js";
+import { assertPasswordPolicy } from "../identity/passwordPolicy.js";
+import { recordSecurityEvent } from "../audit/audit.js";
+import { normalizeIp } from "../../http/ip.js";
+import { consumeAuthToken } from "./rateLimit.js";
+import { rateLimitBucketForIp } from "./rateLimitBuckets.js";
+import {
+  createSession,
+  revokeSession,
+  setSessionTenant,
+  type SessionRow,
+} from "./session.js";
+import { listMembershipsForUser } from "../tenancy/context.js";
+
+export interface PublicUser {
+  id: string;
+  full_name: string;
+  email: string | null;
+  must_change_password: boolean;
+  platform_role: string | null;
+}
+
+async function loadUser(db: Db, userId: string): Promise<PublicUser> {
+  const result = await db.query<{
+    id: string;
+    full_name: string;
+    email: string | null;
+    must_change_password: boolean;
+    status: string;
+    platform_role: string | null;
+  }>(
+    `SELECT u.id, u.full_name, u.email, u.must_change_password, u.status,
+            pr.role AS platform_role
+     FROM users u
+     LEFT JOIN platform_roles pr ON pr.user_id = u.id
+     WHERE u.id = $1`,
+    [userId],
+  );
+  const user = result.rows[0];
+  if (!user || user.status !== "active") throw unauthorized("Invalid credentials");
+  return {
+    id: user.id,
+    full_name: user.full_name,
+    email: user.email,
+    must_change_password: user.must_change_password,
+    platform_role: user.platform_role,
+  };
+}
+
+/**
+ * AUD-04: verify against a throwaway hash when no usable account exists, so
+ * "unknown account" costs the same scrypt time as "wrong password" and response
+ * timing cannot be used to enumerate emails / login IDs.
+ */
+let decoyHash: Promise<string> | null = null;
+async function burnVerify(password: string): Promise<void> {
+  decoyHash ??= hashPassword("figbloom-decoy-credential");
+  await verifyPassword(password, await decoyHash);
+}
+
+/**
+ * Lazy migration (Argon2id): after a SUCCESSFUL verification against an old/weaker hash, store a fresh Argon2id hash with a
+ * compare-and-swap on the exact hash that was verified (auth_rehash_password). A concurrent login or password change makes the
+ * CAS change nothing; a failure here never blocks the login.
+ */
+async function migrateHashIfNeeded(db: Db, userId: string, password: string, storedHash: string): Promise<void> {
+  if (!passwordNeedsRehash(storedHash)) return;
+  try {
+    const fresh = await hashPassword(password);
+    await db.query(`SELECT public.auth_rehash_password($1::uuid, $2::text, $3::text)`, [userId, storedHash, fresh]);
+  } catch {
+    // best effort: the old hash stays valid and the next login retries
+  }
+}
+
+async function failLogin(
+  db: Db,
+  detail: Record<string, unknown>,
+  ip?: string | null,
+): Promise<never> {
+  await recordSecurityEvent(db, {
+    eventType: "auth.login.failure",
+    detail,
+    ip: ip ?? null,
+  });
+  throw unauthorized("Invalid credentials");
+}
+
+export async function loginWithEmail(
+  pool: AppPool,
+  config: AppConfig,
+  input: { email: string; password: string; ip?: string | null; userAgent?: string | null },
+): Promise<{ token: string; user: PublicUser; session: SessionRow }> {
+  const email = input.email.trim().toLowerCase();
+  if (!email || !input.password) throw validationError("Email and password are required");
+
+  const userId = await withIdentityAccess(pool, async (db) => {
+    // R2-03: IP bucket first so an exhausted IP limit never creates/consumes
+    // an account bucket row for this attempt. R3-04: null IP → shared unknown bucket.
+    await consumeAuthToken(db, config, rateLimitBucketForIp("login:ip", input.ip));
+    await consumeAuthToken(db, config, `login:email:${email}`);
+
+    // Credentials are read only through the exact-key definer function (migration 011).
+    const result = await db.query<{ id: string; password_hash: string; status: string }>(
+      `SELECT user_id AS id, password_hash, status FROM public.auth_credential_by_email($1)`,
+      [email],
+    );
+    const row = result.rows[0];
+    if (!row || row.status !== "active") {
+      await burnVerify(input.password);
+      return await failLogin(db, { method: "email", reason: "unknown_or_disabled" }, input.ip);
+    }
+    const ok = await verifyPassword(input.password, row.password_hash);
+    if (!ok) {
+      return await failLogin(db, { method: "email", reason: "bad_password", userId: row.id }, input.ip);
+    }
+    await migrateHashIfNeeded(db, row.id, input.password, row.password_hash);
+    return row.id;
+  });
+
+  const memberships = await withIdentityUserScope(pool, userId, (db) =>
+    listMembershipsForUser(db, userId),
+  );
+  const activeTenantId = memberships.length === 1 ? memberships[0]!.tenant_id : null;
+
+  return withIdentityAccess(pool, async (db) => {
+    const org = await db.query<{ organization_id: string }>(
+      `SELECT organization_id FROM organization_memberships WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    const { token, session } = await createSession(db, config, {
+      userId,
+      activeTenantId,
+      activeOrganizationId: org.rows[0]?.organization_id ?? null,
+      userAgent: input.userAgent,
+      ip: input.ip,
+    });
+    const user = await loadUser(db, userId);
+    await recordSecurityEvent(db, {
+      eventType: "auth.login.success",
+      actorUserId: user.id,
+      tenantId: activeTenantId,
+      detail: { method: "email" },
+      ip: input.ip ?? null,
+    });
+    return { token, user, session };
+  });
+}
+
+export async function loginWithLoginId(
+  pool: AppPool,
+  config: AppConfig,
+  input: {
+    tenantId: string;
+    loginId: string;
+    password: string;
+    ip?: string | null;
+    userAgent?: string | null;
+  },
+): Promise<{ token: string; user: PublicUser; session: SessionRow }> {
+  const loginId = input.loginId.trim().toUpperCase();
+  if (!input.tenantId || !loginId || !input.password) {
+    throw validationError("tenantId, loginId and password are required");
+  }
+
+  await withIdentityAccess(pool, async (db) => {
+    // R2-03: IP bucket first (see loginWithEmail). R3-04: shared unknown bucket.
+    await consumeAuthToken(db, config, rateLimitBucketForIp("login:ip", input.ip));
+    await consumeAuthToken(db, config, `login:login_id:${input.tenantId}:${loginId}`);
+
+    const tenant = await db.query<{ id: string; status: string }>(
+      `SELECT id, status FROM tenants WHERE id = $1`,
+      [input.tenantId],
+    );
+    if (!tenant.rows[0] || tenant.rows[0].status === "suspended") {
+      await burnVerify(input.password);
+      await failLogin(db, { method: "login_id", reason: "tenant_unavailable" }, input.ip);
+    }
+  });
+
+  return withIdentityAccess(pool, async (db) => {
+    // No tenant context is set for this lookup (F-C1). The exact-key definer function
+    // joins memberships as the table owner and returns at most the one account for
+    // (tenant, login id); the tenant is an argument, not an authorisation claim.
+    const membership = await db.query<{ user_id: string; password_hash: string; status: string }>(
+      `SELECT user_id, password_hash, status FROM public.auth_credential_by_login_id($1, $2)`,
+      [input.tenantId, loginId],
+    );
+    const row = membership.rows[0];
+    if (!row || row.status !== "active") {
+      await burnVerify(input.password);
+      return await failLogin(db, { method: "login_id", reason: "unknown_or_disabled" }, input.ip);
+    }
+    const ok = await verifyPassword(input.password, row.password_hash);
+    if (!ok) {
+      return await failLogin(
+        db,
+        { method: "login_id", reason: "bad_password", userId: row.user_id },
+        input.ip,
+      );
+    }
+    await migrateHashIfNeeded(db, row.user_id, input.password, row.password_hash);
+    const { token, session } = await createSession(db, config, {
+      userId: row.user_id,
+      activeTenantId: input.tenantId,
+      userAgent: input.userAgent,
+      ip: input.ip,
+    });
+    const user = await loadUser(db, row.user_id);
+    await recordSecurityEvent(db, {
+      eventType: "auth.login.success",
+      actorUserId: user.id,
+      tenantId: input.tenantId,
+      detail: { method: "login_id" },
+      ip: input.ip ?? null,
+    });
+    return { token, user, session };
+  });
+}
+
+export async function logout(
+  db: Db,
+  config: AppConfig,
+  session: SessionRow,
+  ip?: string | null,
+): Promise<void> {
+  await revokeSession(db, config, session.id, session.user_id);
+  await recordSecurityEvent(db, {
+    eventType: "auth.logout",
+    actorUserId: session.user_id,
+    tenantId: session.active_tenant_id,
+    ip: ip ?? null,
+  });
+}
+
+/**
+ * Authenticated password change (R2-07).
+ * - Verifies current password.
+ * - Enforces password policy.
+ * - Clears must_change_password only after success.
+ * - Revokes all other sessions; keeps the current session active.
+ * - Never logs passwords or hashes.
+ */
+export async function changePassword(
+  db: Db,
+  config: AppConfig,
+  input: {
+    session: SessionRow;
+    currentPassword: string;
+    newPassword: string;
+    ip?: string | null;
+  },
+): Promise<PublicUser> {
+  try {
+    assertPasswordPolicy(input.newPassword);
+  } catch (err) {
+    throw validationError(err instanceof Error ? err.message : "Invalid password");
+  }
+  if (input.newPassword === input.currentPassword) {
+    throw validationError("New password must differ from the current password");
+  }
+
+  await consumeAuthToken(db, config, rateLimitBucketForIp("password_change:ip", input.ip));
+  await consumeAuthToken(db, config, `password_change:user:${input.session.user_id}`);
+
+  const row = await db.query<{ password_hash: string; status: string }>(
+    `SELECT password_hash, status FROM public.auth_password_credential($1)`,
+    [input.session.user_id],
+  );
+  const userRow = row.rows[0];
+  if (!userRow || userRow.status !== "active") throw unauthorized("Invalid credentials");
+
+  const ok = await verifyPassword(input.currentPassword, userRow.password_hash);
+  if (!ok) {
+    await recordSecurityEvent(db, {
+      eventType: "auth.login.failure",
+      actorUserId: input.session.user_id,
+      detail: { method: "password_change", reason: "bad_current_password" },
+      ip: input.ip ?? null,
+    });
+    throw unauthorized("Invalid credentials");
+  }
+
+  const newHash = await hashPassword(input.newPassword);
+  // The only write path to users.password_hash (migration 013). One atomic database call:
+  // compare-and-swap on the verified current hash, revoke the user's other sessions (the
+  // current one stays valid, documented), and write the audit row. The account is read from
+  // the session row inside the function, never taken from a parameter.
+  const changed = await db.query<{ changed: boolean }>(
+    `SELECT public.auth_change_own_password($1::uuid, $2::text, $3::text, $4::inet) AS changed`,
+    [input.session.id, userRow.password_hash, newHash, normalizeIp(input.ip)],
+  );
+  if (changed.rows[0]?.changed !== true) {
+    // Session ended, user disabled, or the password changed concurrently: nothing was written.
+    throw unauthorized("Invalid credentials");
+  }
+
+  return loadUser(db, input.session.user_id);
+}
+
+export async function selectTenant(
+  pool: AppPool,
+  config: AppConfig,
+  session: SessionRow,
+  tenantId: string,
+  ip?: string | null,
+): Promise<SessionRow> {
+  // R2-08: resolve existence before access — nonexistent must be 404, not
+  // "no membership" / "suspended". Identity tables have no tenant RLS.
+  const tenant = await withIdentityAccess(pool, (db) =>
+    db.query<{ status: string; organization_id: string }>(
+      `SELECT status, organization_id FROM tenants WHERE id = $1`,
+      [tenantId],
+    ),
+  );
+  if (!tenant.rows[0]) throw notFound("School not found");
+
+  const membership = await withIdentityUserScope(pool, session.user_id, (db) =>
+    db.query(
+      `SELECT 1 FROM school_memberships
+       WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL`,
+      [session.user_id, tenantId],
+    ),
+  );
+  const platform = await withIdentityAccess(pool, (db) =>
+    db.query(`SELECT 1 FROM platform_roles WHERE user_id = $1 AND role = 'super_admin'`, [
+      session.user_id,
+    ]),
+  );
+  const org = await withIdentityAccess(pool, (db) =>
+    db.query(
+      `SELECT 1
+       FROM organization_memberships om
+       JOIN tenants t ON t.organization_id = om.organization_id
+       JOIN organizations o ON o.id = om.organization_id
+       WHERE om.user_id = $1 AND t.id = $2 AND o.status = 'active'`,
+      [session.user_id, tenantId],
+    ),
+  );
+
+  if (
+    (membership.rowCount ?? 0) === 0 &&
+    (platform.rowCount ?? 0) === 0 &&
+    (org.rowCount ?? 0) === 0
+  ) {
+    throw forbidden("No membership for this school");
+  }
+
+  const isSuperAdmin = (platform.rowCount ?? 0) > 0;
+  // Members and org admins cannot select a suspended school. Platform
+  // super_admin may select it for ops (aligned with buildAuthzContext acting-as;
+  // does not grant school members any new privilege).
+  if (tenant.rows[0].status === "suspended" && !isSuperAdmin) {
+    throw forbidden("School is suspended");
+  }
+
+  return withIdentityAccess(pool, async (db) => {
+    const updated = await setSessionTenant(db, config, {
+      sessionId: session.id,
+      tenantId,
+      organizationId: tenant.rows[0]!.organization_id,
+      actorUserId: session.user_id,
+    });
+    await recordSecurityEvent(db, {
+      eventType: "auth.tenant.selected",
+      actorUserId: session.user_id,
+      tenantId,
+      ip: ip ?? null,
+    });
+    return updated;
+  });
+}
+
+export { loadUser };
+
+/**
+ * Re-authentication password check (migration 077). Lives here because this module is the ONLY place allowed to read a password hash
+ * (see test/passwordHash.security). Verify the password, throttled like every credential check. Run on an AUTOCOMMIT identity handle (not inside a transaction that
+ * the failure would roll back): the rate-limit token and the failure audit row must survive the refusal.
+ */
+export async function verifyReauthPassword(db: Db, config: AppConfig, input: { userId: string; password: string; ip?: string | null }): Promise<void> {
+  await consumeAuthToken(db, config, rateLimitBucketForIp("reauth:ip", input.ip));
+  await consumeAuthToken(db, config, `reauth:user:${input.userId}`);
+  const row = await db.query<{ password_hash: string; status: string }>(`SELECT password_hash, status FROM public.auth_password_credential($1)`, [input.userId]);
+  const cred = row.rows[0];
+  if (!cred || cred.status !== "active" || !(await verifyPassword(input.password, cred.password_hash))) {
+    await recordSecurityEvent(db, { eventType: "auth.login.failure", actorUserId: input.userId, detail: { method: "reauth", reason: "bad_password" }, ip: input.ip ?? null });
+    throw unauthorized("Invalid credentials");
+  }
+}
