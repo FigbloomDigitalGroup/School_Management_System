@@ -260,6 +260,36 @@ export async function publishAssessment(
   return mapAssessment(row);
 }
 
+export async function closeAssessment(
+  tx: Tx,
+  input: { tenantId: string; assessmentId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicAssessment> {
+  const res = await tx.query<AssessmentRow>(
+    `UPDATE assessments
+        SET status = 'closed', version = version + 1, updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND status = 'published'
+      RETURNING ${ASSESSMENT_RETURNING}`,
+    [input.tenantId, input.assessmentId],
+  );
+  const row = res.rows[0];
+  if (!row) {
+    const existing = await tx.query(`SELECT status FROM assessments WHERE tenant_id = $1 AND id = $2`, [
+      input.tenantId,
+      input.assessmentId,
+    ]);
+    if (existing.rowCount === 0) throw notFound("Assessment not found");
+    throw conflict("Only a published assessment can be closed");
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "academics.assessment.closed",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { assessmentId: row.id, version: row.version },
+    ip: input.ip,
+  });
+  return mapAssessment(row);
+}
+
 export interface PublicMark {
   id: string;
   tenantId: string;
@@ -1041,22 +1071,64 @@ export interface PublicReportCard {
   figures: {
     method: typeof REPORT_CARD_METHOD;
     assessment_ids: string[];
+    grading_scheme_id?: string | null;
+    grading_scheme_name?: string | null;
     learners: Array<{
       learner_id: string;
       sum: string;
       count: number;
       average: string | null;
+      grade?: string | null;
       assessment_ids: string[];
     }>;
+    /** Published CBE snapshot (not reduced to a single average). */
+    cbe: {
+      assessment_ids: string[];
+      learners: Array<{
+        learner_id: string;
+        results: Array<{
+          cbe_assessment_id: string;
+          title: string;
+          instrument_type: string;
+          strand_id: string | null;
+          learning_outcome_id: string | null;
+          level_code: string;
+          points: string;
+          observation: string | null;
+          teacher_feedback: string | null;
+          completion_status: string;
+          curriculum_version_label: string | null;
+        }>;
+      }>;
+    };
+    /** Term competency/value ratings for class members at publish time. */
+    competencies: {
+      learners: Array<{
+        learner_id: string;
+        ratings: Array<{ kind: string; item: string; level_code: string }>;
+      }>;
+    };
   };
 }
 
 export async function publishReportCard(
   tx: Tx,
-  input: { tenantId: string; termId: string; classId: string; actorUserId: string; ip?: string | null },
+  input: {
+    tenantId: string;
+    termId: string;
+    classId: string;
+    gradingSchemeId?: string | null;
+    actorUserId: string;
+    ip?: string | null;
+  },
 ): Promise<PublicReportCard> {
   await getClassById(tx, { tenantId: input.tenantId, classId: input.classId });
   await getTermById(tx, { tenantId: input.tenantId, termId: input.termId });
+  let scheme: PublicGradingScheme | null = null;
+  if (input.gradingSchemeId) {
+    scheme = await getGradingSchemeById(tx, { tenantId: input.tenantId, schemeId: input.gradingSchemeId });
+    if (!scheme) throw notFound("Grading scheme not found");
+  }
   const sources = await tx.query<{ id: string }>(
     `SELECT id FROM assessments
       WHERE tenant_id = $1 AND class_id = $2 AND term_id = $3 AND status = 'published'
@@ -1082,16 +1154,99 @@ export async function publishReportCard(
       ORDER BY m.learner_id`,
     [input.tenantId, input.classId, input.termId],
   );
-  const figures = {
+  const cbeAssessments = await tx.query<{ id: string }>(
+    `SELECT id FROM cbe_assessments
+      WHERE tenant_id = $1 AND class_id = $2 AND term_id = $3 AND status IN ('published', 'closed')
+      ORDER BY id`,
+    [input.tenantId, input.classId, input.termId],
+  );
+  const cbeRows = await tx.query<{
+    learner_id: string;
+    cbe_assessment_id: string;
+    title: string;
+    instrument_type: string;
+    strand_id: string | null;
+    learning_outcome_id: string | null;
+    level_code: string;
+    points: string;
+    observation: string | null;
+    teacher_feedback: string | null;
+    completion_status: string;
+    curriculum_version_label: string | null;
+  }>(
+    `SELECT r.learner_id, r.cbe_assessment_id, a.title, a.instrument_type, r.strand_id, r.learning_outcome_id,
+            r.level_code, r.points::text AS points, r.observation, r.teacher_feedback, r.completion_status,
+            a.curriculum_version_label
+       FROM cbe_results r
+       JOIN cbe_assessments a ON a.tenant_id = r.tenant_id AND a.id = r.cbe_assessment_id
+      WHERE a.tenant_id = $1 AND a.class_id = $2 AND a.term_id = $3 AND a.status IN ('published', 'closed')
+      ORDER BY r.learner_id, r.cbe_assessment_id, r.learning_outcome_id NULLS LAST`,
+    [input.tenantId, input.classId, input.termId],
+  );
+  const cbeByLearner = new Map<string, PublicReportCard["figures"]["cbe"]["learners"][number]["results"]>();
+  for (const row of cbeRows.rows) {
+    const list = cbeByLearner.get(row.learner_id) ?? [];
+    list.push({
+      cbe_assessment_id: row.cbe_assessment_id,
+      title: row.title,
+      instrument_type: row.instrument_type,
+      strand_id: row.strand_id,
+      learning_outcome_id: row.learning_outcome_id,
+      level_code: row.level_code,
+      points: row.points,
+      observation: row.observation,
+      teacher_feedback: row.teacher_feedback,
+      completion_status: row.completion_status,
+      curriculum_version_label: row.curriculum_version_label,
+    });
+    cbeByLearner.set(row.learner_id, list);
+  }
+  const competencyRows = await tx.query<{
+    learner_id: string;
+    kind: string;
+    item: string;
+    level_code: string;
+  }>(
+    `SELECT r.learner_id, r.kind, r.item, r.level_code
+       FROM learner_competency_ratings r
+       JOIN class_memberships cm
+         ON cm.tenant_id = r.tenant_id AND cm.learner_id = r.learner_id AND cm.active = true
+      WHERE r.tenant_id = $1 AND r.term_id = $2 AND cm.class_id = $3
+      ORDER BY r.learner_id, r.kind, r.item`,
+    [input.tenantId, input.termId, input.classId],
+  );
+  const competencyByLearner = new Map<string, Array<{ kind: string; item: string; level_code: string }>>();
+  for (const row of competencyRows.rows) {
+    const list = competencyByLearner.get(row.learner_id) ?? [];
+    list.push({ kind: row.kind, item: row.item, level_code: row.level_code });
+    competencyByLearner.set(row.learner_id, list);
+  }
+  const gradeForAverage = (avg: string | null): string | null => {
+    if (!scheme || avg === null) return null;
+    const n = Number(avg);
+    if (!Number.isFinite(n)) return null;
+    const band = scheme.rules.bands.find((b) => n >= b.min && n <= b.max);
+    return band ? band.grade : null;
+  };
+  const figures: PublicReportCard["figures"] = {
     method: REPORT_CARD_METHOD,
     assessment_ids: sources.rows.map((r) => r.id),
+    ...(scheme ? { grading_scheme_id: scheme.id, grading_scheme_name: scheme.name } : {}),
     learners: perLearner.rows.map((row) => ({
       learner_id: row.learner_id,
       sum: row.sum,
       count: row.count,
       average: row.average,
+      ...(scheme ? { grade: gradeForAverage(row.average) } : {}),
       assessment_ids: row.assessment_ids,
     })),
+    cbe: {
+      assessment_ids: cbeAssessments.rows.map((r) => r.id),
+      learners: [...cbeByLearner.entries()].map(([learner_id, results]) => ({ learner_id, results })),
+    },
+    competencies: {
+      learners: [...competencyByLearner.entries()].map(([learner_id, ratings]) => ({ learner_id, ratings })),
+    },
   };
   const res = await tx.query<{
     id: string;
@@ -1132,25 +1287,17 @@ export async function publishReportCard(
   };
 }
 
-export async function getReportCardById(
-  tx: Tx,
-  input: { tenantId: string; reportCardId: string },
-): Promise<PublicReportCard> {
-  const res = await tx.query<{
-    id: string;
-    tenant_id: string;
-    term_id: string;
-    class_id: string;
-    published_at: Date | string;
-    published_by: string | null;
-    figures: PublicReportCard["figures"];
-  }>(
-    `SELECT id, tenant_id, term_id, class_id, published_at, published_by, figures
-       FROM report_card_publications WHERE tenant_id = $1 AND id = $2`,
-    [input.tenantId, input.reportCardId],
-  );
-  const row = res.rows[0];
-  if (!row) throw notFound("Report card not found");
+type ReportCardRow = {
+  id: string;
+  tenant_id: string;
+  term_id: string;
+  class_id: string;
+  published_at: Date | string;
+  published_by: string | null;
+  figures: PublicReportCard["figures"];
+};
+
+function mapReportCard(row: ReportCardRow): PublicReportCard {
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -1160,4 +1307,71 @@ export async function getReportCardById(
     published_by: row.published_by,
     figures: row.figures,
   };
+}
+
+export async function getReportCardById(
+  tx: Tx,
+  input: { tenantId: string; reportCardId: string },
+): Promise<PublicReportCard> {
+  const res = await tx.query<ReportCardRow>(
+    `SELECT id, tenant_id, term_id, class_id, published_at, published_by, figures
+       FROM report_card_publications WHERE tenant_id = $1 AND id = $2`,
+    [input.tenantId, input.reportCardId],
+  );
+  const row = res.rows[0];
+  if (!row) throw notFound("Report card not found");
+  return mapReportCard(row);
+}
+
+/**
+ * List published report-card snapshots. Optional class/term filters.
+ * When `scopeClassIds` is set (OD-2 teacher scope), only those classes are returned.
+ */
+export async function listReportCards(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    page: PageInput;
+    classId?: string;
+    termId?: string;
+    scopeClassIds?: string[] | null;
+    id?: string;
+  },
+): Promise<Page<PublicReportCard>> {
+  // OD-2 / A9-9: scope before existence probes so out-of-scope and missing classId look the same.
+  if (input.scopeClassIds !== undefined && input.scopeClassIds !== null) {
+    if (input.scopeClassIds.length === 0) {
+      return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+    }
+    if (input.classId && !input.scopeClassIds.includes(input.classId)) {
+      return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+    }
+  }
+  if (input.classId) await getClassById(tx, { tenantId: input.tenantId, classId: input.classId });
+  if (input.termId) await getTermById(tx, { tenantId: input.tenantId, termId: input.termId });
+  const params: unknown[] = [input.tenantId];
+  const filters: string[] = ["tenant_id = $1"];
+  if (input.classId) {
+    params.push(input.classId);
+    filters.push(`class_id = $${params.length}`);
+  }
+  if (input.termId) {
+    params.push(input.termId);
+    filters.push(`term_id = $${params.length}`);
+  }
+  if (input.scopeClassIds != null) {
+    params.push(input.scopeClassIds);
+    filters.push(`class_id = ANY($${params.length}::uuid[])`);
+  }
+  const res = await pageQuery<{ id: string }>(
+    tx,
+    `SELECT id, tenant_id, term_id, class_id, published_at, published_by, figures
+       FROM report_card_publications WHERE ${filters.join(" AND ")}`,
+    params,
+    { name: "report_card_publications", expr: "q.published_at", type: "timestamptz", dir: "desc" },
+    input.page,
+    input.id,
+  );
+  const items = (res.rows as unknown as ReportCardRow[]).map(mapReportCard);
+  return { items, page: res.page };
 }

@@ -12,8 +12,10 @@ import {
   createSubject,
   createTeachingAssignment,
   createTerm,
+  createTimetablePublication,
   createTimetableSlot,
   getAcademicYearById,
+  findClassInScope,
   getClassById,
   getClassMembershipById,
   getSubjectById,
@@ -26,12 +28,14 @@ import {
   listSubjects,
   listTeachingAssignments,
   listTerms,
+  listTimetablePublications,
   listTimetableSlots,
+  publishTimetablePublication,
   setCurrentAcademicYear,
   setCurrentTerm,
 } from "../../modules/academics/structure.js";
-import { AppError, validationError } from "../errors.js";
-import { assertUuid, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
+import { AppError, notFound, validationError } from "../errors.js";
+import { assertUuid, classReadScope, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
 const DateString = calendarDateString;
@@ -52,10 +56,20 @@ const TermBody = z.strictObject({
   is_current: z.boolean().optional(),
 });
 const SubjectBody = z.strictObject({ code: z.string().min(1).max(32), name: z.string().min(1).max(120) });
+const EducationLevel = z.enum([
+  "pre_primary",
+  "primary",
+  "junior_secondary",
+  "senior_school",
+  "secondary",
+]);
+const Pathway = z.enum(["stem", "social_sciences", "arts_sports"]);
 const ClassBody = z.strictObject({
   academic_year_id: z.guid(),
   name: z.string().min(1).max(64),
   form_level: z.number().int().min(1).max(12).nullable().optional(),
+  education_level: EducationLevel.nullable().optional(),
+  pathway: Pathway.nullable().optional(),
   stream: z.string().min(1).max(32).nullable().optional(),
   class_teacher_staff_id: z.guid().nullable().optional(),
 });
@@ -84,6 +98,7 @@ export const STRUCTURE_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/class-memberships": MembershipBody,
   "POST /v1/tenants/{tenantId}/teaching-assignments": AssignmentBody,
   "POST /v1/tenants/{tenantId}/timetable-slots": SlotBody,
+  "POST /v1/tenants/{tenantId}/timetable-publications": z.strictObject({ class_id: z.guid(), term_id: z.guid().nullable().optional() }),
 } as const;
 
 export async function registerAcademicsStructureRoutes(app: FastifyInstance, pool: AppPool): Promise<void> {
@@ -310,8 +325,14 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const active = optionalBool(query.active, "active");
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      const out = await listClasses(tx, { tenantId: params.tenantId, academicYearId, active, page });
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const out = await listClasses(tx, {
+        tenantId: params.tenantId,
+        academicYearId,
+        active,
+        page,
+        scopeClassIds: scope,
+      });
       return { classes: out.items, page: out.page };
     });
   });
@@ -320,8 +341,14 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const params = request.params as { tenantId: string; classId: string };
     assertUuid(params.classId, "classId");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      return { school_class: await getClassById(tx, { tenantId: params.tenantId, classId: params.classId }) };
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const school_class = await findClassInScope(tx, {
+        tenantId: params.tenantId,
+        classId: params.classId,
+        scopeClassIds: scope,
+      });
+      if (!school_class) throw notFound("Class not found");
+      return { school_class };
     });
   });
 
@@ -355,13 +382,14 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const query = request.query as Record<string, unknown>;
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
       const out = await listClassMemberships(tx, {
         tenantId: params.tenantId,
         classId: optionalUuid(query.classId, "classId"),
         learnerId: optionalUuid(query.learnerId, "learnerId"),
         active: optionalBool(query.active, "active"),
         page,
+        scopeClassIds: scope,
       });
       return { memberships: out.items, page: out.page };
     });
@@ -427,13 +455,14 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const query = request.query as Record<string, unknown>;
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
       const out = await listTeachingAssignments(tx, {
         tenantId: params.tenantId,
         classId: optionalUuid(query.classId, "classId"),
         staffMemberId: optionalUuid(query.staffMemberId, "staffMemberId"),
         active: optionalBool(query.active, "active"),
         page,
+        scopeClassIds: scope,
       });
       return { assignments: out.items, page: out.page };
     });
@@ -472,9 +501,60 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const active = optionalBool(query.active, "active");
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      const out = await listTimetableSlots(tx, { tenantId: params.tenantId, classId, active, page });
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const out = await listTimetableSlots(tx, {
+        tenantId: params.tenantId,
+        classId,
+        active,
+        page,
+        scopeClassIds: scope,
+      });
       return { slots: out.items, page: out.page };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/timetable-publications", async (request, reply) => {
+    const params = request.params as { tenantId: string };
+    const parsed = parseOrThrow(
+      STRUCTURE_REQUEST_SCHEMAS["POST /v1/tenants/{tenantId}/timetable-publications"],
+      request.body,
+      "class_id is required",
+    );
+    const publication = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return createTimetablePublication(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, ...parsed, ip });
+    });
+    return reply.status(201).send({ publication });
+  });
+
+  app.post("/v1/tenants/:tenantId/timetable-publications/:publicationId/publish", async (request) => {
+    const params = request.params as { tenantId: string; publicationId: string };
+    assertUuid(params.publicationId, "publicationId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const publication = await publishTimetablePublication(tx, {
+        tenantId: params.tenantId,
+        publicationId: params.publicationId,
+        actorUserId: auth.user.id,
+        ip,
+      });
+      return { publication };
+    });
+  });
+
+  app.get("/v1/tenants/:tenantId/timetable-publications", async (request) => {
+    const params = request.params as { tenantId: string };
+    const classId = optionalUuid((request.query as { classId?: unknown }).classId, "classId");
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const out = await listTimetablePublications(tx, {
+        tenantId: params.tenantId,
+        classId,
+        scopeClassIds: scope,
+        page,
+      });
+      return { publications: out.items, page: out.page };
     });
   });
 }

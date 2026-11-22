@@ -1,6 +1,6 @@
 import type { Tx } from "../../db/sql.js";
 import { pageQuery, type Page, type PageInput } from "./pagination.js";
-import { conflict, notFound, validationError } from "../../http/errors.js";
+import { AppError, conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 
 function isoDate(value: Date | string): string {
@@ -542,12 +542,45 @@ export async function getSubjectById(
 
 // ── Classes ─────────────────────────────────────────────────────────────────
 
+export type EducationLevel =
+  | "pre_primary"
+  | "primary"
+  | "junior_secondary"
+  | "senior_school"
+  | "secondary";
+export type Pathway = "stem" | "social_sciences" | "arts_sports";
+
+const LEVEL_YEAR: Record<EducationLevel, { min: number; max: number }> = {
+  pre_primary: { min: 1, max: 2 },
+  primary: { min: 1, max: 6 },
+  junior_secondary: { min: 7, max: 9 },
+  senior_school: { min: 10, max: 12 },
+  secondary: { min: 1, max: 4 },
+};
+
+export function assertEducationLevelYear(
+  education_level: EducationLevel | null | undefined,
+  form_level: number | null | undefined,
+  pathway: Pathway | null | undefined,
+): void {
+  if (pathway != null && education_level !== "senior_school") {
+    throw validationError("pathway is only valid for senior_school");
+  }
+  if (education_level == null || form_level == null) return;
+  const band = LEVEL_YEAR[education_level];
+  if (form_level < band.min || form_level > band.max) {
+    throw validationError(`form_level must be between ${band.min} and ${band.max} for ${education_level}`);
+  }
+}
+
 export interface PublicClass {
   id: string;
   tenantId: string;
   academic_year_id: string;
   name: string;
   form_level: number | null;
+  education_level: EducationLevel | null;
+  pathway: Pathway | null;
   stream: string | null;
   class_teacher_staff_id: string | null;
   active: boolean;
@@ -562,6 +595,8 @@ function mapClass(row: {
   academic_year_id: string;
   name: string;
   form_level: number | null;
+  education_level: EducationLevel | null;
+  pathway: Pathway | null;
   stream: string | null;
   class_teacher_staff_id: string | null;
   active: boolean;
@@ -575,6 +610,8 @@ function mapClass(row: {
     academic_year_id: row.academic_year_id,
     name: row.name,
     form_level: row.form_level,
+    education_level: row.education_level,
+    pathway: row.pathway,
     stream: row.stream,
     class_teacher_staff_id: row.class_teacher_staff_id,
     active: row.active,
@@ -592,6 +629,8 @@ export async function createClass(
     academic_year_id: string;
     name: string;
     form_level?: number | null;
+    education_level?: EducationLevel | null;
+    pathway?: Pathway | null;
     stream?: string | null;
     class_teacher_staff_id?: string | null;
     ip?: string | null;
@@ -605,6 +644,7 @@ export async function createClass(
   if (input.form_level != null && (input.form_level < 1 || input.form_level > 12)) {
     throw validationError("form_level must be between 1 and 12");
   }
+  assertEducationLevelYear(input.education_level ?? null, input.form_level ?? null, input.pathway ?? null);
   await getAcademicYearById(tx, {
     tenantId: input.tenantId,
     academicYearId: input.academic_year_id,
@@ -622,15 +662,17 @@ export async function createClass(
   try {
     const res = await tx.query(
       `INSERT INTO classes
-         (tenant_id, academic_year_id, name, form_level, stream, class_teacher_staff_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, tenant_id, academic_year_id, name, form_level, stream, class_teacher_staff_id,
+         (tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id,
                  active, archived_at, created_at, updated_at`,
       [
         input.tenantId,
         input.academic_year_id,
         name,
         input.form_level ?? null,
+        input.education_level ?? null,
+        input.pathway ?? null,
         stream,
         input.class_teacher_staff_id ?? null,
         input.actorUserId,
@@ -655,8 +697,18 @@ export async function createClass(
 
 export async function listClasses(
   tx: Tx,
-  input: { tenantId: string; academicYearId?: string; active?: boolean | null; page: PageInput },
+  input: {
+    tenantId: string;
+    academicYearId?: string;
+    active?: boolean | null;
+    page: PageInput;
+    /** OD-2: null = every class; otherwise only these class ids. */
+    scopeClassIds?: string[] | null;
+  },
 ): Promise<Page<PublicClass>> {
+  if (input.scopeClassIds !== undefined && input.scopeClassIds !== null && input.scopeClassIds.length === 0) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
   const clauses = ["tenant_id = $1"];
   const params: unknown[] = [input.tenantId];
   if (input.academicYearId) {
@@ -667,9 +719,13 @@ export async function listClasses(
     params.push(input.active);
     clauses.push(`active = $${params.length}`);
   }
+  if (input.scopeClassIds != null) {
+    params.push(input.scopeClassIds);
+    clauses.push(`id = ANY($${params.length}::uuid[])`);
+  }
   const res = await pageQuery<Parameters<typeof mapClass>[0]>(
     tx,
-    `SELECT id, tenant_id, academic_year_id, name, form_level, stream, class_teacher_staff_id,
+    `SELECT id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id,
             active, archived_at, created_at, updated_at
      FROM classes WHERE ${clauses.join(" AND ")}`,
     params,
@@ -684,7 +740,7 @@ export async function getClassById(
   input: { tenantId: string; classId: string },
 ): Promise<PublicClass> {
   const res = await tx.query(
-    `SELECT id, tenant_id, academic_year_id, name, form_level, stream, class_teacher_staff_id,
+    `SELECT id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id,
             active, archived_at, created_at, updated_at
      FROM classes WHERE tenant_id = $1 AND id = $2`,
     [input.tenantId, input.classId],
@@ -692,6 +748,20 @@ export async function getClassById(
   const row = res.rows[0] as Parameters<typeof mapClass>[0] | undefined;
   if (!row) throw notFound("Class not found");
   return mapClass(row);
+}
+
+/** OD-2: class in scope, or null when missing / outside teacher class scope. */
+export async function findClassInScope(
+  tx: Tx,
+  input: { tenantId: string; classId: string; scopeClassIds: string[] | null },
+): Promise<PublicClass | null> {
+  if (input.scopeClassIds !== null && !input.scopeClassIds.includes(input.classId)) return null;
+  try {
+    return await getClassById(tx, { tenantId: input.tenantId, classId: input.classId });
+  } catch (err) {
+    if (err instanceof AppError && err.statusCode === 404) return null;
+    throw err;
+  }
 }
 
 // ── Class memberships ───────────────────────────────────────────────────────
@@ -789,13 +859,29 @@ export async function assignLearnerToClass(
 
 export async function listClassMemberships(
   tx: Tx,
-  input: { tenantId: string; classId?: string; learnerId?: string; active?: boolean | null; page: PageInput },
+  input: {
+    tenantId: string;
+    classId?: string;
+    learnerId?: string;
+    active?: boolean | null;
+    page: PageInput;
+    scopeClassIds?: string[] | null;
+  },
 ): Promise<Page<PublicClassMembership>> {
+  if (input.scopeClassIds !== undefined && input.scopeClassIds !== null && input.scopeClassIds.length === 0) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
+  if (input.classId && input.scopeClassIds != null && !input.scopeClassIds.includes(input.classId)) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
   const clauses = ["tenant_id = $1"];
   const params: unknown[] = [input.tenantId];
   if (input.classId) {
     params.push(input.classId);
     clauses.push(`class_id = $${params.length}`);
+  } else if (input.scopeClassIds != null) {
+    params.push(input.scopeClassIds);
+    clauses.push(`class_id = ANY($${params.length}::uuid[])`);
   }
   if (input.learnerId) {
     params.push(input.learnerId);
@@ -960,13 +1046,23 @@ export async function listTeachingAssignments(
     staffMemberId?: string;
     active?: boolean | null;
     page: PageInput;
+    scopeClassIds?: string[] | null;
   },
 ): Promise<Page<PublicTeachingAssignment>> {
+  if (input.scopeClassIds !== undefined && input.scopeClassIds !== null && input.scopeClassIds.length === 0) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
+  if (input.classId && input.scopeClassIds != null && !input.scopeClassIds.includes(input.classId)) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
   const clauses = ["tenant_id = $1"];
   const params: unknown[] = [input.tenantId];
   if (input.classId) {
     params.push(input.classId);
     clauses.push(`class_id = $${params.length}`);
+  } else if (input.scopeClassIds != null) {
+    params.push(input.scopeClassIds);
+    clauses.push(`class_id = ANY($${params.length}::uuid[])`);
   }
   if (input.staffMemberId) {
     params.push(input.staffMemberId);
@@ -1155,6 +1251,22 @@ export async function createTimetableSlot(
       throw validationError("teaching_assignment_id must be an active assignment for this class and subject");
     }
   }
+  // Serialize concurrent slot creations for the same (tenant, class, day) to prevent overlap races.
+  await tx.query(
+    `SELECT pg_advisory_xact_lock(hashtext('timetable:' || $1 || ':' || $2 || ':' || $3))`,
+    [input.tenantId, input.class_id, String(input.day_of_week)],
+  );
+  // Same class + same day: active slots must not overlap in time (approved conflict rule).
+  const overlap = await tx.query(
+    `SELECT id FROM timetable_slots
+      WHERE tenant_id = $1 AND class_id = $2 AND day_of_week = $3 AND active = true
+        AND starts_at < $5::time AND ends_at > $4::time
+      LIMIT 1`,
+    [input.tenantId, input.class_id, input.day_of_week, input.starts_at, input.ends_at],
+  );
+  if ((overlap.rowCount ?? 0) > 0) {
+    throw conflict("Timetable slot overlaps an existing active slot for this class and day");
+  }
   const room =
     input.room === undefined || input.room === null || input.room.trim() === ""
       ? null
@@ -1199,8 +1311,19 @@ export async function createTimetableSlot(
 
 export async function listTimetableSlots(
   tx: Tx,
-  input: { tenantId: string; classId: string; active?: boolean | null; page: PageInput },
+  input: {
+    tenantId: string;
+    classId: string;
+    active?: boolean | null;
+    page: PageInput;
+    scopeClassIds?: string[] | null;
+  },
 ): Promise<Page<PublicTimetableSlot>> {
+  if (input.scopeClassIds !== undefined && input.scopeClassIds !== null) {
+    if (input.scopeClassIds.length === 0 || !input.scopeClassIds.includes(input.classId)) {
+      return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+    }
+  }
   const clauses = ["tenant_id = $1", "class_id = $2"];
   const params: unknown[] = [input.tenantId, input.classId];
   if (input.active === true || input.active === false) {
@@ -1234,4 +1357,167 @@ export async function getTimetableSlotById(
   );
   const row = res.rows[0] as Parameters<typeof mapSlot>[0] | undefined;
   return row ? mapSlot(row) : null;
+}
+
+export interface PublicTimetablePublication {
+  id: string;
+  tenantId: string;
+  academic_year_id: string;
+  term_id: string | null;
+  class_id: string;
+  version: number;
+  status: "draft" | "published";
+  slots_snapshot: PublicTimetableSlot[];
+  created_by: string | null;
+  published_by: string | null;
+  created_at: string;
+  published_at: string | null;
+}
+
+type PublicationRow = {
+  id: string;
+  tenant_id: string;
+  academic_year_id: string;
+  term_id: string | null;
+  class_id: string;
+  version: number;
+  status: "draft" | "published";
+  slots_snapshot: PublicTimetableSlot[];
+  created_by: string | null;
+  published_by: string | null;
+  created_at: Date | string;
+  published_at: Date | string | null;
+};
+
+function mapPublication(r: PublicationRow): PublicTimetablePublication {
+  return {
+    id: r.id,
+    tenantId: r.tenant_id,
+    academic_year_id: r.academic_year_id,
+    term_id: r.term_id,
+    class_id: r.class_id,
+    version: r.version,
+    status: r.status,
+    slots_snapshot: r.slots_snapshot,
+    created_by: r.created_by,
+    published_by: r.published_by,
+    created_at: isoStamp(r.created_at),
+    published_at: r.published_at ? isoStamp(r.published_at) : null,
+  };
+}
+
+export async function createTimetablePublication(
+  tx: Tx,
+  input: { tenantId: string; class_id: string; term_id?: string | null; actorUserId: string; ip?: string | null },
+): Promise<PublicTimetablePublication> {
+  const klass = await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
+  if (input.term_id) {
+    const term = await getTermById(tx, { tenantId: input.tenantId, termId: input.term_id });
+    if (term.academic_year_id !== klass.academic_year_id) {
+      throw validationError("term_id must belong to the class's academic year");
+    }
+  }
+  await tx.query(
+    `SELECT pg_advisory_xact_lock(hashtext('timetable-pub:' || $1 || ':' || $2))`,
+    [input.tenantId, input.class_id],
+  );
+  const nextVer = await tx.query<{ v: number }>(
+    `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM timetable_publications WHERE tenant_id = $1 AND class_id = $2`,
+    [input.tenantId, input.class_id],
+  );
+  const slots = await tx.query(
+    `SELECT id, tenant_id, class_id, subject_id, teaching_assignment_id, day_of_week,
+            starts_at::text AS starts_at, ends_at::text AS ends_at, room, active,
+            archived_at, created_at, updated_at
+       FROM timetable_slots
+      WHERE tenant_id = $1 AND class_id = $2 AND active = true
+      ORDER BY day_of_week ASC, starts_at ASC`,
+    [input.tenantId, input.class_id],
+  );
+  const snapshot = slots.rows.map((r) => mapSlot(r as Parameters<typeof mapSlot>[0]));
+  const res = await tx.query<PublicationRow>(
+    `INSERT INTO timetable_publications
+       (tenant_id, academic_year_id, term_id, class_id, version, status, slots_snapshot, created_by)
+     VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7)
+     RETURNING id, tenant_id, academic_year_id, term_id, class_id, version, status, slots_snapshot,
+               created_by, published_by, created_at, published_at`,
+    [
+      input.tenantId,
+      klass.academic_year_id,
+      input.term_id ?? null,
+      input.class_id,
+      nextVer.rows[0]!.v,
+      JSON.stringify(snapshot),
+      input.actorUserId,
+    ],
+  );
+  const row = res.rows[0]!;
+  await recordSecurityEvent(tx, {
+    eventType: "academics.timetable.publication_drafted",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { publicationId: row.id, classId: row.class_id, version: row.version },
+    ip: input.ip,
+  });
+  return mapPublication(row);
+}
+
+export async function publishTimetablePublication(
+  tx: Tx,
+  input: { tenantId: string; publicationId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicTimetablePublication> {
+  const res = await tx.query<PublicationRow>(
+    `UPDATE timetable_publications
+        SET status = 'published', published_by = $3, published_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND status = 'draft'
+      RETURNING id, tenant_id, academic_year_id, term_id, class_id, version, status, slots_snapshot,
+                created_by, published_by, created_at, published_at`,
+    [input.tenantId, input.publicationId, input.actorUserId],
+  );
+  const row = res.rows[0];
+  if (!row) {
+    const exists = await tx.query(`SELECT 1 FROM timetable_publications WHERE tenant_id = $1 AND id = $2`, [
+      input.tenantId,
+      input.publicationId,
+    ]);
+    if (exists.rowCount === 0) throw notFound("Timetable publication not found");
+    throw conflict("Timetable publication is already published");
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "academics.timetable.published",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { publicationId: row.id, classId: row.class_id, version: row.version },
+    ip: input.ip,
+  });
+  return mapPublication(row);
+}
+
+export async function listTimetablePublications(
+  tx: Tx,
+  input: { tenantId: string; classId?: string; scopeClassIds?: string[] | null; page: PageInput },
+): Promise<Page<PublicTimetablePublication>> {
+  const clauses = ["tenant_id = $1"];
+  const params: unknown[] = [input.tenantId];
+  if (input.scopeClassIds !== undefined && input.scopeClassIds !== null) {
+    if (input.scopeClassIds.length === 0) {
+      return { items: [], page: { limit: input.page.limit, next_cursor: null } };
+    }
+    params.push(input.scopeClassIds);
+    clauses.push(`class_id = ANY($${params.length}::uuid[])`);
+  }
+  if (input.classId) {
+    params.push(input.classId);
+    clauses.push(`class_id = $${params.length}`);
+  }
+  const out = await pageQuery<{ id: string }>(
+    tx,
+    `SELECT id, tenant_id, academic_year_id, term_id, class_id, version, status, slots_snapshot,
+            created_by, published_by, created_at, published_at
+       FROM timetable_publications WHERE ${clauses.join(" AND ")}`,
+    params,
+    { name: "timetable_publications", expr: "q.created_at", type: "timestamptz", dir: "desc" },
+    input.page,
+  );
+  return { items: (out.rows as unknown as PublicationRow[]).map(mapPublication), page: out.page };
 }
