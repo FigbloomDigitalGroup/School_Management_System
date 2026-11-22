@@ -722,13 +722,29 @@ describe("Stage 8 adversarial audit", () => {
     const urls = ctx.app.routeTable!.map((r) => `${r.method.toUpperCase()} ${r.url}`);
     // Object bytes, bulk import and invitations stay out of the directory API.
     // Class assignment and higher-education enrolment are Stage 9 routes.
-    for (const forbidden of [/upload/i, /download/i, /invite/i]) {
+    for (const forbidden of [/upload/i, /invite/i]) {
       const hit = urls.filter((u) => forbidden.test(u));
       expect(hit, `routes matching ${forbidden}`).toEqual([]);
     }
-    // Stage 16 deterministic learner CSV import is intentional; other /import* surfaces remain forbidden.
+    // Authorized S3 storage (090) and async export (091) presigned download-url routes are intentional;
+    // directory documents and all other /download* surfaces remain forbidden.
+    const downloadHits = urls.filter((u) => /download/i.test(u));
+    expect(
+      downloadHits.every(
+        (u) =>
+          u === "POST /v1/tenants/:tenantId/storage/objects/:objectId/download-url" ||
+          u === "POST /v1/tenants/:tenantId/reports/exports/:exportId/download-url",
+      ),
+      `unexpected download routes: ${downloadHits.join(", ")}`,
+    ).toBe(true);
+    // Stage 16 deterministic learner CSV import and Stage 6 curriculum catalogue import-batches are intentional;
+    // all other /import* surfaces remain forbidden.
     const importHits = urls.filter((u) => /\/import/i.test(u));
-    expect(importHits.every((u) => u.includes("/imports/learners/"))).toBe(true);
+    expect(
+      importHits.every(
+        (u) => u.includes("/imports/learners/") || u.includes("/academics/cbe/curriculum-catalogue/import-batches"),
+      ),
+    ).toBe(true);
     // Documents remain metadata-only, in the response and in the database CHECK.
     const doc = await req("POST", `/v1/tenants/${A()}/documents`, {
       subject_type: "learner",

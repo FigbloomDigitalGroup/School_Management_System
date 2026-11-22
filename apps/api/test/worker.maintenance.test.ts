@@ -91,7 +91,8 @@ describe("worker maintenance and heartbeat wiring", () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(MaintenanceError);
-    expect((err as MaintenanceError).failed.length).toBe(4);
+    // 5 prior sweeps + storage_abandoned_cleanup (090) + export_jobs_expire (091) = 7 worker-only sweeps
+    expect((err as MaintenanceError).failed.length).toBe(7);
     for (const f of (err as MaintenanceError).failed) expect(f.endsWith(":42501"), f).toBe(true);
   });
 });

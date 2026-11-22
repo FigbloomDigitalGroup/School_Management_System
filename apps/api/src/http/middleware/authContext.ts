@@ -3,6 +3,7 @@ import type { IdentityDb } from "../../db/sql.js";
 import { bearerToken, requireSession, type SessionRow } from "../../modules/auth/session.js";
 import { loadUser, type PublicUser } from "../../modules/auth/service.js";
 import { buildAuthzContext, type AuthzContext } from "../../modules/rbac/authorize.js";
+import { assertMfaAssurance } from "../../modules/auth/mfaPolicy.js";
 import { forbidden, validationError } from "../errors.js";
 
 export interface SessionAuth {
@@ -51,6 +52,8 @@ export async function requireSessionAuth(db: IdentityDb, request: FastifyRequest
   // FIG-1604: the forced-password-change gate lives in the one function every authenticated
   // route must call, so a new route cannot forget it. Only the three allowlisted routes pass.
   assertPasswordChangeNotRequired(user, request);
+  // MFA is enforced here for the same reason: one function every authenticated route must call.
+  await assertMfaAssurance(db, request.server.appConfig, { sessionId: session.id, userId: user.id, routeKey: routeKey(request) });
   return { session, user };
 }
 

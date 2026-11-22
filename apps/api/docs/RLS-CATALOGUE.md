@@ -48,6 +48,14 @@ no mode GUC and no application-settable bypass.
 | `cbe_assessments` | tenant | same | 031 | `stage9.academics` |
 | `cbe_results` | tenant | same | 031 | `stage9.academics` |
 | `evidence_assets` | tenant, metadata only | same | 031 | `stage9.academics` |
+| `learner_competency_ratings` | tenant | `tenant_id = app_current_tenant_id()` | 079 | `stage9.academics` |
+| `learner_competency_rating_revisions` | tenant | `tenant_id = app_current_tenant_id()` | 081 | `stage9.academics` |
+| `vehicle_locations` | tenant | `tenant_id = app_current_tenant_id()` | 082 | `stage13.transport` |
+| `attendance_coverage` | tenant | `tenant_id = app_current_tenant_id()` | 083 | `stage10.attendance` |
+| `timetable_publications` | tenant | `tenant_id = app_current_tenant_id()` | 084 | `stage9.academics` |
+| `mfa_factors` | user | `user_id = app_current_user_id()` | 085 | `auth.mfa` |
+| `mfa_recovery_codes` | user | `user_id = app_current_user_id()` | 085 | `auth.mfa` |
+| `curriculum_reference_entries` | platform + optional school rows (`tenant_id` nullable); `figbloom_app` SELECT-only via `curriculum_reference_entries_read`; migrator/owner writes | `tenant_id IS NULL OR tenant_id = app_current_tenant_id()` | 079 | `stage910.rlsCatalogue` / FIG-1605 |
 | `he_courses` | tenant | same | 032 | `stage9.academics` |
 | `he_sections` | tenant | same | 032 | `stage9.academics` |
 | `he_enrolments` | tenant | same | 032 | `stage9.academics` |
@@ -103,6 +111,21 @@ no mode GUC and no application-settable bypass.
 | `vehicle_assignments` | tenant | same | 057 | `stage13.transport` |
 | `learner_transport` | tenant | same | 057, 064 | `stage13.transport`, `stage13.adversarial` |
 | `trips` | tenant | same | 057, 064 | `stage13.transport`, `stage13.adversarial` |
+| `trip_events` | tenant (append-only: `SELECT, INSERT` only) | same | 086 | `transport.operations` |
+| `transport_notifications` | tenant + user-scoped (`AS RESTRICTIVE` recipient `SELECT`/`UPDATE (in_app_read_at)`; rows inserted only by a definer function) | tenant + restrictive recipient policy | 086 | `transport.operations` |
+| `notification_outbox` | tenant (`SELECT, INSERT` for app; worker updates status/attempts) | tenant + worker | 089 | `notifications.engine` |
+| `notifications` | tenant + user-scoped (`AS RESTRICTIVE` `recipient_user_id = app_current_user_id()`; `SELECT` + `UPDATE (read_at)` for app; worker inserts) | tenant + restrictive own-recipient + worker | 089 | `notifications.engine` |
+| `notification_delivery_attempts` | tenant (`SELECT` for app; `SELECT, INSERT` for worker) | tenant + worker | 089 | `notifications.engine` |
+| `storage_objects` | tenant (server-generated key trigger; immutable identity; worker cleans abandoned uploads) | tenant + worker | 090 | `storage.s3` |
+| `export_jobs` | tenant (`SELECT, INSERT` for app; worker updates status/artifact) | tenant + worker | 091 | `exports.ooxml` |
+| `learner_health_profiles` | tenant (restricted to `resource.medication.read/write`) | same | 092 | `health.medication` |
+| `medication_authorizations` | tenant (trigger enforces explicit guardian consent before approval) | same | 092 | `health.medication` |
+| `medication_schedules` | tenant (trigger enforces approved + consented authorization & active learner) | same | 092 | `health.medication` |
+| `medication_administration_records` | tenant (append-only MAR; `SELECT, INSERT` only; unique per schedule+slot) | same | 092 | `health.medication` |
+| `medication_administration_corrections` | tenant (append-only auditable MAR corrections; `SELECT, INSERT` only) | same | 092 | `health.medication` |
+| `medication_incidents` | tenant (incident acknowledgement and resolution) | same | 092 | `health.medication` |
+| `curriculum_import_batches` | tenant (import batch provenance and validation error reports) | same | 093 | `curriculum.catalogue` |
+| `transport_incidents` | tenant (incident acknowledge/escalate/resolve lifecycle) | same | 094 | `stage78.transportAndBloom` |
 | `import_batches` | tenant (`UPDATE (status, applied_at, preview_json)` for post-apply PII redaction) | same | 059, 062 | `stage16.importLearners`, `stage16.importLearners.adversarial` |
 | `account_tokens` | **owner-only** (no runtime privilege; reached only through the `account_*` SECURITY DEFINER functions; stores token SHA-256 only) | same | 072 | `accounts.lifecycle` |
 | `worker_heartbeats` | **owner-only** (written by `worker_heartbeat()`; read by `finance_ops_snapshot()`) | same | 071 | `finance.reconciliationCases` |

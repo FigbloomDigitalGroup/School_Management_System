@@ -230,6 +230,9 @@ export async function runMaintenance(pool: AppPool, workerName: string): Promise
   const um = await step("unmatched_sweep", () => h.query<{ evaluated: number; escalated: number }>(`SELECT evaluated, escalated FROM public.finance_unmatched_sweep($1)`, [workerName]));
   // Bounded, non-overlapping, failure-isolated retention cleanup (migration 078). It records its own status on the heartbeat row.
   const hk = await step("housekeeping", () => h.query<{ r: Record<string, unknown> }>(`SELECT public.worker_housekeeping($1) AS r`, [workerName]));
+  await step("vehicle_locations_prune", () => h.query<{ n: number }>(`SELECT public.worker_prune_vehicle_locations(1000) AS n`));
+  await step("storage_abandoned_cleanup", () => h.query<{ n: number }>(`SELECT public.worker_cleanup_abandoned_uploads(200) AS n`));
+  await step("export_jobs_expire", () => h.query<{ n: number }>(`SELECT public.worker_expire_export_jobs(200) AS n`));
   const result: MaintenanceResult = {
     previewsRedacted: prev?.rows[0]?.n ?? 0,
     casesRaised: sweep?.rows[0]?.n ?? 0,

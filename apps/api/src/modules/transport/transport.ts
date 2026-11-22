@@ -387,3 +387,165 @@ export async function completeTrip(
     detail: { tripId: input.tripId },
   });
 }
+
+export interface VehicleLocation {
+  id: string;
+  tenant_id: string;
+  vehicle_id: string;
+  trip_id: string | null;
+  lat: number;
+  lng: number;
+  speed_kmh: number | null;
+  heading: number | null;
+  recorded_at: string;
+  expires_at: string;
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export async function recordVehicleLocation(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    vehicleId: string;
+    tripId?: string | null;
+    lat: number;
+    lng: number;
+    speedKmh?: number | null;
+    heading?: number | null;
+    recordedAt?: string | null;
+    actorUserId: string;
+  },
+): Promise<VehicleLocation> {
+  if (!Number.isFinite(input.lat) || input.lat < -90 || input.lat > 90) {
+    throw validationError("lat must be between -90 and 90");
+  }
+  if (!Number.isFinite(input.lng) || input.lng < -180 || input.lng > 180) {
+    throw validationError("lng must be between -180 and 180");
+  }
+  if (input.speedKmh !== undefined && input.speedKmh !== null && (input.speedKmh < 0 || input.speedKmh > 250)) {
+    throw validationError("speed_kmh must be between 0 and 250");
+  }
+  if (input.heading !== undefined && input.heading !== null && (input.heading < 0 || input.heading > 360)) {
+    throw validationError("heading must be between 0 and 360");
+  }
+  const vehicle = await tx.query(`SELECT 1 FROM vehicles WHERE tenant_id = $1 AND id = $2 AND active = true`, [
+    input.tenantId,
+    input.vehicleId,
+  ]);
+  if (!vehicle.rows[0]) throw notFound("Vehicle not found");
+
+  if (input.tripId) {
+    const trip = await tx.query(
+      `SELECT 1 FROM trips WHERE tenant_id = $1 AND id = $2 AND vehicle_id = $3 AND status = 'active'`,
+      [input.tenantId, input.tripId, input.vehicleId],
+    );
+    if (!trip.rows[0]) throw validationError("trip_id must be an active trip for this vehicle");
+  }
+
+  const recordedAt = input.recordedAt ? new Date(input.recordedAt) : new Date();
+  if (Number.isNaN(recordedAt.getTime())) throw validationError("Invalid recorded_at timestamp");
+  if (recordedAt.getTime() > Date.now() + 5 * 60_000) {
+    throw validationError("recorded_at cannot be more than 5 minutes in the future");
+  }
+
+  const prev = await tx.query<{ lat: number; lng: number; recorded_at: Date }>(
+    `SELECT lat, lng, recorded_at FROM vehicle_locations
+      WHERE tenant_id = $1 AND vehicle_id = $2
+      ORDER BY recorded_at DESC, id DESC LIMIT 1`,
+    [input.tenantId, input.vehicleId],
+  );
+  if (prev.rows[0]) {
+    const dtHours = Math.abs(recordedAt.getTime() - prev.rows[0].recorded_at.getTime()) / 3_600_000;
+    const distKm = haversineKm(prev.rows[0].lat, prev.rows[0].lng, input.lat, input.lng);
+    if (dtHours > 0 && distKm / dtHours > 220) {
+      throw validationError("Implausible GPS coordinate jump (exceeds 220 km/h)");
+    }
+    if (dtHours === 0 && distKm > 1) {
+      throw validationError("Implausible GPS coordinate jump at identical timestamp");
+    }
+  }
+
+  const res = await tx.query<{
+    id: string;
+    tenant_id: string;
+    vehicle_id: string;
+    trip_id: string | null;
+    lat: number;
+    lng: number;
+    speed_kmh: number | null;
+    heading: number | null;
+    recorded_at: Date;
+    expires_at: Date;
+  }>(
+    `INSERT INTO vehicle_locations
+       (tenant_id, vehicle_id, trip_id, recorded_by, lat, lng, speed_kmh, heading, recorded_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id, tenant_id, vehicle_id, trip_id, lat, lng, speed_kmh, heading, recorded_at, expires_at`,
+    [
+      input.tenantId,
+      input.vehicleId,
+      input.tripId ?? null,
+      input.actorUserId,
+      input.lat,
+      input.lng,
+      input.speedKmh ?? null,
+      input.heading ?? null,
+      recordedAt.toISOString(),
+    ],
+  );
+  const row = res.rows[0]!;
+  return {
+    ...row,
+    recorded_at: row.recorded_at.toISOString(),
+    expires_at: row.expires_at.toISOString(),
+  };
+}
+
+export async function listVehicleLocations(
+  tx: Tx,
+  tenantId: string,
+  vehicleId: string,
+  limit: number,
+  rawCursor: string | null,
+) {
+  const vehicle = await tx.query(`SELECT 1 FROM vehicles WHERE tenant_id = $1 AND id = $2`, [tenantId, vehicleId]);
+  if (!vehicle.rows[0]) throw notFound("Vehicle not found");
+  const out = await pageQuery<{
+    id: string;
+    tenant_id: string;
+    vehicle_id: string;
+    trip_id: string | null;
+    lat: number;
+    lng: number;
+    speed_kmh: number | null;
+    heading: number | null;
+    recorded_at: Date;
+    expires_at: Date;
+  }>(
+    tx,
+    `SELECT id, tenant_id, vehicle_id, trip_id, lat, lng, speed_kmh, heading, recorded_at, expires_at
+       FROM vehicle_locations
+      WHERE tenant_id = $1 AND vehicle_id = $2`,
+    [tenantId, vehicleId],
+    { name: "vehicle_locations", expr: "q.recorded_at", type: "timestamptz", dir: "desc" },
+    { limit, rawCursor },
+  );
+  return {
+    locations: out.rows.map((r) => ({
+      ...r,
+      recorded_at: r.recorded_at.toISOString(),
+      expires_at: r.expires_at.toISOString(),
+    })),
+    page: out.page,
+  };
+}

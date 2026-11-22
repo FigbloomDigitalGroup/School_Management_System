@@ -225,4 +225,32 @@ describe("Stage 9 independent review probes", () => {
     expect((await post("/timetable-slots", { ...slot, class_id: classX, teaching_assignment_id: assignmentY })).statusCode).toBe(400);
     expect((await post("/timetable-slots", { ...slot, class_id: classY, teaching_assignment_id: assignmentY })).statusCode).toBe(201);
   });
+
+  it("rejects overlapping active timetable slots for the same class and day", async () => {
+    const first = await post("/timetable-slots", {
+      class_id: classX,
+      subject_id: subjectId,
+      day_of_week: 3,
+      starts_at: "09:00",
+      ends_at: "09:40",
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    const overlap = await post("/timetable-slots", {
+      class_id: classX,
+      subject_id: subjectId,
+      day_of_week: 3,
+      starts_at: "09:20",
+      ends_at: "10:00",
+    });
+    expect(overlap.statusCode, overlap.body).toBe(409);
+    expect(overlap.json().error.code).toBe("conflict");
+    const adjacent = await post("/timetable-slots", {
+      class_id: classX,
+      subject_id: subjectId,
+      day_of_week: 3,
+      starts_at: "09:40",
+      ends_at: "10:20",
+    });
+    expect(adjacent.statusCode, adjacent.body).toBe(201);
+  });
 });

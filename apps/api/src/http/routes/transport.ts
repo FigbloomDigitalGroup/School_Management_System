@@ -6,13 +6,16 @@ import {
   addRouteStop,
   assignDriver,
   assignLearnerTransport,
-  completeTrip,
+
   createRoute,
   createVehicle,
   listRoutes,
+  listVehicleLocations,
   listVehicles,
+  recordVehicleLocation,
   startTrip,
 } from "../../modules/transport/transport.js";
+import { finishTrip, recordTripStarted } from "../../modules/transport/operations.js";
 import { assertUuid, inTenant, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
@@ -50,6 +53,15 @@ const TripStartBody = z.strictObject({
   driver_user_id: z.guid(),
   route_id: z.guid().nullable().optional(),
   direction: z.enum(["to_school", "from_school"]).optional(),
+});
+
+const LocationBody = z.strictObject({
+  trip_id: z.guid().nullable().optional(),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  speed_kmh: z.number().min(0).max(250).nullable().optional(),
+  heading: z.number().min(0).max(360).nullable().optional(),
+  recorded_at: z.string().datetime().nullable().optional(),
 });
 
 const P = "/v1/tenants/:tenantId";
@@ -147,7 +159,7 @@ export async function registerTransportRoutes(app: FastifyInstance, pool: AppPoo
     const body = parseOrThrow(TripStartBody, request.body, "vehicle_id and driver_user_id are required");
     const trip = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.transport.write", { ip, deferAudit: true });
-      return startTrip(tx, {
+      const started = await startTrip(tx, {
         tenantId: params.tenantId,
         vehicleId: body.vehicle_id,
         driverUserId: body.driver_user_id,
@@ -155,6 +167,8 @@ export async function registerTransportRoutes(app: FastifyInstance, pool: AppPoo
         direction: body.direction,
         actorUserId: auth.user.id,
       });
+      await recordTripStarted(tx, params.tenantId, started.id, auth.user.id);
+      return started;
     });
     return reply.status(201).send({ trip });
   });
@@ -164,8 +178,39 @@ export async function registerTransportRoutes(app: FastifyInstance, pool: AppPoo
     assertUuid(params.tripId, "tripId");
     await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.transport.write", { ip, deferAudit: true });
-      await completeTrip(tx, { tenantId: params.tenantId, tripId: params.tripId, actorUserId: auth.user.id });
+      await finishTrip(tx, { tenantId: params.tenantId, tripId: params.tripId, actor: { userId: auth.user.id, mode: "admin" } });
     });
     return reply.status(204).send();
+  });
+
+  app.post(`${P}/vehicles/:vehicleId/locations`, async (request, reply) => {
+    const params = request.params as { tenantId: string; vehicleId: string };
+    assertUuid(params.vehicleId, "vehicleId");
+    const body = parseOrThrow(LocationBody, request.body, "lat and lng are required");
+    const location = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.transport.write", { ip, deferAudit: true });
+      return recordVehicleLocation(tx, {
+        tenantId: params.tenantId,
+        vehicleId: params.vehicleId,
+        tripId: body.trip_id,
+        lat: body.lat,
+        lng: body.lng,
+        speedKmh: body.speed_kmh,
+        heading: body.heading,
+        recordedAt: body.recorded_at,
+        actorUserId: auth.user.id,
+      });
+    });
+    return reply.status(201).send({ location });
+  });
+
+  app.get(`${P}/vehicles/:vehicleId/locations`, async (request) => {
+    const params = request.params as { tenantId: string; vehicleId: string };
+    assertUuid(params.vehicleId, "vehicleId");
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.transport.read", { ip, deferAudit: true });
+      return listVehicleLocations(tx, params.tenantId, params.vehicleId, page.limit, page.rawCursor ? String(page.rawCursor) : null);
+    });
   });
 }

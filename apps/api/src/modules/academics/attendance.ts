@@ -431,10 +431,24 @@ export async function assertCanTakeRegister(
   authz: AuthzContext,
   classId: string,
   ip: string | null,
+  takenOn?: string,
+  session?: AttendanceSession,
 ): Promise<void> {
   if (await hasPermission(tx, authz, "resource.attendance.write")) return;
   if (authz.tenantId && (await userMayTeachClass(tx, { tenantId: authz.tenantId, userId: authz.userId, classId }))) {
     return;
+  }
+  if (authz.tenantId && takenOn) {
+    const cov = await tx.query(
+      `SELECT 1 FROM attendance_coverage ac
+        JOIN staff_members sm ON sm.tenant_id = ac.tenant_id AND sm.id = ac.covering_staff_id
+       WHERE ac.tenant_id = $1 AND ac.class_id = $2 AND ac.coverage_date = $3::date
+         AND ac.status = 'active' AND sm.user_id = $4 AND sm.active = true
+         AND (ac.session = 'all_day' OR ac.session = $5)
+       LIMIT 1`,
+      [authz.tenantId, classId, takenOn, authz.userId, session ?? "morning"],
+    );
+    if ((cov.rowCount ?? 0) > 0) return;
   }
   const { requirePermission } = await import("../rbac/authorize.js");
   await requirePermission(tx, authz, "resource.attendance.write", { ip, deferAudit: true });
@@ -739,4 +753,177 @@ export async function voidEarlySignOut(
   });
   const includeCollector = await hasPermission(tx, input.authz, "resource.early_sign_out.collector.read");
   return getEarlySignOut(tx, { tenantId: input.tenantId, signOutId: input.signOutId, includeCollector });
+}
+
+export interface PublicAttendanceCoverage {
+  id: string;
+  tenantId: string;
+  class_id: string;
+  covering_staff_id: string;
+  covered_staff_id: string | null;
+  coverage_date: string;
+  session: "morning" | "afternoon" | "all_day";
+  reason: string | null;
+  status: "active" | "cancelled";
+  created_by: string | null;
+  created_at: string;
+  cancelled_at: string | null;
+}
+
+type CoverageRow = {
+  id: string;
+  tenant_id: string;
+  class_id: string;
+  covering_staff_id: string;
+  covered_staff_id: string | null;
+  coverage_date: Date | string;
+  session: "morning" | "afternoon" | "all_day";
+  reason: string | null;
+  status: "active" | "cancelled";
+  created_by: string | null;
+  created_at: Date | string;
+  cancelled_at: Date | string | null;
+};
+
+const COVERAGE_COLS = `id, tenant_id, class_id, covering_staff_id, covered_staff_id, coverage_date::text AS coverage_date,
+  session, reason, status, created_by, created_at, cancelled_at`;
+
+function mapCoverage(r: CoverageRow): PublicAttendanceCoverage {
+  return {
+    id: r.id,
+    tenantId: r.tenant_id,
+    class_id: r.class_id,
+    covering_staff_id: r.covering_staff_id,
+    covered_staff_id: r.covered_staff_id,
+    coverage_date: isoDate(r.coverage_date),
+    session: r.session,
+    reason: r.reason,
+    status: r.status,
+    created_by: r.created_by,
+    created_at: isoStamp(r.created_at)!,
+    cancelled_at: isoStamp(r.cancelled_at),
+  };
+}
+
+export async function assignAttendanceCoverage(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    actorUserId: string;
+    class_id: string;
+    covering_staff_id: string;
+    covered_staff_id?: string | null;
+    coverage_date: string;
+    session?: "morning" | "afternoon" | "all_day";
+    reason?: string | null;
+    ip?: string | null;
+  },
+): Promise<PublicAttendanceCoverage> {
+  const cls = await tx.query(`SELECT 1 FROM classes WHERE tenant_id = $1 AND id = $2 AND active = true`, [
+    input.tenantId,
+    input.class_id,
+  ]);
+  if (cls.rowCount === 0) throw validationError("class_id must be an active class in this school");
+  const covering = await tx.query(`SELECT 1 FROM staff_members WHERE tenant_id = $1 AND id = $2 AND active = true`, [
+    input.tenantId,
+    input.covering_staff_id,
+  ]);
+  if (covering.rowCount === 0) throw validationError("covering_staff_id must be an active staff member in this school");
+  if (input.covered_staff_id) {
+    if (input.covered_staff_id === input.covering_staff_id) {
+      throw validationError("covering_staff_id and covered_staff_id cannot be the same");
+    }
+    const covered = await tx.query(`SELECT 1 FROM staff_members WHERE tenant_id = $1 AND id = $2 AND active = true`, [
+      input.tenantId,
+      input.covered_staff_id,
+    ]);
+    if (covered.rowCount === 0) throw validationError("covered_staff_id must be an active staff member in this school");
+  }
+  const reason = input.reason?.trim() ? trim(input.reason, "reason", 300) : null;
+  const session = input.session ?? "all_day";
+  try {
+    const res = await tx.query<CoverageRow>(
+      `INSERT INTO attendance_coverage
+         (tenant_id, class_id, covering_staff_id, covered_staff_id, coverage_date, session, reason, created_by)
+       VALUES ($1, $2, $3, $4, $5::date, $6, $7, $8)
+       RETURNING ${COVERAGE_COLS}`,
+      [
+        input.tenantId,
+        input.class_id,
+        input.covering_staff_id,
+        input.covered_staff_id ?? null,
+        input.coverage_date,
+        session,
+        reason,
+        input.actorUserId,
+      ],
+    );
+    const row = res.rows[0]!;
+    await recordSecurityEvent(tx, {
+      eventType: "attendance.coverage.assigned",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { coverageId: row.id, classId: row.class_id, coveringStaffId: row.covering_staff_id, date: row.coverage_date },
+      ip: input.ip,
+    });
+    return mapCoverage(row);
+  } catch (err) {
+    if (pgCode(err) === "23505") throw conflict("Active coverage already exists for this class, date and session");
+    if (pgCode(err) === "23503") throw validationError("Invalid class or staff reference");
+    throw err;
+  }
+}
+
+export async function listAttendanceCoverage(
+  tx: Tx,
+  input: { tenantId: string; classId?: string; coverageDate?: string; page: PageInput },
+): Promise<Page<PublicAttendanceCoverage>> {
+  const params: unknown[] = [input.tenantId];
+  const parts: string[] = ["tenant_id = $1"];
+  if (input.classId) {
+    params.push(input.classId);
+    parts.push(`class_id = $${params.length}`);
+  }
+  if (input.coverageDate) {
+    params.push(input.coverageDate);
+    parts.push(`coverage_date = $${params.length}::date`);
+  }
+  const out = await pageQuery<{ id: string }>(
+    tx,
+    `SELECT ${COVERAGE_COLS} FROM attendance_coverage WHERE ${parts.join(" AND ")}`,
+    params,
+    { name: "attendance_coverage", expr: "q.created_at", type: "timestamptz", dir: "desc" },
+    input.page,
+  );
+  return { items: (out.rows as unknown as CoverageRow[]).map(mapCoverage), page: out.page };
+}
+
+export async function cancelAttendanceCoverage(
+  tx: Tx,
+  input: { tenantId: string; coverageId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicAttendanceCoverage> {
+  const res = await tx.query<CoverageRow>(
+    `UPDATE attendance_coverage
+        SET status = 'cancelled', cancelled_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND status = 'active'
+      RETURNING ${COVERAGE_COLS}`,
+    [input.tenantId, input.coverageId],
+  );
+  const row = res.rows[0];
+  if (!row) {
+    const exists = await tx.query(`SELECT 1 FROM attendance_coverage WHERE tenant_id = $1 AND id = $2`, [
+      input.tenantId,
+      input.coverageId,
+    ]);
+    if (exists.rowCount === 0) throw notFound("Coverage assignment not found");
+    throw conflict("Coverage assignment is already cancelled");
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "attendance.coverage.cancelled",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { coverageId: row.id },
+    ip: input.ip,
+  });
+  return mapCoverage(row);
 }

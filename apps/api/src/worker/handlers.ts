@@ -1,5 +1,9 @@
 import { settlePrompt } from "../modules/finance/mpesa.js";
 import type { MpesaProvider, StkQueryResult } from "../modules/finance/mpesaProvider.js";
+import type { PushProvider } from "../modules/notifications/pushProvider.js";
+import { processNotificationOutboxJob } from "../modules/notifications/service.js";
+import type { StorageProvider } from "../modules/storage/storageProvider.js";
+import { processExportJob } from "../modules/reporting/exportService.js";
 import { PermanentJobError, RetryableJobError, type JobHandler } from "./runtime.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -16,8 +20,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * not wired in this slice; the job proves tenant-isolated enqueue + worker handling without inventing a
  * push vendor integration.
  */
-export function workerHandlers(provider: MpesaProvider): Record<string, JobHandler> {
+export function workerHandlers(
+  provider: MpesaProvider,
+  deps?: { pushProvider?: PushProvider; storageProvider?: StorageProvider },
+): Record<string, JobHandler> {
   return {
+    "notification.dispatch": async (ctx) => {
+      await processNotificationOutboxJob(ctx, deps?.pushProvider);
+    },
+    "export.generate": async (ctx) => {
+      await processExportJob(ctx, deps?.storageProvider);
+    },
     "announcement.push": async (ctx) => {
       const announcementId = ctx.payload.announcementId;
       if (typeof announcementId !== "string" || !UUID.test(announcementId)) {

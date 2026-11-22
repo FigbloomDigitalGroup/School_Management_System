@@ -453,19 +453,62 @@ export async function getHeGradeVersion(
   };
 }
 
+export interface OnlineExamQuestion {
+  id: string;
+  prompt: string;
+  kind: "mcq" | "true_false";
+  options?: string[];
+  correct_answer: string;
+  points: number;
+}
+
 export async function createOnlinePaper(
   tx: Tx,
-  input: { tenantId: string; actorUserId: string; class_id: string; subject_id: string; title: string; max_score: number; ip?: string | null },
+  input: {
+    tenantId: string;
+    actorUserId: string;
+    class_id: string;
+    subject_id: string;
+    title: string;
+    max_score: number;
+    questions?: OnlineExamQuestion[] | null;
+    ip?: string | null;
+  },
 ) {
   await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
   await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
   const title = trim(input.title, "title", 160);
   if (!(input.max_score > 0) || input.max_score > 10000) throw validationError("max_score must be greater than 0 and at most 10000");
-  const res = await tx.query<{ id: string; tenant_id: string; class_id: string; subject_id: string; title: string; max_score: string; created_at: Date | string }>(
-    `INSERT INTO online_exam_papers (tenant_id, class_id, subject_id, title, max_score, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at`,
-    [input.tenantId, input.class_id, input.subject_id, title, input.max_score, input.actorUserId],
+  if (input.questions && input.questions.length > 0) {
+    const ids = new Set<string>();
+    for (const q of input.questions) {
+      if (ids.has(q.id)) throw validationError("Duplicate question id");
+      ids.add(q.id);
+      if (!(q.points > 0)) throw validationError("Question points must be positive");
+    }
+  }
+  const res = await tx.query<{
+    id: string;
+    tenant_id: string;
+    class_id: string;
+    subject_id: string;
+    title: string;
+    max_score: string;
+    questions: OnlineExamQuestion[] | null;
+    created_at: Date | string;
+  }>(
+    `INSERT INTO online_exam_papers (tenant_id, class_id, subject_id, title, max_score, questions, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+     RETURNING id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, questions, created_at`,
+    [
+      input.tenantId,
+      input.class_id,
+      input.subject_id,
+      title,
+      input.max_score,
+      input.questions ? JSON.stringify(input.questions) : null,
+      input.actorUserId,
+    ],
   );
   const row = res.rows[0]!;
   await recordSecurityEvent(tx, {
@@ -475,7 +518,16 @@ export async function createOnlinePaper(
     detail: { paperId: row.id },
     ip: input.ip,
   });
-  return { id: row.id, tenantId: row.tenant_id, class_id: row.class_id, subject_id: row.subject_id, title: row.title, max_score: row.max_score, created_at: isoStamp(row.created_at) };
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    class_id: row.class_id,
+    subject_id: row.subject_id,
+    title: row.title,
+    max_score: row.max_score,
+    questions: row.questions,
+    created_at: isoStamp(row.created_at),
+  };
 }
 
 export async function listOnlinePapers(tx: Tx, input: { tenantId: string; page: PageInput; id?: string }) {
@@ -569,10 +621,22 @@ export async function getOnlineAttempt(tx: Tx, input: { tenantId: string; attemp
 
 export async function submitOnlineAttempt(
   tx: Tx,
-  input: { tenantId: string; actorUserId: string; attemptId: string; score: number; ip?: string | null },
+  input: {
+    tenantId: string;
+    actorUserId: string;
+    attemptId: string;
+    score?: number;
+    answers?: Record<string, string>;
+    ip?: string | null;
+  },
 ) {
-  const attempt = await tx.query<{ paper_id: string; status: string; max_score: string }>(
-    `SELECT a.paper_id, a.status, p.max_score::text AS max_score
+  const attempt = await tx.query<{
+    paper_id: string;
+    status: string;
+    max_score: string;
+    questions: OnlineExamQuestion[] | null;
+  }>(
+    `SELECT a.paper_id, a.status, p.max_score::text AS max_score, p.questions
        FROM online_exam_attempts a
        JOIN online_exam_papers p ON p.id = a.paper_id AND p.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1 AND a.id = $2
@@ -582,32 +646,56 @@ export async function submitOnlineAttempt(
   const row = attempt.rows[0];
   if (!row) throw notFound("Attempt not found");
   if (row.status !== "in_progress") throw conflict("This attempt is already submitted");
-  const ok = await tx.query<{ ok: boolean }>(`SELECT ($1::numeric >= 0 AND $1::numeric <= $2::numeric) AS ok`, [input.score, row.max_score]);
+
+  let finalScore: number;
+  let autoMarked = false;
+  if (input.answers && row.questions && row.questions.length > 0) {
+    let earned = 0;
+    for (const q of row.questions) {
+      const ans = input.answers[q.id];
+      if (ans !== undefined && ans.trim().toLowerCase() === q.correct_answer.trim().toLowerCase()) {
+        earned += q.points;
+      }
+    }
+    finalScore = Math.min(earned, Number(row.max_score));
+    autoMarked = true;
+  } else if (input.score !== undefined) {
+    finalScore = input.score;
+  } else {
+    throw validationError("Provide score, or answers for a paper with objective questions");
+  }
+
+  const ok = await tx.query<{ ok: boolean }>(`SELECT ($1::numeric >= 0 AND $1::numeric <= $2::numeric) AS ok`, [
+    finalScore,
+    row.max_score,
+  ]);
   if (!ok.rows[0]?.ok) throw validationError("score must be between 0 and the paper max_score");
-  const updated = await tx.query<{ id: string; status: string; submitted_at: Date | string }>(
-    `UPDATE online_exam_attempts SET status = 'submitted', submitted_at = now()
+  const updated = await tx.query<{ id: string; status: string; submitted_at: Date | string; auto_marked: boolean }>(
+    `UPDATE online_exam_attempts
+        SET status = 'submitted', submitted_at = now(), answers = $2::jsonb, auto_marked = $3
       WHERE id = $1 AND status = 'in_progress'
-      RETURNING id, status, submitted_at`,
-    [input.attemptId],
+      RETURNING id, status, submitted_at, auto_marked`,
+    [input.attemptId, input.answers ? JSON.stringify(input.answers) : null, autoMarked],
   );
   if (updated.rowCount === 0) throw conflict("This attempt is already submitted");
   const mark = await tx.query<{ id: string; score: string }>(
     `INSERT INTO attempt_marks (tenant_id, attempt_id, score, marked_by)
      VALUES ($1, $2, $3, $4)
      RETURNING id, score::text AS score`,
-    [input.tenantId, input.attemptId, input.score, input.actorUserId],
+    [input.tenantId, input.attemptId, finalScore, input.actorUserId],
   );
   await recordSecurityEvent(tx, {
     eventType: "academics.online_exam.attempt_submitted",
     actorUserId: input.actorUserId,
     tenantId: input.tenantId,
-    detail: { attemptId: input.attemptId, paperId: row.paper_id },
+    detail: { attemptId: input.attemptId, paperId: row.paper_id, autoMarked },
     ip: input.ip,
   });
   return {
     id: updated.rows[0]!.id,
     status: updated.rows[0]!.status,
     submitted_at: isoStamp(updated.rows[0]!.submitted_at),
+    auto_marked: updated.rows[0]!.auto_marked,
     mark: { id: mark.rows[0]!.id, score: mark.rows[0]!.score },
   };
 }

@@ -16,9 +16,20 @@ const ALL_NEW_TABLES = tablesCreatedFrom(29, MIGRATIONS_DIR);
  */
 const OPERATOR_ONLY_TABLES = ["finance_mpesa_unmatched_callbacks", "account_tokens", "worker_heartbeats", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes"];
 /** User-scoped (session user GUC), not tenant-scoped school tables. */
-const USER_SCOPED_TABLES = ["notification_preferences", "device_tokens"] as const;
+const USER_SCOPED_TABLES = ["notification_preferences", "device_tokens", "mfa_factors", "mfa_recovery_codes"] as const;
+/**
+ * Platform progressive curriculum catalogue (migration 079): nullable tenant_id
+ * (NULL = platform rows; school rows scoped). figbloom_app may SELECT only.
+ * Asserted separately below — not a silent exemption.
+ */
+const PLATFORM_CATALOGUE_TABLES = ["curriculum_reference_entries"] as const;
+const PLATFORM_CATALOGUE_SELECT_QUAL =
+  "((tenant_id IS NULL) OR (tenant_id = app_current_tenant_id()))";
 const STAGE910_TABLES = ALL_NEW_TABLES.filter(
-  (t) => !OPERATOR_ONLY_TABLES.includes(t) && !(USER_SCOPED_TABLES as readonly string[]).includes(t),
+  (t) =>
+    !OPERATOR_ONLY_TABLES.includes(t) &&
+    !(USER_SCOPED_TABLES as readonly string[]).includes(t) &&
+    !(PLATFORM_CATALOGUE_TABLES as readonly string[]).includes(t),
 );
 
 describe("Stage 9/10 RLS catalogue", () => {
@@ -99,6 +110,34 @@ describe("Stage 9/10 RLS catalogue", () => {
     }
   });
 
+  it("platform curriculum catalogue is RLS-forced, readable, and not writable by figbloom_app", async () => {
+    for (const table of PLATFORM_CATALOGUE_TABLES) {
+      expect(ALL_NEW_TABLES).toContain(table);
+      const flags = await ctx.pool.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `SELECT relrowsecurity, relforcerowsecurity FROM pg_class
+          WHERE relname = $1 AND relnamespace = 'public'::regnamespace`,
+        [table],
+      );
+      expect(flags.rows[0]).toEqual({ relrowsecurity: true, relforcerowsecurity: true });
+      const grants = await ctx.pool.query<{ privilege_type: string }>(
+        `SELECT privilege_type FROM information_schema.role_table_grants
+          WHERE table_schema = 'public' AND table_name = $1 AND grantee = 'figbloom_app'`,
+        [table],
+      );
+      expect(grants.rows.map((g) => g.privilege_type).sort()).toEqual(["SELECT"]);
+      const policies = await ctx.pool.query<{ policyname: string; qual: string | null; cmd: string }>(
+        `SELECT policyname, qual, cmd FROM pg_policies
+          WHERE schemaname = 'public' AND tablename = $1 AND 'figbloom_app' = ANY (roles::text[])`,
+        [table],
+      );
+      expect(policies.rows.length).toBeGreaterThan(0);
+      for (const p of policies.rows) {
+        expect(p.cmd).toBe("SELECT");
+        expect(p.qual).toBe(PLATFORM_CATALOGUE_SELECT_QUAL);
+      }
+    }
+  });
+
   it("user-scoped prefs/tokens use own-row policies and remain RLS-forced", async () => {
     for (const table of USER_SCOPED_TABLES) {
       expect(ALL_NEW_TABLES).toContain(table);
@@ -128,6 +167,8 @@ describe("Stage 9/10 RLS catalogue", () => {
       "chat_messages",
       "medical_notices",
       "communications_announcement_reads",
+      "transport_notifications",
+      "notifications",
     ]);
     const bad: string[] = [];
     for (const table of STAGE910_TABLES) {

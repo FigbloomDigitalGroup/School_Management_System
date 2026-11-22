@@ -21,6 +21,8 @@ import {
   listLearningMaterials,
   listMarkCorrections,
   listMarks,
+  listReportCards,
+  closeAssessment,
   publishAssessment,
   publishReportCard,
   registerLearningMaterial,
@@ -35,6 +37,7 @@ import type { RequestAuth } from "../middleware/authContext.js";
 import { AppError, notFound, validationError } from "../errors.js";
 import { assertUuid, classReadScope, inTenant, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
+import { renderSimplePdf, toCsv } from "../../modules/reporting/exportFormat.js";
 
 const DateString = calendarDateString;
 
@@ -88,7 +91,11 @@ const SchemeBody = z.strictObject({
   version: z.number().int().positive().optional(),
   rules: z.unknown(),
 });
-const ReportBody = z.strictObject({ term_id: z.guid(), class_id: z.guid() });
+const ReportBody = z.strictObject({
+  term_id: z.guid(),
+  class_id: z.guid(),
+  grading_scheme_id: z.guid().nullable().optional(),
+});
 
 /** Request bodies by OpenAPI operation key; test/openapi.stage910.contract.test.ts compares them with the spec. */
 export const ASSESSMENT_REQUEST_SCHEMAS = {
@@ -226,6 +233,33 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
             ip,
           });
           return { value: { assessment }, resourceType: "assessment", resourceId: assessment.id };
+        },
+        replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId }) }),
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
+  });
+
+  app.post("/v1/tenants/:tenantId/assessments/:assessmentId/close", async (request, reply) => {
+    const params = request.params as { tenantId: string; assessmentId: string };
+    assertUuid(params.assessmentId, "assessmentId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/assessments/:assessmentId/close",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const assessment = await closeAssessment(tx, {
+            tenantId: params.tenantId,
+            assessmentId: params.assessmentId,
+            actorUserId: auth.user.id,
+            ip,
+          });
+          return { value: { assessment }, resourceType: "assessment_closed", resourceId: assessment.id };
         },
         replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId }) }),
       });
@@ -450,6 +484,7 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
             tenantId: params.tenantId,
             termId: parsed.term_id,
             classId: parsed.class_id,
+            gradingSchemeId: parsed.grading_scheme_id ?? null,
             actorUserId: auth.user.id,
             ip,
           });
@@ -467,5 +502,69 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
     return reply.status(out.status).send(out.value);
+  });
+
+  app.get("/v1/tenants/:tenantId/report-cards", async (request) => {
+    const params = request.params as { tenantId: string };
+    const query = request.query as { classId?: string; termId?: string };
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const out = await listReportCards(tx, {
+        tenantId: params.tenantId,
+        page: pageFrom(request),
+        classId: optionalUuid(query.classId, "classId"),
+        termId: optionalUuid(query.termId, "termId"),
+        scopeClassIds: scope,
+      });
+      return { report_cards: out.items, page: out.page };
+    });
+  });
+
+  app.get("/v1/tenants/:tenantId/report-cards/:reportCardId/export", async (request, reply) => {
+    const params = request.params as { tenantId: string; reportCardId: string };
+    assertUuid(params.reportCardId, "reportCardId");
+    const formatRaw = String((request.query as { format?: string }).format ?? "json").toLowerCase();
+    if (formatRaw !== "json" && formatRaw !== "csv" && formatRaw !== "pdf") {
+      throw validationError("format must be json, csv or pdf");
+    }
+    const card = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      const scope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const rc = await getReportCardById(tx, { tenantId: params.tenantId, reportCardId: params.reportCardId });
+      if (scope !== null && !scope.includes(rc.class_id)) throw notFound("Report card not found");
+      return rc;
+    });
+    if (formatRaw === "csv") {
+      const rows = card.figures.learners.map((l) => [
+        l.learner_id,
+        l.sum,
+        l.count,
+        l.average ?? "",
+        l.grade ?? "",
+      ]);
+      const csv = toCsv(["learner_id", "sum", "count", "average", "grade"], rows);
+      return reply
+        .header("content-type", "text/csv; charset=utf-8")
+        .header("content-disposition", `attachment; filename="report-card-${card.id}.csv"`)
+        .send(csv);
+    }
+    if (formatRaw === "pdf") {
+      const lines = [
+        `Report Card ID: ${card.id}`,
+        `Class ID: ${card.class_id} | Term ID: ${card.term_id}`,
+        `Published: ${card.published_at}`,
+        `Numeric learners: ${card.figures.learners.length}`,
+        ...card.figures.learners.map(
+          (l) => `Learner ${l.learner_id}: sum=${l.sum}, avg=${l.average ?? "-"}, grade=${l.grade ?? "-"}`,
+        ),
+        `CBE learners: ${card.figures.cbe.learners.length}`,
+        `Competency learners: ${card.figures.competencies.learners.length}`,
+      ];
+      const pdf = renderSimplePdf("FigBloom Report Card", lines);
+      return reply
+        .header("content-type", "application/pdf")
+        .header("content-disposition", `attachment; filename="report-card-${card.id}.pdf"`)
+        .send(pdf);
+    }
+    return { report_card: card };
   });
 }

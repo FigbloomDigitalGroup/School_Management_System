@@ -17,6 +17,7 @@ import { clientIp } from "../clientIp.js";
 import { AppError, forbidden, notFound, validationError } from "../errors.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { withTenantRequest } from "../tenantRequest.js";
+import { getStorageProvider } from "../../modules/storage/storageProvider.js";
 import { parseOrThrow } from "../validation.js";
 import { pageFromKeysetRows, parseListQuery } from "../pagination.js";
 
@@ -276,5 +277,46 @@ export async function registerDocumentRoutes(app: FastifyInstance, pool: AppPool
         }),
       };
     });
+  });
+
+  app.post("/v1/tenants/:tenantId/documents/:documentId/storage-presign", async (request, reply) => {
+    const params = request.params as { tenantId: string; documentId: string };
+    if (!UuidParam.safeParse(params.tenantId).success) throw validationError("tenantId must be a UUID");
+    if (!UuidParam.safeParse(params.documentId).success) throw validationError("documentId must be a UUID");
+    const body = parseOrThrow(
+      z.strictObject({ operation: z.enum(["put", "get"]) }),
+      request.body,
+      "operation (put|get) is required",
+    );
+    const doc = await withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      const perm = body.operation === "put" ? "resource.document.write" : "resource.document.read";
+      await requirePermission(tx, auth.authz, perm, { ip: clientIp(request), deferAudit: true });
+      const existing = await getDocumentById(tx, { tenantId: params.tenantId, documentId: params.documentId });
+      const mayAccess =
+        body.operation === "put"
+          ? await mayWriteSubject(tx, auth.authz, existing.subject_type)
+          : await mayReadSubject(tx, auth.authz, existing.subject_type);
+      if (!mayAccess) {
+        const subjectPerm =
+          body.operation === "put" ? SUBJECT_WRITE_PERMISSION[existing.subject_type] : SUBJECT_READ_PERMISSION[existing.subject_type];
+        throw hiddenDocument(auth.authz, subjectPerm, clientIp(request));
+      }
+      return existing;
+    });
+    const out =
+      body.operation === "put"
+        ? await getStorageProvider().createPresignedUpload({
+            tenantId: params.tenantId,
+            objectKey: `${params.tenantId}/${doc.id}`,
+            contentType: doc.content_type ?? "application/octet-stream",
+            maxBytes: doc.byte_size ?? 10 * 1024 * 1024,
+          })
+        : await getStorageProvider().createPresignedDownload({
+            tenantId: params.tenantId,
+            objectKey: `${params.tenantId}/${doc.id}`,
+          });
+    if (out.status === "not_configured") return reply.status(503).send(out);
+    return reply.status(200).send(out);
   });
 }

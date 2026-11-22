@@ -90,4 +90,44 @@ describe("Stage 14 reporting aggregates", () => {
     });
     expect(res.statusCode).toBe(403);
   });
+
+  it("returns academics-summary counts for school_admin and teachers with academics.read", async () => {
+    const admin = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/reports/academics-summary`,
+      headers: { authorization: `Bearer ${adminToken}`, "x-tenant-id": ids.tenantA },
+    });
+    expect(admin.statusCode, admin.body).toBe(200);
+    expect(admin.json().summary).toMatchObject({
+      term_id: null,
+      classes_active: expect.any(Number),
+      assessments_draft: expect.any(Number),
+      assessments_published: expect.any(Number),
+      assessments_closed: expect.any(Number),
+      cbe_assessments_draft: expect.any(Number),
+      cbe_assessments_published: expect.any(Number),
+      cbe_assessments_closed: expect.any(Number),
+      report_cards_published: expect.any(Number),
+      competency_ratings: expect.any(Number),
+      learning_areas: expect.any(Number),
+    });
+    expect(admin.json().summary.classes_active).toBeGreaterThanOrEqual(0);
+
+    const teacher = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/reports/academics-summary`,
+      headers: { authorization: `Bearer ${teacherToken}`, "x-tenant-id": ids.tenantA },
+    });
+    // Fixture teacher lacks resource.academics.read (OD-2 scopes class lists, not this aggregate).
+    expect(teacher.statusCode).toBe(403);
+  });
+
+  it("refuses academics-summary for unknown termId", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/reports/academics-summary?termId=00000000-0000-4000-8000-000000000099`,
+      headers: { authorization: `Bearer ${adminToken}`, "x-tenant-id": ids.tenantA },
+    });
+    expect(res.statusCode).toBe(404);
+  });
 });
