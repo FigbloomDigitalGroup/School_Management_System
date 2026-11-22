@@ -35,6 +35,7 @@ apps/api/docs/STAGE11-*.md
 apps/api/docs/FIGBLOOM-AI-INTEGRATION.md
 apps/api/docs/MFA-ENFORCEMENT.md
 apps/api/docs/TRANSPORT-OPERATIONS.md
+FIGBLOOM_BACKEND_REBUILD_FINAL_HANDOVER.md
 
 # Cursor-agent local memory/rules (not team SoT)
 .cursor/
