@@ -676,7 +676,21 @@ describe("Stage 9/10 owner decisions", () => {
         await sqlState(c.query(`INSERT INTO curriculum_provenance (tenant_id, source_kind, source_label) VALUES (NULL, 'platform_reference', 'KICD')`)),
       ).toBe("42501");
     });
-    const seeded = await ctx.pool.query(`SELECT count(*)::int AS n FROM curriculum_provenance WHERE source_kind = 'platform_reference'`);
-    expect(seeded.rows[0]?.n).toBe(0);
+    // Migration 079 may seed progressive platform_reference provenance (tenant_id NULL only).
+    // That is not an official KICD/KNEC catalogue claim: API surfaces still force official_catalogue=false.
+    const seeded = await ctx.pool.query<{ n: number; tenanted: number }>(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE tenant_id IS NOT NULL)::int AS tenanted
+         FROM curriculum_provenance WHERE source_kind = 'platform_reference'`,
+    );
+    expect(seeded.rows[0]?.tenanted).toBe(0);
+    expect(seeded.rows[0]?.n).toBeGreaterThanOrEqual(0);
+    const catalogue = await ctx.pool.query<{ n: number; verified: number }>(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE verification_status = 'verified')::int AS verified
+         FROM curriculum_reference_entries`,
+    );
+    // Progressive seed may exist; must not claim verified official SLO/catalogue completeness.
+    expect(catalogue.rows[0]?.verified ?? 0).toBe(0);
   });
 });

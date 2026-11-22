@@ -1,5 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { ACCOUNT_REQUEST_SCHEMAS } from "../src/http/routes/accounts.js";
+import { AI_REQUEST_SCHEMAS } from "../src/http/routes/ai.js";
+import { MFA_REQUEST_SCHEMAS } from "../src/http/routes/auth.js";
+import { CURRICULUM_CATALOGUE_REQUEST_SCHEMAS } from "../src/http/routes/curriculumCatalogue.js";
+import { GUARDIAN_INVITATION_REQUEST_SCHEMAS } from "../src/http/routes/guardianInvitations.js";
+import { MEDICATION_REQUEST_SCHEMAS } from "../src/http/routes/medication.js";
+import { NOTIFICATION_REQUEST_SCHEMAS } from "../src/http/routes/notifications.js";
+import { REPORTING_EXPORT_REQUEST_SCHEMAS } from "../src/http/routes/reporting.js";
+import { STORAGE_REQUEST_SCHEMAS } from "../src/http/routes/storage.js";
+import { TRANSPORT_OPERATIONS_REQUEST_SCHEMAS } from "../src/http/routes/transportOperations.js";
+import { UNMATCHED_REQUEST_SCHEMAS } from "../src/http/routes/unmatchedCallbacks.js";
 import { createTestApp, type FixtureIds } from "./support.js";
 import { loadSpec, responseSchema, validate } from "./support/openapiConformance.js";
 
@@ -78,6 +91,40 @@ describe("Global OpenAPI parity, static schema completeness & Stage 12–16 runt
     expect(extraInRuntime, "undocumented routes in app.routeTable").toEqual([]);
     expect(extraInSpec, "unimplemented operations in openapi.yaml").toEqual([]);
     expect(runtimeOps.size).toBeGreaterThanOrEqual(212);
+  });
+
+  it("REQ-19: account, guardian-invitation, unmatched-callback, MFA, AI, transport, notification, storage, export, medication and curriculum Zod request schemas match openapi.yaml", () => {
+    const registry: Record<string, z.ZodType> = {
+      ...ACCOUNT_REQUEST_SCHEMAS,
+      ...GUARDIAN_INVITATION_REQUEST_SCHEMAS,
+      ...UNMATCHED_REQUEST_SCHEMAS,
+      ...MFA_REQUEST_SCHEMAS,
+      ...AI_REQUEST_SCHEMAS,
+      ...TRANSPORT_OPERATIONS_REQUEST_SCHEMAS,
+      ...NOTIFICATION_REQUEST_SCHEMAS,
+      ...STORAGE_REQUEST_SCHEMAS,
+      ...REPORTING_EXPORT_REQUEST_SCHEMAS,
+      ...MEDICATION_REQUEST_SCHEMAS,
+      ...CURRICULUM_CATALOGUE_REQUEST_SCHEMAS,
+    };
+    const drift: string[] = [];
+    for (const [key, schema] of Object.entries(registry)) {
+      const [method, path] = key.split(" ") as [string, string];
+      const rbSchema = spec.paths[path]?.[method.toLowerCase()]?.requestBody?.content?.["application/json"]?.schema;
+      if (!rbSchema) {
+        drift.push(`${key}: no application/json requestBody schema in openapi.yaml`);
+        continue;
+      }
+      const documented = rbSchema.$ref
+        ? String(rbSchema.$ref).slice(2).split("/").reduce((cur: Json, k: string) => cur?.[k], spec)
+        : rbSchema;
+      const runtime = z.toJSONSchema(schema, { unrepresentable: "any" }) as Json;
+      delete runtime.$schema;
+      if (!isDeepStrictEqual(documented, runtime)) {
+        drift.push(`${key}: spec and runtime schemas differ\n  spec=${JSON.stringify(documented)}\n  zod=${JSON.stringify(runtime)}`);
+      }
+    }
+    expect(drift).toEqual([]);
   });
 
   it("OA-1, OA-3, OA-4, OA-5 & OA-8: every non-204 response defines an application/json schema, pagination/404/413/requestBody contracts hold", () => {

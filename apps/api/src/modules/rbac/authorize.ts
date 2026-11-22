@@ -214,6 +214,11 @@ export async function loadEffectivePermissions(
     perms.add("resource.visitor.write");
     perms.add("resource.medical.read");
     perms.add("resource.medical.write");
+    perms.add("resource.medication.read");
+    perms.add("resource.medication.write");
+    perms.add("resource.medication.administer");
+    perms.add("resource.notifications.admin");
+    perms.add("resource.curriculum.verify");
     perms.add("resource.inventory.read");
     perms.add("resource.inventory.write");
     perms.add("resource.leave.read");

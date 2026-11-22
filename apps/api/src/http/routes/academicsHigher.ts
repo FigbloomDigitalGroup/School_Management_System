@@ -24,6 +24,7 @@ import {
   submitOnlineAttempt,
 } from "../../modules/academics/higherEd.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
+import { getLiveKitProvider } from "../../modules/communications/livekitProvider.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import { assertUuid, inTenant, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
@@ -42,14 +43,26 @@ const GradeCorrectionBody = z.strictObject({
   reason: z.string().min(5).max(500),
   row_version: z.number().int().positive(),
 });
+const QuestionSchema = z.strictObject({
+  id: z.string().min(1).max(64),
+  prompt: z.string().min(1).max(1000),
+  kind: z.enum(["mcq", "true_false"]),
+  options: z.array(z.string().min(1).max(200)).optional(),
+  correct_answer: z.string().min(1).max(200),
+  points: z.number().positive().max(1000),
+});
 const PaperBody = z.strictObject({
   class_id: z.guid(),
   subject_id: z.guid(),
   title: z.string().min(1).max(160),
   max_score: z.number().positive(),
+  questions: z.array(QuestionSchema).nullable().optional(),
 });
 const AttemptBody = z.strictObject({ learner_id: z.guid() });
-const SubmitBody = z.strictObject({ score: z.number() });
+const SubmitBody = z.strictObject({
+  score: z.number().optional(),
+  answers: z.record(z.string(), z.string()).optional(),
+});
 
 /** Request bodies by OpenAPI operation key; test/openapi.stage910.contract.test.ts compares them with the spec. */
 export const HIGHER_REQUEST_SCHEMAS = {
@@ -334,7 +347,7 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
   app.post("/v1/tenants/:tenantId/online-exam-attempts/:attemptId/submit", async (request, reply) => {
     const params = request.params as { tenantId: string; attemptId: string };
     assertUuid(params.attemptId, "attemptId");
-    const parsed = parseOrThrow(SubmitBody, request.body, "score is required");
+    const parsed = parseOrThrow(SubmitBody, request.body, "score or answers is required");
     const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
       return runIdempotent(tx, {
@@ -349,6 +362,7 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
             actorUserId: auth.user.id,
             attemptId: params.attemptId,
             score: parsed.score,
+            answers: parsed.answers,
             ip,
           });
           return { value: { attempt }, resourceType: "online_exam_attempt", resourceId: attempt.id };
@@ -356,11 +370,35 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
         replay: async (_t, id) => {
           const found = await getOnlineAttempt(tx, { tenantId: params.tenantId, attemptId: id });
           if (!found || !found.mark || found.submitted_at === null) return null;
-          return { attempt: { id: found.id, status: found.status, submitted_at: found.submitted_at, mark: found.mark } };
+          return { attempt: { id: found.id, status: found.status, submitted_at: found.submitted_at, auto_marked: false, mark: found.mark } };
         },
       });
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
     return reply.status(out.status).send(out.value);
+  });
+
+  app.post("/v1/tenants/:tenantId/live-classes/token", async (request, reply) => {
+    const params = request.params as { tenantId: string };
+    const body = parseOrThrow(
+      z.strictObject({
+        room_name: z.string().min(1).max(120),
+        role: z.enum(["host", "participant"]).optional(),
+      }),
+      request.body,
+      "room_name is required",
+    );
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+      return getLiveKitProvider().createRoomToken({
+        tenantId: params.tenantId,
+        roomName: body.room_name,
+        participantIdentity: auth.user.id,
+        participantName: auth.user.full_name ?? auth.user.id,
+        role: body.role ?? "participant",
+      });
+    });
+    if (out.status === "not_configured") return reply.status(503).send(out);
+    return reply.status(200).send(out);
   });
 }

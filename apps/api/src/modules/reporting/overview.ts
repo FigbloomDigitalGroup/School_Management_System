@@ -40,6 +40,24 @@ export interface FinanceSummaryReport {
   payments_pending: number;
 }
 
+/**
+ * Academic/CBE counts for a school (optional term). Counts only — no invented KPIs
+ * or grade averages. CBE assessments counted when published or closed.
+ */
+export interface AcademicsSummaryReport {
+  term_id: string | null;
+  classes_active: number;
+  assessments_draft: number;
+  assessments_published: number;
+  assessments_closed: number;
+  cbe_assessments_draft: number;
+  cbe_assessments_published: number;
+  cbe_assessments_closed: number;
+  report_cards_published: number;
+  competency_ratings: number;
+  learning_areas: number;
+}
+
 export async function schoolOverview(tx: Tx, tenantId: string): Promise<SchoolOverviewReport> {
   const r = await tx.query<SchoolOverviewReport>(
     `SELECT
@@ -185,5 +203,73 @@ export async function financeSummary(tx: Tx, tenantId: string, termId?: string):
     amount_paid_minor: Number(row.amount_paid_minor),
     payments_success: pay.rows[0]?.payments_success ?? 0,
     payments_pending: pay.rows[0]?.payments_pending ?? 0,
+  };
+}
+
+export async function academicsSummary(
+  tx: Tx,
+  tenantId: string,
+  termId?: string,
+): Promise<AcademicsSummaryReport> {
+  if (termId) {
+    const term = await tx.query(`SELECT 1 FROM academic_terms WHERE tenant_id = $1 AND id = $2`, [tenantId, termId]);
+    if (!term.rows[0]) throw notFound("Academic term not found");
+  }
+
+  const r = await tx.query<{
+    classes_active: number;
+    assessments_draft: number;
+    assessments_published: number;
+    assessments_closed: number;
+    cbe_assessments_draft: number;
+    cbe_assessments_published: number;
+    cbe_assessments_closed: number;
+    report_cards_published: number;
+    competency_ratings: number;
+    learning_areas: number;
+  }>(
+    `SELECT
+       (SELECT count(*)::int FROM classes
+         WHERE tenant_id = $1 AND active = true AND archived_at IS NULL) AS classes_active,
+       (SELECT count(*)::int FROM assessments
+         WHERE tenant_id = $1 AND status = 'draft'
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS assessments_draft,
+       (SELECT count(*)::int FROM assessments
+         WHERE tenant_id = $1 AND status = 'published'
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS assessments_published,
+       (SELECT count(*)::int FROM assessments
+         WHERE tenant_id = $1 AND status = 'closed'
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS assessments_closed,
+       (SELECT count(*)::int FROM cbe_assessments
+         WHERE tenant_id = $1 AND status = 'draft'
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS cbe_assessments_draft,
+       (SELECT count(*)::int FROM cbe_assessments
+         WHERE tenant_id = $1 AND status = 'published'
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS cbe_assessments_published,
+       (SELECT count(*)::int FROM cbe_assessments
+         WHERE tenant_id = $1 AND status = 'closed'
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS cbe_assessments_closed,
+       (SELECT count(*)::int FROM report_card_publications
+         WHERE tenant_id = $1
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS report_cards_published,
+       (SELECT count(*)::int FROM learner_competency_ratings
+         WHERE tenant_id = $1
+           AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS competency_ratings,
+       (SELECT count(*)::int FROM learning_areas WHERE tenant_id = $1) AS learning_areas`,
+    [tenantId, termId ?? null],
+  );
+  const row = r.rows[0]!;
+  return {
+    term_id: termId ?? null,
+    classes_active: row.classes_active,
+    assessments_draft: row.assessments_draft,
+    assessments_published: row.assessments_published,
+    assessments_closed: row.assessments_closed,
+    cbe_assessments_draft: row.cbe_assessments_draft,
+    cbe_assessments_published: row.cbe_assessments_published,
+    cbe_assessments_closed: row.cbe_assessments_closed,
+    report_cards_published: row.report_cards_published,
+    competency_ratings: row.competency_ratings,
+    learning_areas: row.learning_areas,
   };
 }

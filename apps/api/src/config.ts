@@ -204,6 +204,17 @@ const ConfigSchema = z.object({
   mpesaHttpTimeoutMs: z.coerce.number().int().positive().max(60_000).default(10_000),
   /** Delay before the worker asks Daraja about a prompt with no callback yet. */
   mpesaSettleDelaySeconds: z.coerce.number().int().min(30).max(3_600).default(120),
+  bloomAiBaseUrl: z.string().url().optional(),
+  bloomAiApiKey: z.string().min(1).optional(),
+  bloomAiTimeoutMs: z.coerce.number().int().positive().max(60_000).default(10_000),
+  /** HMAC key shared with FigBloom AI to sign every request (contract bloom-school/1). Optional until provisioned. */
+  bloomAiSigningSecret: z.string().min(32).max(256).optional(),
+  /** MFA enforcement (migration 088). `off` is refused in staging/production. */
+  mfaEnforcement: z.enum(["enforce", "off"]).default("enforce"),
+  /** Extra school roles for which MFA is mandatory (platform/org/school admins and finance-area holders always are). */
+  mfaRequiredRoles: z.array(z.enum(["teacher", "staff", "driver", "parent", "student"])).default([]),
+  /** Dedicated key for TOTP secrets at rest; must differ from the session HMAC key. Required in staging/production. */
+  mfaEncryptionKey: z.string().min(32).max(256).optional(),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
@@ -289,6 +300,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mpesaCallbackSecret: env.MPESA_CALLBACK_SECRET || undefined,
     mpesaHttpTimeoutMs: env.MPESA_HTTP_TIMEOUT_MS,
     mpesaSettleDelaySeconds: env.MPESA_SETTLE_DELAY_SECONDS,
+    bloomAiBaseUrl: env.BLOOM_AI_BASE_URL || undefined,
+    bloomAiApiKey: env.BLOOM_AI_API_KEY || undefined,
+    bloomAiTimeoutMs: env.BLOOM_AI_TIMEOUT_MS,
+    bloomAiSigningSecret: env.BLOOM_AI_SIGNING_SECRET || undefined,
+    mfaEnforcement: env.MFA_ENFORCEMENT || undefined,
+    mfaRequiredRoles: (env.MFA_REQUIRED_ROLES ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+    mfaEncryptionKey: env.MFA_ENCRYPTION_KEY || undefined,
   });
   if (!parsed.success) {
     throw new Error(
@@ -404,6 +422,15 @@ function assertVerifiedTls(url: string, variable: string, kind: "API" | "migrate
 
 /** Staging and production: refuse settings that weaken security instead of silently accepting them. */
 function assertStrictApiConfig(config: AppConfig, env: NodeJS.ProcessEnv): void {
+  if (config.mfaEnforcement !== "enforce") {
+    throw new Error("Invalid API config: MFA_ENFORCEMENT must be 'enforce' outside local/test.");
+  }
+  if (!config.mfaEncryptionKey) {
+    throw new Error("Invalid API config: MFA_ENCRYPTION_KEY is required outside local/test (at least 32 characters).");
+  }
+  if (config.mfaEncryptionKey === config.sessionMintHmacKey) {
+    throw new Error("Invalid API config: MFA_ENCRYPTION_KEY must differ from SESSION_MINT_HMAC_KEY.");
+  }
   assertVerifiedTls(config.databaseUrl, "DATABASE_URL", "API");
   if (!config.idempotencyFingerprintKey) {
     throw new Error("Invalid API config: IDEMPOTENCY_FINGERPRINT_KEY is required outside local/test (at least 32 characters).");

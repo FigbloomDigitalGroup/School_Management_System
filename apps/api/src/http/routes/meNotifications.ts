@@ -10,6 +10,7 @@ import {
   patchMyNotificationPreferences,
   registerDeviceToken,
 } from "../../modules/communications/notificationPrefs.js";
+import { revokeMyDeviceToken } from "../../modules/notifications/service.js";
 import { clientIp } from "../clientIp.js";
 import { notFound } from "../errors.js";
 import { assertUuid } from "../routeKit.js";
@@ -71,6 +72,15 @@ export async function registerMeNotificationRoutes(app: FastifyInstance, pool: A
     const params = request.params as { tokenId: string };
     assertUuid(params.tokenId, "tokenId");
     const ok = await withIdentityUserScope(pool, auth.user.id, (db) => deleteMyDeviceToken(db, auth.user.id, params.tokenId));
+    if (!ok) throw notFound("Device token not found");
+    return reply.status(204).send();
+  });
+
+  app.post("/v1/me/device-tokens/:tokenId/revoke", async (request, reply) => {
+    const auth = await withIdentityAccess(pool, (db) => requireSessionAuth(db, request));
+    const params = request.params as { tokenId: string };
+    assertUuid(params.tokenId, "tokenId");
+    const ok = await withIdentityUserScope(pool, auth.user.id, (db) => revokeMyDeviceToken(db, params.tokenId, "user_revoked"));
     if (!ok) throw notFound("Device token not found");
     return reply.status(204).send();
   });

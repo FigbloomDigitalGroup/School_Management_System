@@ -43,6 +43,7 @@ const EXPECTED: Record<string, string[]> = {
   class_memberships: ["INSERT", "SELECT"],
   teaching_assignments: ["INSERT", "SELECT"],
   timetable_slots: ["INSERT", "SELECT"],
+  timetable_publications: ["INSERT", "SELECT"],
   assessments: ["INSERT", "SELECT"],
   assessment_components: ["INSERT", "SELECT"],
   mark_entries: ["INSERT", "SELECT"],
@@ -59,6 +60,9 @@ const EXPECTED: Record<string, string[]> = {
   cbe_assessments: ["INSERT", "SELECT"],
   cbe_results: ["INSERT", "SELECT"],
   evidence_assets: ["INSERT", "SELECT"],
+  learner_competency_ratings: ["INSERT", "SELECT"],
+  learner_competency_rating_revisions: ["INSERT", "SELECT"],
+  curriculum_reference_entries: ["SELECT"],
   he_courses: ["INSERT", "SELECT"],
   he_sections: ["INSERT", "SELECT"],
   he_enrolments: ["INSERT", "SELECT"],
@@ -70,6 +74,10 @@ const EXPECTED: Record<string, string[]> = {
   attendance_settings: ["INSERT", "SELECT"],
   attendance: ["INSERT", "SELECT"],
   attendance_afternoon: ["INSERT", "SELECT"],
+  attendance_coverage: ["INSERT", "SELECT"],
+  vehicle_locations: ["INSERT", "SELECT"],
+  mfa_factors: ["INSERT", "SELECT"],
+  mfa_recovery_codes: ["INSERT", "SELECT"],
   early_sign_outs: ["INSERT", "SELECT"],
   early_sign_out_collectors: ["INSERT", "SELECT"],
   // Migration 035 (owner decisions OD-1/3/5): append-only revision tables. No UPDATE, no DELETE.
@@ -118,6 +126,21 @@ const EXPECTED: Record<string, string[]> = {
   vehicle_assignments: ["INSERT", "SELECT"],
   learner_transport: ["INSERT", "SELECT"],
   trips: ["INSERT", "SELECT"],
+  trip_events: ["INSERT", "SELECT"],
+  transport_notifications: ["SELECT"],
+  notification_outbox: ["INSERT", "SELECT"],
+  notifications: ["SELECT"],
+  notification_delivery_attempts: ["SELECT"],
+  storage_objects: ["INSERT", "SELECT"],
+  export_jobs: ["INSERT", "SELECT"],
+  learner_health_profiles: ["INSERT", "SELECT"],
+  medication_authorizations: ["INSERT", "SELECT"],
+  medication_schedules: ["INSERT", "SELECT"],
+  medication_administration_records: ["INSERT", "SELECT"],
+  medication_administration_corrections: ["INSERT", "SELECT"],
+  medication_incidents: ["INSERT", "SELECT"],
+  curriculum_import_batches: ["INSERT", "SELECT"],
+  transport_incidents: ["INSERT", "SELECT"],
   import_batches: ["INSERT", "SELECT"],
 };
 
@@ -238,6 +261,63 @@ const EXPECTED_DIRECTORY_UPDATE_COLUMNS: Record<string, string[]> = {
     "updated_at",
   ],
   directory_documents: ["archived_at", "updated_at"],
+};
+
+/**
+ * Migration 079 (CBC engine) column-level UPDATE grants, plus prior Stage 9 grants they extend.
+ * Identity/provenance columns (id, tenant_id, created_*) must never appear.
+ */
+const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
+  classes: [
+    "active",
+    "archived_at",
+    "class_teacher_staff_id",
+    "education_level",
+    "form_level",
+    "name",
+    "pathway",
+    "stream",
+    "updated_at",
+  ],
+  learning_areas: ["code", "education_level", "is_core", "max_grade", "min_grade", "name", "pathway"],
+  rubric_descriptor_configs: ["criteria", "descriptors", "name", "scoring_mode", "version"],
+  cbe_assessments: [
+    "assessment_date",
+    "closed_at",
+    "curriculum_version_label",
+    "instructions",
+    "instrument_type",
+    "learning_outcome_id",
+    "published_at",
+    "row_version",
+    "rubric_config_id",
+    "status",
+    "strand_id",
+    "sub_strand_id",
+    "title",
+  ],
+  cbe_results: [
+    "completion_status",
+    "criterion_scores",
+    "evidence_asset_id",
+    "level_code",
+    "marked_at",
+    "marked_by",
+    "observation",
+    "points",
+    "row_version",
+    "teacher_feedback",
+  ],
+  learner_competency_ratings: ["level_code", "rated_at", "rated_by", "row_version"],
+};
+
+const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
+  classes: ["id", "tenant_id", "academic_year_id", "created_at", "created_by"],
+  learning_areas: ["id", "tenant_id", "provenance_id", "created_at", "created_by"],
+  rubric_descriptor_configs: ["id", "tenant_id", "created_at", "created_by"],
+  cbe_assessments: ["id", "tenant_id", "class_id", "learning_area_id", "term_id", "created_at", "created_by"],
+  cbe_results: ["id", "tenant_id", "cbe_assessment_id", "learner_id", "strand_id", "learning_outcome_id", "created_at"],
+  learner_competency_ratings: ["id", "tenant_id", "term_id", "learner_id", "kind", "item", "created_at"],
 };
 
 describe("migration 009 grants and policies", () => {
@@ -386,6 +466,44 @@ describe("migration 009 grants and policies", () => {
         expect(eff.rows[0]?.upd, `${table}.${column} UPDATE`).toBe(false);
       }
       // Table-level UPDATE really is gone, and only the column-level privilege remains.
+      const priv = await ctx.pool.query<{ tbl: boolean; any_col: boolean }>(
+        `SELECT has_table_privilege('figbloom_app', $1, 'UPDATE') AS tbl,
+                has_any_column_privilege('figbloom_app', $1, 'UPDATE') AS any_col`,
+        [`public.${table}`],
+      );
+      expect(priv.rows[0]?.tbl, `${table} table-level UPDATE`).toBe(false);
+      expect(priv.rows[0]?.any_col, `${table} any-column UPDATE`).toBe(true);
+    }
+  });
+
+  it("academics CBC tables: UPDATE is column-level including migration 079 metadata/lifecycle columns", async () => {
+    const tables = Object.keys(EXPECTED_ACADEMICS_079_UPDATE_COLUMNS);
+    const r = await ctx.pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND privilege_type = 'UPDATE'
+          AND table_name = ANY($1::text[])
+        ORDER BY table_name, column_name`,
+      [tables],
+    );
+    const by: Record<string, string[]> = {};
+    for (const row of r.rows) (by[row.table_name] ??= []).push(row.column_name);
+    expect(by).toEqual(EXPECTED_ACADEMICS_079_UPDATE_COLUMNS);
+
+    for (const [table, columns] of Object.entries(EXPECTED_ACADEMICS_079_UPDATE_COLUMNS)) {
+      for (const column of ACADEMICS_079_NEVER_UPDATABLE[table] ?? ["id", "tenant_id"]) {
+        if (columns.includes(column)) continue;
+        const exists = await ctx.pool.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+          [table, column],
+        );
+        if (exists.rows[0]!.n === 0) continue;
+        const eff = await ctx.pool.query<{ upd: boolean }>(
+          `SELECT has_column_privilege('figbloom_app', $1, $2, 'UPDATE') AS upd`,
+          [`public.${table}`, column],
+        );
+        expect(eff.rows[0]?.upd, `${table}.${column} UPDATE`).toBe(false);
+      }
       const priv = await ctx.pool.query<{ tbl: boolean; any_col: boolean }>(
         `SELECT has_table_privilege('figbloom_app', $1, 'UPDATE') AS tbl,
                 has_any_column_privilege('figbloom_app', $1, 'UPDATE') AS any_col`,

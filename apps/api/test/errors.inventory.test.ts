@@ -23,7 +23,7 @@ import { financeHarness } from "./support/financeHarness.js";
  * | src/worker/index.ts               | 1 | worker configuration                               | startup     | n/a (not an HTTP path) |
  */
 const EXPECTED: Record<string, number> = {
-  "config.ts": 29,
+  "config.ts": 32, // +3 startup refusals (088): MFA_ENFORCEMENT off, missing MFA_ENCRYPTION_KEY, key equal to the session key
   "db/migrate.ts": 7,
   "db/pool.ts": 2,
   "db/roleAssert.ts": 14,

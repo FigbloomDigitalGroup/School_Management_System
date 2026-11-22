@@ -68,7 +68,7 @@ describe("OA-1 static contract", () => {
       if (rb && rb.additionalProperties === true) bad.push(`${key}: request body allows arbitrary properties`);
     }
     expect(bad).toEqual([]);
-    expect(stage910Ops().length).toBe(75);
+    expect(stage910Ops().length).toBe(84);
   });
 });
 
@@ -173,6 +173,7 @@ describe("OA-1 runtime conformance tour", () => {
     await call("GET", `${T}/assessments/{assessmentId}/marks`, v);
     await call("POST", `${T}/assessments/{assessmentId}/publish`, v, {});
     await call("POST", `${T}/assessments/{assessmentId}/mark-corrections`, v, { learner_id: v.learnerId, score: 22, grade: "C", reason: "Tour correction", row_version: 1 });
+    await call("POST", `${T}/assessments/{assessmentId}/close`, v);
     await call("GET", `${T}/assessments/{assessmentId}/mark-corrections`, v);
     await call("POST", `${T}/homework-items`, v, { class_id: v.classId, subject_id: v.subjectId, term_id: v.termId, title: "Tour homework", due_on: "2030-01-01", body: "Read" });
     await call("GET", `${T}/homework-items`, v);
@@ -181,11 +182,20 @@ describe("OA-1 runtime conformance tour", () => {
     await call("POST", `${T}/grading-schemes`, v, { name: "Tour scheme", rules: { bands: [{ min: 0, max: 50, grade: "D" }, { min: 50, max: 100, grade: "A" }] } });
     await call("GET", `${T}/grading-schemes`, v);
     await call("POST", `${T}/report-cards`, v, { term_id: v.termId, class_id: v.classId });
+    await call("GET", `${T}/report-cards`, v, undefined, `?classId=${v.classId}&termId=${v.termId}`);
 
     // CBC/CBE
     v.provenanceId = (await call("POST", `${T}/curriculum-provenance`, v, { source_kind: "school_configured", source_label: "Tour notes", source_uri: "https://example.org/x", notes: "School configured" })).provenance.id;
     await call("GET", `${T}/curriculum-provenance`, v);
-    v.areaId = (await call("POST", `${T}/learning-areas`, v, { provenance_id: v.provenanceId, code: "TA", name: "Tour area" })).learning_area.id;
+    v.areaId = (await call("POST", `${T}/learning-areas`, v, {
+      provenance_id: v.provenanceId,
+      code: "TA",
+      name: "Tour area",
+      education_level: "junior_secondary",
+      min_grade: 7,
+      max_grade: 9,
+      is_core: true,
+    })).learning_area.id;
     await call("GET", `${T}/learning-areas`, v);
     v.strandId = (await call("POST", `${T}/strands`, v, { learning_area_id: v.areaId, code: "TS", name: "Tour strand" })).strand.id;
     await call("GET", `${T}/strands`, v);
@@ -195,11 +205,18 @@ describe("OA-1 runtime conformance tour", () => {
     await call("GET", `${T}/learning-outcomes`, v);
     v.rubricId = (await call("POST", `${T}/rubric-configs`, v, { name: "Tour rubric", descriptors: [{ level_code: "ME", label: "Meets", points: 3 }, { level_code: "EE", label: "Exceeds", points: 4 }] })).rubric_config.id;
     await call("GET", `${T}/rubric-configs`, v);
+    await call("GET", `${T}/curriculum-reference`, v);
     v.cbeAssessmentId = (await call("POST", `${T}/cbe-assessments`, v, { class_id: v.classId, learning_area_id: v.areaId, term_id: v.termId, title: "Tour CBE", rubric_config_id: v.rubricId })).cbe_assessment.id;
     await call("GET", `${T}/cbe-assessments`, v);
+    await call("GET", `${T}/cbe-assessments/{cbeAssessmentId}`, v);
     await call("POST", `${T}/cbe-assessments/{cbeAssessmentId}/results`, v, { learner_id: v.learnerId, strand_id: v.strandId, level_code: "ME", points: 3 });
     await call("POST", `${T}/cbe-assessments/{cbeAssessmentId}/results`, v, { learner_id: v.learnerId, strand_id: v.strandId, level_code: "EE", points: 4, row_version: 1, reason: "Tour revision" });
     await call("GET", `${T}/cbe-assessments/{cbeAssessmentId}/results`, v);
+    await call("POST", `${T}/cbe-assessments/{cbeAssessmentId}/publish`, v);
+    await call("POST", `${T}/cbe-assessments/{cbeAssessmentId}/close`, v);
+    await call("GET", `${T}/learners/{learnerId}/cbe-progress`, v, undefined, `?termId=${v.termId}`);
+    await call("POST", `${T}/competency-ratings`, v, { term_id: v.termId, learner_id: v.learnerId, kind: "competency", item: "communication", level_code: "ME" });
+    await call("GET", `${T}/competency-ratings`, v, undefined, `?termId=${v.termId}`);
     await call("POST", `${T}/evidence-assets`, v, { provenance_id: v.provenanceId, title: "Tour evidence", learner_id: v.learnerId });
     await call("GET", `${T}/evidence-assets`, v);
 

@@ -4,9 +4,12 @@ import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import {
   assertCanTakeRegister,
+  assignAttendanceCoverage,
+  cancelAttendanceCoverage,
   getAttendanceSettings,
   getEarlySignOut,
   getRegisterById,
+  listAttendanceCoverage,
   listCounted,
   listEarlySignOuts,
   listRegisters,
@@ -57,6 +60,14 @@ const SignOutBody = z.strictObject({
   signed_out_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).nullable().optional(),
 });
 const VoidBody = z.strictObject({ reason: z.string().min(1).max(200) });
+const CoverageBody = z.strictObject({
+  class_id: z.guid(),
+  covering_staff_id: z.guid(),
+  covered_staff_id: z.guid().nullable().optional(),
+  coverage_date: DateString,
+  session: z.enum(["morning", "afternoon", "all_day"]).optional(),
+  reason: z.string().max(300).nullable().optional(),
+});
 
 /** Request bodies by OpenAPI operation key; test/openapi.stage910.contract.test.ts compares them with the spec. */
 export const ATTENDANCE_REQUEST_SCHEMAS = {
@@ -64,6 +75,7 @@ export const ATTENDANCE_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/attendance-registers": RegisterBody,
   "POST /v1/tenants/{tenantId}/early-sign-outs": SignOutBody,
   "POST /v1/tenants/{tenantId}/early-sign-outs/{signOutId}/void": VoidBody,
+  "POST /v1/tenants/{tenantId}/attendance-coverage": CoverageBody,
 } as const;
 
 export async function registerAttendanceRoutes(app: FastifyInstance, pool: AppPool): Promise<void> {
@@ -89,7 +101,7 @@ export async function registerAttendanceRoutes(app: FastifyInstance, pool: AppPo
     const parsed = parseOrThrow(RegisterBody, request.body, "learner_id, class_id, term_id, taken_on and mark are required");
     const session = resolveSession(parsed.session);
     const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await assertCanTakeRegister(tx, auth.authz, parsed.class_id, ip);
+      await assertCanTakeRegister(tx, auth.authz, parsed.class_id, ip, parsed.taken_on, session);
       return runIdempotent(tx, {
         key: parseIdempotencyKey(request.headers["idempotency-key"]),
         config: app.appConfig,
@@ -256,5 +268,50 @@ export async function registerAttendanceRoutes(app: FastifyInstance, pool: AppPo
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
     return reply.status(out.status).send(out.value);
+  });
+
+  app.post("/v1/tenants/:tenantId/attendance-coverage", async (request, reply) => {
+    const params = request.params as { tenantId: string };
+    const parsed = parseOrThrow(CoverageBody, request.body, "class_id, covering_staff_id and coverage_date are required");
+    const coverage = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.attendance.write", { ip, deferAudit: true });
+      return assignAttendanceCoverage(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, ...parsed, ip });
+    });
+    return reply.status(201).send({ coverage });
+  });
+
+  app.get("/v1/tenants/:tenantId/attendance-coverage", async (request) => {
+    const params = request.params as { tenantId: string };
+    const q = request.query as Record<string, unknown>;
+    const coverageDate = q.coverageDate === undefined || q.coverageDate === "" ? undefined : String(q.coverageDate);
+    if (coverageDate !== undefined && !isRealCalendarDate(coverageDate)) {
+      throw validationError("coverageDate must be a real date in YYYY-MM-DD form");
+    }
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.attendance.read", { ip, deferAudit: true });
+      const out = await listAttendanceCoverage(tx, {
+        tenantId: params.tenantId,
+        classId: optionalUuid(q.classId, "classId"),
+        coverageDate,
+        page,
+      });
+      return { coverage: out.items, page: out.page };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/attendance-coverage/:coverageId/cancel", async (request) => {
+    const params = request.params as { tenantId: string; coverageId: string };
+    assertUuid(params.coverageId, "coverageId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.attendance.write", { ip, deferAudit: true });
+      const coverage = await cancelAttendanceCoverage(tx, {
+        tenantId: params.tenantId,
+        coverageId: params.coverageId,
+        actorUserId: auth.user.id,
+        ip,
+      });
+      return { coverage };
+    });
   });
 }
