@@ -151,7 +151,7 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   },
   "POST /v1/tenants/{tenantId}/rubric-configs": {
     name: "Default",
-    descriptors: [{ code: "EE", points: 4 }],
+    descriptors: [{ level_code: "EE", label: "Exceeding", points: 4 }],
   },
   "POST /v1/tenants/{tenantId}/cbe-assessments": {
     class_id: randomUUID(),
@@ -161,8 +161,16 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   },
   "POST /v1/tenants/{tenantId}/cbe-assessments/{cbeAssessmentId}/results": {
     learner_id: randomUUID(),
+    strand_id: randomUUID(),
     level_code: "ME",
     points: 3,
+  },
+  "POST /v1/tenants/{tenantId}/competency-ratings": {
+    term_id: randomUUID(),
+    learner_id: randomUUID(),
+    kind: "competency",
+    item: "communication",
+    level_code: "ME",
   },
   "POST /v1/tenants/{tenantId}/evidence-assets": {
     learner_id: randomUUID(),
@@ -225,6 +233,12 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   "POST /v1/tenants/{tenantId}/imports/learners/apply": { import_id: randomUUID() },
   "POST /v1/tenants/{tenantId}/vehicles": { plate_number: "KDA123A" },
   "POST /v1/tenants/{tenantId}/transport-routes": { name: "West loop" },
+  "POST /v1/auth/mfa/recovery-codes/regenerate": { code: "123456" },
+  "POST /v1/auth/mfa/admin-reset": { user_id: randomUUID(), reason: "lost device fixture" },
+  "POST /v1/tenants/{tenantId}/driver/trips": { vehicle_id: randomUUID(), direction: "to_school" },
+  "POST /v1/tenants/{tenantId}/trips/{tripId}/driver-location": { lat: -1.28, lng: 36.81 },
+  "POST /v1/tenants/{tenantId}/trips/{tripId}/events": { event_type: "delayed" },
+  "POST /v1/tenants/{tenantId}/trips/{tripId}/cancel": { reason: "fixture" },
   "POST /v1/tenants/{tenantId}/trips": {
     vehicle_id: randomUUID(),
     driver_user_id: randomUUID(),

@@ -52,7 +52,10 @@ describe("hostile-input sweep: no client-caused 5xx on any documented operation"
             ...(payload === undefined ? {} : { payload: payload as never }),
           });
           total++;
-          if (res.statusCode >= 500) bad.push({ op: key, where, status: res.statusCode, body: res.body.slice(0, 160) });
+          const isStructuredNotConfigured = res.statusCode === 503 && res.body.includes('"not_configured"');
+          if (res.statusCode >= 500 && !isStructuredNotConfigured) {
+            bad.push({ op: key, where, status: res.statusCode, body: res.body.slice(0, 160) });
+          }
           return res.statusCode;
         };
         const baseUrl = path.replace(/\{tenantId\}/g, ctx.ids.tenantA).replace(/\{[A-Za-z]+\}/g, () => randomUUID());

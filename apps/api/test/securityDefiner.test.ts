@@ -36,6 +36,36 @@ interface FnRow {
 const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: string }> = {
   // Migration 078 (residual closure)
   "worker_housekeeping(text)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded retention cleanup; never touches money, reconciliation, audit or job rows" },
+  // Migration 086: transport operations. Guard triggers are invokers; the two functions below are narrow definers.
+  "trips_terminal_guard()": { secdef: false, grantees: [], why: "trigger; a completed or cancelled trip is final and its route is frozen once boarding events exist" },
+  "trip_events_guard()": { secdef: false, grantees: [], why: "trigger; learner on route, boarded-before-dropped-off, exclusive no-show, stop on route, trip active" },
+  "transport_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: resolves only the calling guardian account's linked, active learners in the current tenant" },
+  "transport_fanout_notifications(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "tenant-bound fan-out of a trip event to linked guardian accounts (deduplicated); guardian_accounts is owner-only" },
+  "worker_prune_vehicle_locations(integer)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded privacy retention cleanup for expired GPS locations" },
+  "auth_mfa_state(uuid,uuid,text[])": { secdef: true, grantees: ["figbloom_app"], why: "identity-level MFA decision (required / assured / enrolled) for one session; the one enforcement query" },
+  "mfa_clear_own_assurance()": { secdef: true, grantees: ["figbloom_app"], why: "drops MFA assurance on the caller's own sessions when the factor is disabled" },
+  "mfa_admin_reset(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "audited lost-device reset by an authorised administrator; never self, never a peer administrator" },
+  "auth_stamp_session_mfa(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "stamps sessions.mfa_verified_at for app_current_user_id() only after MFA verification" },
+  // Migrations 089-094 (notifications, S3 storage, exports, medication, curriculum catalogue, transport incidents)
+  "device_tokens_revoke(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "revokes own device token (bound to app_current_user_id()) with audit" },
+  "device_tokens_mark_invalid(uuid,text)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only auto-revocation of expired/unregistered push tokens" },
+  "notification_worker_active_devices(uuid[])": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only lookup of non-revoked device tokens for active members of app_current_tenant_id()" },
+  "notification_worker_resolve_recipients(uuid[])": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only tenant-bound recipient validation and preference lookup" },
+  "storage_objects_before_insert()": { secdef: false, grantees: [], why: "trigger; generates server-owned tenant-prefixed object_key" },
+  "storage_objects_before_update()": { secdef: false, grantees: [], why: "trigger; keeps storage object identity and key immutable and prevents un-deleting" },
+  "worker_cleanup_abandoned_uploads(integer)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded cleanup of abandoned pending uploads and expired artifacts" },
+  "worker_expire_export_jobs(integer)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded expiry of completed export jobs past retention" },
+  "medication_learner_guardian_users(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "resolves active linked guardian user_ids for a learner in app_current_tenant_id()" },
+  "medication_authorizations_guard()": { secdef: false, grantees: [], why: "trigger; enforces explicit guardian consent before medication authorization approval" },
+  "medication_mar_guard()": { secdef: false, grantees: [], why: "trigger (095); MAR slot, date range, schedule/learner consistency, approved+consented authorization for given doses" },
+  "medication_authorizations_stop_schedules()": { secdef: false, grantees: [], why: "trigger (095); stops schedules when consent is revoked or approval is lost" },
+  "medication_incidents_guard()": { secdef: false, grantees: [], why: "trigger (095); incident links must belong to the same learner" },
+  "medication_schedules_guard()": { secdef: false, grantees: [], why: "trigger; enforces approved+consented authorization and active learner for schedules" },
+  "curriculum_catalogue_import_entry(uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,date,text)": { secdef: true, grantees: ["figbloom_app"], why: "tenant-bound deterministic import into SELECT-only curriculum_reference_entries" },
+  "curriculum_catalogue_transition(uuid,text,text)": { secdef: true, grantees: ["figbloom_app"], why: "audited review/verify/reject transition; platform rows restricted to super_admin" },
+  "curriculum_catalogue_supersede(uuid,text,text,text,text)": { secdef: true, grantees: ["figbloom_app"], why: "versioned supersession preserving history; platform rows restricted to super_admin" },
+  "transport_event_recipients(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "resolves tenant-bound guardian recipients for a transport event to bridge into central outbox" },
+  "transport_trip_guardian_users(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "resolves tenant-bound guardian user_ids on a trip route for explicit admin incident escalation notices" },
   "finance_assert_administer_actor(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "M-9: re-verifies the acting administrator's live authority with row locks inside the settlement transaction" },
   // Migrations 068-072 (acceptance programme)
   "auth_session_recent(uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "is the caller's session recently authenticated (own user only)" },
@@ -224,7 +254,13 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "assessments_status_forward_only()": {
     secdef: false,
     grantees: [],
-    why: "trigger; a published assessment cannot return to draft to unlock its marks (OD-1)",
+    why: "trigger; draft→published→closed only; published cannot return to draft; closed is final (OD-1 + migration 080)",
+  },
+  // Migration 079 (CBC engine): CBE assessment lifecycle forward-only. Invoker trigger.
+  "cbe_assessments_status_forward_only()": {
+    secdef: false,
+    grantees: [],
+    why: "trigger; CBE draft→published→closed only; closed cannot reopen; draft cannot skip to closed",
   },
   "cbe_result_revisions_before_insert()": {
     secdef: false,
@@ -429,6 +465,10 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
 const RUNTIME_EXECUTABLE_DEFINERS = [
   "finance_assert_administer_actor(uuid)",
   "auth_session_recent(uuid,integer)",
+  "auth_mfa_state(uuid,uuid,text[])",
+  "mfa_clear_own_assurance()",
+  "mfa_admin_reset(uuid,text)",
+  "auth_stamp_session_mfa(uuid)",
   "auth_mark_reauthenticated(uuid)",
   "finance_unmatched_list(text,uuid,boolean,integer,text,integer)",
   "finance_unmatched_get(uuid)",
@@ -459,6 +499,8 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_session_idle_seconds(uuid)",
   "finance_ops_snapshot()",
   "platform_provision_school(uuid,text,text,text,text,text,text,timestamp with time zone)",
+  "transport_fanout_notifications(uuid)",
+  "transport_my_children()",
   "auth_credential_by_email(text)",
   "auth_credential_by_login_id(uuid,text)",
   "auth_password_credential(uuid)",
@@ -476,6 +518,13 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "finance_mpesa_quarantine_has_receipt(text,text)",
   "communications_audience_reaches(uuid,jsonb,uuid)",
   "device_tokens_register(uuid,text,text)",
+  "device_tokens_revoke(uuid,text)",
+  "medication_learner_guardian_users(uuid)",
+  "curriculum_catalogue_import_entry(uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,date,text)",
+  "curriculum_catalogue_transition(uuid,text,text)",
+  "curriculum_catalogue_supersede(uuid,text,text,text,text)",
+  "transport_event_recipients(uuid)",
+  "transport_trip_guardian_users(uuid)",
   "may_talk(uuid,uuid,uuid)",
 ];
 
