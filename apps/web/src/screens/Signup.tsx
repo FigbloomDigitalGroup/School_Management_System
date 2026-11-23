@@ -1,11 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { normalizeSlug, suggestSlug, validateSlug } from "@figbloom/shared";
+import { normalizeSlug, signupOrganization, suggestSlug, validateSlug, type SignupOrganizationInput } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { SelectField, TextField } from "../components/ui/Field";
 import { WebAddressField } from "../components/WebAddressField";
-import { signupOrganization, type SignupOrganizationInput } from "../lib/signup";
 import { useSlugAvailability } from "../lib/slugAvailability";
 
 /**

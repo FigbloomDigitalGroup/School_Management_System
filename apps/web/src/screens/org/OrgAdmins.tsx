@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchOrgAdminsForOwnOrg, logOrganizationAccess } from "@figbloom/shared";
+import { fetchOrgAdminsForOwnOrg, inviteOrgAdmin, logOrganizationAccess, type OrgAdminInviteResult } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Cell, Mono } from "../../components/ui/DataTable";
 import { TextField } from "../../components/ui/Field";
@@ -8,7 +8,6 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
-import { inviteOrgAdmin, type OrgAdminInviteResult } from "../../lib/platformAdmin";
 import { handOverNote } from "../../components/TempPasswordCard";
 
 /**

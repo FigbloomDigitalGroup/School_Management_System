@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, supabase } from "@figbloom/shared";
+import { fetchOrganizationTenantSummaries, fetchTenantSlug, logOrganizationAccess, formatMoney } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
@@ -34,10 +34,9 @@ export function OrgSchoolDetail() {
     if (!tenantId) return;
     setOpening(true);
     try {
-      const { data: tenant, error: tenantErr } = await supabase().from("tenants").select("slug").eq("id", tenantId).maybeSingle();
-      if (tenantErr || !tenant) throw tenantErr ?? new Error("This school's address could not be found.");
+      const slug = await fetchTenantSlug(tenantId);
       await logOrganizationAccess(organization.id, profile.id, "entered_school_console", tenantId);
-      nav(`/s/${tenant.slug}/admin`);
+      nav(`/s/${slug}/admin`);
     } finally {
       setOpening(false);
     }

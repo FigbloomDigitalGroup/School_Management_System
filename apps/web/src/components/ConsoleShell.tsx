@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, changeMyPassword, groupNav, normalizeSlug, pageIsNotForInstitution, signOutHere, suggestSlug, type Organization, type Role } from "@figbloom/shared";
+import { NAV, changeMyPassword, createMyOrganization, groupNav, normalizeSlug, pageIsNotForInstitution, signOutHere, suggestSlug, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
-import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
 import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type GuideBack, type GuideHost, type GuideOptions } from "./GuidePanel";

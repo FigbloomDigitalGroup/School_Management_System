@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { SCHOOL_LEVEL_OPTIONS, countryProfile, emailOutcomeLine, normalizeSlug, similarSchoolNames, slugAlternatives, suggestSlug, validateSlug, supabase, type Tenant } from "@figbloom/shared";
+import { SCHOOL_LEVEL_OPTIONS, countryProfile, emailOutcomeLine, normalizeSlug, similarSchoolNames, slugAlternatives, suggestSlug, validateSlug, createTenant, fetchOrganizations, inviteAdmin, saveNewSchoolLogo, type InviteAdminResult, type Tenant } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { CountrySelect } from "../../components/ui/CountrySelect";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/Toast";
-import { createTenant, fetchOrganizations, inviteAdmin, type InviteAdminResult } from "../../lib/platformAdmin";
 import { adminInviteError, schoolInsertError } from "../../lib/slugAvailability";
 import { uploadTenantLogo } from "../../lib/uploads";
 import { useAsync } from "../../lib/useAsync";
@@ -109,9 +108,8 @@ export function OnboardSchool({
 
       if (crestFile && !t.logo_url) {
         const logoUrl = await uploadTenantLogo(t.id, crestFile);
-        const { data: updated, error: logoErr } = await supabase()
-          .from("tenants").update({ logo_url: logoUrl }).eq("id", t.id).select("*").single<Tenant>();
-        if (!logoErr && updated) { t = updated; setTenant(t); }
+        const updated = await saveNewSchoolLogo(t.id, logoUrl);
+        if (updated) { t = updated; setTenant(t); }
       }
 
       const result = await inviteAdmin({

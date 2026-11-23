@@ -42,6 +42,7 @@ export * from "./notificationPreferences";
 export * from "./supabase";
 export * from "./demo";
 export * from "./organizations";
+export * from "./platform";
 export * from "./paging";
 export * from "./files";
 export * from "./functionsService";
