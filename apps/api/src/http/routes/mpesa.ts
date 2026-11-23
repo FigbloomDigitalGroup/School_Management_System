@@ -4,6 +4,7 @@ import { createIdentityHandle } from "../../db/sql.js";
 import { withSystemTenantTransaction } from "../../db/systemTenantTransaction.js";
 import { logWarn } from "../../log.js";
 import { parseStkCallback, recordCallbackReceived, settlePrompt } from "../../modules/finance/mpesa.js";
+import { parsePayHeroCallback } from "../../modules/finance/payheroProvider.js";
 import { maskMsisdn } from "../../modules/finance/money.js";
 import { secretsMatch } from "../../modules/finance/mpesaProvider.js";
 import { consumeAuthToken } from "../../modules/auth/rateLimit.js";
@@ -147,5 +148,96 @@ export async function registerMpesaRoutes(app: FastifyInstance, pool: AppPool): 
       );
     }
     return reply.status(200).send({ ResultCode: 0, ResultDesc: "Accepted" });
+  });
+
+  /**
+   * Public PayHero v2 webhook callback. Uses the exact same security & settlement invariants as
+   * `/v1/mpesa/callback`: constant-time `?token=` check, burst/junk rate limiting, cross-tenant
+   * lookup by PayHero reference (checkout_request_id), quarantine on unknown reference, callback
+   * persistence before provider status query confirmation, and idempotent settlement.
+   */
+  app.post("/v1/payhero/callback", async (request, reply) => {
+    const config = app.appConfig;
+    const expectedSecret = config.payheroCallbackSecret ?? config.mpesaCallbackSecret;
+    const token = (request.query as { token?: unknown }).token;
+    const secretOk = Boolean(expectedSecret) && typeof token === "string" && secretsMatch(token, expectedSecret as string);
+    if (!secretOk) {
+      await consumeCallbackToken(
+        pool,
+        {
+          authRateCapacity: config.mpesaCallbackInvalidRateCapacity,
+          authRateRefill: config.mpesaCallbackInvalidRateRefill,
+          authRateIntervalMs: config.mpesaCallbackInvalidRateIntervalMs,
+        },
+        rateLimitBucketForIp("payhero_callback_invalid:ip", junkBucketAddress(clientIp(request))),
+        "invalid_secret",
+      );
+      logWarn("payhero_callback_rejected", { outcome: "bad_secret" });
+      return reply.status(403).send({ error: { code: "forbidden", message: "Access denied", request_id: request.id } });
+    }
+    await consumeCallbackToken(
+      pool,
+      {
+        authRateCapacity: config.mpesaCallbackRateCapacity,
+        authRateRefill: config.mpesaCallbackRateRefill,
+        authRateIntervalMs: config.mpesaCallbackRateIntervalMs,
+      },
+      "payhero_callback:auth",
+      "authenticated",
+    );
+
+    const parsed = parsePayHeroCallback(request.body);
+    if (!parsed) return reply.status(400).send({ error: { code: "validation_error", message: "Invalid callback", request_id: request.id } });
+    const { checkoutRequestId, merchantRequestId, evidence } = parsed;
+
+    const found = await createIdentityHandle(pool).query<{ tenant_id: string | null }>(
+      `SELECT finance_mpesa_tenant_for_checkout($1) AS tenant_id`,
+      [checkoutRequestId],
+    );
+    const tenantId = found.rows[0]?.tenant_id ?? null;
+    if (!tenantId) {
+      await createIdentityHandle(pool).query(`SELECT finance_mpesa_record_unmatched($1, $2, $3, $4, $5, $6)`, [
+        checkoutRequestId,
+        merchantRequestId,
+        evidence.resultCode,
+        evidence.amountMinor,
+        evidence.receipt && /^[A-Z0-9]{6,20}$/.test(evidence.receipt) ? evidence.receipt : null,
+        evidence.msisdn && /^254\d{9}$/.test(evidence.msisdn) ? maskMsisdn(evidence.msisdn) : null,
+      ]);
+      logWarn("payhero_callback_unmatched", { outcome: "quarantined" });
+      return reply.status(200).send({ success: true, status: "Accepted" });
+    }
+
+    const payment = await withSystemTenantTransaction(pool, { tenantId }, async (tx) => {
+      const res = await tx.query<{ id: string; status: string }>(
+        `SELECT id, status FROM finance_payments WHERE tenant_id = $1 AND checkout_request_id = $2 AND method = 'mpesa'`,
+        [tenantId, checkoutRequestId],
+      );
+      return res.rows[0] ?? null;
+    });
+    if (!payment) return reply.status(200).send({ success: true, status: "Accepted" });
+
+    if (payment.status === "pending") {
+      await withSystemTenantTransaction(pool, { tenantId }, (tx) =>
+        recordCallbackReceived(tx, { tenantId, paymentId: payment.id, checkoutRequestId, evidence }),
+      );
+      let queried;
+      try {
+        queried = await app.mpesaProvider.stkQuery(checkoutRequestId);
+      } catch {
+        return reply.status(503).header("Retry-After", "5").send({ error: { code: "service_unavailable", message: "Try again", request_id: request.id } });
+      }
+      const outcome = await withSystemTenantTransaction(pool, { tenantId }, (tx) =>
+        settlePrompt(tx, { tenantId, paymentId: payment.id, source: "callback", query: queried, evidence }),
+      );
+      if (outcome === "provider_pending") {
+        return reply.status(503).header("Retry-After", "5").send({ error: { code: "service_unavailable", message: "Try again", request_id: request.id } });
+      }
+    } else {
+      await withSystemTenantTransaction(pool, { tenantId }, (tx) =>
+        settlePrompt(tx, { tenantId, paymentId: payment.id, source: "callback", query: { done: true, resultCode: 0 }, evidence }),
+      );
+    }
+    return reply.status(200).send({ success: true, status: "Accepted" });
   });
 }

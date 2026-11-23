@@ -99,6 +99,9 @@ const EXPECTED: Record<string, string[]> = {
   finance_ai_helper_settings: ["INSERT", "SELECT"],
   finance_ai_helper_optins: ["INSERT", "SELECT"],
   finance_ai_helper_optin_log: ["INSERT", "SELECT"],
+  finance_bank_statements: ["INSERT", "SELECT"],
+  finance_bank_statement_lines: ["INSERT", "SELECT"],
+  teacher_reports: ["INSERT", "SELECT"],
   // Migration 048 (Stage 12 announcements): UPDATE is column-level only.
   communications_announcements: ["INSERT", "SELECT"],
   communications_announcement_reads: ["INSERT", "SELECT"],
@@ -206,6 +209,8 @@ const EXPECTED_FINANCE_UPDATE_COLUMNS: Record<"figbloom_app" | "figbloom_worker"
     finance_reconciliation_findings: ["assigned_at", "owner_user_id", "resolution_evidence", "resolution_note", "resolved_at", "resolved_by", "status"],
     finance_ai_helper_settings: ["access_mode", "cancel_days", "price_minor", "updated_at", "updated_by"],
     finance_ai_helper_optins: ["changed_at", "changed_by", "opted_in"],
+    finance_bank_statements: ["matched_count", "status", "unmatched_count"],
+    finance_bank_statement_lines: ["match_note", "match_status", "matched_at", "matched_by", "matched_invoice_id", "matched_payment_id"],
   },
   figbloom_worker: {
     // F-8 & F8-A (migrations 047, 061): worker has no direct UPDATE on finance_payments, finance_invoices or jobs.

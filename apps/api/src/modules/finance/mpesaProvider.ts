@@ -1,5 +1,6 @@
 import { timingSafeEqual, createHash } from "node:crypto";
 import type { AppConfig } from "../../config.js";
+import { PayHeroProvider, payheroCallbackUrlWithToken, payheroConfigured } from "./payheroProvider.js";
 
 /**
  * M-Pesa (Safaricom Daraja) provider boundary. Semantics follow the legacy client
@@ -86,15 +87,48 @@ export type MpesaSettings = Pick<
   | "mpesaCallbackUrl"
   | "mpesaCallbackSecret"
   | "mpesaHttpTimeoutMs"
->;
+> &
+  Partial<
+    Pick<
+      AppConfig,
+      | "paymentProvider"
+      | "payheroBaseUrl"
+      | "payheroBasicAuthToken"
+      | "payheroApiUsername"
+      | "payheroApiPassword"
+      | "payheroChannelId"
+      | "payheroCallbackUrl"
+      | "payheroCallbackSecret"
+      | "payheroHttpTimeoutMs"
+    >
+  >;
+
+function toPayHeroSettings(config: MpesaSettings) {
+  return {
+    payheroBaseUrl: config.payheroBaseUrl ?? "https://backend.payhero.co.ke/api/v2",
+    payheroBasicAuthToken: config.payheroBasicAuthToken,
+    payheroApiUsername: config.payheroApiUsername,
+    payheroApiPassword: config.payheroApiPassword,
+    payheroChannelId: config.payheroChannelId,
+    payheroCallbackUrl: config.payheroCallbackUrl,
+    payheroCallbackSecret: config.payheroCallbackSecret,
+    payheroHttpTimeoutMs: config.payheroHttpTimeoutMs ?? 10_000,
+  };
+}
 
 export function callbackUrlWithToken(config: MpesaSettings): string {
+  if (config.paymentProvider === "payhero") {
+    return payheroCallbackUrlWithToken(toPayHeroSettings(config));
+  }
   const url = new URL(config.mpesaCallbackUrl!);
   url.searchParams.set("token", config.mpesaCallbackSecret!);
   return url.toString();
 }
 
 export function mpesaConfigured(config: MpesaSettings): boolean {
+  if (config.paymentProvider === "payhero") {
+    return payheroConfigured(toPayHeroSettings(config));
+  }
   return Boolean(
     config.mpesaConsumerKey &&
       config.mpesaConsumerSecret &&
@@ -212,5 +246,9 @@ export class DarajaProvider implements MpesaProvider {
 }
 
 export function mpesaProviderFromConfig(config: MpesaSettings): MpesaProvider {
+  if (config.paymentProvider === "payhero") {
+    const ph = toPayHeroSettings(config);
+    return payheroConfigured(ph) ? new PayHeroProvider(ph) : new UnconfiguredProvider();
+  }
   return mpesaConfigured(config) ? new DarajaProvider(config) : new UnconfiguredProvider();
 }

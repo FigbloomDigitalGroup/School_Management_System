@@ -15183,10 +15183,9 @@ paths:
                     type: object
                     additionalProperties: true
                   upload:
-                    description: >-
-                      When status is ready, the client must PUT the exact declared byte_size with every header in
-                      requiredHeaders (content-type and content-length are part of the signature); a mismatching
-                      upload is rejected by storage or discarded on completion.
+                    description: When status is ready, the client must PUT the exact declared byte_size with every header in requiredHeaders
+                      (content-type and content-length are part of the signature); a mismatching upload is rejected by
+                      storage or discarded on completion.
                     oneOf:
                       - type: object
                         required:
@@ -16783,6 +16782,398 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/payhero/callback:
+    post:
+      tags:
+        - payhero
+      summary: PayHero v2 payment webhook callback (provider)
+      operationId: payheroCallback
+      x-figbloom-authz: public
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenericObject"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Retry later
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/pdf:
+    get:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Download printable PDF for a fee invoice
+      operationId: financeGetInvoicePdf
+      parameters:
+        - &a12
+          name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: PDF invoice document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericObject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/invoices/{invoiceId}/send:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Send a fee invoice to the learner's parents across selected channels
+      operationId: financeSendInvoice
+      parameters:
+        - *a12
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceSendInvoiceRequest"
+      responses: &a13
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/finance/terms/{termId}/invoices/send:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Bulk send term invoices to parents
+      operationId: financeSendTermInvoices
+      parameters:
+        - *a12
+        - name: termId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceSendTermInvoicesRequest"
+      responses: *a13
+  /v1/tenants/{tenantId}/finance/bank-reconciliation/statements:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Import a bank statement CSV or line list and auto-match fee deposits
+      operationId: financeImportBankStatement
+      parameters:
+        - *a12
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceBankStatementImportRequest"
+      responses: &a14
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericObject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    get:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: List imported bank statements
+      operationId: financeListBankStatements
+      parameters:
+        - *a12
+      responses: *a13
+  /v1/tenants/{tenantId}/finance/bank-reconciliation/statements/{statementId}:
+    get:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.read
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Get bank statement summary and line items
+      operationId: financeGetBankStatement
+      parameters:
+        - *a12
+        - name: statementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses: *a13
+  /v1/tenants/{tenantId}/finance/bank-reconciliation/lines/{lineId}/match:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Match a bank credit line to an existing payment or record a new bank payment against an invoice
+      operationId: financeMatchBankLine
+      parameters:
+        - *a12
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceBankLineMatchRequest"
+      responses: *a13
+  /v1/tenants/{tenantId}/finance/bank-reconciliation/lines/{lineId}/ignore:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.finance.write
+      security:
+        - bearerAuth: []
+      tags:
+        - finance
+      summary: Mark a non-fee bank statement line as ignored
+      operationId: financeIgnoreBankLine
+      parameters:
+        - *a12
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinanceBankLineIgnoreRequest"
+      responses: *a13
+  /v1/tenants/{tenantId}/teacher-reports/interpret-handwriting:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      security:
+        - bearerAuth: []
+      tags:
+        - teacher_reports
+      summary: Interpret a captured handwritten teacher report photo using Vision OCR
+      operationId: teacherReportsInterpretHandwriting
+      parameters:
+        - *a12
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenericObject"
+      responses: *a13
+  /v1/tenants/{tenantId}/teacher-reports:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      security:
+        - bearerAuth: []
+      tags:
+        - teacher_reports
+      summary: Create a typed or OCR-captured teacher report
+      operationId: teacherReportsCreate
+      parameters:
+        - *a12
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenericObject"
+      responses: *a14
+    get:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      security:
+        - bearerAuth: []
+      tags:
+        - teacher_reports
+      summary: List teacher reports
+      operationId: teacherReportsList
+      parameters:
+        - *a12
+      responses: *a13
+  /v1/tenants/{tenantId}/teacher-reports/{reportId}:
+    get:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      security:
+        - bearerAuth: []
+      tags:
+        - teacher_reports
+      summary: Get a teacher report
+      operationId: teacherReportsGet
+      parameters:
+        - *a12
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses: *a13
+    patch:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.read
+      security:
+        - bearerAuth: []
+      tags:
+        - teacher_reports
+      summary: Edit a teacher report (including OCR-captured text) or submit it
+      operationId: teacherReportsUpdate
+      parameters:
+        - *a12
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenericObject"
+      responses: *a13
+  /v1/tenants/{tenantId}/teacher-reports/{reportId}/review:
+    post:
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      security:
+        - bearerAuth: []
+      tags:
+        - teacher_reports
+      summary: Mark a submitted teacher report as reviewed
+      operationId: teacherReportsReview
+      parameters:
+        - *a12
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenericObject"
+      responses: *a13
 components:
   securitySchemes:
     bearerAuth:
@@ -24443,3 +24834,156 @@ components:
         - scope
         - prompt
       additionalProperties: false
+    FinanceSendInvoiceRequest:
+      type: object
+      properties:
+        channels:
+          minItems: 1
+          maxItems: 5
+          type: array
+          items:
+            type: string
+            enum:
+              - in_app
+              - push
+              - email
+              - sms
+              - whatsapp
+        custom_message:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+      additionalProperties: false
+    FinanceSendTermInvoicesRequest:
+      type: object
+      properties:
+        channels:
+          minItems: 1
+          maxItems: 5
+          type: array
+          items:
+            type: string
+            enum:
+              - in_app
+              - push
+              - email
+              - sms
+              - whatsapp
+        status_filter:
+          type: string
+          enum:
+            - unpaid_only
+            - all
+        custom_message:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+      additionalProperties: false
+    FinanceBankStatementImportRequest:
+      type: object
+      properties:
+        bank_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        account_number:
+          type: string
+          minLength: 1
+          maxLength: 60
+        opening_balance_minor:
+          anyOf:
+            - type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            - type: "null"
+        closing_balance_minor:
+          anyOf:
+            - type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            - type: "null"
+        csv_text:
+          type: string
+          minLength: 10
+          maxLength: 500000
+        lines:
+          minItems: 1
+          maxItems: 5000
+          type: array
+          items:
+            type: object
+            properties:
+              txn_date:
+                type: string
+                pattern: ^\d{4}-\d{2}-\d{2}$
+              reference:
+                anyOf:
+                  - type: string
+                    maxLength: 80
+                  - type: "null"
+              description:
+                type: string
+                maxLength: 300
+              amount_minor:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 100000000000
+              direction:
+                type: string
+                enum:
+                  - credit
+                  - debit
+              balance_minor:
+                anyOf:
+                  - type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  - type: "null"
+            required:
+              - txn_date
+              - reference
+              - description
+              - amount_minor
+              - direction
+              - balance_minor
+            additionalProperties: false
+      required:
+        - bank_name
+        - account_number
+      additionalProperties: false
+    FinanceBankLineMatchRequest:
+      type: object
+      properties:
+        payment_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        invoice_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        note:
+          anyOf:
+            - type: string
+              maxLength: 300
+            - type: "null"
+      additionalProperties: false
+    FinanceBankLineIgnoreRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 3
+          maxLength: 300
+      required:
+        - note
+      additionalProperties: false
+    GenericObject:
+      type: object
+      additionalProperties: true
