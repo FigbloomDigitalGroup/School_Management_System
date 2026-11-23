@@ -95,10 +95,13 @@ export async function buildInvoicePdfForTenant(
 
   const [schoolRes, termRes, learnerRes, guardianRes] = await Promise.all([
     tx.query<{ name: string; county: string | null; moe_registration: string | null; contact_email: string | null; contact_phone: string | null }>(
-      `SELECT name, county, moe_registration, contact_email, contact_phone FROM tenants WHERE id = $1`,
+      `SELECT t.name, p.county, p.moe_registration, p.contact_email, p.contact_phone
+         FROM tenants t
+         LEFT JOIN school_profiles p ON p.tenant_id = t.id
+        WHERE t.id = $1`,
       [input.tenantId],
     ),
-    tx.query<{ name: string }>(`SELECT name FROM academic_terms WHERE tenant_id = $1 AND id = $2`, [input.tenantId, detail.invoice.term_id]),
+    tx.query<{ label: string }>(`SELECT label FROM academic_terms WHERE tenant_id = $1 AND id = $2`, [input.tenantId, detail.invoice.term_id]),
     tx.query<{ full_name: string; admission_no: string; boarding: boolean }>(
       `SELECT full_name, admission_no, boarding FROM learners WHERE tenant_id = $1 AND id = $2`,
       [input.tenantId, detail.invoice.learner_id],
@@ -123,7 +126,7 @@ export async function buildInvoicePdfForTenant(
     schoolMoeReg: school.moe_registration,
     schoolEmail: school.contact_email,
     schoolPhone: school.contact_phone,
-    termName: termRes.rows[0]?.name ?? "Current Term",
+    termName: termRes.rows[0]?.label ?? "Current Term",
     learnerName: learner.full_name,
     admissionNo: learner.admission_no,
     boarding: learner.boarding,

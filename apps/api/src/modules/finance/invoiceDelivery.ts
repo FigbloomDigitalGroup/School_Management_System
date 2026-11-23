@@ -223,12 +223,8 @@ export async function prepareInvoiceDelivery(
     email: string | null;
     phone: string | null;
     is_primary_payer: boolean;
-    user_id: string | null;
   }>(
-    `SELECT g.id, g.full_name, g.email, g.phone, gl.is_primary_payer,
-            (SELECT ga.user_id FROM guardian_accounts ga
-              WHERE ga.tenant_id = g.tenant_id AND ga.guardian_id = g.id AND ga.revoked_at IS NULL
-              LIMIT 1) AS user_id
+    `SELECT g.id, g.full_name, g.email, g.phone, gl.is_primary_payer
        FROM guardian_links gl
        JOIN guardians g ON g.tenant_id = gl.tenant_id AND g.id = gl.guardian_id
       WHERE gl.tenant_id = $1 AND gl.learner_id = $2 AND gl.archived_at IS NULL AND g.active
@@ -241,7 +237,7 @@ export async function prepareInvoiceDelivery(
     fullName: r.full_name,
     email: r.email,
     phone: r.phone,
-    userId: r.user_id,
+    userId: null,
     isPrimaryPayer: r.is_primary_payer,
   }));
 
