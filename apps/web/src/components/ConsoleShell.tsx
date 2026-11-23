@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, changeMyPassword, createMyOrganization, groupNav, normalizeSlug, pageIsNotForInstitution, signOutHere, suggestSlug, type Organization, type Role } from "@figbloom/shared";
+import { NAV, apiChangePassword, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
@@ -162,7 +162,8 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
   const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings", staff: "staff/account" };
-  const accountTo = ACCOUNT_ROUTE[role];
+  // The account screens are not on the new API yet: no "My account" there, only Accessibility, Change password and Sign out.
+  const accountTo = onApi() ? undefined : ACCOUNT_ROUTE[role];
   const accountHref = accountTo
     ? (tenantScoped ? `/s/${slug}/${accountTo}` : orgScoped ? `/org/${orgSlug}/${accountTo}` : accountTo)
     : null;
@@ -671,6 +672,9 @@ function CreateOrganizationModal({ onClose }: { onClose: () => void }) {
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
+  // On the new API the server asks for the current password too, and ends the person's other sessions.
+  const askCurrent = onApi();
+  const [current, setCurrent] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -678,15 +682,18 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
   async function submit() {
     setError("");
+    if (askCurrent && !current) { setError("Enter your current password."); return; }
     if (password.length < 8) { setError("At least 8 characters."); return; }
     if (password !== confirm) { setError("The passwords don't match."); return; }
     setBusy(true);
     try {
-      await changeMyPassword(password);
+      if (askCurrent) await apiChangePassword(current, password);
+      else await changeMyPassword(password);
       toast("Password changed.");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change the password.");
+      if (askCurrent) setError(isApiError(err) && err.code === "unauthorized" ? "The current password is not right." : userMessage(err));
+      else setError(err instanceof Error ? err.message : "Could not change the password.");
     } finally {
       setBusy(false);
     }
@@ -712,6 +719,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
       }
     >
       <form onSubmit={handleSubmit} className="grid gap-3.5">
+        {askCurrent && <TextField id="current-pw" label="Current password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
         <TextField id="new-pw" label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} hint="At least 8 characters." />
         <TextField id="new-pw2" label="Confirm password" type="password" value={confirm} error={error} onChange={(e) => setConfirm(e.target.value)} />
       </form>

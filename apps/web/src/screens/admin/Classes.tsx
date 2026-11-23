@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, saveClassTimetable, setClassTeacher, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
+import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, saveClassTimetable, setClassTeacher, setupCapabilities, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
 import type { ClassGroup, ClassLevel, Pathway } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -65,6 +65,8 @@ function PathwaySelect({ value, onChange }: { value: Pathway | ""; onChange: (p:
 export function AdminClasses() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
+  // What the backend can do: on the new API a class's teacher is chosen when it is made, and there is no room, promotion, timetable or delete yet.
+  const caps = setupCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClassesOverview(tenant.id), [tenant.id, reloadKey]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
@@ -135,10 +137,12 @@ export function AdminClasses() {
                 ? [{ key: "level", header: "Level", render: (c: ClassGroup) => <Cell sub={c.pathway ? PATHWAY_LABEL[c.pathway] : undefined}>{levelOptionLabel(c.level)}</Cell> }]
                 : []),
               { key: "form", header: "Year", render: (c: ClassGroup) => <Mono>{yearLabel(c.level, c.form_level)}</Mono> },
-              { key: "room", header: "Room", render: (c: ClassGroup) => <span className="text-[13px]">{c.room ?? "—"}</span> },
+              ...(caps.classRoom ? [{ key: "room", header: "Room", render: (c: ClassGroup) => <span className="text-[13px]">{c.room ?? "—"}</span> }] : []),
               {
                 key: "teacher", header: "Class teacher", width: "1.4fr",
-                render: (c: ClassGroup) => (
+                render: (c: ClassGroup) => !caps.changeClassTeacher ? (
+                  <span className="text-[13px]">{(data.teachers ?? []).find((t) => t.id === c.class_teacher_id)?.full_name ?? "—"}</span>
+                ) : (
                   <select
                     value={c.class_teacher_id ?? ""}
                     onChange={(e) => void changeClassTeacher(c.id, e.target.value)}
@@ -158,6 +162,7 @@ export function AdminClasses() {
                 key: "actions", header: "", align: "right", width: "2fr",
                 render: (c: ClassGroup) => (
                   <div className="flex justify-end gap-3">
+                    {caps.promoteClass && (
                     <button
                       type="button"
                       onClick={() => setPromotingFrom(c)}
@@ -165,6 +170,7 @@ export function AdminClasses() {
                     >
                       Promote
                     </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setEditingSubjectsFor(c)}
@@ -172,6 +178,7 @@ export function AdminClasses() {
                     >
                       Subjects
                     </button>
+                    {caps.classTimetable && (
                     <button
                       type="button"
                       onClick={() => setEditingTimetableFor(c)}
@@ -179,6 +186,8 @@ export function AdminClasses() {
                     >
                       Timetable
                     </button>
+                    )}
+                    {caps.deleteClass && (
                     <button
                       type="button"
                       onClick={() => void removeClass(c)}
@@ -186,6 +195,7 @@ export function AdminClasses() {
                     >
                       Delete
                     </button>
+                    )}
                   </div>
                 ),
               },
@@ -516,6 +526,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
           </label>
         </div>
         <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {setupCapabilities().classRoom && (
           <label className="block">
             <span className="mb-1.5 block text-[12.5px] font-semibold">Room (optional)</span>
             <input
@@ -525,6 +536,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
               className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none"
             />
           </label>
+          )}
           <label className="block">
             <span className="mb-1.5 block text-[12.5px] font-semibold">Class teacher (optional)</span>
             <select

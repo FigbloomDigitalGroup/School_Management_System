@@ -1,7 +1,8 @@
-# The web app on the new API (FIG-1890, first slice)
+# The web app on the new API (FIG-1890: sign-in, then school setup)
 
-Written 2026-11-23. This is the first step of moving the web app from Supabase to `apps/api`: the client, the
-switch, and sign-in. Everything else in the web app still reads Supabase and is **not in an API build**.
+Written 2026-11-23. The first steps of moving the web app from Supabase to `apps/api`: the client, the switch, sign-in,
+and the school-setup screens (School settings, Classes, Subjects). Everything else in the web app still reads Supabase
+and is **not in an API build**.
 
 ## What a build is
 
@@ -25,7 +26,14 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Two-step verification**: set up (key, recovery codes shown once, first code) and answer (code or recovery code).
   The API requires it for school admins, org admins, super admins and anyone holding the Fees area.
 - A kept session survives a reload; a sign-out, or a session the server ended, signs every tab out.
-- A page at `/s/<slug>` showing who is signed in, their school and admin areas, and a "check the connection" button.
+- The admin console shell (the same menu and page gate as the Supabase app) with the pages below. A person with no admin
+  console (a parent, a teacher with no admin areas) gets a plain page showing who is signed in, their school, and a
+  "check the connection" button.
+- **School settings**: start a term (the year is made if it is not there), the school's name, county and MOE registration,
+  and its accent colour.
+- **Classes**: list (the current year's), add one or several, and who the class teacher is (chosen when the class is made).
+- **Subjects**: list, add one or several (a code and a name).
+- **Subjects in a class**: name the teacher of a subject in a class.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -37,6 +45,29 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 | The re-enter-password prompt (`reauth_required`) | The client supports it (`setApiAuthHandlers`), but no screen on the API build does a sensitive action yet. The two-step set-up asks for the password inline |
 | A QR code for two-step set-up | The key is shown for typing in, with an `otpauth://` link for a phone. A QR needs a small library; left for a decision |
 | Every other screen | Each area moves over on its own, after its shared module is on the API (FIG-1889 onwards) |
+
+### Setup screens: what the API cannot do yet
+
+The setup screens are the Supabase app's own screens. Each control the API has no endpoint for is hidden on an API build
+(`packages/shared/src/capabilities.ts`, `setupCapabilities()`), and the shared function behind it throws `NotOnApiError`.
+Each flag is one missing endpoint; when the API gains it, the flag turns on and the function gets its API branch.
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Change a class's teacher after it is made | no `PATCH` on a class (a teacher is chosen at creation) |
+| Delete a class | no delete or archive for a class |
+| A class's room | the class has no room field |
+| Promote a class | no promotion, no learner move or archive in bulk (class memberships are assigned one at a time) |
+| A class's timetable | timetable slots can be made and listed, not edited; not ported yet |
+| Edit a subject; a subject's level, year range and core flag; adding from the KICD catalogue | a subject is a code and a name, and cannot be updated |
+| Change or clear a subject's teacher in a class | a teaching assignment can be made, not changed or removed |
+| Fee structure and payment methods steps; the school crest; the AI settings | not in the API (fees are their own area) or need storage |
+
+Where the model differs it is mapped in `packages/shared/src/api/setupApi.ts`: a class belongs to an academic year (the screen
+shows the current year's classes, and a class needs a current year, which "Start a term" makes); a teacher is a staff record,
+so every teacher id on an API build is a staff id; a term "starts" by finding or making the year, making the term, and
+setting both current; the API has no batch for classes or subjects, so "bulk add" sends them one at a time and says how
+many were made if one is refused.
 
 ## Where the code is
 
@@ -81,3 +112,8 @@ inside the same 30 seconds needs the next code.
    `{ [key: string]: unknown }`. The client checks what it reads and types the MFA answers by hand from
    `apps/api/src/http/routes/auth.ts`.
 4. A POST with `Content-Type: application/json` and no body is a 400. The client only sends the header with a body.
+5. A teacher holding only the Academics area may read classes and subjects but not the staff list (`resource.staff.read`),
+   so they see no class-teacher names and have no teachers to pick. A teacher list readable with Academics, or the
+   teacher's name in the class record, would fix it.
+6. Edit and remove for classes, subjects and teaching assignments, and a bulk create for classes and subjects, are the
+   gaps the setup screens hit (the table above).

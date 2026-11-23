@@ -108,3 +108,4 @@ export * from "./guide";
 export * from "./suspended";
 export * from "./backend";
 export * from "./api";
+export * from "./capabilities";

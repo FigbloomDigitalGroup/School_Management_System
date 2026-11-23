@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  LEVELS, PATHWAY_LABEL, createSubject, createSubjects, fetchLearningAreas, fetchSubjects, isValidYear, levelsForTenant, updateSubject, yearLabel,
+  LEVELS, PATHWAY_LABEL, createSubject, createSubjects, fetchLearningAreas, fetchSubjects, isValidYear, levelsForTenant, setupCapabilities, updateSubject, yearLabel,
   yearRangeLabel, yearsBackwards,
   type ClassLevel, type LearningArea, type Pathway, type Subject,
 } from "@figbloom/shared";
@@ -69,6 +69,8 @@ function rangeLabel(s: Subject, unit: string): string {
 export function AdminSubjects() {
   const toast = useToast();
   const { tenant } = useTenantSession();
+  // On the new API a subject is a code and a name: no level or year range, no KICD catalogue, and no editing yet.
+  const caps = setupCapabilities();
   const unit = tenant.level === "primary" ? "Grade" : "Form";
   const [reloadKey, setReloadKey] = useState(0);
   const { data: subjects, loading, error } = useAsync(() => fetchSubjects(tenant.id), [tenant.id, reloadKey]);
@@ -194,7 +196,7 @@ export function AdminSubjects() {
         actions={
           <>
             {subjects && subjects.length > 0 && <Button onClick={() => downloadSubjectsCsv(subjects, unit)}>Export CSV</Button>}
-            <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>
+            {caps.subjectDetails && <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>}
           </>
         }
       />
@@ -211,15 +213,20 @@ export function AdminSubjects() {
               <p className="text-[12.5px] text-ink-muted">No subjects yet — add the school's first one below.</p>
             ) : (
               <ul className="grid gap-1.5">
-                {subjects.map((s) => (
+                {subjects.map((s) => caps.editSubject ? (
                   <SubjectRow key={s.id} subject={s} unit={unit} onSaved={reload} toast={toast} />
+                ) : (
+                  <li key={s.id} className="flex items-center gap-2.5 rounded-lg border border-line-soft px-3 py-2">
+                    <span className="min-w-0 flex-1 text-[13px] font-medium">{s.name}</span>
+                    <span className="font-mono text-[11px] text-ink-faint">{s.code}</span>
+                  </li>
                 ))}
               </ul>
             )}
 
             <div className="grid gap-2.5 rounded-lg border border-line-soft bg-white p-3.5">
               <h2 className="text-[13px] font-semibold">New subject</h2>
-              <div className="grid gap-2.5" style={{ gridTemplateColumns: "1.6fr 0.8fr 1.2fr 0.8fr 0.8fr" }}>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: caps.subjectDetails ? "1.6fr 0.8fr 1.2fr 0.8fr 0.8fr" : "1.6fr 0.8fr" }}>
                 <label className="block">
                   <span className="mb-1 block text-[11.5px] font-semibold">Name</span>
                   <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Computer Studies"
@@ -230,6 +237,7 @@ export function AdminSubjects() {
                   <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="COMP"
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 font-mono text-[13px] outline-none" />
                 </label>
+                {caps.subjectDetails && (<>
                 <label className="block">
                   <span className="mb-1 block text-[11.5px] font-semibold">Level</span>
                   <select value={level} onChange={(e) => setLevel(e.target.value as ClassLevel | "")}
@@ -248,12 +256,15 @@ export function AdminSubjects() {
                   <input value={maxForm} onChange={(e) => setMaxForm(e.target.value)} placeholder="Any" inputMode="numeric"
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
                 </label>
+                </>)}
               </div>
+              {caps.subjectDetails && (
               <p className="text-[11px] text-ink-faint">
                 {level
                   ? `Years are numbered as ${LEVELS[level].label.toLowerCase()} numbers them (${yearLabel(level, LEVELS[level].min)} is ${LEVELS[level].min}). Leave blank for all of ${LEVELS[level].label.toLowerCase()}.`
                   : `Leave "From"/"To" blank for a subject every class offers, regardless of ${unit.toLowerCase()}.`}
               </p>
+              )}
               <Button className="justify-self-start" onClick={() => void addSubject()} disabled={creating}>
                 {creating ? "Adding…" : "Add subject"}
               </Button>
@@ -279,8 +290,10 @@ export function AdminSubjects() {
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none"
                   />
                   <span className="mt-1 block text-[11px] text-ink-faint">
-                    "Name", "Name,CODE", or "Name,CODE,{unit.toUpperCase()}RANGE" (e.g. "1-2", or just "3" for one {unit.toLowerCase()} only) — a code
-                    left out is generated from the name, a range left out means every {unit.toLowerCase()}.
+                    {caps.subjectDetails
+                      ? <>"Name", "Name,CODE", or "Name,CODE,{unit.toUpperCase()}RANGE" (e.g. "1-2", or just "3" for one {unit.toLowerCase()} only) — a code
+                    left out is generated from the name, a range left out means every {unit.toLowerCase()}.</>
+                      : <>"Name" or "Name,CODE" — a code left out is generated from the name.</>}
                   </span>
                 </label>
                 <Button variant="primary" className="justify-self-start" onClick={() => void createBulkSubjects()} disabled={bulkCreating || !bulkText.trim()}>

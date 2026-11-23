@@ -1,3 +1,9 @@
+import {
+  apiCreateClass, apiCreateClasses, apiCreateSubject, apiCreateSubjects, apiFetchClassSubjects, apiFetchClassesOverview, apiFetchSubjects,
+  apiFetchTermSetup, apiSaveSchoolAccent, apiSaveSchoolDetails, apiSetClassSubjectTeacher, apiStartTerm,
+} from "./api/setupApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { subjectOffered, yearSortKey, type Pathway } from "./levels";
 import { supabase } from "./supabase";
 import type { ClassGroup, ClassLevel, Profile, Subject, Term } from "./types";
@@ -10,6 +16,9 @@ import type { ClassGroup, ClassLevel, Profile, Subject, Term } from "./types";
  * Nothing here changes what the apps do. Each function is the call a screen made before, with the same filters, the same
  * order and the same errors: a call that threw the database's own error still does, and one that threw
  * `new Error(message)` still does.
+ *
+ * On an API build (`onApi()`) each function answers from apps/api (api/setupApi.ts). What the API cannot do yet throws
+ * NotOnApiError, and the screen does not offer it (capabilities.ts `setupCapabilities`).
  */
 
 interface TeacherOption { id: string; full_name: string }
@@ -27,6 +36,7 @@ export interface ClassesOverview {
 
 /** Everything the Classes screen shows: the classes, the school's teachers and subjects, and how many learners each class has. */
 export async function fetchClassesOverview(tenantId: string): Promise<ClassesOverview> {
+  if (onApi()) return apiFetchClassesOverview(tenantId);
   const sb = supabase();
   const [{ data: classRows, error: e1 }, { data: teacherRows, error: e2 }, { data: studentRows, error: e3 }, { data: subjectRows, error: e4 }] = await Promise.all([
     sb.from("classes").select("*").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassGroup[]>(),
@@ -76,23 +86,27 @@ function classRow(tenantId: string, c: NewClass) {
 
 /** Adds one class. Throws the database's answer when it refuses. */
 export async function createClass(tenantId: string, c: NewClass): Promise<void> {
+  if (onApi()) return apiCreateClass(tenantId, c);
   const { error } = await supabase().from("classes").insert(classRow(tenantId, c));
   if (error) throw error;
 }
 
 /** Adds several classes in one request: all of them or none. */
 export async function createClasses(tenantId: string, classes: NewClass[]): Promise<void> {
+  if (onApi()) return apiCreateClasses(tenantId, classes);
   const { error } = await supabase().from("classes").insert(classes.map((c) => classRow(tenantId, c)));
   if (error) throw error;
 }
 
 /** Gives a class its class teacher, or takes the teacher off with null. */
 export async function setClassTeacher(classId: string, teacherId: string | null): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Changing a class's teacher");
   const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
   if (error) throw error;
 }
 
 export async function deleteClass(classId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Deleting a class");
   const { error } = await supabase().from("classes").delete().eq("id", classId);
   if (error) throw error;
 }
@@ -116,6 +130,7 @@ export interface TermSetupData {
  * always did.
  */
 export async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
+  if (onApi()) return { ...(await apiFetchTermSetup(tenantId)), feeItemsCount: 0 };
   const sb = supabase();
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
@@ -145,6 +160,7 @@ export async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
  * together, so a term the database refuses leaves the school with the term it had (FIG-1427).
  */
 export async function startTerm(input: { tenantId: string; year: number; index: 1 | 2 | 3; startsOn: string; endsOn: string }): Promise<void> {
+  if (onApi()) return apiStartTerm(input);
   const { error } = await supabase().rpc("start_term", {
     p_tenant_id: input.tenantId, p_year: input.year, p_index: input.index, p_starts_on: input.startsOn, p_ends_on: input.endsOn,
   });
@@ -152,6 +168,7 @@ export async function startTerm(input: { tenantId: string; year: number; index: 
 }
 
 export async function saveSchoolDetails(tenantId: string, details: { name: string; county: string; moeRegistration: string }): Promise<void> {
+  if (onApi()) return apiSaveSchoolDetails(tenantId, details);
   const { error } = await supabase().rpc("set_school_details", {
     p_tenant_id: tenantId,
     p_name: details.name,
@@ -165,6 +182,7 @@ export async function saveSchoolPaymentMethods(
   tenantId: string,
   methods: { paybill: string; till: string; bankDetails: string; notes: string },
 ): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Payment methods");
   const { error } = await supabase().rpc("set_school_payment_methods", {
     p_tenant_id: tenantId,
     p_paybill: methods.paybill,
@@ -176,11 +194,13 @@ export async function saveSchoolPaymentMethods(
 }
 
 export async function saveSchoolLogo(tenantId: string, logoUrl: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("The school crest");
   const { error } = await supabase().rpc("set_school_logo", { p_tenant_id: tenantId, p_logo_url: logoUrl });
   if (error) throw error;
 }
 
 export async function saveSchoolAccent(tenantId: string, accent: string): Promise<void> {
+  if (onApi()) return apiSaveSchoolAccent(tenantId, accent);
   const { error } = await supabase().rpc("set_school_accent", { p_tenant_id: tenantId, p_accent: accent });
   if (error) throw error;
 }
@@ -191,6 +211,7 @@ export interface PromotionRosterRow { id: string; full_name: string; admission_n
 
 /** The class's active learners, by name. */
 export async function fetchPromotionRoster(classId: string): Promise<PromotionRosterRow[]> {
+  if (onApi()) throw new NotOnApiError("Promoting a class");
   const { data, error } = await supabase()
     .from("students").select("id, full_name, admission_no, profile_id").eq("class_id", classId).eq("active", true).order("full_name")
     .returns<PromotionRosterRow[]>();
@@ -203,6 +224,7 @@ export async function fetchPromotionRoster(classId: string): Promise<PromotionRo
  * against. A learner with no marks on record has no entry, so the bulk action leaves them untouched rather than guessing.
  */
 export async function fetchLatestExamMeans(tenantId: string, studentIds: string[]): Promise<Map<string, number>> {
+  if (onApi()) throw new NotOnApiError("Promoting a class");
   const out = new Map<string, number>();
   if (!studentIds.length) return out;
   const { data: examRows, error: e1 } = await supabase()
@@ -230,18 +252,21 @@ export async function fetchLatestExamMeans(tenantId: string, studentIds: string[
 
 /** Takes learners off the roll (graduated, or withdrawn). A plain update: no archive stamp, as before (FIG-1420). */
 export async function markLearnersLeft(studentIds: string[]): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Promoting a class");
   const { error } = await supabase().from("students").update({ active: false }).in("id", studentIds);
   if (error) throw error;
 }
 
 /** Moves learners to another class. */
 export async function moveLearnersToClass(classId: string, studentIds: string[]): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Promoting a class");
   const { error } = await supabase().from("students").update({ class_id: classId }).in("id", studentIds);
   if (error) throw error;
 }
 
 /** Every guardian's profile id, by learner. */
 export async function fetchGuardianProfileIds(studentIds: string[]): Promise<Map<string, string[]>> {
+  if (onApi()) throw new NotOnApiError("Promoting a class");
   const { data, error } = await supabase()
     .from("guardians").select("student_id, profile_id")
     .in("student_id", studentIds)
@@ -263,6 +288,7 @@ export interface InAppNotice { userId: string; subject: string; body: string }
 /** Sends each person their notice in the app (no SMS or email), published now. Sends nothing for an empty list. */
 export async function sendInAppNotices(input: { tenantId: string; authorId: string; notices: InAppNotice[] }): Promise<void> {
   if (input.notices.length === 0) return;
+  if (onApi()) throw new NotOnApiError("Sending notices");
   const now = new Date().toISOString();
   const { error } = await supabase().from("announcements").insert(input.notices.map((n) => ({
     tenant_id: input.tenantId, author_id: input.authorId, subject: n.subject, body: n.body,
@@ -276,6 +302,7 @@ export async function sendInAppNotices(input: { tenantId: string; authorId: stri
 
 /** The school's subjects, by name. */
 export async function fetchSubjects(tenantId: string): Promise<Subject[]> {
+  if (onApi()) return apiFetchSubjects(tenantId);
   const { data, error } = await supabase().from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -304,12 +331,14 @@ function subjectRow(tenantId: string, s: NewSubject) {
 }
 
 export async function createSubject(tenantId: string, subject: NewSubject): Promise<void> {
+  if (onApi()) return apiCreateSubject(tenantId, subject);
   const { error } = await supabase().from("subjects").insert(subjectRow(tenantId, subject));
   if (error) throw error;
 }
 
 /** Adds several subjects in one request: all of them or none. */
 export async function createSubjects(tenantId: string, subjects: NewSubject[]): Promise<void> {
+  if (onApi()) return apiCreateSubjects(tenantId, subjects);
   const { error } = await supabase().from("subjects").insert(subjects.map((s) => subjectRow(tenantId, s)));
   if (error) throw error;
 }
@@ -318,6 +347,7 @@ export async function updateSubject(
   subjectId: string,
   fields: { name: string; code: string; minFormLevel: number | null; maxFormLevel: number | null },
 ): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Editing a subject");
   const { error } = await supabase().from("subjects").update({
     name: fields.name, code: fields.code,
     min_form_level: fields.minFormLevel, max_form_level: fields.maxFormLevel,
@@ -333,6 +363,7 @@ export interface ClassSubjectsData {
 
 /** The subjects a class takes and who teaches each, with which teachers are qualified for which subject. */
 export async function fetchClassSubjects(tenantId: string, classId: string, classLevel: ClassLevel, formLevel: number): Promise<ClassSubjectsData> {
+  if (onApi()) return apiFetchClassSubjects(tenantId, classId);
   const sb = supabase();
   const [{ data: subjects, error: e1 }, { data: assignments, error: e2 }, { data: specializations, error: e3 }] = await Promise.all([
     sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),
@@ -363,6 +394,7 @@ export async function fetchClassSubjects(tenantId: string, classId: string, clas
 
 /** Names the teacher of one subject in one class, or clears it with null. This is the only place teaching assignments are made. */
 export async function setClassSubjectTeacher(input: { tenantId: string; classId: string; subjectId: string; teacherId: string | null }): Promise<void> {
+  if (onApi()) return apiSetClassSubjectTeacher(input);
   if (!input.teacherId) {
     const { error } = await supabase().from("teaching_assignments")
       .delete().eq("class_id", input.classId).eq("subject_id", input.subjectId);

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   accentFor, fetchTermSetup, gradingSchemeFor, saveSchoolAccent, saveSchoolDetails, saveSchoolLogo, saveSchoolPaymentMethods, schoolAccents, setClassTeacher,
-  startTerm, yearGroupsOf, yearLabel,
+  setupCapabilities, startTerm, yearGroupsOf, yearLabel,
 } from "@figbloom/shared";
 import type { Profile } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -26,7 +26,9 @@ export function TermSetup() {
   const toast = useToast();
   const navigate = useNavigate();
   const { tenant } = useTenantSession();
-  const [open, setOpen] = useState<string | null>("teachers");
+  // What the backend can do: on the new API there are no fees, payment methods or crest yet, and a class teacher is chosen when the class is made.
+  const caps = setupCapabilities();
+  const [open, setOpen] = useState<string | null>(caps.changeClassTeacher ? "teachers" : "term");
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchTermSetup(tenant.id), [tenant.id, reloadKey]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
@@ -183,7 +185,7 @@ export function TermSetup() {
   const schemes = new Set(yearGroups.map((g) => gradingSchemeFor(tenant.country, g.level)));
   const gradingNote = [schemes.has("cbc") && "CBC rubric (EE–BE)", schemes.has("kcse") && "12-point KCSE scale"].filter(Boolean).join(" and ");
 
-  const steps = data
+  const allSteps = data
     ? [
         {
           id: "term", label: "Term dates", done: !!data.term,
@@ -212,10 +214,12 @@ export function TermSetup() {
             : "No fee items have been set up for this term yet.",
         },
         {
-          id: "branding", label: "School crest and accent", done: Boolean(logoUrl),
-          note: logoUrl
-            ? `A crest is set and the accent is ${accentFor(savedAccent).name}. Change either any time.`
-            : "No crest uploaded yet — the school's initials are shown instead.",
+          id: "branding", label: caps.schoolCrest ? "School crest and accent" : "School accent", done: caps.schoolCrest ? Boolean(logoUrl) : true,
+          note: !caps.schoolCrest
+            ? `The accent is ${accentFor(savedAccent).name}. Change it any time.`
+            : logoUrl
+              ? `A crest is set and the accent is ${accentFor(savedAccent).name}. Change either any time.`
+              : "No crest uploaded yet — the school's initials are shown instead.",
         },
         {
           id: "payment", label: "Payment methods", done: paymentSet,
@@ -229,6 +233,13 @@ export function TermSetup() {
         },
       ]
     : [];
+  // A step is shown only where the backend can do it.
+  const hidden = new Set<string>([
+    ...(caps.feeSetup ? [] : ["fees", "payment"]),
+    ...(caps.changeClassTeacher ? [] : ["teachers"]),
+    ...(caps.promoteClass ? [] : ["roll"]),
+  ]);
+  const steps = allSteps.filter((s) => !hidden.has(s.id));
   const done = steps.filter((s) => s.done).length;
 
   return (
@@ -236,7 +247,7 @@ export function TermSetup() {
       <PageHead
         eyebrow="School settings"
         title={data?.term ? `Set up ${data.term.name}` : "Set up this term"}
-        blurb="Do these in any order and come back as often as you need. Nothing here is visible to parents until the fee structure is published."
+        blurb={`Do these in any order and come back as often as you need.${caps.feeSetup ? " Nothing here is visible to parents until the fee structure is published." : ""}`}
       />
 
       <div className="max-w-[720px] px-7 py-6">
@@ -402,6 +413,7 @@ export function TermSetup() {
                           </div>
                         ) : s.id === "branding" ? (
                           <div className="grid gap-5">
+                          {caps.schoolCrest && (
                           <form onSubmit={handleSaveCrest} className="flex flex-wrap items-end gap-3">
                             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-white">
                               {logoUrl ? (
@@ -424,6 +436,7 @@ export function TermSetup() {
                               {savingCrest ? "Uploading…" : "Save crest"}
                             </Button>
                           </form>
+                          )}
                           <div className="flex flex-wrap items-end gap-3">
                             <div className="min-w-[200px] flex-1">
                               <span className="mb-1.5 block text-[12px] font-semibold">Accent colour</span>
@@ -552,15 +565,17 @@ export function TermSetup() {
           </>
         )}
 
-        <div className="mt-5 rounded-xl bg-sunken p-4">
-          <h2 className="text-[13px] font-semibold">When you publish the fee structure</h2>
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
-            Every parent gets an invoice in the app and an SMS with the balance. It cannot be unsent, so the composer
-            shows the total billed and the number of parents before it goes.
-          </p>
-        </div>
+        {caps.feeSetup && (
+          <div className="mt-5 rounded-xl bg-sunken p-4">
+            <h2 className="text-[13px] font-semibold">When you publish the fee structure</h2>
+            <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
+              Every parent gets an invoice in the app and an SMS with the balance. It cannot be unsent, so the composer
+              shows the total billed and the number of parents before it goes.
+            </p>
+          </div>
+        )}
 
-        <AiSettings tenantId={tenant.id} />
+        {caps.aiSettings && <AiSettings tenantId={tenant.id} />}
       </div>
     </>
   );
