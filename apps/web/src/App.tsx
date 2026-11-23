@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { adminAccessFor, fetchMyOrganizations, showsLeaveToApprove, showsStaffLeave, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, pageIsNotForInstitution, pageOfPath, roleLabel, showsAdminSwitch, showsMyHr, signOutHere, subscribeAnnouncements, supabase, type Role, type Tenant } from "@figbloom/shared";
+import { adminAccessFor, fetchMyOrganizations, fetchPlatformNavCounts, showsLeaveToApprove, showsStaffLeave, fetchParentUnreadCount, fetchTeacherUnreadNoticeCount, homeRouteFor, logOrganizationAccess, mayOpenAdminPage, NAV, pageIsNotForInstitution, pageOfPath, roleLabel, showsAdminSwitch, showsMyHr, signOutHere, subscribeAnnouncements, type Role, type Tenant } from "@figbloom/shared";
 import { TenantTheme } from "./components/TenantTheme";
 import { ConfirmHost } from "./components/ui/Confirm";
 import { ToastHost } from "./components/ui/Toast";
@@ -170,16 +170,11 @@ const PLATFORM_PAGES: Record<string, JSX.Element> = {
 
 /** Counts, not fake round numbers — a badge is omitted rather than shown as "0". */
 async function fetchNavBadges(): Promise<Record<string, string>> {
-  const sb = supabase();
-  const [{ count: tenantCount }, { count: openIncidents }, { count: dueInvoices }] = await Promise.all([
-    sb.from("tenants").select("id", { count: "exact", head: true }),
-    sb.from("platform_incidents").select("id", { count: "exact", head: true }).neq("status", "resolved"),
-    sb.from("platform_invoices").select("id", { count: "exact", head: true }).eq("status", "due"),
-  ]);
+  const counts = await fetchPlatformNavCounts();
   const badges: Record<string, string> = {};
-  if (tenantCount) badges["/platform/tenants"] = String(tenantCount);
-  if (openIncidents) badges["/platform/incidents"] = String(openIncidents);
-  if (dueInvoices) badges["/platform/invoices"] = String(dueInvoices);
+  if (counts.tenants) badges["/platform/tenants"] = String(counts.tenants);
+  if (counts.openIncidents) badges["/platform/incidents"] = String(counts.openIncidents);
+  if (counts.dueInvoices) badges["/platform/invoices"] = String(counts.dueInvoices);
   return badges;
 }
 

@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { formatMoney, formatShortDate, supabase, tenantPath, type Organization, type Tenant } from "@figbloom/shared";
+import {
+  activateTenant, assignTenantOrganization, fetchOrganizations, fetchPlatformTenantOverview, formatMoney, formatShortDate, giveSchoolOwnOrganization, tenantPath,
+  type Organization, type Tenant,
+} from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -9,7 +12,6 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
-import { activateTenant, assignTenantOrganization, fetchOrganizations, giveSchoolOwnOrganization } from "../../lib/platformAdmin";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
 /** The organisation select's "a new one of its own" choice (not an organisation id). */
@@ -17,32 +19,6 @@ const OWN_ORGANIZATION = "__own__";
 
 const TABS = ["Overview", "Usage", "Billing", "Branding", "Audit log"] as const;
 type Tab = (typeof TABS)[number];
-
-interface TenantOverview {
-  learners: number;
-  staff: number;
-  parents: number;
-  outstandingCents: number;
-  nextDueOn: string | null;
-}
-
-async function fetchTenantOverview(tenantId: string): Promise<TenantOverview> {
-  const sb = supabase();
-  const [{ count: learners }, { count: staff }, { count: parents }, { data: due }] = await Promise.all([
-    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
-    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]),
-    sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("role", "parent"),
-    sb.from("platform_invoices").select("amount_cents,due_date").eq("tenant_id", tenantId).eq("status", "due").order("due_date"),
-  ]);
-  const rows = due ?? [];
-  return {
-    learners: learners ?? 0,
-    staff: staff ?? 0,
-    parents: parents ?? 0,
-    outstandingCents: rows.reduce((a, i) => a + i.amount_cents, 0),
-    nextDueOn: rows[0]?.due_date ?? null,
-  };
-}
 
 const ALERTS: Partial<Record<Tenant["status"], { title: string; body: string; action: string }>> = {
   onboarding: {
@@ -78,7 +54,7 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
   const low = status !== "active";
   // Not first-load-only: switching schools keeps the previous school's counts
   // in `data` until the new ones land, and those must not show under this name.
-  const { data: overview, loading: overviewLoading } = useAsync(() => fetchTenantOverview(tenant.id), [tenant.id]);
+  const { data: overview, loading: overviewLoading } = useAsync(() => fetchPlatformTenantOverview(tenant.id), [tenant.id]);
   const [organizationsKey, setOrganizationsKey] = useState(0);
   const reloadOrganizations = () => setOrganizationsKey((k) => k + 1);
   const { data: organizations, loading: organizationsLoading } = useAsync(() => fetchOrganizations(), [organizationsKey]);

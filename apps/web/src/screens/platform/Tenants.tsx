@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { effectivePriceCents, formatMoney, isBilled, needsAttention, supabase, type Tenant } from "@figbloom/shared";
+import { effectivePriceCents, fetchAllTenants, fetchPlatformTenantSummary, formatMoney, isBilled, needsAttention, type Tenant } from "@figbloom/shared";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -9,33 +9,6 @@ import { useAsync } from "../../lib/useAsync";
 import { OnboardSchool } from "./OnboardSchool";
 import { TenantDetail } from "./TenantDetail";
 import { Icon } from "../../components/Icon";
-
-async function loadTenants(): Promise<Tenant[]> {
-  const { data, error } = await supabase().from("tenants").select("*").order("name", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Tenant[];
-}
-
-interface TenantSummary {
-  listPrice: Map<string, number>;
-  activeStudents: number;
-}
-
-/** MRR needs the plan price list; learner seats need the real roster — neither
- *  lives on the tenant row itself, so this is its own fetch alongside it. */
-async function loadTenantSummary(): Promise<TenantSummary> {
-  const sb = supabase();
-  const [{ data: pricing, error: e1 }, { count: activeStudents, error: e2 }] = await Promise.all([
-    sb.from("plan_pricing").select("plan,price_cents").returns<{ plan: string; price_cents: number }[]>(),
-    sb.from("students").select("id", { count: "exact", head: true }).eq("active", true),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-  return {
-    listPrice: new Map((pricing ?? []).map((p) => [p.plan, p.price_cents])),
-    activeStudents: activeStudents ?? 0,
-  };
-}
 
 export const STATUS_TONE: Record<Tenant["status"], Tone> = {
   active: "ok", trial: "muted", onboarding: "info",
@@ -55,8 +28,8 @@ type Filter = "All" | "Attention" | "Trial";
  */
 export function Tenants() {
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data: tenants, loading: tenantsFetching } = useAsync(() => loadTenants(), [refreshKey]);
-  const { data: summary, loading: summaryFetching } = useAsync(() => loadTenantSummary(), [refreshKey]);
+  const { data: tenants, loading: tenantsFetching } = useAsync(() => fetchAllTenants(), [refreshKey]);
+  const { data: summary, loading: summaryFetching } = useAsync(() => fetchPlatformTenantSummary(), [refreshKey]);
   // First load only — a refresh after onboarding keeps the list and figures up.
   const loading = tenantsFetching && !tenants;
   const summaryLoading = summaryFetching && !summary;
