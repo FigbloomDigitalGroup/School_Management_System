@@ -34,6 +34,35 @@ export default tseslint.config(
     },
   },
   {
+    // FIG-1900 (W0.5): all database/storage calls live in packages/shared, never directly in apps/web/src.
+    files: ["apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@supabase/supabase-js",
+              message: "Do not import @supabase/supabase-js in apps/web/src. Put backend calls in packages/shared.",
+            },
+            {
+              name: "@figbloom/shared",
+              importNames: ["supabase"],
+              message: "Do not call supabase() directly in apps/web/src. Move the query into packages/shared.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='supabase']",
+          message: "Do not call supabase() directly in apps/web/src. Move the query into packages/shared.",
+        },
+      ],
+    },
+  },
+  {
     files: ["apps/api/src/**/*.ts"],
     ignores: ["apps/api/src/db/**"],
     rules: {
