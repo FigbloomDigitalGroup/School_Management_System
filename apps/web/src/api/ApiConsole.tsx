@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { NAV, adminAccessFor, hasAdminConsole, mayOpenAdminPage } from "@figbloom/shared";
 import { ConsoleShell } from "../components/ConsoleShell";
+import { Skeleton } from "../components/ui/Skeleton";
 import { AdminClasses } from "../screens/admin/Classes";
 import { AdminSubjects } from "../screens/admin/Subjects";
 import { BankReconciliation } from "../screens/admin/BankReconciliation";
