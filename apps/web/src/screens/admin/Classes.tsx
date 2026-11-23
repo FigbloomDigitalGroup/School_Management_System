@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { LEVELS, PATHWAY_LABEL, defaultLevelForTenant, fetchClassTimetableSlots, levelsForTenant, saveClassTimetable, supabase, yearLabel, yearRangeLabel, yearSortKey, yearsFor } from "@figbloom/shared";
+import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, saveClassTimetable, setClassTeacher, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
 import type { ClassGroup, ClassLevel, Pathway } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -15,37 +15,6 @@ import { PromoteClass } from "./PromoteClass";
 import { confirmDialog } from "../../components/ui/Confirm";
 
 interface TeacherOption { id: string; full_name: string }
-interface SubjectOption { id: string; name: string }
-
-interface ClassesData {
-  classes: ClassGroup[];
-  teachers: TeacherOption[];
-  subjects: SubjectOption[];
-  studentCountByClass: Map<string, number>;
-}
-
-async function fetchClasses(tenantId: string): Promise<ClassesData> {
-  const sb = supabase();
-  const [{ data: classRows, error: e1 }, { data: teacherRows, error: e2 }, { data: studentRows, error: e3 }, { data: subjectRows, error: e4 }] = await Promise.all([
-    sb.from("classes").select("*").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassGroup[]>(),
-    sb.from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<TeacherOption[]>(),
-    sb.from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true).returns<{ id: string; class_id: string }[]>(),
-    sb.from("subjects").select("id,name").eq("tenant_id", tenantId).order("name").returns<SubjectOption[]>(),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-  if (e3) throw e3;
-  if (e4) throw e4;
-
-  const studentCountByClass = new Map<string, number>();
-  for (const s of studentRows ?? []) studentCountByClass.set(s.class_id, (studentCountByClass.get(s.class_id) ?? 0) + 1);
-
-  // Youngest first: PP1 … Grade 12, then Form 1 … 4 — form_level alone can't
-  // order a school that runs more than one level (Grade 1 and Form 1 are both 1).
-  const classes = [...(classRows ?? [])].sort((a, b) =>
-    yearSortKey(a.level, a.form_level) - yearSortKey(b.level, b.form_level) || a.name.localeCompare(b.name));
-  return { classes, teachers: teacherRows ?? [], subjects: subjectRows ?? [], studentCountByClass };
-}
 
 // A class's level (FIG-356, CBE) decides its valid years and what a year is
 // called — PP1, Grade 7, Form 3 — all from packages/shared/src/levels.ts.
@@ -97,7 +66,7 @@ export function AdminClasses() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchClasses(tenant.id), [tenant.id, reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchClassesOverview(tenant.id), [tenant.id, reloadKey]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
   // data must not show the previous one's meanwhile — skeleton for those only.
   const [loadedFor, setLoadedFor] = useState(tenant.id);
@@ -113,18 +82,26 @@ export function AdminClasses() {
   // school's list stays "Form 1 East … Form 4 West" until it adds CBE years.
   const multiLevel = tenant.level === "combined" || new Set((data?.classes ?? []).map((c) => c.level)).size > 1;
 
-  async function setClassTeacher(classId: string, teacherId: string) {
-    const { error: err } = await supabase().from("classes").update({ class_teacher_id: teacherId || null }).eq("id", classId);
-    if (err) { toast(`Could not update the class teacher: ${err.message}`, "error"); return; }
+  async function changeClassTeacher(classId: string, teacherId: string) {
+    try {
+      await setClassTeacher(classId, teacherId || null);
+    } catch (err) {
+      toast(`Could not update the class teacher: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
     reload();
   }
 
-  async function deleteClass(c: ClassGroup) {
+  async function removeClass(c: ClassGroup) {
     const count = data?.studentCountByClass.get(c.id) ?? 0;
     if (count > 0) { toast(`${c.name} has ${count} learner${count === 1 ? "" : "s"} on it — move them first.`, "error"); return; }
     if (!(await confirmDialog({ title: `Delete ${c.name}?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
-    const { error: err } = await supabase().from("classes").delete().eq("id", c.id);
-    if (err) { toast(`Could not delete ${c.name}: ${err.message}`, "error"); return; }
+    try {
+      await deleteClass(c.id);
+    } catch (err) {
+      toast(`Could not delete ${c.name}: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
     toast(`${c.name} deleted.`);
     reload();
   }
@@ -164,7 +141,7 @@ export function AdminClasses() {
                 render: (c: ClassGroup) => (
                   <select
                     value={c.class_teacher_id ?? ""}
-                    onChange={(e) => void setClassTeacher(c.id, e.target.value)}
+                    onChange={(e) => void changeClassTeacher(c.id, e.target.value)}
                     aria-label={`Class teacher for ${c.name}`}
                     className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
                   >
@@ -204,7 +181,7 @@ export function AdminClasses() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void deleteClass(c)}
+                      onClick={() => void removeClass(c)}
                       className="text-[12px] font-semibold text-warn-ink hover:underline"
                     >
                       Delete
@@ -338,19 +315,18 @@ function BulkCreateClassesModal({ existingNames, onClose, onCreated, toast }: {
     if (toCreate.length === 0) { toast("Pick at least one class to create.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("classes").insert(
+      await createClasses(
+        tenant.id,
         toCreate.map((r) => ({
-          tenant_id: tenant.id,
           name: r.name,
           level,
-          form_level: r.formLevel,
+          formLevel: r.formLevel,
           pathway: pathway || null,
           stream: r.stream,
           room: null,
-          class_teacher_id: null,
+          classTeacherId: null,
         })),
       );
-      if (error) throw error;
       onCreated(toCreate.length);
     } catch (err) {
       toast(err instanceof Error ? `Could not create those classes: ${err.message}` : "Could not create those classes.", "error");
@@ -463,21 +439,19 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
     if (next !== "senior_school") setPathway("");
   }
 
-  async function createClass() {
+  async function addClass() {
     if (!name.trim()) { toast("Give the class a name.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("classes").insert({
-        tenant_id: tenant.id,
+      await createClass(tenant.id, {
         name: name.trim(),
         level,
-        form_level: formLevel,
+        formLevel,
         pathway: pathway || null,
         stream: stream.trim() || null,
         room: room.trim() || null,
-        class_teacher_id: classTeacherId || null,
+        classTeacherId: classTeacherId || null,
       });
-      if (error) throw error;
       toast(`${name.trim()} created.`);
       onCreated();
     } catch (err) {
@@ -489,7 +463,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    void createClass();
+    void addClass();
   }
 
   return (
@@ -501,7 +475,7 @@ function CreateClassModal({ teachers, onClose, onCreated, toast }: {
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="accent" onClick={() => void createClass()} disabled={saving}>
+          <Button variant="accent" onClick={() => void addClass()} disabled={saving}>
             {saving ? "Creating…" : "Create class"}
           </Button>
         </>

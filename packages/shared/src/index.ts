@@ -26,6 +26,7 @@ export * from "./teacherData";
 export * from "./leave";
 export * from "./profile";
 export * from "./timetable";
+export * from "./schoolSetup";
 export * from "./onlineClasses";
 export * from "./roleLabels";
 export * from "./courses";

@@ -1,7 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { accentFor, gradingSchemeFor, schoolAccents, supabase, yearGroupsOf, yearLabel } from "@figbloom/shared";
-import type { ClassGroup, Profile, Term } from "@figbloom/shared";
+import {
+  accentFor, fetchTermSetup, gradingSchemeFor, saveSchoolAccent, saveSchoolDetails, saveSchoolLogo, saveSchoolPaymentMethods, schoolAccents, setClassTeacher,
+  startTerm, yearGroupsOf, yearLabel,
+} from "@figbloom/shared";
+import type { Profile } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { AiSettings } from "../../components/AiSettings";
 import { applyAccent } from "../../components/TenantTheme";
@@ -11,42 +14,6 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadTenantLogo } from "../../lib/uploads";
-
-type ClassRow = Pick<ClassGroup, "id" | "name" | "level" | "form_level" | "class_teacher_id">;
-
-interface TermSetupData {
-  term: Term | null;
-  classes: ClassRow[];
-  subjectsCount: number;
-  feeItemsCount: number;
-  teacherOptions: Pick<Profile, "id" | "full_name">[];
-  activeStudents: number;
-}
-
-async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
-  const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
-  const termId = term?.id ?? null;
-
-  const [{ data: classRows }, { count: subjectsCount }, feeItemsRes, { data: teacherRows }, { count: studentsCount }] = await Promise.all([
-    sb.from("classes").select("id,name,level,form_level,class_teacher_id").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassRow[]>(),
-    sb.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-    termId
-      ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("term_id", termId)
-      : Promise.resolve({ count: 0 }),
-    sb.from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<Pick<Profile, "id" | "full_name">[]>(),
-    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
-  ]);
-
-  return {
-    term: term ?? null,
-    classes: classRows ?? [],
-    subjectsCount: subjectsCount ?? 0,
-    feeItemsCount: feeItemsRes.count ?? 0,
-    teacherOptions: teacherRows ?? [],
-    activeStudents: studentsCount ?? 0,
-  };
-}
 
 const fmtDay = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
@@ -83,10 +50,7 @@ export function TermSetup() {
     try {
       // One database call: it switches the current term off and starts this one together, so a term the database refuses leaves the
       // school with the term it had (FIG-1427).
-      const { error } = await supabase().rpc("start_term", {
-        p_tenant_id: tenant.id, p_year: termYear, p_index: termIndex, p_starts_on: termStartsOn, p_ends_on: termEndsOn,
-      });
-      if (error) throw error;
+      await startTerm({ tenantId: tenant.id, year: termYear, index: termIndex, startsOn: termStartsOn, endsOn: termEndsOn });
       toast(`Term ${termIndex}, ${termYear} started.`);
       setTermStartsOn("");
       setTermEndsOn("");
@@ -121,13 +85,7 @@ export function TermSetup() {
     if (!schoolName.trim()) { toast("The school needs a name.", "error"); return; }
     setSavingDetails(true);
     try {
-      const { error: rpcError } = await supabase().rpc("set_school_details", {
-        p_tenant_id: tenant.id,
-        p_name: schoolName,
-        p_county: schoolCounty,
-        p_moe_registration: schoolMoe,
-      });
-      if (rpcError) throw rpcError;
+      await saveSchoolDetails(tenant.id, { name: schoolName, county: schoolCounty, moeRegistration: schoolMoe });
       toast("School details saved — this page picks it up immediately; the sidebar and other screens pick it up next time they load.");
     } catch (err) {
       toast(err instanceof Error ? `Could not save school details: ${err.message}` : "Could not save school details.", "error");
@@ -164,14 +122,7 @@ export function TermSetup() {
     e.preventDefault();
     setSavingPayment(true);
     try {
-      const { error: rpcError } = await supabase().rpc("set_school_payment_methods", {
-        p_tenant_id: tenant.id,
-        p_paybill: paybill,
-        p_till: till,
-        p_bank_details: bankDetails,
-        p_notes: paymentNotes,
-      });
-      if (rpcError) throw rpcError;
+      await saveSchoolPaymentMethods(tenant.id, { paybill, till, bankDetails, notes: paymentNotes });
       setPaymentSet(Boolean(paybill.trim() || till.trim() || bankDetails.trim()));
       toast("Payment methods saved — parents will see these on the Fees screen.");
     } catch (err) {
@@ -190,8 +141,7 @@ export function TermSetup() {
     setSavingCrest(true);
     try {
       const url = await uploadTenantLogo(tenant.id, crestFile);
-      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_tenant_id: tenant.id, p_logo_url: url });
-      if (rpcError) throw rpcError;
+      await saveSchoolLogo(tenant.id, url);
       // Cache-bust: the path is stable (logo.<ext>), so a browser that already fetched it
       // needs a new URL to notice the replacement.
       setLogoUrl(`${url}?v=${Date.now()}`);
@@ -209,8 +159,7 @@ export function TermSetup() {
   async function handleSaveAccent() {
     setSavingAccent(true);
     try {
-      const { error: rpcError } = await supabase().rpc("set_school_accent", { p_tenant_id: tenant.id, p_accent: accent });
-      if (rpcError) throw rpcError;
+      await saveSchoolAccent(tenant.id, accent);
       setSavedAccent(accent);
       applyAccent(accent);
       toast(`Accent set to ${accentFor(accent).name}. Everyone at the school sees it next time they load the app.`);
@@ -630,8 +579,7 @@ function ClassTeacherRow({ classId, className, teachers, toast, onAssigned }: {
     if (!teacherId) { toast("Choose a teacher first.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
-      if (error) throw error;
+      await setClassTeacher(classId, teacherId);
       toast(`Class teacher assigned for ${className}.`);
       onAssigned();
     } catch (err) {
