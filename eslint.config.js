@@ -15,6 +15,8 @@ export default tseslint.config(
       "supabase/.temp/**",
       "playwright-report/**",
       ".personal-ai/**",
+      // Generated from apps/api/openapi/openapi.yaml by `npm run api:types`; never edited by hand.
+      "packages/shared/src/api/schema.d.ts",
     ],
   },
   js.configs.recommended,
