@@ -184,6 +184,11 @@ export const FINANCE_REQUEST_SCHEMAS = {
   [`POST ${T}/payments/{paymentId}/mpesa-reconciliation`]: ReconcileBody,
   [`PUT ${T}/ai-helper/settings`]: AiSettingsBody,
   [`PUT ${T}/ai-helper/optins`]: OptinBody,
+  [`POST ${T}/invoices/{invoiceId}/send`]: SendInvoiceBody,
+  [`POST ${T}/terms/{termId}/invoices/send`]: SendTermInvoicesBody,
+  [`POST ${T}/bank-reconciliation/statements`]: BankStatementImportBody,
+  [`POST ${T}/bank-reconciliation/lines/{lineId}/match`]: BankLineMatchBody,
+  [`POST ${T}/bank-reconciliation/lines/{lineId}/ignore`]: BankLineIgnoreBody,
 } as const;
 
 const P = "/v1/tenants/:tenantId/finance";
@@ -342,11 +347,11 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
   app.post(`${P}/invoices/:invoiceId/send`, async (request, reply) => {
     const params = request.params as { tenantId: string; invoiceId: string };
     assertUuid(params.invoiceId, "invoiceId");
-    const body = parseOrThrow(SendInvoiceBody, request.body ?? {}, "Invalid invoice delivery options");
-    const channels: InvoiceDeliveryChannel[] = body.channels ?? ["in_app", "push", "email", "sms"];
 
     const { prepared, userId, ip } = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip: reqIp }) => {
       await requirePermission(tx, auth.authz, WRITE, { ip: reqIp, deferAudit: true });
+      const body = parseOrThrow(SendInvoiceBody, request.body ?? {}, "Invalid invoice delivery options");
+      const channels: InvoiceDeliveryChannel[] = body.channels ?? ["in_app", "push", "email", "sms"];
       const prep = await prepareInvoiceDelivery(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,
@@ -385,12 +390,12 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
   app.post(`${P}/terms/:termId/invoices/send`, async (request, reply) => {
     const params = request.params as { tenantId: string; termId: string };
     assertUuid(params.termId, "termId");
-    const body = parseOrThrow(SendTermInvoicesBody, request.body ?? {}, "Invalid bulk invoice delivery options");
-    const channels: InvoiceDeliveryChannel[] = body.channels ?? ["in_app", "push", "email", "sms"];
-    const unpaidOnly = (body.status_filter ?? "unpaid_only") === "unpaid_only";
 
     const { preparedList, userId, ip } = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip: reqIp }) => {
       await requirePermission(tx, auth.authz, WRITE, { ip: reqIp, deferAudit: true });
+      const body = parseOrThrow(SendTermInvoicesBody, request.body ?? {}, "Invalid bulk invoice delivery options");
+      const channels: InvoiceDeliveryChannel[] = body.channels ?? ["in_app", "push", "email", "sms"];
+      const unpaidOnly = (body.status_filter ?? "unpaid_only") === "unpaid_only";
       const invRows = await tx.query<{ id: string }>(
         `SELECT id FROM finance_invoices
           WHERE tenant_id = $1 AND term_id = $2 AND voided_at IS NULL
@@ -862,9 +867,9 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
   // ------------------------------------------------------------------ bank statement reconciliation
   app.post(`${P}/bank-reconciliation/statements`, { bodyLimit: 1024 * 1024 }, async (request, reply) => {
     const params = request.params as { tenantId: string };
-    const body = parseOrThrow(BankStatementImportBody, request.body, "bank_name, account_number and csv_text or lines are required");
     const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, WRITE, { ip, deferAudit: true });
+      const body = parseOrThrow(BankStatementImportBody, request.body, "bank_name, account_number and csv_text or lines are required");
       return importBankStatement(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,
@@ -889,9 +894,9 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
     const params = request.params as { tenantId: string; statementId: string };
     assertUuid(params.statementId, "statementId");
     const q = request.query as Record<string, unknown>;
-    const matchStatus = oneOf(q.status, ["unmatched", "auto_matched", "manual_matched", "ignored"] as const, "status");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, READ, { ip, deferAudit: true });
+      const matchStatus = oneOf(q.status, ["unmatched", "auto_matched", "manual_matched", "ignored"] as const, "status");
       return getBankStatementDetail(tx, { tenantId: params.tenantId, statementId: params.statementId, matchStatus });
     });
   });
@@ -899,9 +904,9 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
   app.post(`${P}/bank-reconciliation/lines/:lineId/match`, async (request) => {
     const params = request.params as { tenantId: string; lineId: string };
     assertUuid(params.lineId, "lineId");
-    const body = parseOrThrow(BankLineMatchBody, request.body, "payment_id or invoice_id is required");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, WRITE, { ip, deferAudit: true });
+      const body = parseOrThrow(BankLineMatchBody, request.body, "payment_id or invoice_id is required");
       return matchBankStatementLine(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,
@@ -915,9 +920,9 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
   app.post(`${P}/bank-reconciliation/lines/:lineId/ignore`, async (request) => {
     const params = request.params as { tenantId: string; lineId: string };
     assertUuid(params.lineId, "lineId");
-    const body = parseOrThrow(BankLineIgnoreBody, request.body, "note of 3–300 characters is required");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, WRITE, { ip, deferAudit: true });
+      const body = parseOrThrow(BankLineIgnoreBody, request.body, "note of 3–300 characters is required");
       return ignoreBankStatementLine(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,

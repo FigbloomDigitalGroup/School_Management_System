@@ -133,6 +133,9 @@ no mode GUC and no application-settable bypass.
 | `guardian_accounts` | **owner-only** (live guardian-record to login links; own links via `guardian_my_links()`) | same | 073 | `guardian.invitations` |
 | `finance_unmatched_cases` | **owner-only** (platform operators reach it only through the `finance_unmatched_*` SECURITY DEFINER functions; no school owns an unmatched callback) | same | 074 | `finance.unmatchedCallbacks` |
 | `finance_unmatched_case_notes` | **owner-only** (append-only operator notes) | same | 074 | `finance.unmatchedCallbacks` |
+| `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |
+| `finance_bank_statement_lines` | tenant (`SELECT, INSERT` + column-level `UPDATE (match_status, matched_payment_id, matched_invoice_id, matched_by, matched_at, match_note)`) | same | 097 | `bankReconciliation.unit` |
+| `teacher_reports` | tenant (`SELECT, INSERT` + column-level `UPDATE` on editable/review fields) | same | 098 | `teacherReports.unit` |
 
 Not in this table on purpose: `security_audit_events` carries `tenant_id` for attribution but is an
 append-only log; the runtime role holds `INSERT` only (asserted in `phase3.runtimeIsolation`). Identity-plane

@@ -67,12 +67,11 @@ export async function registerTeacherReportRoutes(app: FastifyInstance, pool: Ap
    */
   app.post(`${P}/interpret-handwriting`, { bodyLimit: 10 * 1024 * 1024 }, async (request, reply) => {
     const params = request.params as { tenantId: string };
-    const body = parseOrThrow(InterpretHandwritingBody, request.body, "image_base64 and mime_type are required");
-    const normalized = normalizeImageBase64(body.image_base64, body.mime_type);
-
     await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
     });
+    const body = parseOrThrow(InterpretHandwritingBody, request.body, "image_base64 and mime_type are required");
+    const normalized = normalizeImageBase64(body.image_base64, body.mime_type);
 
     const provider = getHandwritingOcrProvider();
     if (!provider.configured) {
@@ -103,9 +102,9 @@ export async function registerTeacherReportRoutes(app: FastifyInstance, pool: Ap
 
   app.post(P, async (request, reply) => {
     const params = request.params as { tenantId: string };
-    const body = parseOrThrow(CreateTeacherReportBody, request.body, "title and body are required");
     const report = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+      const body = parseOrThrow(CreateTeacherReportBody, request.body, "title and body are required");
       return createTeacherReport(tx, {
         tenantId: params.tenantId,
         authorUserId: auth.user.id,
@@ -166,9 +165,9 @@ export async function registerTeacherReportRoutes(app: FastifyInstance, pool: Ap
   app.patch(`${P}/:reportId`, async (request) => {
     const params = request.params as { tenantId: string; reportId: string };
     assertUuid(params.reportId, "reportId");
-    const body = parseOrThrow(UpdateTeacherReportBody, request.body, "at least one field is required");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+      const body = parseOrThrow(UpdateTeacherReportBody, request.body, "at least one field is required");
       const isAdmin = await hasPermission(tx, auth.authz, "resource.academics.write");
       const report = await updateTeacherReport(tx, {
         tenantId: params.tenantId,
@@ -185,9 +184,9 @@ export async function registerTeacherReportRoutes(app: FastifyInstance, pool: Ap
   app.post(`${P}/:reportId/review`, async (request) => {
     const params = request.params as { tenantId: string; reportId: string };
     assertUuid(params.reportId, "reportId");
-    const body = parseOrThrow(ReviewTeacherReportBody, request.body ?? {}, "Invalid review payload");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const body = parseOrThrow(ReviewTeacherReportBody, request.body ?? {}, "Invalid review payload");
       const report = await reviewTeacherReport(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,

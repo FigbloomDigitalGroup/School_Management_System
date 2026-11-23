@@ -75,7 +75,7 @@ describe("Stage 11 OpenAPI static contract", () => {
       }
     }
     expect(bad).toEqual([]);
-    expect(financeOps().length).toBe(35);
+    expect(financeOps().length).toBe(43);
     expect(spec.paths["/v1/mpesa/callback"].post["x-figbloom-authz"]).toBe("public");
   });
 
@@ -222,6 +222,32 @@ describe("Stage 11 OpenAPI runtime conformance", () => {
     await call("GET", `${F}/ai-helper/settings`, v);
     await call("PUT", `${F}/ai-helper/settings`, v, { access_mode: "opt_in", price_minor: 100_000, cancel_days: 7 });
     await call("GET", `${F}/ai-helper/optins`, v, undefined, `?termId=${v.termId}`);
+
+    // Invoice PDF & delivery
+    const pdfRes = await app.inject({
+      method: "GET",
+      url: `${F}/invoices/${v.invoiceId}/pdf`.replace("{tenantId}", ids.tenantA),
+      headers: { authorization: `Bearer ${token}`, "x-tenant-id": ids.tenantA },
+    });
+    expect(pdfRes.statusCode).toBe(200);
+    expect(pdfRes.headers["content-type"]).toContain("application/pdf");
+    covered.add(`GET ${F}/invoices/{invoiceId}/pdf`);
+    await call("POST", `${F}/invoices/{invoiceId}/send`, v, { channels: ["email"] });
+    await call("POST", `${F}/terms/{termId}/invoices/send`, v, { channels: ["email"], status_filter: "all" });
+
+    // Bank statement reconciliation
+    const stmt = await call("POST", `${F}/bank-reconciliation/statements`, v, {
+      bank_name: "Contract Bank",
+      account_number: "100200300",
+      csv_text: "Date,Reference,Narration,Debit,Credit\n2026-02-10,BANKREF1,Fee deposit,,500.00\n2026-02-11,CHG1,Ledger fee,50.00,",
+    });
+    const stmtId = stmt.statement.id as string;
+    const creditLineId = stmt.lines[0].id as string;
+    const debitLineId = stmt.lines[1].id as string;
+    await call("GET", `${F}/bank-reconciliation/statements`, v);
+    await call("GET", `${F}/bank-reconciliation/statements/{statementId}`, { ...v, statementId: stmtId });
+    await call("POST", `${F}/bank-reconciliation/lines/{lineId}/match`, { ...v, lineId: creditLineId }, { payment_id: v.paymentId, note: "Contract match" });
+    await call("POST", `${F}/bank-reconciliation/lines/{lineId}/ignore`, { ...v, lineId: debitLineId }, { note: "Monthly bank charge" });
 
     // family-only operations are fail-closed (no account-to-guardian link): validate the documented 403,
     // and the documented success shape against real module output
