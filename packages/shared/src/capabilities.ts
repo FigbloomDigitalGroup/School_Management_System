@@ -151,3 +151,18 @@ const API_ANNOUNCEMENTS: AnnouncementsCapabilities = {
 export function announcementsCapabilities(): AnnouncementsCapabilities {
   return onApi() ? API_ANNOUNCEMENTS : ALL_ANNOUNCEMENTS;
 }
+
+/** The admin Fees screen (admin/fees): fee items, billing runs, recording payments, and reviewing proofs. */
+export interface FeesCapabilities {
+  /** Signing term invoices and viewing signed term receipts (waits on C12 / FIG-1880). */
+  invoiceSignatures: boolean;
+  /** Opening uploaded proof files from object storage (API proofs carry file metadata only until A5 / FIG-1873). */
+  proofFiles: boolean;
+}
+
+const FEES_ON_SUPABASE: FeesCapabilities = { invoiceSignatures: true, proofFiles: true };
+const FEES_ON_API: FeesCapabilities = { invoiceSignatures: false, proofFiles: false };
+
+export function feesCapabilities(): FeesCapabilities {
+  return onApi() ? FEES_ON_API : FEES_ON_SUPABASE;
+}
