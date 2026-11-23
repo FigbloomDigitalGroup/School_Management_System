@@ -1,4 +1,8 @@
 interface ImportMetaEnv {
+  /** Which backend this build talks to: "api" for the new API (apps/api), anything else (or nothing) for Supabase. */
+  readonly VITE_BACKEND?: string;
+  /** The new API's address, e.g. https://api.example.com. Required when VITE_BACKEND is "api". */
+  readonly VITE_API_URL?: string;
   readonly VITE_SUPABASE_URL: string;
   readonly VITE_SUPABASE_ANON_KEY: string;
   readonly VITE_APP_NAME: string;

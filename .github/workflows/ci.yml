@@ -46,6 +46,8 @@ jobs:
           cache: npm
       # --ignore-scripts: no dependency gets to run code at install time.
       - run: npm ci --ignore-scripts
+      # The client's types come from apps/api/openapi/openapi.yaml: a change to the contract must come with the regenerated file.
+      - run: npm run api:types:check
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:unit
