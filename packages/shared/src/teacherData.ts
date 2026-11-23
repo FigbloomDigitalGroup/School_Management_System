@@ -1,3 +1,5 @@
+import { apiFetchCurrentTerm, apiFetchTodayAttendanceMarks, apiWriteAttendance } from "./api/attendanceApi";
+import { onApi } from "./backend";
 import { fetchClassTimetableSlots } from "./timetable";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
@@ -37,6 +39,7 @@ export async function fetchTeacherClasses(teacherId: string): Promise<ClassGroup
 }
 
 export async function fetchCurrentTerm(): Promise<Term | null> {
+  if (onApi()) return apiFetchCurrentTerm();
   const { data, error } = await supabase().from("terms").select("*").eq("is_current", true).maybeSingle();
   if (error) throw new Error(error.message);
   return (data as Term | null) ?? null;
@@ -171,6 +174,7 @@ export async function fetchClassRoster(classId: string): Promise<Student[]> {
 export async function fetchTodayAttendanceMarks(
   classId: string, session: AttendanceSession = "morning", timeZone?: string,
 ): Promise<{ student_id: string; mark: AttendanceMark }[]> {
+  if (onApi()) return apiFetchTodayAttendanceMarks(classId, session, timeZone);
   const { data, error } = await supabase()
     .from(REGISTER_TABLE[session]).select("student_id, mark").eq("class_id", classId).eq("taken_on", today(timeZone));
   if (error) throw new Error(error.message);
@@ -307,6 +311,7 @@ export async function sendClassMessage(
  *  Throws a WriteError: `retryable` says whether holding the register and sending
  *  it later can help (no signal, server trouble) or the server refused it. */
 export async function writeAttendance(reg: Register, tenantId: string, takenBy: string, session: AttendanceSession = "morning"): Promise<void> {
+  if (onApi()) return apiWriteAttendance(reg, tenantId, session);
   // FIG-1514: the morning register is `attendance` (what every installed build writes); the afternoon one is `attendance_afternoon`.
   const { error, status } = await supabase().from(REGISTER_TABLE[session]).upsert(toRecords(reg, tenantId, takenBy), { onConflict: "student_id,taken_on" });
   if (error) throw writeErrorFrom(error, status);

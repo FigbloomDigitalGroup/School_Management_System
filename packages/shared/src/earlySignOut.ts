@@ -1,5 +1,10 @@
+import {
+  apiFetchCollectorDetails, apiFetchEarlySignOuts, apiFetchEarlySignOutsForStudents, apiFetchStudentEarlySignOuts,
+  apiRecordEarlySignOut, apiVoidEarlySignOut,
+} from "./api/attendanceApi";
 import type { AdminAccess } from "./adminAreas";
 import { today } from "./attendance";
+import { onApi } from "./backend";
 import { invokeEdge } from "./edge";
 import { supabase } from "./supabase";
 
@@ -176,6 +181,7 @@ const SIGN_OUT_COLUMNS =
 
 /** Records a sign-out through record_early_sign_out(); the database decides who may and refuses with words. Returns the new id. */
 export async function recordEarlySignOut(draft: EarlySignOutDraft): Promise<string> {
+  if (onApi()) return apiRecordEarlySignOut(draft);
   const { data, error } = await supabase().rpc("record_early_sign_out", {
     p_student_id: draft.student_id,
     p_reason: draft.reason,
@@ -193,12 +199,14 @@ export async function recordEarlySignOut(draft: EarlySignOutDraft): Promise<stri
 
 /** Voids a sign-out made by mistake. It stays on record, marked void, with the reason. */
 export async function voidEarlySignOut(id: string, reason: string): Promise<void> {
+  if (onApi()) return apiVoidEarlySignOut(id, reason);
   const { error } = await supabase().rpc("void_early_sign_out", { p_id: id, p_reason: reason });
   if (error) throw new Error(error.message);
 }
 
 /** The school's sign-outs for one day (default: today), voided ones included. RLS decides who gets rows. */
 export async function fetchEarlySignOuts(tenantId: string, day: string = today()): Promise<EarlySignOut[]> {
+  if (onApi()) return apiFetchEarlySignOuts(tenantId, day);
   const { data, error } = await supabase().from("early_sign_outs").select(SIGN_OUT_COLUMNS)
     .eq("tenant_id", tenantId).eq("taken_on", day).order("signed_out_at", { ascending: true }).returns<EarlySignOut[]>();
   if (error) throw new Error(error.message);
@@ -207,6 +215,7 @@ export async function fetchEarlySignOuts(tenantId: string, day: string = today()
 
 /** These learners' sign-outs on one day (default: today): what a register or the parent's home screen joins in. */
 export async function fetchEarlySignOutsForStudents(studentIds: string[], day: string = today()): Promise<EarlySignOut[]> {
+  if (onApi()) return apiFetchEarlySignOutsForStudents(studentIds, day);
   if (!studentIds.length) return [];
   const { data, error } = await supabase().from("early_sign_outs").select(SIGN_OUT_COLUMNS)
     .in("student_id", studentIds).eq("taken_on", day).returns<EarlySignOut[]>();
@@ -216,6 +225,7 @@ export async function fetchEarlySignOutsForStudents(studentIds: string[], day: s
 
 /** One learner's sign-outs, newest first: their record. */
 export async function fetchStudentEarlySignOuts(studentId: string, limit = 50): Promise<EarlySignOut[]> {
+  if (onApi()) return apiFetchStudentEarlySignOuts(studentId, limit);
   const { data, error } = await supabase().from("early_sign_outs").select(SIGN_OUT_COLUMNS)
     .eq("student_id", studentId).order("signed_out_at", { ascending: false }).limit(limit).returns<EarlySignOut[]>();
   if (error) throw new Error(error.message);
@@ -227,6 +237,7 @@ export async function fetchStudentEarlySignOuts(studentId: string, limit = 50): 
  * recorded the sign-out, so for anyone else the map is empty: show "details restricted", never an empty number.
  */
 export async function fetchCollectorDetails(signOutIds: string[]): Promise<Map<string, EarlySignOutCollector>> {
+  if (onApi()) return apiFetchCollectorDetails(signOutIds);
   const out = new Map<string, EarlySignOutCollector>();
   if (!signOutIds.length) return out;
   const { data, error } = await supabase().from("early_sign_out_collectors").select("sign_out_id, id_number, phone, authorised_by, note, void_reason")
@@ -238,5 +249,6 @@ export async function fetchCollectorDetails(signOutIds: string[]): Promise<Map<s
 
 /** The parent's phone, via early-sign-out-notify. Best effort: the sign-out is already recorded, so a push that fails never fails it. */
 export async function pushEarlySignOut(id: string): Promise<void> {
+  if (onApi()) return;
   await invokeEdge("early-sign-out-notify", { sign_out_id: id }, { timeoutMs: 15_000 }).catch(() => {});
 }
