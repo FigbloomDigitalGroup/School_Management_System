@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { nextYear, supabase, yearSortKey, type ClassGroup } from "@figbloom/shared";
+import {
+  fetchGuardianProfileIds, fetchLatestExamMeans, fetchPromotionRoster, markLearnersLeft, moveLearnersToClass, nextYear, sendInAppNotices, yearSortKey,
+  type ClassGroup, type PromotionRosterRow,
+} from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
@@ -10,46 +13,7 @@ const GRADUATE = "GRADUATE";
 const WITHDRAWN = "WITHDRAWN";
 const LEAVING = new Set([GRADUATE, WITHDRAWN]);
 
-interface Roster { id: string; full_name: string; admission_no: string; profile_id: string | null }
-interface PromoteRow extends Roster { target: string }
-
-async function fetchRoster(classId: string): Promise<Roster[]> {
-  const { data, error } = await supabase()
-    .from("students").select("id, full_name, admission_no, profile_id").eq("class_id", classId).eq("active", true).order("full_name")
-    .returns<Roster[]>();
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
-/** Each student's mean across every subject of the most recently published
- *  exam — what "promote if passing" judges against. A student with no marks
- *  on record simply has no entry, so the bulk action leaves them untouched
- *  rather than guessing. */
-async function fetchLatestExamMeans(tenantId: string, studentIds: string[]): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  if (!studentIds.length) return out;
-  const { data: examRows, error: e1 } = await supabase()
-    .from("exams").select("id").eq("tenant_id", tenantId).not("published_at", "is", null).order("published_at", { ascending: false }).limit(1)
-    .returns<{ id: string }[]>();
-  if (e1) throw new Error(e1.message);
-  const examId = examRows?.[0]?.id;
-  if (!examId) return out;
-
-  const { data: markRows, error: e2 } = await supabase()
-    .from("marks").select("student_id, score").eq("exam_id", examId).in("student_id", studentIds)
-    .returns<{ student_id: string; score: number | null }[]>();
-  if (e2) throw new Error(e2.message);
-
-  const scoresByStudent = new Map<string, number[]>();
-  for (const m of markRows ?? []) {
-    if (m.score === null) continue;
-    const arr = scoresByStudent.get(m.student_id) ?? [];
-    arr.push(m.score);
-    scoresByStudent.set(m.student_id, arr);
-  }
-  for (const [sid, scores] of scoresByStudent) out.set(sid, Math.round(scores.reduce((a, b) => a + b, 0) / scores.length));
-  return out;
-}
+interface PromoteRow extends PromotionRosterRow { target: string }
 
 /** The next year up — across levels where CBE crosses them (PP2 → Grade 1,
  *  Grade 6 → Grade 7, Grade 9 → Grade 10; levels.ts nextYear) — matching
@@ -120,7 +84,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
 
   useEffect(() => {
     let alive = true;
-    fetchRoster(sourceClass.id)
+    fetchPromotionRoster(sourceClass.id)
       .then(async (roster) => {
         if (!alive) return;
         const target = defaultTargetFor(sourceClass, allClasses);
@@ -164,36 +128,17 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
 
   async function notifyGuardians(processed: PromoteRow[]) {
     const classById = new Map(allClasses.map((c) => [c.id, c]));
-    const { data: guardianRows, error: gErr } = await supabase()
-      .from("guardians").select("student_id, profile_id")
-      .in("student_id", processed.map((r) => r.id))
-      .returns<{ student_id: string; profile_id: string }[]>();
-    if (gErr) throw gErr;
+    const guardianIdsByStudent = await fetchGuardianProfileIds(processed.map((r) => r.id));
 
-    const guardianIdsByStudent = new Map<string, string[]>();
-    for (const g of guardianRows ?? []) {
-      const ids = guardianIdsByStudent.get(g.student_id) ?? [];
-      ids.push(g.profile_id);
-      guardianIdsByStudent.set(g.student_id, ids);
-    }
-
-    const now = new Date().toISOString();
-    const announcements = processed.flatMap((r) => {
+    const notices = processed.flatMap((r) => {
       const recipients = new Set<string>(guardianIdsByStudent.get(r.id) ?? []);
       if (r.profile_id) recipients.add(r.profile_id);
       if (recipients.size === 0) return [];
       const { subject, body } = messageFor(r, sourceClass, classById);
-      return [...recipients].map((user_id) => ({
-        tenant_id: tenantId, author_id: authorId, subject, body,
-        audience: { kind: "user" as const, user_id },
-        channels: ["in_app"], published_at: now,
-      }));
+      return [...recipients].map((userId) => ({ userId, subject, body }));
     });
 
-    if (announcements.length) {
-      const { error: err } = await supabase().from("announcements").insert(announcements);
-      if (err) throw err;
-    }
+    await sendInAppNotices({ tenantId, authorId, notices });
   }
 
   async function submit() {
@@ -207,10 +152,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
     setSaving(true);
     try {
       const leaving = rows.filter((r) => LEAVING.has(r.target)).map((r) => r.id);
-      if (leaving.length) {
-        const { error: err } = await supabase().from("students").update({ active: false }).in("id", leaving);
-        if (err) throw err;
-      }
+      if (leaving.length) await markLearnersLeft(leaving);
 
       const idsByTargetClass = new Map<string, string[]>();
       for (const r of rows) {
@@ -219,10 +161,7 @@ export function PromoteClass({ sourceClass, allClasses, tenantId, authorId, onCl
         ids.push(r.id);
         idsByTargetClass.set(r.target, ids);
       }
-      for (const [classId, ids] of idsByTargetClass) {
-        const { error: err } = await supabase().from("students").update({ class_id: classId }).in("id", ids);
-        if (err) throw err;
-      }
+      for (const [classId, ids] of idsByTargetClass) await moveLearnersToClass(classId, ids);
 
       try {
         await notifyGuardians(rows);
