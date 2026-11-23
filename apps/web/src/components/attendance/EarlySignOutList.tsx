@@ -1,5 +1,6 @@
 import { fetchCollectorDetails, fetchEarlySignOuts, signOutList, signOutTime, today, type EarlySignOutCollector } from "@figbloom/shared";
 import { authorisedByText, collectorContactText, collectorLine, voidReasonText } from "../../lib/earlySignOutView";
+import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { Skeleton } from "../ui/Skeleton";
 
@@ -10,7 +11,8 @@ import { Skeleton } from "../ui/Skeleton";
  * Show it only to people maySeeSignOutList() allows; RLS limits the rows anyway.
  */
 export function EarlySignOutList({ tenantId }: { tenantId: string }) {
-  const day = today();
+  const { tenant } = useTenantSession();
+  const day = today(tenant.timezone);
   const { data, loading, error } = useAsync(async () => {
     const rows = signOutList(await fetchEarlySignOuts(tenantId, day));
     // A failed read of the details just shows "restricted": the list itself is what matters.

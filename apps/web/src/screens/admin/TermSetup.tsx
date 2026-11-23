@@ -569,8 +569,8 @@ export function TermSetup() {
           <div className="mt-5 rounded-xl bg-sunken p-4">
             <h2 className="text-[13px] font-semibold">When you publish the fee structure</h2>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
-              Every parent gets an invoice in the app and an SMS with the balance. It cannot be unsent, so the composer
-              shows the total billed and the number of parents before it goes.
+              Every parent sees the invoice in the app once learners are billed. Changing a fee item later only affects
+              invoices created after the change.
             </p>
           </div>
         )}

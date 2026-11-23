@@ -37,7 +37,7 @@ interface DashboardData {
   afternoonOn: boolean;
 }
 
-async function fetchDashboard(tenantId: string): Promise<DashboardData> {
+async function fetchDashboard(tenantId: string, timeZone?: string): Promise<DashboardData> {
   const { term, classes, students, staffCount, fees } = await fetchOverviewBasics(tenantId);
   const termId = term?.id ?? null;
 
@@ -52,7 +52,7 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
 
   if (termId) {
     // Attendance today is today (FIG-1401): never fall back to an earlier date when no register has been taken today.
-    attendanceDate = today();
+    attendanceDate = today(timeZone);
 
     // A late arrival still attended: only "absent"/"excused" read as not-here. Both registers count, in the school's mode.
     const [rawEntries, signOuts] = await Promise.all([
@@ -93,7 +93,7 @@ export function AdminDashboard() {
   const toast = useToast();
   // Bumped when the attendance settings are saved, so the badges and figures follow the new setting at once.
   const [settingsVersion, setSettingsVersion] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id, settingsVersion]);
+  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id, tenant.timezone), [tenant.id, tenant.timezone, settingsVersion]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 
@@ -154,7 +154,6 @@ export function AdminDashboard() {
             ? `${data.submittedClasses.size} of ${data.classes.length} classes have submitted attendance and fee collection stands at ${feePct}%. ${needs.length} thing${needs.length === 1 ? "" : "s"} need${needs.length === 1 ? "s" : ""} you.`
             : "Loading the morning picture…"
         }
-        actions={<Button variant="accent" onClick={() => toast("Announcement composer")}>New announcement</Button>}
       />
 
       <div className="px-7 py-6">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  PAYMENT_METHODS, billTerm, fetchBillingInputs, formatMoney, learnerNameOf, paymentFormStart, planTermBilling, readPaymentEntry, recordPayment, searchPayableInvoices,
+  PAYMENT_METHODS, billTerm, fetchBillingInputs, formatMoney, learnerNameOf, paymentFormStart, planTermBilling, readPaymentEntry, recordPayment, searchPayableInvoices, today,
   type FeeItem, type PayableInvoice, type PaymentMethodValue, type ProofToConfirm, type Term,
 } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
@@ -12,8 +12,8 @@ import { useAsync } from "../../lib/useAsync";
 // ---------------------------------------------------------------- billing run
 
 /** Fees are due on opening day; billing after that gives families two weeks rather than an instant "overdue". */
-function defaultDueOn(term: Term): string {
-  const inTwoWeeks = new Date(Date.now() + 14 * 86400_000).toISOString().slice(0, 10);
+function defaultDueOn(term: Term, timeZone?: string): string {
+  const inTwoWeeks = today(timeZone, new Date(Date.now() + 14 * 86400_000));
   return term.starts_on > inTwoWeeks ? term.starts_on : inTwoWeeks;
 }
 

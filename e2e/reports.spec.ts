@@ -571,54 +571,22 @@ test.describe("Who may open the report screens", () => {
 
 // ================================================================ buttons that only show a message
 test.describe("Buttons that only show a message", () => {
-  const announcements = async () => (await db.from("announcements").select("id", { count: "exact", head: true }).eq("tenant_id", alliance)).count ?? 0;
-
-  test("Dashboard 'New announcement' only shows the message 'Announcement composer'", async ({ page }) => {
+  test("Dashboard no longer shows the stub 'New announcement' toast-only button (FIG-1901)", async ({ page }) => {
     await signIn(page, "principal@alliance.sc.ke");
     await lines(page, "/s/alliance/admin");
-    const before = await announcements();
-    const url = page.url();
-    await page.getByRole("button", { name: "New announcement" }).click();
-    await expect(page.getByText("Announcement composer", { exact: true })).toBeVisible({ timeout: 10000 });
-    await page.waitForTimeout(1000);
-    table.push(["Dashboard", "New announcement", "opens the composer", `a message "Announcement composer"; same page: ${page.url() === url}; announcements ${before} -> ${await announcements()}`]);
-    expect(page.url()).toBe(url);
-    expect(await announcements()).toBe(before);
+    await expect(page.getByRole("button", { name: "New announcement" })).toHaveCount(0);
   });
 
-  test("KNOWN QA13-TOAST FIG-1446 (open): 'Impersonate admin' says a session is logged, and no session is logged", async ({ page }) => {
-    test.fail();
-    const sessions = async () => (await db.from("impersonation_sessions").select("id", { count: "exact", head: true })).count ?? 0;
+  test("Platform school view no longer shows the stub 'Impersonate admin' toast-only button (FIG-1901)", async ({ page }) => {
     await signIn(page, "joyce@figbloom.co.ke");
     await lines(page, "/platform/tenants");
-    const before = await sessions();
-    await page.getByRole("button", { name: "Impersonate admin" }).click();
-    const toast = await page.getByText(/^Impersonating /).first().innerText();
-    await page.waitForTimeout(1000);
-    const after_ = await sessions();
-    table.push(["Platform > school", "Impersonate admin", "a logged session, as the toast says", `"${toast}"; sessions logged ${before} -> ${after_}`]);
-    expect(after_, `the message says "${toast}"`).toBeGreaterThan(before);
+    await expect(page.getByRole("button", { name: "Impersonate admin" })).toHaveCount(0);
   });
 
-  test("KNOWN QA13-TOAST FIG-1446 (open): Invoices 'Remind' says a reminder was sent, and nothing is sent or recorded", async ({ page }) => {
-    test.fail();
-    const made = await db.from("platform_invoices").insert({ tenant_id: alliance, amount_cents: 123456, due_date: new Date().toISOString().slice(0, 10) }).select("*").single();
-    expect(made.error).toBeNull();
-    try {
-      await signIn(page, "joyce@figbloom.co.ke");
-      await lines(page, "/platform/invoices");
-      const before = await announcements();
-      await page.getByRole("button", { name: "Remind" }).first().click();
-      const toast = await page.getByText(/^Reminder sent/).first().innerText();
-      await page.waitForTimeout(1000);
-      const row = (await db.from("platform_invoices").select("*").eq("id", made.data!.id as string).single()).data!;
-      const changed = JSON.stringify(row) !== JSON.stringify(made.data);
-      const after_ = await announcements();
-      table.push(["Platform > Invoices", "Remind", "a reminder sent and recorded", `"${toast}"; school announcements ${before} -> ${after_}; invoice row changed: ${changed}`]);
-      expect(after_ > before || changed, `the message says "${toast}"`).toBe(true);
-    } finally {
-      await db.from("platform_invoices").delete().eq("id", made.data!.id as string);
-    }
+  test("Platform Invoices no longer shows the stub 'Remind' toast-only button (FIG-1901)", async ({ page }) => {
+    await signIn(page, "joyce@figbloom.co.ke");
+    await lines(page, "/platform/invoices");
+    await expect(page.getByRole("button", { name: "Remind" })).toHaveCount(0);
   });
 
   test("'Export for audit', 'Filter by school' and 'Export range' do nothing at all (no download, no message, no filter)", async ({ page }) => {

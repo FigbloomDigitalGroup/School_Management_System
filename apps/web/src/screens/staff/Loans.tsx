@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { today } from "@figbloom/shared";
 import { formatMoney, formatShortDate } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge, type Tone } from "../../components/ui/Badge";
@@ -84,7 +85,7 @@ export function StaffLoans() {
     if (amountCents > available) { toast(`That's more than you can borrow right now (${money(available)}).`, "error"); return; }
     setLoans((prev) => [{
       id: `new-${prev.length}`, kind, amountCents, months: term, paid: 0,
-      requestedOn: new Date().toISOString().slice(0, 10), status: "pending", reason: reason.trim() || undefined,
+      requestedOn: today(), status: "pending", reason: reason.trim() || undefined,
     }, ...prev]);
     toast("Request sent. The office will review it.");
     setAmount("");

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import {
   checkServices, createPlatformInvoice, declarePlatformIncident, fetchImpersonationLog, fetchPlatformAudit, fetchPlatformIncidents, fetchPlatformInvoices,
   fetchPlatformSubscriptions, fetchPlatformUsage, fetchServiceHistory, isBilled, formatMoney, markPlatformInvoicePaid, resolvePlatformIncident,
+  today as schoolToday,
   type ServiceStatusRow,
 } from "@figbloom/shared";
 // Every money() call in this file is Figbloom's own platform billing (MRR,
@@ -542,7 +543,6 @@ export function Invoices() {
               <button type="button" onClick={() => void markPaid(i.id)} className="text-[11.5px] font-semibold text-leaf hover:underline">
                 Mark paid
               </button>
-              <Button onClick={() => toast(`Reminder sent to the bursar and principal at ${i.tenant_name ?? "the school"}`)}>Remind</Button>
             </div>
           ),
         ],
@@ -569,7 +569,7 @@ function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
 }) {
   const [tenantId, setTenantId] = useState(tenants[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(() => schoolToday());
   const [saving, setSaving] = useState(false);
 
   async function create() {
@@ -644,7 +644,6 @@ export function Impersonation() {
       { label: "Write actions", value: String(writeCount), sub: "of " + data.length + " sessions" },
       { label: "Schools entered", value: String(schoolCount), sub: "distinct tenants" },
     ],
-    actions: [{ label: "Export for audit", onClick: () => {} }],
     columns: [
       { key: "staff", header: "Staff", width: "1fr" },
       { key: "school", header: "School", width: "1.4fr" },
@@ -695,10 +694,6 @@ export function Audit() {
       { label: "Privileged changes", value: String(privileged.length), sub: "access or academic" },
       { label: "Financial events", value: String(financial.length), sub: "fee/payment changes" },
       { label: "Retention", value: "7 yrs", sub: "immutable, append only" },
-    ],
-    actions: [
-      { label: "Filter by school", onClick: () => {} },
-      { label: "Export range", onClick: () => {} },
     ],
     columns: [
       { key: "when", header: "Time", width: "1.1fr" },

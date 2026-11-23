@@ -159,19 +159,29 @@ describe("the web host's security headers (apps/web/vercel.json)", () => {
   const keys = new Set(everyPage.flatMap((h) => h.headers.map((x) => x.key.toLowerCase())));
   const csp = everyPage.flatMap((h) => h.headers).find((x) => x.key.toLowerCase() === "content-security-policy")?.value ?? "";
 
-  // The page and the sign-in form are served from here, so these decide whether another site can frame the Pay button
-  // or whether a script that gets in can load more from anywhere.
-  it.fails("QA14-HEADERS FIG-1459: every page is sent with a Content-Security-Policy, HSTS, nosniff, a referrer policy and frame protection", () => {
-    expect(keys.has("content-security-policy")).toBe(true);
+  it("every page is sent with HSTS, nosniff, a referrer policy and frame protection (FIG-1901)", () => {
     expect(keys.has("strict-transport-security")).toBe(true);
     expect(keys.has("x-content-type-options")).toBe(true);
     expect(keys.has("referrer-policy")).toBe(true);
     expect(keys.has("x-frame-options") || /frame-ancestors/.test(csp)).toBe(true);
   });
 
-  it("the header rules that do exist are valid (caching and noindex only, nothing that weakens a page)", () => {
+  // Content-Security-Policy comes in W1 once the API address is known (FIG-1459 / FIG-1901).
+  it.fails("QA14-HEADERS FIG-1459: every page is sent with a Content-Security-Policy", () => {
+    expect(keys.has("content-security-policy")).toBe(true);
+  });
+
+  it("the header rules that do exist are valid (security, caching and noindex only, nothing that weakens a page)", () => {
+    const allowed = [
+      "x-robots-tag",
+      "cache-control",
+      "strict-transport-security",
+      "x-frame-options",
+      "x-content-type-options",
+      "referrer-policy",
+    ];
     for (const h of vercel.headers ?? []) for (const x of h.headers) {
-      expect(["x-robots-tag", "cache-control"], `${h.source}: ${x.key}`).toContain(x.key.toLowerCase());
+      expect(allowed, `${h.source}: ${x.key}`).toContain(x.key.toLowerCase());
     }
   });
 });
