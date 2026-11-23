@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import {
-  cbeLevelTrend, describeChange, examsOf, fetchCbeLevels, fetchClassLearnerMeans, fetchClassPerformance, fetchTeacherClasses,
-  GRADE_BANDS, gradeDistributions, gradingSchemeFor, movers, overallMeans, RUBRIC_BANDS, subjectComparison, subjectMeans, supabase,
-  teachingResults, type ClassGroup, type Mover, type TeachingResult,
+  cbeLevelTrend, describeChange, examsOf, fetchCbeLevels, fetchClassLearnerMeans, fetchClassLearnerNames, fetchClassOptions, fetchClassPerformance, fetchTeacherClasses,
+  GRADE_BANDS, gradeDistributions, gradingSchemeFor, movers, overallMeans, RUBRIC_BANDS, subjectComparison, subjectMeans,
+  teachingResults, type Mover, type TeachingResult,
 } from "@figbloom/shared";
 import { BarList } from "../../components/analytics/BarList";
 import { fmt } from "../../components/analytics/ChartFrame";
@@ -18,22 +18,6 @@ import { StatRow } from "../../components/ui/StatCard";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
-type ClassOption = Pick<ClassGroup, "id" | "name" | "level" | "form_level">;
-
-async function fetchSchoolClasses(tenantId: string): Promise<ClassOption[]> {
-  const { data, error } = await supabase().from("classes").select("id, name, level, form_level")
-    .eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassOption[]>();
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
-async function fetchRoster(classId: string): Promise<{ id: string; full_name: string }[]> {
-  const { data, error } = await supabase().from("students").select("id, full_name")
-    .eq("class_id", classId).eq("active", true).order("full_name").returns<{ id: string; full_name: string }[]>();
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
 /**
  * Results over time for a class or the whole school: the mean exam by exam,
  * each subject's line, how subjects compare in one exam, how grades spread,
@@ -47,7 +31,7 @@ async function fetchRoster(classId: string): Promise<{ id: string; full_name: st
 export function Performance({ teacher = false }: { teacher?: boolean }) {
   const { tenant, profile } = useTenantSession();
   const classesQ = useAsync(
-    () => (teacher ? fetchTeacherClasses(profile.id) : fetchSchoolClasses(tenant.id)),
+    () => (teacher ? fetchTeacherClasses(profile.id) : fetchClassOptions(tenant.id)),
     [teacher, profile.id, tenant.id],
   );
   const classes = classesQ.data ?? [];
@@ -65,7 +49,7 @@ export function Performance({ teacher = false }: { teacher?: boolean }) {
     [tenant.id, classId, teacher],
   );
   const meansQ = useAsync(() => (classId ? fetchClassLearnerMeans(classId) : Promise.resolve([])), [classId]);
-  const rosterQ = useAsync(() => (classId ? fetchRoster(classId) : Promise.resolve([])), [classId]);
+  const rosterQ = useAsync(() => (classId ? fetchClassLearnerNames(classId) : Promise.resolve([])), [classId]);
 
   const rows = useMemo(() => rowsQ.data ?? [], [rowsQ.data]);
   const exams = useMemo(() => examsOf(rows), [rows]);

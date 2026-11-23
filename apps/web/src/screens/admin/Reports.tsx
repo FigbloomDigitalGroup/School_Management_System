@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
-import { fetchAttendanceSettings, formatMoney, gradeFor, gradingSchemeFor, supabase, type GradingSchemeId, type PercentageMode } from "@figbloom/shared";
-import type { ClassGroup, Exam, Term } from "@figbloom/shared";
+import { fetchTermReport, formatMoney, gradeFor, type TermReport } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
@@ -9,92 +8,6 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { CbeReport } from "./CbeReport";
 
-interface ReportsData {
-  term: Term | null;
-  /** How the school counts attendance: one unit per register entry ("session") or per learner-day ("day"). term_class_figures() uses the same mode. */
-  percentageMode: PercentageMode;
-  classes: Pick<ClassGroup, "id" | "name" | "form_level" | "level">[];
-  attendanceByClass: Map<string, { present: number; total: number }>;
-  attendanceOverall: { present: number; total: number };
-  feeByClass: Map<string, { billed: number; paid: number }>;
-  feeOverall: { billed: number; paid: number };
-  latestExam: Exam | null;
-  meanByClass: Map<string, { mean: number; marked: number; roster: number; scheme: GradingSchemeId }>;
-}
-
-/** One row of term_class_figures(): a class's term, added up in the database (supabase/migrations/20261105500000). */
-interface ClassFigures {
-  class_id: string;
-  roster: number;
-  att_here: number;
-  att_total: number;
-  billed: number;
-  paid: number;
-  mark_sum: number;
-  mark_count: number;
-  /** Learners with at least one score in the exam, each counted once (mark_count is one per learner per subject). */
-  learners_marked: number;
-}
-
-async function fetchReports(tenantId: string, country: string): Promise<ReportsData> {
-  const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
-  const termId = term?.id ?? null;
-
-  const { data: classRows } = await sb
-    .from("classes").select("id,name,form_level,level").eq("tenant_id", tenantId).order("form_level").order("name")
-    .returns<Pick<ClassGroup, "id" | "name" | "form_level" | "level">[]>();
-  const classes = classRows ?? [];
-
-  const attendanceByClass = new Map<string, { present: number; total: number }>();
-  const attendanceOverall = { present: 0, total: 0 };
-  const feeByClass = new Map<string, { billed: number; paid: number }>();
-  const feeOverall = { billed: 0, paid: 0 };
-  let latestExam: Exam | null = null;
-  const meanByClass = new Map<string, { mean: number; marked: number; roster: number; scheme: GradingSchemeId }>();
-
-  if (termId) {
-    const { data: examRows } = await sb
-      .from("exams").select("*").eq("tenant_id", tenantId).eq("term_id", termId).not("published_at", "is", null)
-      .order("published_at", { ascending: false }).limit(1).returns<Exam[]>();
-    latestExam = examRows?.[0] ?? null;
-
-    // Added up in the database: the API answers at most 1,000 rows and says nothing when it stops, so a term's register entries,
-    // invoices and marks cannot be read here and summed (FIG-1438, FIG-1402, FIG-1439).
-    const { data: figureRows, error: figureError } = await sb
-      .rpc("term_class_figures", { p_tenant_id: tenantId, p_term_id: termId, p_exam_id: latestExam?.id ?? null });
-    if (figureError) throw new Error(figureError.message);
-    const figures = new Map<string, ClassFigures>(((figureRows ?? []) as ClassFigures[]).map((f) => [f.class_id, f] as const));
-
-    for (const c of classes) {
-      const f = figures.get(c.id);
-      const here = f?.att_here ?? 0;
-      const total = f?.att_total ?? 0;
-      attendanceByClass.set(c.id, { present: here, total });
-      attendanceOverall.present += here;
-      attendanceOverall.total += total;
-
-      const billed = f?.billed ?? 0;
-      const paid = f?.paid ?? 0;
-      feeByClass.set(c.id, { billed, paid });
-      feeOverall.billed += billed;
-      feeOverall.paid += paid;
-
-      if (f && f.mark_count > 0) {
-        meanByClass.set(c.id, {
-          mean: Math.round(f.mark_sum / f.mark_count),
-          marked: f.learners_marked,
-          roster: f.roster,
-          scheme: gradingSchemeFor(country, c.level),
-        });
-      }
-    }
-  }
-
-  const { percentage_mode: percentageMode } = await fetchAttendanceSettings(tenantId);
-  return { term: term ?? null, percentageMode, classes, attendanceByClass, attendanceOverall, feeByClass, feeOverall, latestExam, meanByClass };
-}
-
 /**
  * Where a principal looks back over the term instead of at today — attendance
  * and fee collection here are term-wide totals, not the Dashboard's "today"
@@ -102,7 +15,7 @@ async function fetchReports(tenantId: string, country: string): Promise<ReportsD
  */
 export function AdminReports() {
   const { tenant } = useTenantSession();
-  const { data, loading, error } = useAsync(() => fetchReports(tenant.id, tenant.country), [tenant.id, tenant.country]);
+  const { data, loading, error } = useAsync(() => fetchTermReport(tenant.id, tenant.country), [tenant.id, tenant.country]);
 
   const overallAttendance = data && data.attendanceOverall.total > 0
     ? Math.round((data.attendanceOverall.present / data.attendanceOverall.total) * 100)
@@ -169,10 +82,10 @@ export function AdminReports() {
               <DataTable
                 title="Attendance by class · this term"
                 columns={[
-                  { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
+                  { key: "name", header: "Class", render: (c: TermReport["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
                   {
                     key: "rate", header: "Rate", align: "right",
-                    render: (c: ReportsData["classes"][number]) => {
+                    render: (c: TermReport["classes"][number]) => {
                       const a = data?.attendanceByClass.get(c.id);
                       if (!a || a.total === 0) return <span className="text-[12.5px] text-ink-faint">No data</span>;
                       return <Mono>{Math.round((a.present / a.total) * 100)}%</Mono>;
@@ -180,7 +93,7 @@ export function AdminReports() {
                   },
                   {
                     key: "entries", header: data?.percentageMode === "day" ? "Learner-days" : "Entries", align: "right",
-                    render: (c: ReportsData["classes"][number]) => <Mono>{data?.attendanceByClass.get(c.id)?.total ?? 0}</Mono>,
+                    render: (c: TermReport["classes"][number]) => <Mono>{data?.attendanceByClass.get(c.id)?.total ?? 0}</Mono>,
                   },
                 ]}
                 rows={data?.classes ?? []}
@@ -192,10 +105,10 @@ export function AdminReports() {
               <DataTable
                 title="Fee collection by class · this term"
                 columns={[
-                  { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
+                  { key: "name", header: "Class", render: (c: TermReport["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
                   {
                     key: "pct", header: "Collected", align: "right",
-                    render: (c: ReportsData["classes"][number]) => {
+                    render: (c: TermReport["classes"][number]) => {
                       const f = data?.feeByClass.get(c.id);
                       if (!f || f.billed === 0) return <span className="text-[12.5px] text-ink-faint">Not billed</span>;
                       return <Mono>{Math.round((f.paid / f.billed) * 100)}%</Mono>;
@@ -203,7 +116,7 @@ export function AdminReports() {
                   },
                   {
                     key: "balance", header: "Balance", align: "right",
-                    render: (c: ReportsData["classes"][number]) => {
+                    render: (c: TermReport["classes"][number]) => {
                       const f = data?.feeByClass.get(c.id);
                       return <Mono>{formatMoney(Math.max((f?.billed ?? 0) - (f?.paid ?? 0), 0), tenant.country)}</Mono>;
                     },
@@ -220,10 +133,10 @@ export function AdminReports() {
               <DataTable
                 title={data?.latestExam ? `Academic performance · ${data.latestExam.name}` : "Academic performance"}
                 columns={[
-                  { key: "name", header: "Class", render: (c: ReportsData["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
+                  { key: "name", header: "Class", render: (c: TermReport["classes"][number]) => <span className="text-[13px] font-medium">{c.name}</span> },
                   {
                     key: "mean", header: "Class mean", align: "right",
-                    render: (c: ReportsData["classes"][number]) => {
+                    render: (c: TermReport["classes"][number]) => {
                       const m = data?.meanByClass.get(c.id);
                       if (!m) return <span className="text-[12.5px] text-ink-faint">No marks</span>;
                       return <Mono>{m.mean} · {gradeFor(m.mean, m.scheme)}</Mono>;
@@ -231,7 +144,7 @@ export function AdminReports() {
                   },
                   {
                     key: "entered", header: "Learners marked", align: "right",
-                    render: (c: ReportsData["classes"][number]) => {
+                    render: (c: TermReport["classes"][number]) => {
                       const m = data?.meanByClass.get(c.id);
                       return <span className="text-[12.5px] text-ink-muted">{m ? `${m.marked} of ${m.roster} learners` : "—"}</span>;
                     },
