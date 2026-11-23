@@ -272,7 +272,7 @@ test.describe("teacher", () => {
 
     await page.getByRole("button", { name: "Submit register" }).click();
     await expect(page.getByText("register is in")).toBeVisible();
-    await expect(page.getByText(/parents of absent learners/i)).toBeVisible();
+    await expect(page.getByText(/saved for today/i)).toBeVisible();
   });
 
   const attendanceWrite = /\/rest\/v1\/attendance/;
