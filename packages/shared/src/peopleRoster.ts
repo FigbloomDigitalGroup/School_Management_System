@@ -1,3 +1,8 @@
+import {
+  apiAddLearner, apiFetchPeopleRoster, apiUpdateLearnerDetails, apiUpdateStaffDetails,
+} from "./api/peopleApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { fetchAllRows } from "./paging";
 import { supabase } from "./supabase";
 import type { ClassGroup, Profile, Student, Subject } from "./types";
@@ -9,6 +14,9 @@ import type { ClassGroup, Profile, Student, Subject } from "./types";
  * behind them does).
  *
  * Every function throws on a failed query: a read that failed must not look like an empty roster.
+ *
+ * On an API build (`onApi()`) each answers from apps/api (api/peopleApi.ts). What the API cannot do yet throws NotOnApiError, and the
+ * screen does not offer it (capabilities.ts `peopleCapabilities`).
  */
 
 /** A learner on the roster. `login_id` comes from their profile, when they have one. */
@@ -40,6 +48,7 @@ type InvoiceRow = { student_id: string; total_cents: number; paid_cents: number 
 
 /** Everyone in the school, with what the People screen shows beside them. */
 export async function fetchPeopleRoster(tenantId: string): Promise<PeopleRoster> {
+  if (onApi()) return apiFetchPeopleRoster(tenantId);
   const sb = supabase();
   const { data: term, error: termError } = await sb.from("terms").select("id").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<{ id: string }>();
   if (termError) throw new Error(termError.message);
@@ -93,6 +102,15 @@ export async function fetchPeopleRoster(tenantId: string): Promise<PeopleRoster>
   };
 }
 
+export interface LearnerDetailsChange {
+  fullName: string;
+  admissionNo: string;
+  gender: "male" | "female" | null;
+  /** The class to put them in; null takes them out of it; left out, their class is left as it is (nothing about it is read or written). */
+  classId?: string | null;
+  boarding: boolean;
+}
+
 export interface NewLearner {
   tenantId: string;
   admissionNo: string;
@@ -107,6 +125,7 @@ export interface NewLearner {
 
 /** Admit a learner. Gives the new learner's id. */
 export async function addLearner(input: NewLearner): Promise<string> {
+  if (onApi()) return apiAddLearner(input);
   const { data, error } = await supabase().from("students").insert({
     tenant_id: input.tenantId,
     admission_no: input.admissionNo,
@@ -125,21 +144,21 @@ export async function addLearner(input: NewLearner): Promise<string> {
   return data.id;
 }
 
-export async function updateLearnerDetails(
-  studentId: string,
-  change: { fullName: string; admissionNo: string; gender: "male" | "female" | null; classId: string | null; boarding: boolean },
-): Promise<void> {
+/** A learner's details. `classId` left out (undefined) leaves their class as it is; null takes them out of it. */
+export async function updateLearnerDetails(studentId: string, change: LearnerDetailsChange): Promise<void> {
+  if (onApi()) return apiUpdateLearnerDetails(studentId, change);
   const { error } = await supabase().from("students").update({
     full_name: change.fullName,
     admission_no: change.admissionNo,
     gender: change.gender,
-    class_id: change.classId,
+    ...(change.classId !== undefined ? { class_id: change.classId } : {}),
     boarding: change.boarding,
   }).eq("id", studentId);
   if (error) throw new Error(error.message);
 }
 
 export async function updateStaffDetails(profileId: string, change: { fullName: string; staffTitle: string | null; phone: string | null }): Promise<void> {
+  if (onApi()) return apiUpdateStaffDetails(profileId, change);
   const { error } = await supabase().from("profiles").update({
     full_name: change.fullName,
     staff_title: change.staffTitle,
@@ -153,6 +172,7 @@ export async function updateStaffDetails(profileId: string, change: { fullName: 
  * photo clears the flag too, guard_profile_self_edit).
  */
 export async function reviewStaffPhoto(profileId: string, remove: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Reviewing a staff photo");
   const { error } = await supabase().from("profiles")
     .update(remove ? { avatar_url: null } : { photo_changed_at: null }).eq("id", profileId);
   if (error) throw new Error(error.message);
@@ -160,6 +180,7 @@ export async function reviewStaffPhoto(profileId: string, remove: boolean): Prom
 
 /** Mark a teacher qualified, or no longer qualified, to teach a subject. */
 export async function setTeacherQualified(input: { tenantId: string; teacherId: string; subjectId: string; qualified: boolean }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Choosing the subjects a teacher teaches");
   const { error } = input.qualified
     ? await supabase().from("teacher_subjects").insert({ tenant_id: input.tenantId, teacher_id: input.teacherId, subject_id: input.subjectId })
     : await supabase().from("teacher_subjects").delete().eq("teacher_id", input.teacherId).eq("subject_id", input.subjectId);

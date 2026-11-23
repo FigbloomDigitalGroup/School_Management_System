@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  BIO_FIELD_LABELS, bioChanges, bioFieldList, bioProblem, bioToInput, bioValueLabel, decideBioRequest, fetchLearnerBio,
-  fetchLearnerGuardians, fetchPendingBioRequest, fetchPendingBioRequests, saveLearnerBio, splitBioChanges, supabase,
+  BIO_FIELD_LABELS, apiAddGuardian, bioChanges, bioFieldList, bioProblem, bioToInput, bioValueLabel, decideBioRequest, fetchLearnerBio,
+  fetchLearnerGuardians, fetchPendingBioRequest, fetchPendingBioRequests, peopleCapabilities, saveLearnerBio, splitBioChanges, supabase,
   type BioIdentityField, type BioRequest, type LearnerBioInput, type LearnerGuardianContact, type PendingBioRequest,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
@@ -259,17 +259,22 @@ export function BioDataEditor({ studentId, toast, mode, title = "Bio data", onRe
   );
 }
 
-/** The office's view of who looks after a learner and how to reach them; parents keep it current from My account. */
+/**
+ * The office's view of who looks after a learner and how to reach them; on Supabase parents keep it current from My account. On the new API a
+ * guardian is a contact (a name, a phone, an email) the office adds here; there are no parent sign-ins to invite yet.
+ */
 export function GuardianContacts({ studentId, schoolName }: { studentId: string; schoolName?: string }) {
+  const caps = peopleCapabilities();
   const [rows, setRows] = useState<LearnerGuardianContact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let alive = true;
     fetchLearnerGuardians(studentId)
-      .then((r) => { if (alive) setRows(r); })
+      .then((r) => { if (alive) { setRows(r); setError(null); } })
       .catch((err: Error) => { if (alive) setError(err.message); });
     return () => { alive = false; };
-  }, [studentId]);
+  }, [studentId, reload]);
 
   return (
     <div className="mb-5 border-b border-line-soft pb-5">
@@ -279,7 +284,7 @@ export function GuardianContacts({ studentId, schoolName }: { studentId: string;
       ) : !rows ? (
         <p className="mt-1 text-small text-ink-faint">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="mt-1 text-[12.5px] text-ink-faint">No guardian linked yet. Use Invite guardians.</p>
+        <p className="mt-1 text-[12.5px] text-ink-faint">{caps.inviteGuardians ? "No guardian linked yet. Use Invite guardians." : "No guardian on file yet."}</p>
       ) : (
         <ul className="mt-1.5 grid gap-1.5">
           {rows.map((g) => (
@@ -289,11 +294,88 @@ export function GuardianContacts({ studentId, schoolName }: { studentId: string;
               <span className="font-mono text-[12.5px]">{g.phone ?? "No phone"}</span>
               {g.alt_phone && <span className="font-mono text-[12.5px] text-ink-muted">also {g.alt_phone}</span>}
               {g.email && <span className="text-[12.5px] text-ink-muted">{g.email}</span>}
-              {g.email && <SendSignInAgainButton profileId={g.profile_id} name={g.full_name} email={g.email} schoolName={schoolName} />}
+              {g.email && caps.inviteGuardians && <SendSignInAgainButton profileId={g.profile_id} name={g.full_name} email={g.email} schoolName={schoolName} />}
             </li>
           ))}
         </ul>
       )}
+      {caps.guardianContactForm && rows && !error && <AddGuardianForm studentId={studentId} onAdded={() => setReload((k) => k + 1)} />}
+    </div>
+  );
+}
+
+const RELATIONSHIPS = [["mother", "Mother"], ["father", "Father"], ["guardian", "Guardian"]] as const;
+
+/** Adds a guardian's contact details to a learner (the new API's guardians are contacts linked to learners). */
+function AddGuardianForm({ studentId, onAdded }: { studentId: string; onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [relationship, setRelationship] = useState<(typeof RELATIONSHIPS)[number][0]>("mother");
+  const [phone, setPhone] = useState("");
+  const [altPhone, setAltPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [payer, setPayer] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState("");
+
+  async function save() {
+    if (!name.trim()) { setProblem("A name is required."); return; }
+    setProblem("");
+    setSaving(true);
+    try {
+      await apiAddGuardian(studentId, {
+        fullName: name.trim(), relationship, phone: phone.trim() || null, altPhone: altPhone.trim() || null, email: email.trim() || null, primaryPayer: payer,
+      });
+      setName(""); setPhone(""); setAltPhone(""); setEmail(""); setPayer(false); setRelationship("mother");
+      setOpen(false);
+      onAdded();
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : "Could not add the guardian.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return <button type="button" onClick={() => setOpen(true)} className="mt-2 text-[12px] font-semibold text-leaf hover:underline">Add a guardian</button>;
+  }
+  return (
+    <div className="mt-2.5 grid gap-2 rounded-lg border border-line-soft bg-white p-3" role="group" aria-label="Add a guardian">
+      <div className="grid gap-2" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+        <label className="block">
+          <span className={label}>Guardian's full name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} className={input} />
+        </label>
+        <label className="block">
+          <span className={label}>Relationship</span>
+          <select value={relationship} onChange={(e) => setRelationship(e.target.value as typeof relationship)} className={input}>
+            {RELATIONSHIPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label className="block">
+          <span className={label}>Phone (optional)</span>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712 345 678" className={input} />
+        </label>
+        <label className="block">
+          <span className={label}>Second phone (optional)</span>
+          <input value={altPhone} onChange={(e) => setAltPhone(e.target.value)} className={input} />
+        </label>
+      </div>
+      <label className="block">
+        <span className={label}>Email (optional)</span>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
+      </label>
+      <label className="flex items-center gap-2 text-[12.5px]">
+        <input type="checkbox" checked={payer} onChange={(e) => setPayer(e.target.checked)} style={{ accentColor: "#17402A" }} />
+        Pays the fees
+      </label>
+      {problem && <p role="alert" className="text-[12.5px] text-warn-ink">{problem}</p>}
+      <div className="flex gap-2">
+        <Button variant="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save guardian"}</Button>
+        <Button onClick={() => { setOpen(false); setProblem(""); }} disabled={saving}>Cancel</Button>
+      </div>
     </div>
   );
 }

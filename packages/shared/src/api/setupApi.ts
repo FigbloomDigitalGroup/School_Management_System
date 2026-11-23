@@ -42,14 +42,14 @@ export function listAcademicTerms(tenantId: string, academicYearId?: string): Pr
   });
 }
 
-async function listClasses(tenantId: string, academicYearId?: string): Promise<SchoolClass[]> {
+export async function listClasses(tenantId: string, academicYearId?: string): Promise<SchoolClass[]> {
   return listAllPages(async (cursor) => {
     const r = await apiClient().get("/v1/tenants/{tenantId}/classes", { path: { tenantId }, query: { academicYearId, active: true, limit: API_PAGE_LIMIT, cursor }, tenantId });
     return { items: r.classes, page: r.page };
   });
 }
 
-async function listApiSubjects(tenantId: string): Promise<ApiSubject[]> {
+export async function listApiSubjects(tenantId: string): Promise<ApiSubject[]> {
   const all = await listAllPages(async (cursor) => {
     const r = await apiClient().get("/v1/tenants/{tenantId}/subjects", { path: { tenantId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId });
     return { items: r.subjects, page: r.page };
@@ -141,7 +141,7 @@ export function subjectFromApi(s: ApiSubject, tenantId: string): Subject {
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
 
 /** Youngest year first (PP1 ... Grade 12, then Form 1 ... 4), then by name: the order the screens always showed. */
-const byYear = (a: ClassGroup, b: ClassGroup) => yearSortKey(a.level, a.form_level) - yearSortKey(b.level, b.form_level) || a.name.localeCompare(b.name);
+export const byYear = (a: ClassGroup, b: ClassGroup) => yearSortKey(a.level, a.form_level) - yearSortKey(b.level, b.form_level) || a.name.localeCompare(b.name);
 
 // ---------------------------------------------------------------- classes
 

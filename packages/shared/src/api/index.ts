@@ -9,3 +9,7 @@ export { apiLoadSchoolSession, adminAreasFromPermissions, accentFromApi, tenantF
 export * from "./sessionEvents";
 export * from "./signInFlow";
 export { classGroupFromApi, termFromApi, subjectFromApi, yearNumberOf, listAcademicYears, listAcademicTerms, currentAcademicYear } from "./setupApi";
+export {
+  LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiRestoreStaff, apiFetchArchivedStaff, apiAddGuardian, ImportRejectedError, apiImportLearners,
+  IMPORT_BATCH_ROWS, peopleErrorText, readableApiError, type NewStaffMember, type NewGuardianContact, type ImportLearnerRow, type ImportOutcome, type ImportProblem,
+} from "./peopleApi";
