@@ -107,7 +107,9 @@ export async function createTenant(input: NewSchoolInput): Promise<Tenant> {
  * organization, never the school's status.
  */
 export async function createTenantSelfService(input: NewSchoolInput): Promise<Tenant> {
-  const id = crypto.randomUUID();
+  // This file also compiles for the mobile apps (lib ES2022, no DOM), where `crypto` has no type. Browsers have it; the
+  // phone does not build schools yet (organization self-service is web only), so there is no phone fallback here.
+  const id = (globalThis as unknown as { crypto: { randomUUID(): string } }).crypto.randomUUID();
   const created_at = new Date().toISOString();
   const row: Tenant = {
     id,
