@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import {
-  announcementAudience, announcementReach, AUDIENCE_CHOICES, CHANNEL_OPTIONS, DEFAULT_CHANNELS, fetchAnnouncementsData, formatMoney,
+  announcementAudience, announcementReach, announcementsCapabilities, AUDIENCE_CHOICES, CHANNEL_OPTIONS, DEFAULT_CHANNELS, fetchAnnouncementsData, formatMoney,
   insertAnnouncement, publishAnnouncement, RECIPIENT_OPTIONS, removeAttachmentFilesFor, requireAttachmentSignatures, sendAnnouncementPush, smsCostCents,
   supabase, yearLabel,
   type AudienceChoice, type AudienceRecipients, type ChannelFlags,
@@ -22,6 +22,7 @@ import { useAsync } from "../../lib/useAsync";
  * cost before the send button — an admin should never discover the bill after.
  */
 export function Announcements() {
+  const caps = announcementsCapabilities();
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
@@ -41,11 +42,12 @@ export function Announcements() {
   const [progress, setProgress] = useState<BatchProgress | null>(null);
   const batch = useRef<AttachmentBatch | null>(null);
 
+  const channelOptions = caps.smsAndEmail ? CHANNEL_OPTIONS : CHANNEL_OPTIONS.filter((c) => c.key === "in_app" || c.key === "push");
   const effectiveClassId = classId || data?.classes[0]?.id || "";
   const reachFor = (id: AudienceChoice): number => (data ? announcementReach(data, id, recipients, formLevel, effectiveClassId) : 0);
   const reach = reachFor(audienceId);
 
-  const smsCost = channels.sms ? smsCostCents(reach) : 0;
+  const smsCost = caps.smsAndEmail && channels.sms ? smsCostCents(reach) : 0;
 
   async function submit(publish: boolean) {
     if (!subject.trim() || !body.trim()) return;
@@ -53,27 +55,28 @@ export function Announcements() {
     setSending(true);
     // With files, the notice goes in as a draft, the files go up, and only
     // then is it published: nobody gets a notice whose attachments are missing.
-    const withFiles = drafts.length > 0;
+    const withFiles = caps.attachments && drafts.length > 0;
     let createdId: string | null = null;
     try {
+      const effectiveChannels: ChannelFlags = caps.smsAndEmail ? channels : { in_app: true, push: channels.push, sms: false, email: false };
       const announcementId = await insertAnnouncement(
         tenant.id,
         profile.id,
-        { subject, body, audience: announcementAudience(audienceId, recipients, yearGroup, effectiveClassId), channels },
+        { subject, body, audience: announcementAudience(audienceId, recipients, yearGroup, effectiveClassId), channels: effectiveChannels },
         publish && !withFiles,
       );
-      createdId = announcementId;
+      createdId = withFiles ? announcementId : null;
       if (withFiles) {
         batch.current = saveAttachments(tenant.id, "announcement", announcementId, drafts, setProgress);
         await batch.current.done;
         // before it goes out: sending is what asks the families to sign
-        if (needsSignature) await requireAttachmentSignatures(announcementId);
-        if (publish) await publishAnnouncement(announcementId);
+        if (caps.signatures && needsSignature) await requireAttachmentSignatures(announcementId);
+        if (publish) await publishAnnouncement(announcementId, tenant.id);
       }
       createdId = null;
-      toast(publish ? `Sent to ${reach.toLocaleString()} people` : "Saved as a draft");
+      toast(publish ? (caps.reachCounts ? `Sent to ${reach.toLocaleString()} people` : "Announcement sent") : "Saved as a draft");
 
-      if (publish && channels.push) {
+      if (publish && effectiveChannels.push) {
         await sendAnnouncementPush(announcementId).catch((pushErr: Error) => toast(`Sent, but push notifications failed: ${pushErr.message}`, "error"));
       }
 
@@ -103,7 +106,9 @@ export function Announcements() {
       <PageHead
         eyebrow="Announcements"
         title="Compose an announcement"
-        blurb="In-app always. Add SMS only when it genuinely cannot wait — parents who get texted about a bake sale stop reading the texts about fees."
+        blurb={caps.smsAndEmail
+          ? "In-app always. Add SMS only when it genuinely cannot wait — parents who get texted about a bake sale stop reading the texts about fees."
+          : "Send an in-app or push announcement to the whole school, a role, a year group, or a class."}
       />
 
       <div className="grid gap-5 px-7 py-6" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)" }}>
@@ -122,7 +127,7 @@ export function Announcements() {
                         <span className="block text-[13.5px] font-medium">{a.label}</span>
                         {a.hint && <span className="block text-[11.5px] text-ink-faint">{a.hint}</span>}
                       </span>
-                      {loading || count === null ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{count.toLocaleString()} people</span>}
+                      {caps.reachCounts && (loading || count === null ? <Skeleton className="h-3 w-16" /> : <span className="font-mono text-[12px] text-ink-muted">{count.toLocaleString()} people</span>)}
                     </button>
                     {audienceId === a.id && (a.id === "year" || a.id === "class") && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Send to">
@@ -154,19 +159,21 @@ export function Announcements() {
             </div>
           </fieldset>
 
-          <AiWriteHelper
-            audience={(() => {
-              const who = RECIPIENT_OPTIONS.find((r) => r.value === recipients)?.label.toLowerCase() ?? "parents and students";
-              if (audienceId === "class") return `${who} of ${data?.classes.find((c) => c.id === effectiveClassId)?.name ?? "one class"}`;
-              if (audienceId === "year") return `${who} of ${yearGroup ? yearLabel(yearGroup.level, yearGroup.year) : "one year group"}`;
-              return AUDIENCE_CHOICES.find((a) => a.id === audienceId)?.label.toLowerCase() ?? "the whole school";
-            })()}
-            schoolName={tenant.name}
-            subject={subject}
-            body={body}
-            disabled={sending}
-            onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
-          />
+          {caps.aiHelper && (
+            <AiWriteHelper
+              audience={(() => {
+                const who = RECIPIENT_OPTIONS.find((r) => r.value === recipients)?.label.toLowerCase() ?? "parents and students";
+                if (audienceId === "class") return `${who} of ${data?.classes.find((c) => c.id === effectiveClassId)?.name ?? "one class"}`;
+                if (audienceId === "year") return `${who} of ${yearGroup ? yearLabel(yearGroup.level, yearGroup.year) : "one year group"}`;
+                return AUDIENCE_CHOICES.find((a) => a.id === audienceId)?.label.toLowerCase() ?? "the whole school";
+              })()}
+              schoolName={tenant.name}
+              subject={subject}
+              body={body}
+              disabled={sending}
+              onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
+            />
+          )}
 
           <TextField id="subject" label="Subject" placeholder="e.g. Half-term closing Friday 12 September"
             hint="This is all a parent sees in the notification, so put the date in it."
@@ -176,14 +183,18 @@ export function Announcements() {
             placeholder="School closes for half-term on Friday 12 September at 12:30pm. Boarders travelling upcountry should collect travel passes from the deputy's office on Thursday."
             hint="Plain language, one instruction per paragraph. Most parents read this on a phone in the sun." />
 
-          <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
-          {drafts.some((d) => d.type === "file") && <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />}
+          {caps.attachments && (
+            <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
+          )}
+          {caps.attachments && caps.signatures && drafts.some((d) => d.type === "file") && (
+            <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />
+          )}
         </div>
 
         <aside className="grid content-start gap-4">
           <fieldset className="rounded-xl border border-line p-4">
             <legend className="px-1 text-small font-semibold">How it goes out</legend>
-            {CHANNEL_OPTIONS.map(({ key, label, note }) => (
+            {channelOptions.map(({ key, label, note }) => (
               <label key={key} className="flex items-start gap-2.5 border-b border-line-soft py-2.5 last:border-0">
                 <input type="checkbox" checked={channels[key]}
                   onChange={(e) => setChannels((c) => ({ ...c, [key]: e.target.checked }))}
@@ -200,8 +211,12 @@ export function Announcements() {
             <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">BEFORE YOU SEND</div>
             <dl className="mt-2.5 grid gap-2 text-[12.5px]">
               {/* reach is 0 until the counts land — never show that as the answer. */}
-              <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{loading && !data ? <Skeleton className="h-3 w-16" /> : `${reach.toLocaleString()} people`}</dd></div>
-              <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{channels.sms && loading && !data ? <Skeleton className="h-3 w-16" /> : formatMoney(smsCost, tenant.country)}</dd></div>
+              {caps.reachCounts && (
+                <div className="flex justify-between"><dt className="text-ink-muted">Reaches</dt><dd className="font-mono">{loading && !data ? <Skeleton className="h-3 w-16" /> : `${reach.toLocaleString()} people`}</dd></div>
+              )}
+              {caps.smsAndEmail && (
+                <div className="flex justify-between"><dt className="text-ink-muted">SMS cost</dt><dd className="font-mono">{channels.sms && loading && !data ? <Skeleton className="h-3 w-16" /> : formatMoney(smsCost, tenant.country)}</dd></div>
+              )}
               <div className="flex justify-between"><dt className="text-ink-muted">Cannot be unsent</dt><dd className="font-mono">correct</dd></div>
             </dl>
             <div className="mt-3.5 grid gap-2">
@@ -235,7 +250,7 @@ export function Announcements() {
                     <div className="mt-0.5 font-mono text-[10.5px] text-ink-faint">
                       {a.published_at ? new Date(a.published_at).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) : "Draft"}
                     </div>
-                    <MessageSignatureStatus announcementId={a.id} />
+                    {caps.signatures && <MessageSignatureStatus announcementId={a.id} />}
                   </li>
                 ))}
               </ul>

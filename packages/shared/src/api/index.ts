@@ -9,3 +9,4 @@ export { apiLoadSchoolSession, adminAreasFromPermissions, accentFromApi, tenantF
 export * from "./sessionEvents";
 export * from "./signInFlow";
 export { classGroupFromApi, termFromApi, subjectFromApi, yearNumberOf, listAcademicYears, listAcademicTerms, currentAcademicYear } from "./setupApi";
+export { recentAnnouncementFromApi, activeApiChannels } from "./announcementsApi";

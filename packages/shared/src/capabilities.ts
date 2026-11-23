@@ -60,3 +60,29 @@ const NOTHING_YET: SetupCapabilities = {
 export function setupCapabilities(): SetupCapabilities {
   return onApi() ? NOTHING_YET : EVERYTHING;
 }
+
+/** The announcements composer screen (admin/announcements). */
+export interface AnnouncementsCapabilities {
+  /** Per-audience recipient headcounts and SMS cost preview (the API has no account-reach count endpoint yet). */
+  reachCounts: boolean;
+  /** Attaching files to an announcement (waits on API file storage, A5 / FIG-1873). */
+  attachments: boolean;
+  /** Requiring guardian signatures on announcement attachments and showing signature status (waits on C12 / FIG-1880). */
+  signatures: boolean;
+  /** AI writing helper (calls a Supabase edge function). */
+  aiHelper: boolean;
+  /** SMS and email delivery channels (deferred on the API until B8 / FIG-1876). */
+  smsAndEmail: boolean;
+}
+
+const ALL_ANNOUNCEMENTS: AnnouncementsCapabilities = {
+  reachCounts: true, attachments: true, signatures: true, aiHelper: true, smsAndEmail: true,
+};
+
+const API_ANNOUNCEMENTS: AnnouncementsCapabilities = {
+  reachCounts: false, attachments: false, signatures: false, aiHelper: false, smsAndEmail: false,
+};
+
+export function announcementsCapabilities(): AnnouncementsCapabilities {
+  return onApi() ? API_ANNOUNCEMENTS : ALL_ANNOUNCEMENTS;
+}
