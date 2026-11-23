@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ADMIN_AREA_INFO, ADMIN_AREA_PAGES, maySeeSignOutList, pageIsNotForInstitution, supabase, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
-  REGISTER_TABLE, type AdminArea, type ClassGroup,
+  ADMIN_AREA_INFO, ADMIN_AREA_PAGES, maySeeSignOutList, pageIsNotForInstitution, fetchRegisterDays, fetchSessionEntries, fetchSignOutDays,
+  type AdminArea, type ClassGroup,
 } from "@figbloom/shared";
 import { EarlySignOutList } from "../../components/attendance/EarlySignOutList";
 import { AttendanceSettingsPanel } from "../../components/attendance/AttendanceSettingsPanel";
@@ -78,18 +78,9 @@ interface Registers {
 }
 
 async function fetchLatestRegisters(tenantId: string): Promise<Registers> {
-  const sb = supabase();
-  const [{ data: classes, error: e1 }, { data: latest, error: e3 }, latestPm, settings] = await Promise.all([
-    sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
-    sb.from("attendance").select("taken_on").eq("tenant_id", tenantId).order("taken_on", { ascending: false }).limit(1).returns<{ taken_on: string }[]>(),
-    // An afternoon read that fails must not hide the morning figures.
-    sb.from(REGISTER_TABLE.afternoon).select("taken_on").eq("tenant_id", tenantId).order("taken_on", { ascending: false }).limit(1)
-      .returns<{ taken_on: string }[]>().then((r) => (r.error ? null : r.data?.[0]?.taken_on ?? null)),
-    fetchAttendanceSettings(tenantId),
-  ]);
-  for (const e of [e1, e3]) if (e) throw new Error(e.message);
+  const { classes, latestMorning, latestAfternoon, settings } = await fetchRegisterDays(tenantId);
 
-  const date = latestDate(latest?.[0]?.taken_on, latestPm);
+  const date = latestDate(latestMorning, latestAfternoon);
   let figures = new Map<string, ClassRegisterFigures>();
   const taken = new Set<string>();
   const takenPm = new Set<string>();
@@ -105,7 +96,7 @@ async function fetchLatestRegisters(tenantId: string): Promise<Registers> {
       if (f.pmIn) takenPm.add(id);
     }
   }
-  return { date, classes: classes ?? [], figures, taken, takenPm, afternoonOn: settings.afternoon_enabled };
+  return { date, classes, figures, taken, takenPm, afternoonOn: settings.afternoon_enabled };
 }
 
 /** Every class's most recent register, each one open to see who was missing and correct it. */
