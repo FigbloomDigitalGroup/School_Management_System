@@ -71,13 +71,38 @@ async function listTeachers(tenantId: string): Promise<TeacherOption[]> {
   }
 }
 
+/**
+ * The ids of the school's active learners, or null when the person may not read learners. Archiving a learner does NOT end their
+ * class membership in the API (it stays active, and restoring them needs nothing done), so a class's headcount must count only the
+ * memberships of learners who are active.
+ */
+export async function listActiveLearnerIds(tenantId: string): Promise<Set<string> | null> {
+  try {
+    const rows = await listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/learners", { path: { tenantId }, query: { active: true, limit: API_PAGE_LIMIT, cursor }, tenantId });
+      return { items: r.learners, page: r.page };
+    });
+    return new Set(rows.map((l) => l.id));
+  } catch (err) {
+    // A teacher holding only Academics reads classes but not learners: the count then includes archived learners, never fails.
+    if (isApiError(err) && err.code === "forbidden") return null;
+    throw err;
+  }
+}
+
 async function countByClass(tenantId: string): Promise<Map<string, number>> {
-  const rows = await listAllPages(async (cursor) => {
-    const r = await apiClient().get("/v1/tenants/{tenantId}/class-memberships", { path: { tenantId }, query: { active: true, limit: API_PAGE_LIMIT, cursor }, tenantId });
-    return { items: r.memberships, page: r.page };
-  });
+  const [rows, active] = await Promise.all([
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/class-memberships", { path: { tenantId }, query: { active: true, limit: API_PAGE_LIMIT, cursor }, tenantId });
+      return { items: r.memberships, page: r.page };
+    }),
+    listActiveLearnerIds(tenantId),
+  ]);
   const counts = new Map<string, number>();
-  for (const m of rows) counts.set(m.class_id, (counts.get(m.class_id) ?? 0) + 1);
+  for (const m of rows) {
+    if (active && !active.has(m.learner_id)) continue;
+    counts.set(m.class_id, (counts.get(m.class_id) ?? 0) + 1);
+  }
   return counts;
 }
 
