@@ -41,6 +41,7 @@ is added to it (or moved back into `App.tsx`) as it is ported.
   - **Import:** the CSV import of learners.
   - **Staff:** list, add, change details, archive and restore. Staff on the API are directory records, so adding one
     makes no sign-in.
+- **Announcements**: compose and send (or save as draft) in-app and push announcements to the whole school, a role, a year group, or a class, and view recently sent notices.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -69,6 +70,18 @@ Each flag is one missing endpoint; when the API gains it, the flag turns on and 
 | Edit a subject; a subject's level, year range and core flag; adding from the KICD catalogue | a subject is a code and a name, and cannot be updated |
 | Change or clear a subject's teacher in a class | a teaching assignment can be made, not changed or removed |
 | Fee structure and payment methods steps; the school crest; the AI settings | not in the API (fees are their own area) or need storage |
+
+### Announcements screen: what the API cannot do yet
+
+`announcementsCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet:
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Per-audience recipient headcounts & SMS cost preview | no account-reach count endpoint yet (family account links wait on A1 / `FIG-1869`) |
+| File attachments | file storage waits on A5 (`FIG-1873`) |
+| Guardian signature requests & signature status | signatures wait on C12 (`FIG-1880`) |
+| AI writing helper | calls a Supabase edge function |
+| SMS and email channel checkboxes | SMS/email delivery waits on B8 (`FIG-1876`); `in_app` and `push` work (`publish` enqueues `announcement.push` on the server) |
 
 Where the model differs it is mapped in `packages/shared/src/api/setupApi.ts`: a class belongs to an academic year (the screen
 shows the current year's classes, and a class needs a current year, which "Start a term" makes); a teacher is a staff record,
