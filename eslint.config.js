@@ -55,7 +55,7 @@ export default tseslint.config(
     rules: { "no-console": "error" },
   },
   {
-    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs"],
+    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs", "scripts/supabase-to-api/**/*.mjs"],
     languageOptions: { sourceType: "module", globals: globals.node },
   },
   {
