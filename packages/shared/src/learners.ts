@@ -1,3 +1,6 @@
+import { apiArchiveLearners, apiFetchArchivedLearners, apiRestoreLearners } from "./api/peopleApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 
@@ -26,6 +29,7 @@ export const learnerCount = (n: number): string => `${n.toLocaleString()} learne
 /** Takes the learners off class lists, attendance and billing, keeping every record. Returns how many changed. */
 export async function archiveLearners(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
+  if (onApi()) return apiArchiveLearners(ids);
   const { data, error } = await supabase().rpc("archive_learners", { p_ids: ids });
   if (error) throw new Error(error.message);
   return data as number;
@@ -34,6 +38,7 @@ export async function archiveLearners(ids: string[]): Promise<number> {
 /** Puts archived learners back. Returns how many changed. */
 export async function restoreLearners(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
+  if (onApi()) return apiRestoreLearners(ids);
   const { data, error } = await supabase().rpc("restore_learners", { p_ids: ids });
   if (error) throw new Error(error.message);
   return data as number;
@@ -46,6 +51,7 @@ export async function restoreLearners(ids: string[]): Promise<number> {
  */
 export async function deleteLearners(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
+  if (onApi()) throw new NotOnApiError("Deleting a learner");
   const { data, error } = await supabase().from("students").delete().in("id", ids).select("id");
   if (error) throw new Error(error.message);
   // Row-level security turns a delete it doesn't allow into "0 rows" instead of an error.
@@ -54,6 +60,7 @@ export async function deleteLearners(ids: string[]): Promise<void> {
 
 /** Learners who have left, most recently archived first. */
 export async function fetchArchivedLearners(tenantId: string): Promise<ArchivedLearner[]> {
+  if (onApi()) return apiFetchArchivedLearners(tenantId);
   const rows = await fetchAllPages<ArchivedLearner>((from, to) =>
     supabase()
       .from("students")

@@ -61,6 +61,71 @@ export function setupCapabilities(): SetupCapabilities {
   return onApi() ? NOTHING_YET : EVERYTHING;
 }
 
+/** The People screen: learners, staff and guardians. A flag is true where that backend offers the control. */
+export interface PeopleCapabilities {
+  /** Delete a learner for good (the API archives only). */
+  deleteLearner: boolean;
+  /** Learners' sign-in accounts: the Login column, "Create logins", a learner's password reset. */
+  learnerLogins: boolean;
+  /** "Invite guardians" from the selected learners (parents' sign-in accounts). */
+  inviteGuardians: boolean;
+  /** The Guardian column (a placeholder on Supabase; guardians are read from a learner's own card on the API). */
+  guardianColumn: boolean;
+  /** Each learner's fee status. */
+  learnerFees: boolean;
+  /** The bulk "Change class" and "Export" buttons (toast-only stubs on Supabase; not offered on the API until they work). */
+  bulkChangeClass: boolean;
+  bulkExport: boolean;
+  /** Home address and bus route, health details, bio data and its approval requests, documents, early sign-outs, activities. */
+  learnerHome: boolean;
+  learnerHealth: boolean;
+  bioData: boolean;
+  learnerDocuments: boolean;
+  learnerEarlySignOuts: boolean;
+  learnerActivities: boolean;
+  /** Photos: uploading one, and an admin's review of a changed staff photo. */
+  photos: boolean;
+  /** Password reset requests and resets. */
+  passwordResets: boolean;
+  /** Staff as sign-in accounts: Add staff makes a login, Remove staff deletes it, admin access, a login column. */
+  staffAccounts: boolean;
+  /** The subjects a teacher teaches. */
+  staffSubjects: boolean;
+  /** Calling a member of staff from the app. */
+  staffCalls: boolean;
+  /** API only: staff are directory records that can be archived and restored (an Archived view on the Staff tab). */
+  staffArchive: boolean;
+  /** API only: add a guardian's contact details to a learner. */
+  guardianContactForm: boolean;
+  /** Import learners from a spreadsheet as a holder of the People area (on the API only a full administrator may). */
+  importByAreaHolders: boolean;
+  /** API only: a learner can be added with no class yet (placing one needs the Academics area, which People alone does not give). */
+  learnerWithoutClass: boolean;
+  /**
+   * Take a learner out of their class ("Unassigned"). Not on the API: a class a learner has left cannot be given back to them that
+   * year (the API keeps an ended membership as a block), so taking one away would be a trap.
+   */
+  unassignClass: boolean;
+}
+
+const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
+  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
+  learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true,
+  photos: true, passwordResets: true, staffAccounts: true, staffSubjects: true, staffCalls: true, staffArchive: false, guardianContactForm: false,
+  importByAreaHolders: true, learnerWithoutClass: false, unassignClass: true,
+};
+
+const PEOPLE_ON_API: PeopleCapabilities = {
+  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
+  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false,
+  photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
+  importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
+};
+
+export function peopleCapabilities(): PeopleCapabilities {
+  return onApi() ? PEOPLE_ON_API : PEOPLE_ON_SUPABASE;
+}
+
 /** The announcements composer screen (admin/announcements). */
 export interface AnnouncementsCapabilities {
   /** Per-audience recipient headcounts and SMS cost preview (the API has no account-reach count endpoint yet). */

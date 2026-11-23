@@ -1,8 +1,8 @@
-# The web app on the new API (FIG-1890: sign-in, then school setup)
+# The web app on the new API (FIG-1890: sign-in, school setup, people)
 
 Written 2026-11-23. The first steps of moving the web app from Supabase to `apps/api`: the client, the switch, sign-in,
-and the school-setup screens (School settings, Classes, Subjects). Everything else in the web app still reads Supabase
-and is **not in an API build**.
+the school-setup screens (School settings, Classes, Subjects) and the People page (Students & staff). Everything else in
+the web app still reads Supabase and is **not in an API build**.
 
 ## What a build is
 
@@ -34,6 +34,13 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Classes**: list (the current year's), add one or several, and who the class teacher is (chosen when the class is made).
 - **Subjects**: list, add one or several (a code and a name).
 - **Subjects in a class**: name the teacher of a subject in a class.
+- **Students & staff** (People):
+  - **Learners:** the roster (search, class filter, pages); add a learner, with a class or "No class yet"; change a
+    learner's details and move them to another class; archive and restore, with an Archived view.
+  - **Guardians:** each learner's guardians, and an "Add a guardian" contact form.
+  - **Import:** the CSV import of learners.
+  - **Staff:** list, add, change details, archive and restore. Staff on the API are directory records, so adding one
+    makes no sign-in.
 - **Announcements**: compose and send (or save as draft) in-app and push announcements to the whole school, a role, a year group, or a class, and view recently sent notices.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
@@ -82,11 +89,48 @@ so every teacher id on an API build is a staff id; a term "starts" by finding or
 setting both current; the API has no batch for classes or subjects, so "bulk add" sends them one at a time and says how
 many were made if one is refused.
 
+### People: what the API cannot do yet
+
+The People page (Students & staff) works the same way: `peopleCapabilities()` hides what the API has no endpoint for, and
+the shared function behind it throws `NotOnApiError`.
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Delete a learner | no delete: learners are archived and restored |
+| Taking a learner out of their class ("Unassigned") for a learner who has one | a class a learner leaves cannot be given back that year (finding 7) |
+| Change class for several learners at once; Export | no bulk move; exports are async jobs, not ported |
+| The roster's Guardian, Login and Fees columns | the Guardian column shows no real data on either build yet; learners have no sign-in; fees are their own area, not ported |
+| Learner sign-ins: create logins, password resets | learners have no accounts on the API |
+| Invite guardians, send their sign-in again | guardian invitations exist, but families can read nothing yet (FIG-1869) |
+| Home address and bus, health, documents, early sign-outs, sports and activities, photos, bio data and bio-data requests | not in the API's learner record, or not ported yet |
+| Staff accounts: admin access, password reset, Remove staff, a teacher's subjects, calls | staff are directory records (a name, a role, contact details), not accounts; accounts come from invitations, not ported |
+| The import's home and health columns | the API's import has five columns: admission_no, full_name, gender, date_of_birth, boarding |
+
+Shown only on the API build, because the API has them and Supabase does not: archive and restore for staff (with an
+Archived view), an "Add a guardian" contact form, and adding a learner with no class yet.
+
+How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
+
+- A learner's class is a class membership, one active per learner per academic year. The roster shows the membership in a
+  class of the current year. A move ends that membership and makes the new one.
+- Archiving a learner leaves their membership active, so counts use only active learners' memberships.
+- There is no bulk write. Archive, restore and placing imported learners go one at a time, four at once, and a failure says
+  how many were done.
+- The import: the page checks the file as before and leaves out the rows that need fixing. The API then checks the rest
+  (1,000 rows per call); if it refuses any row, nothing is imported and the message names the line in the person's own
+  file. Then the learners are made, and each is placed in the class the file named.
+- What a person may read depends on their areas. A teacher holding only People reads and adds learners and staff, but cannot
+  read classes, memberships or guardians, and cannot import. Those parts show "none" instead of failing the page, and a
+  change to a learner's name does not touch their class.
+
 ## Where the code is
 
 - `packages/shared/src/api/`: `schema.d.ts` (generated), `client.ts` (the one way to call the API), `errors.ts`,
   `tokenStore.ts`, `paging.ts`, `authApi.ts` (login, MFA, password), `sessionApi.ts` (who is signed in and their school),
   `sessionEvents.ts`, `signInFlow.ts` (what comes next after a password).
+- `packages/shared/src/api/setupApi.ts` and `peopleApi.ts`: the API side of `schoolSetup.ts`, and of `peopleRoster.ts`,
+  `learners.ts` and the guardian list in `learnerBio.ts`. `pool.ts` runs writes a few at a time.
+- `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
   need no change when their area is ported.
@@ -130,3 +174,20 @@ inside the same 30 seconds needs the next code.
    teacher's name in the class record, would fix it.
 6. Edit and remove for classes, subjects and teaching assignments, and a bulk create for classes and subjects, are the
    gaps the setup screens hit (the table above).
+7. **A learner can never go back into a class they left that year.** The unique index
+   `class_memberships_learner_class_year_uidx` (migration 029) is on `(tenant_id, learner_id, class_id, academic_year_id)`
+   with no `WHERE active`, so an ended membership still blocks it. The 409 says "Learner already has an active class
+   membership for this academic year", which is not what happened. There is also no endpoint to undo an ended membership
+   or to move a learner in one call. The web refuses such a move before changing anything, and does not offer
+   "Unassigned" for a learner who has a class. A partial index (`WHERE active`), or a move endpoint, would fix it.
+8. **Archiving a learner leaves their class membership active**, so anything that counts memberships also counts learners
+   who have left. The Classes page did; the web now counts only active learners' memberships. Ending the membership on
+   archive (and giving it back on restore), or a count endpoint, would be simpler for every client.
+9. **A teacher holding only People** can add learners, but cannot read classes or memberships, place a learner in a class
+   (that needs Academics), read guardians (the administrator's, or a per-person grant) or import (`resource.import.write`).
+   A secretary admitting learners therefore cannot put them in a class.
+10. **The learner import** has no class column and reads at most 1,000 rows. The web sends files in batches of 1,000 and
+    places each learner afterwards, one call each. A class column would make the import one atomic step.
+11. **Validation answers** put the real problem in `details`; the message is a generic list of the required fields
+    ("admission_no, full_name and gender (male|female) are required; ..."). The web turns `details` into words ("Phone is
+    not in the right format."). The import's own errors use the column names ("date_of_birth is not a valid date").

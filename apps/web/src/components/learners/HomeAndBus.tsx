@@ -62,8 +62,9 @@ export async function saveBus(studentId: string, plan: ReturnType<typeof planBus
 }
 
 /** The school's routes and stops, for the fields below. */
-export function useSchoolRoutes(tenantId: string, reloadKey = 0) {
-  return useAsync(() => listRoutesWithStops(tenantId), [tenantId, reloadKey]);
+export function useSchoolRoutes(tenantId: string | null, reloadKey = 0) {
+  // null: this build keeps no routes (the new API), so nothing is read.
+  return useAsync(() => (tenantId ? listRoutesWithStops(tenantId) : Promise.resolve([] as Awaited<ReturnType<typeof listRoutesWithStops>>)), [tenantId, reloadKey]);
 }
 
 export function HomeAndBusFields({ value, onChange, routes, boarding, childName, compact }: {
