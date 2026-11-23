@@ -35,6 +35,7 @@ const WorkerConfig = z
     /** Client-side backstop; must exceed statementTimeoutMs (validated below). */
     clientQueryTimeoutMs: z.coerce.number().int().min(2_000).max(120_000).default(20_000),
     shutdownHardTimeoutMs: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
+    paymentProvider: z.enum(["daraja", "payhero"]).default("daraja"),
     mpesaEnv: z.enum(["sandbox", "production"]).default("sandbox"),
     mpesaConsumerKey: z.string().min(1).optional(),
     mpesaConsumerSecret: z.string().min(1).optional(),
@@ -43,6 +44,14 @@ const WorkerConfig = z
     mpesaCallbackUrl: z.string().url().optional(),
     mpesaCallbackSecret: z.string().min(32).max(256).optional(),
     mpesaHttpTimeoutMs: z.coerce.number().int().positive().max(60_000).default(10_000),
+    payheroBaseUrl: z.string().url().default("https://backend.payhero.co.ke/api/v2"),
+    payheroBasicAuthToken: z.string().min(1).optional(),
+    payheroApiUsername: z.string().min(1).optional(),
+    payheroApiPassword: z.string().min(1).optional(),
+    payheroChannelId: z.coerce.number().int().positive().optional(),
+    payheroCallbackUrl: z.string().url().optional(),
+    payheroCallbackSecret: z.string().min(32).max(256).optional(),
+    payheroHttpTimeoutMs: z.coerce.number().int().positive().max(60_000).default(10_000),
   })
   .superRefine((c, ctx) => {
     const lease = leasePolicyViolation(c);
@@ -71,6 +80,7 @@ async function main(): Promise<void> {
     idleInTransactionSessionTimeoutMs: env.WORKER_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS,
     clientQueryTimeoutMs: env.WORKER_CLIENT_QUERY_TIMEOUT_MS,
     shutdownHardTimeoutMs: env.WORKER_SHUTDOWN_HARD_TIMEOUT_MS,
+    paymentProvider: env.PAYMENT_PROVIDER || undefined,
     mpesaEnv: env.MPESA_ENV || undefined,
     mpesaConsumerKey: env.MPESA_CONSUMER_KEY || undefined,
     mpesaConsumerSecret: env.MPESA_CONSUMER_SECRET || undefined,
@@ -79,6 +89,14 @@ async function main(): Promise<void> {
     mpesaCallbackUrl: env.MPESA_CALLBACK_URL || undefined,
     mpesaCallbackSecret: env.MPESA_CALLBACK_SECRET || undefined,
     mpesaHttpTimeoutMs: env.MPESA_HTTP_TIMEOUT_MS,
+    payheroBaseUrl: env.PAYHERO_BASE_URL || undefined,
+    payheroBasicAuthToken: env.PAYHERO_BASIC_AUTH_TOKEN || undefined,
+    payheroApiUsername: env.PAYHERO_API_USERNAME || undefined,
+    payheroApiPassword: env.PAYHERO_API_PASSWORD || undefined,
+    payheroChannelId: env.PAYHERO_CHANNEL_ID || undefined,
+    payheroCallbackUrl: env.PAYHERO_CALLBACK_URL || undefined,
+    payheroCallbackSecret: env.PAYHERO_CALLBACK_SECRET || undefined,
+    payheroHttpTimeoutMs: env.PAYHERO_HTTP_TIMEOUT_MS,
   });
   if (!parsed.success) {
     throw new Error(`Invalid worker config: ${parsed.error.issues.map((i) => i.path.join(".")).join(", ")}`);

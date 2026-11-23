@@ -4,7 +4,9 @@ import { NAV, adminAccessFor, hasAdminConsole, mayOpenAdminPage } from "@figbloo
 import { ConsoleShell } from "../components/ConsoleShell";
 import { AdminClasses } from "../screens/admin/Classes";
 import { AdminSubjects } from "../screens/admin/Subjects";
+import { BankReconciliation } from "../screens/admin/BankReconciliation";
 import { TermSetup } from "../screens/admin/TermSetup";
+import { TeacherReports } from "../screens/teacher/TeacherReports";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
 
 /**
@@ -47,6 +49,8 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/settings" element={page("admin/settings", <TermSetup />)} />
       <Route path="admin/classes" element={page("admin/classes", <AdminClasses />)} />
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
+      <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
+      <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );
