@@ -18,6 +18,7 @@ export * from "./csv";
 export * from "./curriculum";
 export * from "./cbeData";
 export * from "./auth";
+export * from "./session";
 export * from "./passwordReset";
 export * from "./parentData";
 export * from "./studentData";

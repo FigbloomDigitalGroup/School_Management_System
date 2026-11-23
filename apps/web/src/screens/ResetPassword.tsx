@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { recoveryLinkProblem, supabase } from "@figbloom/shared";
+import { changeMyPassword, hasSession, onSessionChange, recoveryLinkProblem, sendPasswordResetEmail } from "@figbloom/shared";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
 
@@ -35,10 +35,7 @@ export function ResetPassword() {
     setResendError("");
     setResendBusy(true);
     try {
-      const { error: err } = await supabase().auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (err) throw err;
+      await sendPasswordResetEmail(email.trim(), `${window.location.origin}/reset-password`);
       setResent(true);
     } catch (err) {
       setResendError(err instanceof Error ? err.message : "Could not send the link. Try again in a minute.");
@@ -50,14 +47,14 @@ export function ResetPassword() {
   useEffect(() => {
     if (problem) { setStatus("invalid"); return; }
     let alive = true;
-    supabase().auth.getSession().then(({ data }) => {
-      if (alive && data.session) setStatus("ready");
+    void hasSession().then((signedIn) => {
+      if (alive && signedIn) setStatus("ready");
       else if (alive) setStatus((s) => (s === "checking" ? "invalid" : s));
     });
-    const { data: sub } = supabase().auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setStatus("ready");
+    const stop = onSessionChange(({ event }) => {
+      if (event === "password-recovery") setStatus("ready");
     });
-    return () => { alive = false; sub.subscription.unsubscribe(); };
+    return () => { alive = false; stop(); };
   }, [problem]);
 
   async function submit(e: FormEvent) {
@@ -67,8 +64,7 @@ export function ResetPassword() {
     if (password !== confirm) { setError("The passwords don't match."); return; }
     setBusy(true);
     try {
-      const { error: err } = await supabase().auth.updateUser({ password });
-      if (err) throw err;
+      await changeMyPassword(password);
       setStatus("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not set the new password.");

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { WriteQueue, sendQueuedWrite, supabase } from "@figbloom/shared";
+import { WriteQueue, onSessionChange, sendQueuedWrite, storedSessionUserId } from "@figbloom/shared";
 
 /** Web queue: localStorage behind the shared WriteQueue. */
 export const queue = new WriteQueue(window.localStorage, sendQueuedWrite);
@@ -17,15 +17,13 @@ window.addEventListener("online", () => { void queue.flush().catch(() => {}); })
  */
 export function useQueueUser(): void {
   useEffect(() => {
-    const client = supabase();
-    const tell = (userId: string | undefined) => {
-      queue.setUser(userId ?? null);
+    const tell = (userId: string | null) => {
+      queue.setUser(userId);
       // What this person held earlier goes out now; what anyone else held stays untouched.
       if (userId) void queue.flush().catch(() => {});
     };
-    void client.auth.getSession().then(({ data }) => tell(data.session?.user.id));
-    const { data } = client.auth.onAuthStateChange((_event, session) => tell(session?.user.id));
-    return () => data.subscription.unsubscribe();
+    void storedSessionUserId().then(tell);
+    return onSessionChange(({ userId }) => tell(userId));
   }, []);
 }
 

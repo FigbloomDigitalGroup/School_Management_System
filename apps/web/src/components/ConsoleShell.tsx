@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, groupNav, normalizeSlug, pageIsNotForInstitution, suggestSlug, supabase, type Organization, type Role } from "@figbloom/shared";
+import { NAV, changeMyPassword, groupNav, normalizeSlug, pageIsNotForInstitution, signOutHere, suggestSlug, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { createMyOrganization } from "../lib/platformAdmin";
 import { useSlugAvailability } from "../lib/slugAvailability";
@@ -169,7 +169,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
     : null;
 
   async function signOut() {
-    await supabase().auth.signOut({ scope: "local" });
+    await signOutHere();
     nav("/signin", { replace: true });
   }
 
@@ -683,8 +683,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     if (password !== confirm) { setError("The passwords don't match."); return; }
     setBusy(true);
     try {
-      const { error: err } = await supabase().auth.updateUser({ password });
-      if (err) throw err;
+      await changeMyPassword(password);
       toast("Password changed.");
       onClose();
     } catch (err) {
