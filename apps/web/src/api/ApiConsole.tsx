@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { NAV, adminAccessFor, hasAdminConsole, mayOpenAdminPage } from "@figbloom/shared";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { Skeleton } from "../components/ui/Skeleton";
+import { Announcements } from "../screens/admin/Announcements";
 import { AdminClasses } from "../screens/admin/Classes";
 import { AdminSubjects } from "../screens/admin/Subjects";
 import { BankReconciliation } from "../screens/admin/BankReconciliation";
@@ -18,7 +19,7 @@ const People = lazy(() => import("../screens/admin/People").then((m) => ({ defau
  * here, and a route below, once its shared module has an API side (FIG-1890 onwards). Every other entry of the admin menu is
  * hidden, and its address sends the person back to the Dashboard.
  */
-export const API_ADMIN_PAGES = ["admin", "admin/people", "admin/settings", "admin/classes", "admin/subjects"] as const;
+export const API_ADMIN_PAGES = ["admin", "admin/people", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -54,6 +55,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/settings" element={page("admin/settings", <TermSetup />)} />
       <Route path="admin/classes" element={page("admin/classes", <AdminClasses />)} />
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
+      <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
       <Route path="*" element={<Navigate to={home} replace />} />

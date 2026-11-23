@@ -1,4 +1,7 @@
 import { deleteFiles, fileLink } from "./files";
+import { apiPublishAnnouncement } from "./api/announcementsApi";
+import { apiClient } from "./api/client";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 
 /**
@@ -555,7 +558,13 @@ export async function removeAttachmentFilesFor(owner: AttachmentOwner, ownerId: 
  * Publishes an announcement that was saved as a draft so its files could go
  * up first: families get the notice and its attachments at the same moment.
  */
-export async function publishAnnouncement(id: string): Promise<void> {
+export async function publishAnnouncement(id: string, tenantId?: string): Promise<void> {
+  if (onApi()) {
+    const tid = tenantId ?? apiClient().activeTenant();
+    if (!tid) throw new Error("No active school selected.");
+    await apiPublishAnnouncement(tid, id);
+    return;
+  }
   const { data, error } = await supabase().from("announcements").update({ published_at: new Date().toISOString() }).eq("id", id).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error("That announcement could not be published.");
