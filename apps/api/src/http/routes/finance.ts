@@ -17,11 +17,25 @@ import {
   voidCharge,
   voidInvoice,
 } from "../../modules/finance/invoices.js";
+import { buildInvoicePdfForTenant } from "../../modules/finance/invoicePdf.js";
+import {
+  dispatchExternalInvoiceDelivery,
+  prepareInvoiceDelivery,
+  recordInvoiceDeliveryAudit,
+  type InvoiceDeliveryChannel,
+} from "../../modules/finance/invoiceDelivery.js";
 import { getPayment, listPayments, recordPayment } from "../../modules/finance/payments.js";
 import { createPrompt, recordPushOutcome } from "../../modules/finance/mpesa.js";
 import { callbackUrlWithToken } from "../../modules/finance/mpesaProvider.js";
 import { getProof, listProofs, rejectProof, submitProof } from "../../modules/finance/proofs.js";
 import { listFindings, listRuns, resolveFinding, runReconciliation } from "../../modules/finance/reconciliation.js";
+import {
+  getBankStatementDetail,
+  ignoreBankStatementLine,
+  importBankStatement,
+  listBankStatements,
+  matchBankStatementLine,
+} from "../../modules/finance/bankReconciliation.js";
 import { assertRecentAuth } from "../../modules/auth/reauth.js";
 import { assignFinding, withdrawUnacknowledgedPrompt } from "../../modules/finance/reconciliationCases.js";
 import { getAiHelperSettings, listAiHelperOptins, putAiHelperSettings, setAiHelperOptin } from "../../modules/finance/aiHelper.js";
@@ -107,6 +121,45 @@ const AiSettingsBody = z.strictObject({
   cancel_days: z.number().int().min(0).max(60),
 });
 const OptinBody = z.strictObject({ learner_id: z.guid(), term_id: z.guid(), opted_in: z.boolean() });
+const InvoiceDeliveryChannelEnum = z.enum(["in_app", "push", "email", "sms", "whatsapp"]);
+const SendInvoiceBody = z.strictObject({
+  channels: z.array(InvoiceDeliveryChannelEnum).min(1).max(5).optional(),
+  custom_message: z.string().max(500).nullable().optional(),
+});
+const SendTermInvoicesBody = z.strictObject({
+  channels: z.array(InvoiceDeliveryChannelEnum).min(1).max(5).optional(),
+  status_filter: z.enum(["unpaid_only", "all"]).optional(),
+  custom_message: z.string().max(500).nullable().optional(),
+});
+const BankStatementImportBody = z.strictObject({
+  bank_name: z.string().min(1).max(120),
+  account_number: z.string().min(1).max(60),
+  opening_balance_minor: z.number().int().nullable().optional(),
+  closing_balance_minor: z.number().int().nullable().optional(),
+  csv_text: z.string().min(10).max(500_000).optional(),
+  lines: z
+    .array(
+      z.strictObject({
+        txn_date: DateString,
+        reference: z.string().max(80).nullable(),
+        description: z.string().max(300),
+        amount_minor: Minor,
+        direction: z.enum(["credit", "debit"]),
+        balance_minor: z.number().int().nullable(),
+      }),
+    )
+    .min(1)
+    .max(5_000)
+    .optional(),
+});
+const BankLineMatchBody = z.strictObject({
+  payment_id: z.guid().nullable().optional(),
+  invoice_id: z.guid().nullable().optional(),
+  note: z.string().max(300).nullable().optional(),
+});
+const BankLineIgnoreBody = z.strictObject({
+  note: z.string().min(3).max(300),
+});
 
 const T = "/v1/tenants/{tenantId}/finance";
 /** Request bodies by OpenAPI operation key; test/openapi.stage11.contract.test.ts compares them with the spec. */
@@ -131,6 +184,11 @@ export const FINANCE_REQUEST_SCHEMAS = {
   [`POST ${T}/payments/{paymentId}/mpesa-reconciliation`]: ReconcileBody,
   [`PUT ${T}/ai-helper/settings`]: AiSettingsBody,
   [`PUT ${T}/ai-helper/optins`]: OptinBody,
+  [`POST ${T}/invoices/{invoiceId}/send`]: SendInvoiceBody,
+  [`POST ${T}/terms/{termId}/invoices/send`]: SendTermInvoicesBody,
+  [`POST ${T}/bank-reconciliation/statements`]: BankStatementImportBody,
+  [`POST ${T}/bank-reconciliation/lines/{lineId}/match`]: BankLineMatchBody,
+  [`POST ${T}/bank-reconciliation/lines/{lineId}/ignore`]: BankLineIgnoreBody,
 } as const;
 
 const P = "/v1/tenants/:tenantId/finance";
@@ -269,6 +327,123 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, READ, { ip, deferAudit: true });
       return getInvoiceDetail(tx, { tenantId: params.tenantId, invoiceId: params.invoiceId });
+    });
+  });
+
+  app.get(`${P}/invoices/:invoiceId/pdf`, async (request, reply) => {
+    const params = request.params as { tenantId: string; invoiceId: string };
+    assertUuid(params.invoiceId, "invoiceId");
+    const { filename, pdf } = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      const canRead = await hasPermission(tx, auth.authz, READ);
+      if (!canRead) await invoiceForPayer(tx, auth.authz, params.tenantId, params.invoiceId);
+      return buildInvoicePdfForTenant(tx, { tenantId: params.tenantId, invoiceId: params.invoiceId });
+    });
+    return reply
+      .header("Content-Type", "application/pdf")
+      .header("Content-Disposition", `attachment; filename="${filename}"`)
+      .send(pdf);
+  });
+
+  app.post(`${P}/invoices/:invoiceId/send`, async (request, reply) => {
+    const params = request.params as { tenantId: string; invoiceId: string };
+    assertUuid(params.invoiceId, "invoiceId");
+
+    const { prepared, userId, ip } = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip: reqIp }) => {
+      await requirePermission(tx, auth.authz, WRITE, { ip: reqIp, deferAudit: true });
+      const body = parseOrThrow(SendInvoiceBody, request.body ?? {}, "Invalid invoice delivery options");
+      const channels: InvoiceDeliveryChannel[] = body.channels ?? ["in_app", "push", "email", "sms"];
+      const prep = await prepareInvoiceDelivery(tx, {
+        tenantId: params.tenantId,
+        actorUserId: auth.user.id,
+        invoiceId: params.invoiceId,
+        channels,
+        customMessage: body.custom_message ?? null,
+      });
+      return { prepared: prep, userId: auth.user.id, ip: reqIp };
+    });
+
+    const external_outcomes = await dispatchExternalInvoiceDelivery(prepared);
+
+    await withSystemTenantTransaction(pool, { tenantId: params.tenantId, userId }, (tx) =>
+      recordInvoiceDeliveryAudit(tx, {
+        tenantId: params.tenantId,
+        actorUserId: userId,
+        prepared,
+        outcomes: external_outcomes,
+        ip,
+      }),
+    );
+
+    return reply.status(200).send({
+      delivery: {
+        invoice_id: prepared.invoiceId,
+        reference: prepared.reference,
+        filename: prepared.filename,
+        recipients_count: prepared.recipients.length,
+        in_app_queued: prepared.inAppQueued,
+        outbox_id: prepared.outboxId,
+        external_outcomes,
+      },
+    });
+  });
+
+  app.post(`${P}/terms/:termId/invoices/send`, async (request, reply) => {
+    const params = request.params as { tenantId: string; termId: string };
+    assertUuid(params.termId, "termId");
+
+    const { preparedList, userId, ip } = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip: reqIp }) => {
+      await requirePermission(tx, auth.authz, WRITE, { ip: reqIp, deferAudit: true });
+      const body = parseOrThrow(SendTermInvoicesBody, request.body ?? {}, "Invalid bulk invoice delivery options");
+      const channels: InvoiceDeliveryChannel[] = body.channels ?? ["in_app", "push", "email", "sms"];
+      const unpaidOnly = (body.status_filter ?? "unpaid_only") === "unpaid_only";
+      const invRows = await tx.query<{ id: string }>(
+        `SELECT id FROM finance_invoices
+          WHERE tenant_id = $1 AND term_id = $2 AND voided_at IS NULL
+            ${unpaidOnly ? "AND paid_minor < total_minor" : ""}
+          ORDER BY created_at, id
+          LIMIT 500`,
+        [params.tenantId, params.termId],
+      );
+      const list = [];
+      for (const row of invRows.rows) {
+        list.push(
+          await prepareInvoiceDelivery(tx, {
+            tenantId: params.tenantId,
+            actorUserId: auth.user.id,
+            invoiceId: row.id,
+            channels,
+            customMessage: body.custom_message ?? null,
+          }),
+        );
+      }
+      return { preparedList: list, userId: auth.user.id, ip: reqIp };
+    });
+
+    let totalExternalSent = 0;
+    let totalExternalFailed = 0;
+    let totalExternalNotConfigured = 0;
+    let totalInAppQueued = 0;
+
+    for (const prepared of preparedList) {
+      totalInAppQueued += prepared.inAppQueued;
+      const outcomes = await dispatchExternalInvoiceDelivery(prepared);
+      totalExternalSent += outcomes.filter((o) => o.status === "sent").length;
+      totalExternalFailed += outcomes.filter((o) => o.status === "failed").length;
+      totalExternalNotConfigured += outcomes.filter((o) => o.status === "not_configured").length;
+      await withSystemTenantTransaction(pool, { tenantId: params.tenantId, userId }, (tx) =>
+        recordInvoiceDeliveryAudit(tx, { tenantId: params.tenantId, actorUserId: userId, prepared, outcomes, ip }),
+      );
+    }
+
+    return reply.status(200).send({
+      bulk_delivery: {
+        term_id: params.termId,
+        invoices_processed: preparedList.length,
+        in_app_queued: totalInAppQueued,
+        external_sent: totalExternalSent,
+        external_failed: totalExternalFailed,
+        external_not_configured: totalExternalNotConfigured,
+      },
     });
   });
 
@@ -686,6 +861,75 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth }) => {
       await assertMayPayFor(tx, auth.authz, body.learner_id);
       return { optin: await setAiHelperOptin(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, ...body }) };
+    });
+  });
+
+  // ------------------------------------------------------------------ bank statement reconciliation
+  app.post(`${P}/bank-reconciliation/statements`, { bodyLimit: 1024 * 1024 }, async (request, reply) => {
+    const params = request.params as { tenantId: string };
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, WRITE, { ip, deferAudit: true });
+      const body = parseOrThrow(BankStatementImportBody, request.body, "bank_name, account_number and csv_text or lines are required");
+      return importBankStatement(tx, {
+        tenantId: params.tenantId,
+        actorUserId: auth.user.id,
+        ...body,
+        ip,
+      });
+    });
+    return reply.status(201).send(out);
+  });
+
+  app.get(`${P}/bank-reconciliation/statements`, async (request) => {
+    const params = request.params as { tenantId: string };
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, READ, { ip, deferAudit: true });
+      const out = await listBankStatements(tx, { tenantId: params.tenantId, page });
+      return { statements: out.items, page: out.page };
+    });
+  });
+
+  app.get(`${P}/bank-reconciliation/statements/:statementId`, async (request) => {
+    const params = request.params as { tenantId: string; statementId: string };
+    assertUuid(params.statementId, "statementId");
+    const q = request.query as Record<string, unknown>;
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, READ, { ip, deferAudit: true });
+      const matchStatus = oneOf(q.status, ["unmatched", "auto_matched", "manual_matched", "ignored"] as const, "status");
+      return getBankStatementDetail(tx, { tenantId: params.tenantId, statementId: params.statementId, matchStatus });
+    });
+  });
+
+  app.post(`${P}/bank-reconciliation/lines/:lineId/match`, async (request) => {
+    const params = request.params as { tenantId: string; lineId: string };
+    assertUuid(params.lineId, "lineId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, WRITE, { ip, deferAudit: true });
+      const body = parseOrThrow(BankLineMatchBody, request.body, "payment_id or invoice_id is required");
+      return matchBankStatementLine(tx, {
+        tenantId: params.tenantId,
+        actorUserId: auth.user.id,
+        lineId: params.lineId,
+        ...body,
+        ip,
+      });
+    });
+  });
+
+  app.post(`${P}/bank-reconciliation/lines/:lineId/ignore`, async (request) => {
+    const params = request.params as { tenantId: string; lineId: string };
+    assertUuid(params.lineId, "lineId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, WRITE, { ip, deferAudit: true });
+      const body = parseOrThrow(BankLineIgnoreBody, request.body, "note of 3–300 characters is required");
+      return ignoreBankStatementLine(tx, {
+        tenantId: params.tenantId,
+        actorUserId: auth.user.id,
+        lineId: params.lineId,
+        note: body.note,
+        ip,
+      });
     });
   });
 }

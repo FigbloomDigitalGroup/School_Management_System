@@ -203,7 +203,14 @@ export type SecurityEventType =
   | "curriculum.catalogue.entry_rejected"
   | "curriculum.catalogue.entry_superseded"
   | "import.learners.previewed"
-  | "import.learners.applied";
+  | "import.learners.applied"
+  | "finance.invoice.sent"
+  | "finance.bank_statement.imported"
+  | "finance.bank_line.matched"
+  | "finance.bank_line.ignored"
+  | "reporting.teacher_report.created"
+  | "reporting.teacher_report.updated"
+  | "reporting.teacher_report.reviewed";
 
 export async function recordSecurityEvent(
   db: Db,
