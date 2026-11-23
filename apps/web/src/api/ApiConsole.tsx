@@ -4,6 +4,7 @@ import { NAV, adminAccessFor, hasAdminConsole, mayOpenAdminPage } from "@figbloo
 import { ConsoleShell } from "../components/ConsoleShell";
 import { Skeleton } from "../components/ui/Skeleton";
 import { AdminClasses } from "../screens/admin/Classes";
+import { Fees } from "../screens/admin/Fees";
 import { AdminSubjects } from "../screens/admin/Subjects";
 import { BankReconciliation } from "../screens/admin/BankReconciliation";
 import { TermSetup } from "../screens/admin/TermSetup";
@@ -18,7 +19,7 @@ const People = lazy(() => import("../screens/admin/People").then((m) => ({ defau
  * here, and a route below, once its shared module has an API side (FIG-1890 onwards). Every other entry of the admin menu is
  * hidden, and its address sends the person back to the Dashboard.
  */
-export const API_ADMIN_PAGES = ["admin", "admin/people", "admin/settings", "admin/classes", "admin/subjects"] as const;
+export const API_ADMIN_PAGES = ["admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -51,6 +52,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
     <Routes>
       <Route path="admin" element={page("admin", <ApiOverview session={session} onSignOut={onSignOut} inShell />)} />
       <Route path="admin/people" element={page("admin/people", <Suspense fallback={<div className="space-y-3 p-8"><Skeleton className="h-8 w-64" /><Skeleton className="h-64 w-full" /></div>}><People /></Suspense>)} />
+      <Route path="admin/fees" element={page("admin/fees", <Fees />)} />
       <Route path="admin/settings" element={page("admin/settings", <TermSetup />)} />
       <Route path="admin/classes" element={page("admin/classes", <AdminClasses />)} />
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />

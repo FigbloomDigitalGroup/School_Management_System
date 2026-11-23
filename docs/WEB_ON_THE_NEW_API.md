@@ -41,6 +41,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
   - **Import:** the CSV import of learners.
   - **Staff:** list, add, change details, archive and restore. Staff on the API are directory records, so adding one
     makes no sign-in.
+- **Fees** (office side): view term collection stats, largest outstanding balances and overpayments; create, edit and archive
+  term fee items; run term billing; search payable invoices and record payments (cash, M-Pesa, bank, cheque); review, confirm
+  or reject submitted payment proofs.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
