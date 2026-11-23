@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ADMIN_PRESETS, deleteSchoolRole, describeAreas, fetchSchoolAdminAreas, fetchSchoolRoles, saveSchoolRole, supabase,
+  ADMIN_PRESETS, deleteSchoolRole, describeAreas, fetchSchoolAdminAreas, fetchSchoolRoles, fetchSchoolStaffNames, saveSchoolRole,
   type AdminArea, type SchoolRole,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -23,14 +23,12 @@ interface AccessData {
 }
 
 async function fetchAccess(tenantId: string): Promise<AccessData> {
-  const [roles, direct, { data: people, error }] = await Promise.all([
+  const [roles, direct, names] = await Promise.all([
     fetchSchoolRoles(tenantId),
     fetchSchoolAdminAreas(tenantId),
-    supabase().from("profiles").select("id, full_name").eq("tenant_id", tenantId).in("role", ["teacher", "staff"])
-      .returns<{ id: string; full_name: string }[]>(),
+    fetchSchoolStaffNames(tenantId),
   ]);
-  if (error) throw new Error(error.message);
-  return { roles, direct, names: new Map((people ?? []).map((p) => [p.id, p.full_name])) };
+  return { roles, direct, names };
 }
 
 /**

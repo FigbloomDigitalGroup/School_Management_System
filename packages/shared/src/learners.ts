@@ -176,3 +176,38 @@ export async function bulkInsertStudentsWithHealth(tenantId: string, rows: BulkS
   }
   return rows.length;
 }
+
+/** A profile's full name and role, e.g. for "last updated by" stamps. */
+export async function fetchProfileDisplayName(profileId: string): Promise<{ full_name: string; role: string } | null> {
+  const { data, error } = await supabase()
+    .from("profiles")
+    .select("full_name, role")
+    .eq("id", profileId)
+    .maybeSingle<{ full_name: string; role: string }>();
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
+
+export interface LearnerHomeAndTransport {
+  home: LearnerHomeDetails & { boarding: boolean };
+  transport: { route_id: string; stop_id: string | null } | null;
+}
+
+/** A learner's saved home details (with boarding flag) and current bus assignment, for Manage learner. */
+export async function fetchLearnerHomeAndTransport(studentId: string): Promise<LearnerHomeAndTransport> {
+  const [{ data: home, error: sErr }, { data: transport, error: tErr }] = await Promise.all([
+    supabase()
+      .from("students")
+      .select("home_address, home_landmark, home_lat, home_lng, boarding")
+      .eq("id", studentId)
+      .single<LearnerHomeDetails & { boarding: boolean }>(),
+    supabase()
+      .from("student_transport")
+      .select("route_id, stop_id")
+      .eq("student_id", studentId)
+      .maybeSingle<{ route_id: string; stop_id: string | null }>(),
+  ]);
+  if (sErr) throw sErr;
+  if (tErr) throw tErr;
+  return { home, transport };
+}

@@ -234,3 +234,32 @@ export async function fetchSignOutDays(f: Pick<EntryFilter, "studentIds" | "tena
   if (error) return [];
   return data ?? [];
 }
+
+export interface PmMissingRow {
+  id: string;
+  name: string;
+  admissionNo: string;
+  className: string;
+}
+
+/** Looks up learner names, admission numbers and class names for learners flagged present AM / missing PM. */
+export async function fetchPmMissingLearners(tenantId: string, ids: string[]): Promise<PmMissingRow[]> {
+  if (ids.length === 0) return [];
+  const sb = supabase();
+  const { data: students, error } = await sb
+    .from("students")
+    .select("id, full_name, admission_no, class_id")
+    .in("id", ids)
+    .returns<{ id: string; full_name: string; admission_no: string; class_id: string | null }[]>();
+  if (error) throw new Error(error.message);
+  const { data: classes, error: e2 } = await sb
+    .from("classes")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .returns<{ id: string; name: string }[]>();
+  if (e2) throw new Error(e2.message);
+  const className = new Map((classes ?? []).map((c) => [c.id, c.name]));
+  return (students ?? [])
+    .map((s) => ({ id: s.id, name: s.full_name, admissionNo: s.admission_no, className: (s.class_id && className.get(s.class_id)) || "—" }))
+    .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
+}

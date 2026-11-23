@@ -316,3 +316,91 @@ export async function writeAttendance(reg: Register, tenantId: string, takenBy: 
   const { error, status } = await supabase().from(REGISTER_TABLE[session]).upsert(toRecords(reg, tenantId, takenBy), { onConflict: "student_id,taken_on" });
   if (error) throw writeErrorFrom(error, status);
 }
+
+export interface TeacherSubjectAssignment {
+  class_id: string;
+  subject_id: string;
+  subjects: { name: string } | null;
+}
+
+/** Every (class, subject) pair a teacher is assigned to, with the subject's name. */
+export async function fetchTeacherSubjectAssignments(teacherId: string): Promise<TeacherSubjectAssignment[]> {
+  const { data, error } = await supabase()
+    .from("teaching_assignments")
+    .select("class_id, subject_id, subjects(name)")
+    .eq("teacher_id", teacherId)
+    .returns<TeacherSubjectAssignment[]>();
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/** All classes of a school as `{ id, name }` options, ordered by name (for admin scope in papers & materials). */
+export async function fetchSchoolClassOptions(tenantId: string): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await supabase().from("classes").select("id, name").eq("tenant_id", tenantId).order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+/** All subjects of a school as `{ id, name }` options, ordered by name (for admin scope in papers & materials). */
+export async function fetchSchoolSubjectOptions(tenantId: string): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await supabase().from("subjects").select("id, name").eq("tenant_id", tenantId).order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+export interface AwayStudent {
+  name: string;
+  mark: AttendanceMark;
+  note: string | null;
+}
+
+export interface ClassProgress {
+  present: number;
+  absent: number;
+  late: number;
+  total: number;
+  submitted: boolean;
+  submittedAt: string | null;
+  away: AwayStudent[];
+}
+
+/** Today's attendance progress across a teacher's classes (counts, submitted timestamp, and non-present learners). */
+export async function fetchTeacherClassProgress(
+  classes: Pick<ClassGroup, "id" | "name">[],
+  session: AttendanceSession,
+  timeZone?: string,
+): Promise<Map<string, ClassProgress>> {
+  const classIds = classes.map((c) => c.id);
+  const out = new Map<string, ClassProgress>();
+  if (classIds.length === 0) return out;
+
+  const [{ data: studentRows, error: e1 }, { data: attRows, error: e2 }] = await Promise.all([
+    supabase().from("students").select("id, class_id").eq("active", true).in("class_id", classIds)
+      .returns<{ id: string; class_id: string }[]>(),
+    supabase().from(REGISTER_TABLE[session]).select("class_id, mark, note, created_at, students(full_name)")
+      .in("class_id", classIds).eq("taken_on", today(timeZone))
+      .returns<{ class_id: string; mark: AttendanceMark; note: string | null; created_at: string; students: { full_name: string } | null }[]>(),
+  ]);
+  if (e1) throw new Error(e1.message);
+  if (e2) throw new Error(e2.message);
+
+  const totalByClass = new Map<string, number>();
+  for (const s of studentRows ?? []) totalByClass.set(s.class_id, (totalByClass.get(s.class_id) ?? 0) + 1);
+  for (const c of classes) {
+    out.set(c.id, { present: 0, absent: 0, late: 0, total: totalByClass.get(c.id) ?? 0, submitted: false, submittedAt: null, away: [] });
+  }
+
+  for (const r of attRows ?? []) {
+    const row = out.get(r.class_id);
+    if (!row) continue;
+    row.submitted = true;
+    if (!row.submittedAt || r.created_at < row.submittedAt) row.submittedAt = r.created_at;
+    if (r.mark === "present") row.present += 1;
+    else if (r.mark === "absent" || r.mark === "late") {
+      if (r.mark === "absent") row.absent += 1; else row.late += 1;
+      row.away.push({ name: r.students?.full_name ?? "Unknown", mark: r.mark, note: r.note });
+    }
+  }
+  for (const row of out.values()) row.away.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}

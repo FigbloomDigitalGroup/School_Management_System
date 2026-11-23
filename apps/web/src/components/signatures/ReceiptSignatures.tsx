@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
-  CAPACITY_LABEL, chunk, fetchAllPages, fetchDocumentSignatures, formatMoney, receiptRef, signatureDate, signatureFor, signDocuments,
-  supabase, type Payment, type StoredSignature,
+  CAPACITY_LABEL, chunk, fetchDocumentSignatures, fetchTermSignedReceipts, formatMoney, signatureDate, signatureFor, signDocuments,
+  type StoredSignature, type TermReceiptRow,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import { Cell, DataTable, Mono } from "../ui/DataTable";
@@ -46,32 +46,8 @@ export function ReceiptSignature({ signature }: { signature: StoredSignature | u
   );
 }
 
-interface TermReceipt {
-  id: string;
-  amount: number;
-  when: string;
-  ref: string;
-  learner: string;
-}
-
-type PaymentDb = Pick<Payment, "id" | "amount_cents" | "method" | "mpesa_receipt" | "reference" | "completed_at" | "created_at"> & {
-  fee_invoices: { students: { full_name: string } | null } | null;
-};
-
-async function fetchTermReceipts(tenantId: string, termId: string): Promise<TermReceipt[]> {
-  const rows = await fetchAllPages<PaymentDb>((from, to) =>
-    supabase().from("payments")
-      .select("id, amount_cents, method, mpesa_receipt, reference, completed_at, created_at, fee_invoices!inner(term_id, students(full_name))")
-      .eq("tenant_id", tenantId).eq("status", "success").eq("fee_invoices.term_id", termId)
-      .order("completed_at", { ascending: false }).order("id").range(from, to).returns<PaymentDb[]>());
-  return rows.map((p) => ({
-    id: p.id,
-    amount: p.amount_cents,
-    when: (p.completed_at ?? p.created_at).slice(0, 10),
-    ref: receiptRef(p),
-    learner: p.fee_invoices?.students?.full_name ?? "Unknown learner",
-  }));
-}
+type TermReceipt = TermReceiptRow;
+const fetchTermReceipts = fetchTermSignedReceipts;
 
 /** How many receipts the office's list shows before "Sign all" is the way to deal with the rest. */
 const SHOWN = 25;
