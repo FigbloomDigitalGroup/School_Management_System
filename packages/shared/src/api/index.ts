@@ -14,3 +14,5 @@ export {
   IMPORT_BATCH_ROWS, peopleErrorText, readableApiError, type NewStaffMember, type NewGuardianContact, type ImportLearnerRow, type ImportOutcome, type ImportProblem,
 } from "./peopleApi";
 export { recentAnnouncementFromApi, activeApiChannels } from "./announcementsApi";
+export { feeItemFromApi } from "./feesApi";
+export { earlySignOutFromApi, ATTENDANCE_WRITE_CONCURRENCY } from "./attendanceApi";

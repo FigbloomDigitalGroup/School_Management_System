@@ -42,6 +42,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
   - **Staff:** list, add, change details, archive and restore. Staff on the API are directory records, so adding one
     makes no sign-in.
 - **Announcements**: compose and send (or save as draft) in-app and push announcements to the whole school, a role, a year group, or a class, and view recently sent notices.
+- **Fees** (office side): view term collection stats, largest outstanding balances and overpayments; create, edit and archive
+  term fee items; run term billing; search payable invoices and record payments (cash, M-Pesa, bank, cheque); review, confirm
+  or reject submitted payment proofs.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -130,6 +133,8 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
   `sessionEvents.ts`, `signInFlow.ts` (what comes next after a password).
 - `packages/shared/src/api/setupApi.ts` and `peopleApi.ts`: the API side of `schoolSetup.ts`, and of `peopleRoster.ts`,
   `learners.ts` and the guardian list in `learnerBio.ts`. `pool.ts` runs writes a few at a time.
+- `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
+  register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`

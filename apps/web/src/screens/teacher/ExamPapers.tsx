@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, applyPaperImport, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind,
   createExamPaper, deleteExamPaper,
-  fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchTeacherClasses,
+  fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
   fetchTeacherSubjectsForClass, fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
   flaggedQuestionsBanner, flaggedQuestionsProblem, saveExamQuestions, savePaperBody, savedPaperPublishProblem,
-  setPaperFile, setPaperPublished, supabase, toLocalInput, totalPoints, updateExamPaper, validatePaper,
+  setPaperFile, setPaperPublished, toLocalInput, totalPoints, updateExamPaper, validatePaper,
   validateQuestions, windowLabel,
   type ExamPaperRow, type PaperImportDraft, type PaperKind, type PaperMode, type QuestionDraft, type QuestionKind, type ReviewQuestion,
 } from "@figbloom/shared";
@@ -55,16 +55,8 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
 
   const scope: Scope = useMemo(() => admin
     ? {
-        classes: async () => {
-          const { data, error } = await supabase().from("classes").select("id, name").eq("tenant_id", tenant.id).order("name");
-          if (error) throw new Error(error.message);
-          return (data ?? []) as Option[];
-        },
-        subjectsFor: async () => {
-          const { data, error } = await supabase().from("subjects").select("id, name").eq("tenant_id", tenant.id).order("name");
-          if (error) throw new Error(error.message);
-          return (data ?? []) as Option[];
-        },
+        classes: () => fetchSchoolClassOptions(tenant.id),
+        subjectsFor: () => fetchSchoolSubjectOptions(tenant.id),
       }
     : {
         classes: () => fetchTeacherClasses(profile.id),

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  assignStudentToRoute, describeSuggestion, listRoutesWithStops, setLearnerHome, stopNameFor, suggestRouteForHome, supabase,
+  assignStudentToRoute, describeSuggestion, fetchLearnerHomeAndTransport, listRoutesWithStops, setLearnerHome, stopNameFor, suggestRouteForHome,
   type LatLngPoint, type PlanRoute, type RouteSuggestion,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
@@ -153,25 +153,12 @@ function BusPlanNote({ value, plan, routes }: { value: HomeBusValue; plan: Retur
 
 // ---------------------------------------------------------------- Manage learner
 
-interface StoredHome {
-  home_address: string | null; home_landmark: string | null; home_lat: number | null; home_lng: number | null; boarding: boolean;
-}
-
-/** The Manage learner section: load what's saved, edit, save home and bus together. */
 export function HomeAndBusEditor({ tenantId, studentId, childName, toast }: {
   tenantId: string; studentId: string; childName: string; toast: ToastFn;
 }) {
   const [reload, setReload] = useState(0);
   const { data: routes, error: routesError } = useSchoolRoutes(tenantId, reload);
-  const { data: stored, error } = useAsync(async () => {
-    const [{ data: s, error: sErr }, { data: t, error: tErr }] = await Promise.all([
-      supabase().from("students").select("home_address, home_landmark, home_lat, home_lng, boarding").eq("id", studentId).single<StoredHome>(),
-      supabase().from("student_transport").select("route_id, stop_id").eq("student_id", studentId).maybeSingle<{ route_id: string; stop_id: string | null }>(),
-    ]);
-    if (sErr) throw sErr;
-    if (tErr) throw tErr;
-    return { home: s, transport: t };
-  }, [studentId, reload]);
+  const { data: stored, error } = useAsync(() => fetchLearnerHomeAndTransport(studentId), [studentId, reload]);
   const [value, setValue] = useState<HomeBusValue | null>(null);
   const [saving, setSaving] = useState(false);
 

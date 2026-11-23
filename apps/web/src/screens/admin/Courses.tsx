@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   assignSectionInstructor, createCourse, createCourseSection, createSemester, enrollStudents,
-  fetchCourseSections, fetchCourses, fetchEnrollmentsForSection, fetchSectionTimetableSlots, fetchSemesters,
-  saveSectionTimetable, setCurrentSemester, setEnrollmentStatus, supabase,
+  fetchActiveLearnerOptions, fetchCourseSections, fetchCourses, fetchEnrollmentsForSection, fetchSchoolTeacherOptions, fetchSectionTimetableSlots, fetchSemesters,
+  saveSectionTimetable, setCurrentSemester, setEnrollmentStatus,
   type Course, type CourseSectionRow, type EnrolledStudentRow, type Semester,
 } from "@figbloom/shared";
 import { TimetableEditor } from "./TimetableEditor";
@@ -16,20 +16,10 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 
-interface TeacherOption { id: string; full_name: string }
 interface StudentOption { id: string; full_name: string; admission_no: string }
 
-async function fetchTeachers(tenantId: string): Promise<TeacherOption[]> {
-  const { data, error } = await supabase().from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<TeacherOption[]>();
-  if (error) throw error;
-  return data ?? [];
-}
-
-async function fetchActiveStudents(tenantId: string): Promise<StudentOption[]> {
-  const { data, error } = await supabase().from("students").select("id,full_name,admission_no").eq("tenant_id", tenantId).eq("active", true).order("full_name").returns<StudentOption[]>();
-  if (error) throw error;
-  return data ?? [];
-}
+const fetchTeachers = fetchSchoolTeacherOptions;
+const fetchActiveStudents = fetchActiveLearnerOptions;
 
 type Tab = "semesters" | "courses" | "sections";
 

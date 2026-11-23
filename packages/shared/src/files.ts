@@ -1,3 +1,4 @@
+import type { ParsedPaymentSms } from "./paymentSms";
 import { supabase, supabaseApiKey } from "./supabase";
 
 /**
@@ -262,4 +263,99 @@ export async function deleteFiles(bucket: string, paths: (string | null | undefi
   }
   const { error } = await supabase().storage.from(bucket).remove(list);
   if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------- uploaded record helpers (FIG-1900)
+
+/** Updates the stored avatar_url on a learner or staff profile after upload. */
+export async function saveAvatarUrl(kind: "students" | "staff", id: string, avatarUrl: string): Promise<void> {
+  const table = kind === "students" ? "students" : "profiles";
+  const { error } = await supabase().from(table).update({ avatar_url: avatarUrl }).eq("id", id);
+  if (error) throw error;
+}
+
+export interface StudentDocumentRecord {
+  id: string;
+  student_id: string;
+  doc_type: string;
+  file_path: string;
+  file_name: string;
+  uploaded_at: string;
+}
+
+/** Inserts a student_documents row after the file is uploaded to private-documents. */
+export async function insertStudentDocument(input: {
+  tenantId: string;
+  studentId: string;
+  uploadedBy: string;
+  docType: string;
+  filePath: string;
+  fileName: string;
+}): Promise<void> {
+  const { error } = await supabase().from("student_documents").insert({
+    tenant_id: input.tenantId,
+    student_id: input.studentId,
+    uploaded_by: input.uploadedBy,
+    doc_type: input.docType,
+    file_path: input.filePath,
+    file_name: input.fileName,
+  });
+  if (error) throw error;
+}
+
+/** Lists documents attached to a learner, newest first. */
+export async function listStudentDocuments(studentId: string): Promise<StudentDocumentRecord[]> {
+  const { data, error } = await supabase()
+    .from("student_documents")
+    .select("id, student_id, doc_type, file_path, file_name, uploaded_at")
+    .eq("student_id", studentId)
+    .order("uploaded_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as StudentDocumentRecord[];
+}
+
+/** Upserts an assignment_submissions row after the student's file is uploaded. */
+export async function upsertAssignmentSubmission(input: {
+  assignmentId: string;
+  studentId: string;
+  filePath: string;
+  fileName: string;
+}): Promise<void> {
+  const { error } = await supabase()
+    .from("assignment_submissions")
+    .upsert(
+      { assignment_id: input.assignmentId, student_id: input.studentId, file_path: input.filePath, file_name: input.fileName },
+      { onConflict: "assignment_id,student_id" },
+    );
+  if (error) throw error;
+}
+
+/** Inserts a payment_proofs row after an optional file is uploaded to private-documents. */
+export async function insertPaymentProofRecord(input: {
+  tenantId: string;
+  invoiceId: string;
+  uploadedBy: string;
+  filePath: string | null;
+  fileName: string | null;
+  note?: string;
+  sms?: { text: string; parsed: ParsedPaymentSms };
+}): Promise<void> {
+  const p = input.sms?.parsed;
+  const { error } = await supabase().from("payment_proofs").insert({
+    tenant_id: input.tenantId,
+    invoice_id: input.invoiceId,
+    uploaded_by: input.uploadedBy,
+    file_path: input.filePath,
+    file_name: input.fileName,
+    note: input.note ?? null,
+    sms_text: input.sms?.text.trim() ?? null,
+    txn_source: p?.source ?? null,
+    txn_code: p?.code ?? null,
+    txn_amount_cents: p?.amountCents ?? null,
+    txn_at: p?.paidAt ?? null,
+    txn_payee: p?.payee ?? null,
+    txn_payee_number: p?.payeeNumber ?? null,
+    txn_account: p?.account ?? null,
+  });
+  if (error) throw error;
 }

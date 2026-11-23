@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  CAPACITY_LABEL, chunk, fetchAllPages, fetchDocumentSignatures, signatureFor, signDocuments, supabase,
+  CAPACITY_LABEL, chunk, fetchDocumentSignatures, fetchTermInvoiceIds, signatureFor, signDocuments,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import { useToast } from "../ui/Toast";
@@ -11,12 +11,6 @@ import { SignDocumentModal } from "./SignDocumentModal";
 
 /** sign_documents takes at most 500 at a time. */
 const SIGN_BATCH = 500;
-
-async function fetchTermInvoiceIds(tenantId: string, termId: string): Promise<string[]> {
-  const rows = await fetchAllPages<{ id: string }>((from, to) =>
-    supabase().from("fee_invoices").select("id").eq("tenant_id", tenantId).eq("term_id", termId).order("id").range(from, to).returns<{ id: string }[]>());
-  return rows.map((r) => r.id);
-}
 
 /**
  * The bursar signs the term's invoices in one go: "Sign 412 invoices". New

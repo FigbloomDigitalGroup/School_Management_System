@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   BIO_FIELD_LABELS, apiAddGuardian, bioChanges, bioFieldList, bioProblem, bioToInput, bioValueLabel, decideBioRequest, fetchLearnerBio,
-  fetchLearnerGuardians, fetchPendingBioRequest, fetchPendingBioRequests, peopleCapabilities, saveLearnerBio, splitBioChanges, supabase,
+  fetchLearnerGuardians, fetchPendingBioRequest, fetchPendingBioRequests, fetchProfileDisplayName, peopleCapabilities, saveLearnerBio, splitBioChanges,
   type BioIdentityField, type BioRequest, type LearnerBioInput, type LearnerGuardianContact, type PendingBioRequest,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
@@ -155,8 +155,7 @@ export function BioDataEditor({ studentId, toast, mode, title = "Bio data", onRe
         let by: string | null = null;
         // who changed it last, for the office: a parent's name, or a colleague's
         if (mode === "admin" && bio.bio_updated_by) {
-          const { data } = await supabase().from("profiles").select("full_name, role").eq("id", bio.bio_updated_by)
-            .maybeSingle<{ full_name: string; role: string }>();
+          const data = await fetchProfileDisplayName(bio.bio_updated_by).catch(() => null);
           if (data) by = data.role === "parent" ? `${data.full_name} (parent)` : data.full_name;
         }
         if (!alive) return;

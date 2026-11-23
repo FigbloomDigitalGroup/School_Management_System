@@ -1,4 +1,4 @@
-import { apiImportLearners, localDay, onApi, peopleCapabilities, setHealthConsent, splitCsvLine, splitList, supabase, type ImportLearnerRow } from "@figbloom/shared";
+import { apiImportLearners, bulkInsertStudentsWithHealth, localDay, onApi, peopleCapabilities, splitCsvLine, splitList, type ImportLearnerRow } from "@figbloom/shared";
 
 /**
  * Bulk/CSV student import. One admission per term intake, forty-plus rows at
@@ -239,44 +239,22 @@ export async function importStudents(
     }
     return outcome.created;
   }
-  const { data: created, error } = await supabase().from("students").insert(
+  return bulkInsertStudentsWithHealth(
+    tenantId,
     valid.map((r) => ({
-      tenant_id: tenantId,
       admission_no: r.admission_no,
       full_name: r.full_name,
       gender: r.gender,
       class_id: classIdByName.get(r.className.trim().toLowerCase())!,
       boarding: r.boarding,
       date_of_birth: r.date_of_birth,
-      active: true,
       home_address: r.home_address,
       home_landmark: r.home_landmark,
       home_lat: r.home_lat,
       home_lng: r.home_lng,
+      allergies: r.allergies,
+      medical_conditions: r.medical_conditions,
+      health_consent: r.health_consent,
     })),
-  ).select("id, admission_no").returns<{ id: string; admission_no: string }[]>();
-  if (error) throw error;
-
-  // Allergies and conditions go to student_health (one row per learner who has any),
-  // after recording each family's signed consent form: without it the database refuses them.
-  const idByAdmission = new Map((created ?? []).map((c) => [c.admission_no, c.id]));
-  const health = valid
-    .filter((r) => r.health_consent && (r.allergies.length || r.medical_conditions.length))
-    .map((r) => ({
-      consent: r.health_consent!,
-      row: { tenant_id: tenantId, student_id: idByAdmission.get(r.admission_no), allergies: r.allergies, medical_conditions: r.medical_conditions },
-    }))
-    .filter((h): h is typeof h & { row: { student_id: string } } => !!h.row.student_id);
-  if (health.length) {
-    try {
-      for (let i = 0; i < health.length; i += 8) {
-        await Promise.all(health.slice(i, i + 8).map((h) => setHealthConsent(h.row.student_id, true, h.consent)));
-      }
-    } catch (err) {
-      throw new Error(`The learners were imported, but their health consent forms didn't save: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const { error: healthErr } = await supabase().from("student_health").upsert(health.map((h) => h.row), { onConflict: "student_id" });
-    if (healthErr) throw new Error(`The learners were imported, but their allergies and conditions didn't save: ${healthErr.message}`);
-  }
-  return valid.length;
+  );
 }

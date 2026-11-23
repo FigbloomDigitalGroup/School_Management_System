@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { callDuration, callOutcome, chatRoleWord, fetchSchoolCallLog, fetchSchoolConversations, filterCallsByName, filterSchoolConversations, schoolChatTitle, supabase, type Call, type SchoolConversation } from "@figbloom/shared";
+import { callDuration, callOutcome, chatRoleWord, fetchActiveLearnerOptions, fetchSchoolCallLog, fetchSchoolConversations, filterCallsByName, filterSchoolConversations, schoolChatTitle, type Call, type SchoolConversation } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { ChatThread } from "../../components/chat/ChatThread";
 import { ChatWorkspace } from "../../components/chat/ChatWorkspace";
@@ -107,13 +107,7 @@ function SchoolChats() {
   const [nameFilter, setNameFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { data: learners } = useAsync(async () => {
-    const { data, error } = await supabase()
-      .from("students").select("id, full_name, admission_no")
-      .eq("tenant_id", tenant.id).eq("active", true).order("full_name").limit(5000);
-    if (error) throw new Error(error.message);
-    return (data ?? []) as { id: string; full_name: string; admission_no: string }[];
-  }, [tenant.id]);
+  const { data: learners } = useAsync(() => fetchActiveLearnerOptions(tenant.id), [tenant.id]);
 
   // "Amani Wanjiku · 2024/118" from the datalist resolves to that learner; anything else is no filter.
   const learnerId = useMemo(

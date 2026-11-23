@@ -197,3 +197,9 @@ export async function sendAnnouncementPush(announcementId: string): Promise<void
   const { error } = await supabase().functions.invoke("send-push", { body: { announcement_id: announcementId } });
   if (error) throw new Error(error.message);
 }
+
+/** Removes an unpublished announcement draft (e.g. when its attachment upload fails or is cancelled). */
+export async function deleteAnnouncement(announcementId: string): Promise<void> {
+  const { error } = await supabase().from("announcements").delete().eq("id", announcementId);
+  if (error) throw new Error(error.message);
+}
