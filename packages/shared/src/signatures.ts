@@ -1,5 +1,8 @@
+import { receiptRef } from "./fees";
+import { fetchAllPages } from "./paging";
 import { bytesToHex, sha256, utf8Bytes } from "./sha256";
 import { supabase } from "./supabase";
+import type { Payment } from "./types";
 
 /**
  * Electronic signatures (supabase/migrations/20261027050000_e_signatures.sql).
@@ -289,6 +292,81 @@ export async function fetchSignableAttachmentIds(announcementId: string): Promis
     .order("created_at");
   if (error) throw new Error(error.message);
   return ((data ?? []) as { id: string }[]).map((r) => r.id);
+}
+
+/** All fee_invoice ids for a school and term, paged. */
+export async function fetchTermInvoiceIds(tenantId: string, termId: string): Promise<string[]> {
+  const rows = await fetchAllPages<{ id: string }>((from, to) =>
+    supabase()
+      .from("fee_invoices")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("term_id", termId)
+      .order("id")
+      .range(from, to)
+      .returns<{ id: string }[]>(),
+  );
+  return rows.map((r) => r.id);
+}
+
+export interface DocumentSignerOption {
+  id: string;
+  name: string;
+  detail: string;
+}
+
+/** Guardians of a learner and school staff who can be asked to sign a learner's document. */
+export async function fetchDocumentSigners(
+  tenantId: string,
+  studentId: string,
+): Promise<{ guardians: DocumentSignerOption[]; staff: DocumentSignerOption[] }> {
+  const sb = supabase();
+  const [g, s] = await Promise.all([
+    sb.from("guardians").select("profile_id, relationship, profiles(full_name)").eq("student_id", studentId),
+    sb.from("profiles").select("id, full_name, role, staff_title").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).order("full_name"),
+  ]);
+  if (g.error) throw new Error(g.error.message);
+  if (s.error) throw new Error(s.error.message);
+  const guardians = ((g.data ?? []) as unknown as { profile_id: string; relationship: string | null; profiles: { full_name: string } | null }[])
+    .map((r) => ({ id: r.profile_id, name: r.profiles?.full_name ?? "Guardian", detail: r.relationship ?? "Guardian" }));
+  const staff = ((s.data ?? []) as { id: string; full_name: string; role: string; staff_title: string | null }[])
+    .map((r) => ({ id: r.id, name: r.full_name, detail: r.staff_title ?? (r.role === "school_admin" ? "Admin" : "Teacher") }));
+  return { guardians, staff };
+}
+
+export interface TermReceiptRow {
+  id: string;
+  amount: number;
+  when: string;
+  ref: string;
+  learner: string;
+}
+
+type PaymentReceiptDb = Pick<Payment, "id" | "amount_cents" | "method" | "mpesa_receipt" | "reference" | "completed_at" | "created_at"> & {
+  fee_invoices: { students: { full_name: string } | null } | null;
+};
+
+/** Successful payments for a term, newest first, for the bursar's receipt-signing list. */
+export async function fetchTermSignedReceipts(tenantId: string, termId: string): Promise<TermReceiptRow[]> {
+  const rows = await fetchAllPages<PaymentReceiptDb>((from, to) =>
+    supabase()
+      .from("payments")
+      .select("id, amount_cents, method, mpesa_receipt, reference, completed_at, created_at, fee_invoices!inner(term_id, students(full_name))")
+      .eq("tenant_id", tenantId)
+      .eq("status", "success")
+      .eq("fee_invoices.term_id", termId)
+      .order("completed_at", { ascending: false })
+      .order("id")
+      .range(from, to)
+      .returns<PaymentReceiptDb[]>(),
+  );
+  return rows.map((p) => ({
+    id: p.id,
+    amount: p.amount_cents,
+    when: (p.completed_at ?? p.created_at).slice(0, 10),
+    ref: receiptRef(p),
+    learner: p.fee_invoices?.students?.full_name ?? "Unknown learner",
+  }));
 }
 
 /** The live signature in one capacity on one document, if any: what the report-card PDF stamps. */

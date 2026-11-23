@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import {
-  announcementAudience, announcementReach, AUDIENCE_CHOICES, CHANNEL_OPTIONS, DEFAULT_CHANNELS, fetchAnnouncementsData, formatMoney,
+  announcementAudience, announcementReach, AUDIENCE_CHOICES, CHANNEL_OPTIONS, DEFAULT_CHANNELS, deleteAnnouncement, fetchAnnouncementsData, formatMoney,
   insertAnnouncement, publishAnnouncement, RECIPIENT_OPTIONS, removeAttachmentFilesFor, requireAttachmentSignatures, sendAnnouncementPush, smsCostCents,
-  supabase, yearLabel,
+  yearLabel,
   type AudienceChoice, type AudienceRecipients, type ChannelFlags,
 } from "@figbloom/shared";
 import { AiWriteHelper } from "../../components/AiWriteHelper";
@@ -87,7 +87,7 @@ export function Announcements() {
       if (createdId) {
         const id = createdId;
         await removeAttachmentFilesFor("announcement", id).catch(() => {});
-        await supabase().from("announcements").delete().eq("id", id);
+        await deleteAnnouncement(id).catch(() => {});
       }
       if (err instanceof UploadCancelled) toast("Upload cancelled. Nothing was sent; your message is still here.", "error");
       else toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");

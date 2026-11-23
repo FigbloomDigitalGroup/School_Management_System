@@ -1,14 +1,13 @@
 import { useState } from "react";
 import {
-  fetchSessionEntries, fetchSignOutDays, presentAmMissingPm, supabase, today,
+  fetchPmMissingLearners, fetchSessionEntries, fetchSignOutDays, presentAmMissingPm, today, type PmMissingRow,
 } from "@figbloom/shared";
 import { TextField } from "../ui/Field";
 import { Skeleton } from "../ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 
-interface Row { id: string; name: string; admissionNo: string; className: string }
-interface Report { afternoonTaken: boolean; rows: Row[] }
+interface Report { afternoonTaken: boolean; rows: PmMissingRow[] }
 
 async function fetchReport(tenantId: string, date: string): Promise<Report> {
   const filter = { tenantId, from: date, to: date };
@@ -16,19 +15,7 @@ async function fetchReport(tenantId: string, date: string): Promise<Report> {
   const afternoonTaken = entries.some((e) => e.session === "afternoon");
   const ids = presentAmMissingPm(entries, signOuts).map((r) => r.student_id);
   if (ids.length === 0) return { afternoonTaken, rows: [] };
-
-  const sb = supabase();
-  const { data: students, error } = await sb.from("students").select("id, full_name, admission_no, class_id").in("id", ids)
-    .returns<{ id: string; full_name: string; admission_no: string; class_id: string | null }[]>();
-  if (error) throw new Error(error.message);
-  const { data: classes, error: e2 } = await sb.from("classes").select("id, name").eq("tenant_id", tenantId)
-    .returns<{ id: string; name: string }[]>();
-  if (e2) throw new Error(e2.message);
-  const className = new Map((classes ?? []).map((c) => [c.id, c.name]));
-
-  const rows = (students ?? [])
-    .map((s) => ({ id: s.id, name: s.full_name, admissionNo: s.admission_no, className: (s.class_id && className.get(s.class_id)) || "—" }))
-    .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
+  const rows = await fetchPmMissingLearners(tenantId, ids);
   return { afternoonTaken, rows };
 }
 

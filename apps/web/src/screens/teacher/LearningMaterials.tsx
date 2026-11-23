@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  MATERIAL_KIND_LABEL, createMaterial, deleteMaterial, fetchMaterials, fetchMyTeachingPairs, fetchTeacherClasses,
+  MATERIAL_KIND_LABEL, createMaterial, deleteMaterial, fetchMaterials, fetchMyTeachingPairs, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
   fetchTeacherSubjectsForClass, fileProblem, formatFileSize, formatShortDate, kindForLink, localIsoDate, kindForMime, materialFilePath, mediaSummary,
-  mimeForFile, setMaterialPublished, supabase, updateMaterial, validateLink, validateMaterial,
+  mimeForFile, setMaterialPublished, updateMaterial, validateLink, validateMaterial,
   type MaterialRow,
 } from "@figbloom/shared";
 import { UPLOAD_LIMIT_BYTES } from "../../lib/uploadLimit";
@@ -46,16 +46,8 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
 
   const scope: Scope = useMemo(() => admin
     ? {
-        classes: async () => {
-          const { data, error } = await supabase().from("classes").select("id, name").eq("tenant_id", tenant.id).order("name");
-          if (error) throw new Error(error.message);
-          return (data ?? []) as Option[];
-        },
-        subjectsFor: async () => {
-          const { data, error } = await supabase().from("subjects").select("id, name").eq("tenant_id", tenant.id).order("name");
-          if (error) throw new Error(error.message);
-          return (data ?? []) as Option[];
-        },
+        classes: () => fetchSchoolClassOptions(tenant.id),
+        subjectsFor: () => fetchSchoolSubjectOptions(tenant.id),
       }
     : {
         classes: () => fetchTeacherClasses(profile.id),
