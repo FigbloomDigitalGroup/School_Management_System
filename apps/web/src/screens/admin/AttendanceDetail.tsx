@@ -48,7 +48,7 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
   const away = (rows ?? []).filter((r) => r.mark !== "present" || (r.pmMark !== null && r.pmMark !== "present"));
   // The latest live sign-out of each learner: a learner may leave, return and leave again.
   const liveByStudent = useMemo(() => liveSignOutsByStudent(data?.signOuts ?? []), [data]);
-  const canRecord = mayRecordEarlySignOut(access, !!data?.classTeacherId && data.classTeacherId === profile.id) && date === today();
+  const canRecord = mayRecordEarlySignOut(access, !!data?.classTeacherId && data.classTeacherId === profile.id) && date === today(tenant.timezone);
   // Everyone is listed, including learners already signed out (they can leave again); the label says so.
   const signable = rows ?? [];
 

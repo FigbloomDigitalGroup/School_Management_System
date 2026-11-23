@@ -120,9 +120,6 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
           </div>
           <div className="flex shrink-0 gap-2">
             <Button onClick={() => nav("/platform/invoices?school=" + tenant.slug)}>View invoices</Button>
-            <Button variant="primary" onClick={() => toast(`Impersonating ${tenant.name} — session logged, expires in 30 minutes`)}>
-              Impersonate admin
-            </Button>
             <AccessibilityButton />
           </div>
         </div>
@@ -156,12 +153,10 @@ export function TenantDetail({ tenant }: { tenant: Tenant }) {
                 <div className="text-body font-semibold text-orange-ink">{alert.title}</div>
                 <p className="mt-1 text-small leading-relaxed text-orange-ink">{alert.body}</p>
               </div>
-              {status === "onboarding" ? (
+              {status === "onboarding" && (
                 <Button variant="accent" disabled={activating} onClick={() => void activate()}>
                   {activating ? "Activating…" : alert.action}
                 </Button>
-              ) : (
-                <Button variant="accent" onClick={() => toast(`${alert.action} — ${tenant.name}`)}>{alert.action}</Button>
               )}
             </div>
           )}

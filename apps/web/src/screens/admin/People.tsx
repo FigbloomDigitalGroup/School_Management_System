@@ -306,12 +306,10 @@ export function People() {
           <span className="text-small font-semibold">{picked.size} selected</span>
           {view === "current" ? (
             <>
-              {caps.bulkChangeClass && <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>}
               {caps.inviteGuardians && <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>}
               {caps.learnerLogins && (data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
                 <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
               )}
-              {caps.bulkExport && <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>}
               <Button disabled={working} onClick={() => void archiveStudents([...picked], learnerCount(picked.size))}>Archive</Button>
             </>
           ) : (

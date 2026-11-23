@@ -105,7 +105,7 @@ export function Fees() {
       <PageHead
         eyebrow={data?.term ? `Fees · ${data.term.name.toLowerCase()}` : "Fees"}
         title="Fee structure and collection"
-        blurb="Published once at the start of term. Changing an amount after publication notifies every affected parent, so the composer says how many before you confirm."
+        blurb="Published once at the start of term. Changing an amount later only affects invoices created after the change."
         actions={
           <>
             <Button onClick={() => setBilling(true)} disabled={!data?.term}>Bill learners</Button>
@@ -153,7 +153,7 @@ export function Fees() {
           </>
         )}
 
-        <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)" }}>
+        <div className="mt-5 grid grid-cols-1 gap-4 min-[1500px]:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <section className="overflow-hidden rounded-lg border border-line">
             <header className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-body font-semibold">{data?.term ? data.term.name : "Term"} fee items</h2>

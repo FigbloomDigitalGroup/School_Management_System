@@ -345,7 +345,7 @@ export function Attendance() {
               {reg ? `${counts.present} present · ${counts.absent} absent · ${counts.late} late` : <Skeleton className="inline-block h-3 w-40 align-middle" />} —{" "}
               {held > 0
                 ? `held on this phone${held > 1 ? ` with ${held - 1} other register(s)` : ""}, sends itself once you have signal`
-                : "parents of absent learners get an SMS at 09:00, not immediately"}
+                : "saved for today"}
             </div>
           </div>
           {offered.length > 1 && <SessionSwitch value={session} options={offered} onChange={switchSession} />}

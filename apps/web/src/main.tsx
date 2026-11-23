@@ -25,13 +25,15 @@ if (window.location.pathname === "/") {
   const loadApp = import.meta.env.VITE_BACKEND?.trim().toLowerCase() === "api"
     ? import("./api/ApiApp").then((m) => m.ApiApp)
     : import("./App").then((m) => m.App);
-  void Promise.all([import("react-router-dom"), loadApp, import("./lib/client")]).then(
-    ([{ BrowserRouter }, App]) => {
+  void Promise.all([import("react-router-dom"), loadApp, import("./lib/client"), import("./components/ErrorBoundary")]).then(
+    ([{ BrowserRouter }, App, , { ErrorBoundary }]) => {
       root.render(
         <React.StrictMode>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
+          <ErrorBoundary>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </ErrorBoundary>
         </React.StrictMode>
       );
     }
