@@ -37,7 +37,9 @@ export function WebAddressField({ id, base, slug, editing, onEdit, onChange, ava
     : null;
 
   return (
-    <div>
+    // min-w-0: this sits in `grid` forms, whose single auto column otherwise grows to the widest child's
+    // unbroken text and pushes every field past the card's edge.
+    <div className="min-w-0">
       <div className="mb-1.5 flex items-baseline justify-between">
         <label htmlFor={id} className="text-small font-semibold">Web address</label>
         {!editing && !disabled && slug && (
@@ -45,14 +47,17 @@ export function WebAddressField({ id, base, slug, editing, onEdit, onChange, ava
         )}
       </div>
       <div
-        className={`flex items-center gap-2 rounded-lg border bg-page px-3 py-2.5 font-mono text-[13px] ${focused ? "border-forest" : "border-[#D3DAD5]"}`}
+        className={`flex items-center gap-2 rounded-lg border bg-page px-3 py-2.5 font-mono text-[12px] sm:text-[13px] ${focused ? "border-forest" : "border-[#D3DAD5]"}`}
       >
         <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-ink-faint" fill="none" stroke="currentColor" strokeWidth="1.6">
           <rect x="3" y="7" width="10" height="7" rx="1.5" />
           <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
         </svg>
-        <span className="min-w-0 flex-1 truncate">
-          <span className="text-ink-faint">{base}</span>
+        {/* Wraps rather than truncating: the slug is the part to check, so it must never be cut off. Base and
+            slug are separate flex items, so when the line is too short the slug drops to its own line whole
+            instead of the browser splitting it mid-word; anywhere-wrapping is only the last resort. */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline">
+          <span className="min-w-0 text-ink-faint [overflow-wrap:anywhere]">{base}</span>
           {editing && !disabled ? (
             <input
               id={id}
@@ -67,7 +72,7 @@ export function WebAddressField({ id, base, slug, editing, onEdit, onChange, ava
               className="w-[min(22ch,100%)] border-b border-dashed border-forest bg-transparent font-semibold text-ink outline-none"
             />
           ) : (
-            <span id={id} className={slug ? "font-semibold text-ink" : "text-ink-faint"}>{slug || "your-name"}</span>
+            <span id={id} className={`min-w-0 [overflow-wrap:anywhere] ${slug ? "font-semibold text-ink" : "text-ink-faint"}`}>{slug || "your-name"}</span>
           )}
         </span>
         {mark && <span aria-label={mark.label} title={mark.label} className={`shrink-0 font-sans text-[13px] font-semibold ${mark.tone}`}>{mark.text}</span>}

@@ -54,6 +54,8 @@ export interface Tenant {
   trial_ends_at: string | null;
   renews_on: string | null;
   organization_id: string | null;
+  /** The school's time zone (20261105100000); Africa/Nairobi when missing. Decides the register date and the morning/afternoon default. */
+  timezone?: string;
   created_at: string;
 }
 
@@ -97,6 +99,8 @@ export interface OrganizationTenantSummary {
   status: TenantStatus;
   active_students: number;
   present_today: number;
+  /** Learners present in today's afternoon register (FIG-1514, 20261106000200); 0 when the school takes none. */
+  present_today_pm?: number;
   fees_billed_cents: number;
   fees_collected_cents: number;
   updated_at: string;

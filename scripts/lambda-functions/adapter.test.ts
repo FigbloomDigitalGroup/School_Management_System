@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLambdaHandler, toRequest, toResult, validJwt, type LambdaHttpEvent } from "./adapter";
 // @ts-expect-error: a plain .mjs build script, no types
@@ -12,6 +12,18 @@ function jwt(payload: object, secret = SECRET, alg = "HS256"): string {
   return `${h}.${p}.${s}`;
 }
 const inAnHour = () => Math.floor(Date.now() / 1000) + 3600;
+
+// People's sign-ins: ES256 with the server's EC key, its public half in jwks.json (as the self-hosted auth issues them)
+const ec = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const KID = "5861843e-403f-4e0f-9f9b-763b3d9fb0b4";
+const PUBLIC_JWK = { ...(ec.publicKey.export({ format: "jwk" }) as JsonWebKey), kid: KID, alg: "ES256", use: "sig" };
+function es256(payload: object, kid = KID, key = ec.privateKey): string {
+  const h = Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT", kid })).toString("base64url");
+  const p = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const s = sign("sha256", Buffer.from(`${h}.${p}`), { key, dsaEncoding: "ieee-p1363" }).toString("base64url");
+  return `${h}.${p}.${s}`;
+}
+const KEYS = { secret: SECRET, jwks: async () => [PUBLIC_JWK] };
 
 const event = (over: Partial<LambdaHttpEvent> & { method?: string } = {}): LambdaHttpEvent => ({
   rawPath: "/functions/v1/send-push",
@@ -73,18 +85,37 @@ describe("the answer API Gateway gets", () => {
 });
 
 describe("the token check (verify_jwt)", () => {
-  it("accepts a token signed with the server's secret, any role, not expired", async () => {
-    expect(await validJwt(`Bearer ${jwt({ role: "authenticated", exp: inAnHour() })}`, SECRET)).toBe(true);
-    expect(await validJwt(`Bearer ${jwt({ role: "anon", exp: inAnHour() })}`, SECRET)).toBe(true);
+  it("accepts a person's sign-in: ES256 with the server's EC key", async () => {
+    expect(await validJwt(`Bearer ${es256({ role: "authenticated", exp: inAnHour() })}`, KEYS)).toBe(true);
   });
 
-  it("refuses a missing, malformed, wrongly signed, expired or non-HS256 token", async () => {
-    expect(await validJwt(null, SECRET)).toBe(false);
-    expect(await validJwt("Basic abc", SECRET)).toBe(false);
-    expect(await validJwt("Bearer a.b", SECRET)).toBe(false);
-    expect(await validJwt(`Bearer ${jwt({ exp: inAnHour() }, "another-secret")}`, SECRET)).toBe(false);
-    expect(await validJwt(`Bearer ${jwt({ exp: Math.floor(Date.now() / 1000) - 10 })}`, SECRET)).toBe(false);
-    expect(await validJwt(`Bearer ${jwt({ exp: inAnHour() }, SECRET, "none")}`, SECRET)).toBe(false);
+  it("accepts the legacy HS256 keys (anon, service role) signed with the JWT secret", async () => {
+    expect(await validJwt(`Bearer ${jwt({ role: "anon", exp: inAnHour() })}`, KEYS)).toBe(true);
+    expect(await validJwt(`Bearer ${jwt({ role: "service_role", exp: inAnHour() })}`, KEYS)).toBe(true);
+  });
+
+  it("refuses an ES256 token from another key, an expired one, or one naming a key the server doesn't have", async () => {
+    const other = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    expect(await validJwt(`Bearer ${es256({ exp: inAnHour() }, KID, other.privateKey)}`, KEYS)).toBe(false);
+    expect(await validJwt(`Bearer ${es256({ exp: Math.floor(Date.now() / 1000) - 10 })}`, KEYS)).toBe(false);
+    expect(await validJwt(`Bearer ${es256({ exp: inAnHour() }, "unknown-kid")}`, KEYS)).toBe(false);
+  });
+
+  it("asks for the keys again when a token names one it doesn't know (the server rotated its key)", async () => {
+    let calls = 0;
+    const jwks = async (refresh?: boolean) => { calls++; return refresh ? [PUBLIC_JWK] : []; };
+    expect(await validJwt(`Bearer ${es256({ exp: inAnHour() })}`, { jwks })).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("refuses a missing, malformed, wrongly signed, expired or alg:none token", async () => {
+    expect(await validJwt(null, KEYS)).toBe(false);
+    expect(await validJwt("Basic abc", KEYS)).toBe(false);
+    expect(await validJwt("Bearer a.b", KEYS)).toBe(false);
+    expect(await validJwt(`Bearer ${jwt({ exp: inAnHour() }, "another-secret")}`, KEYS)).toBe(false);
+    expect(await validJwt(`Bearer ${jwt({ exp: Math.floor(Date.now() / 1000) - 10 })}`, KEYS)).toBe(false);
+    expect(await validJwt(`Bearer ${jwt({ exp: inAnHour() }, SECRET, "none")}`, KEYS)).toBe(false);
+    expect(await validJwt(`Bearer ${es256({ exp: inAnHour() })}`, { secret: SECRET })).toBe(false);
   });
 });
 
@@ -119,11 +150,20 @@ describe("running a function", () => {
     expect(lastEnv).not.toHaveProperty("SUPABASE_JWT_SECRET");
   });
 
-  it("checks the token when the function verifies, but lets CORS preflights through", async () => {
-    const handler = createLambdaHandler({ name: "send-push", verifyJwt: true, loadSettings: async () => settings, loadFunction: fakeFunction() });
-    expect(await handler(event())).toMatchObject({ statusCode: 401, body: JSON.stringify({ code: 401, message: "Invalid JWT" }) });
+  it("checks the token when the function verifies (a person's ES256 sign-in too), but lets CORS preflights through", async () => {
+    const jwksFor: string[] = [];
+    const handler = createLambdaHandler({
+      name: "send-push", verifyJwt: true, loadSettings: async () => settings, loadFunction: fakeFunction(),
+      fetchJwks: async (url) => { jwksFor.push(url); return [PUBLIC_JWK]; },
+    });
+    const refused = await handler(event());
+    expect(refused).toMatchObject({ statusCode: 401, body: JSON.stringify({ code: 401, message: "Invalid JWT" }) });
+    // a browser must be able to read the refusal, or it reports "failed to send a request"
+    expect(refused.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect((await handler(event({ headers: { authorization: `Bearer ${es256({ role: "authenticated", exp: inAnHour() })}` } }))).statusCode).toBe(200);
     expect((await handler(event({ headers: { authorization: `Bearer ${jwt({ exp: inAnHour() })}` } }))).statusCode).toBe(200);
     expect((await handler(event({ method: "OPTIONS" }))).statusCode).toBe(200);
+    expect(jwksFor).toEqual(["https://db.example"]);
   });
 
   it("leaves the token to a function that doesn't verify (Safaricom sends none)", async () => {

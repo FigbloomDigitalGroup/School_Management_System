@@ -8,6 +8,7 @@ import { useTheme } from "../ui/ThemeContext";
 
 const WHAT: Record<string, string> = {
   attendance: "A register",
+  attendance_afternoon: "An afternoon register",
   marks: "Marks",
   announcements: "A message",
   cbe_results: "CBE results",

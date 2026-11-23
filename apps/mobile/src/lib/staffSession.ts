@@ -18,4 +18,6 @@ export interface StaffSession {
   school: { name: string; slug: string };
   /** The person's own title at the school ("Deputy principal"), when they have one. */
   title: string | null;
+  /** The school's IANA time zone (FIG-1514: registers are dated and sessioned by school time). Absent means Africa/Nairobi. */
+  timezone?: string;
 }

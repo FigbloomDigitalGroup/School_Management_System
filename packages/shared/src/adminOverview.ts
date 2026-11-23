@@ -30,7 +30,10 @@ export interface SchoolOverview {
   activeStudents: number;
   staffCount: number;
   fees: FeeTotals;
-  /** The newest day any class took a register this term (not always today), or null when none has. */
+  /**
+   * The day the registers above are from. Asked for "today": today in the school's time zone, always (FIG-1401). Otherwise the newest day any
+   * class took a register this term (not always today), or null when none has.
+   */
   attendanceDate: string | null;
   presentByClass: Map<string, number>;
   lateByClass: Map<string, number>;
@@ -38,8 +41,17 @@ export interface SchoolOverview {
   submittedClasses: Set<string>;
 }
 
-/** The overview for a full admin: the current term, every class's latest register, fee totals, headcounts. */
-export async function fetchSchoolOverview(tenantId: string): Promise<SchoolOverview> {
+/** Which day an overview's registers are from. */
+export type OverviewDay = "today" | "latest";
+
+/**
+ * The overview for a full admin: the current term, every class's register, fee totals, headcounts.
+ *
+ * `day` is which register day it reads. "latest" (the default, and what the phone shows, with a note that names the day when it is not today)
+ * is the newest day any class took a register. "today" is today in the school's time zone whether or not any class has taken one yet, so
+ * a class that has not taken today's register reads as Not taken instead of the overview showing an earlier day as today (FIG-1401).
+ */
+export async function fetchSchoolOverview(tenantId: string, day: OverviewDay = "latest"): Promise<SchoolOverview> {
   const sb = supabase();
 
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
@@ -68,19 +80,28 @@ export async function fetchSchoolOverview(tenantId: string): Promise<SchoolOverv
   const submittedClasses = new Set<string>();
 
   if (termId) {
-    const { data: latest } = await sb
-      .from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
-      .order("taken_on", { ascending: false }).limit(1)
-      .returns<{ taken_on: string }[]>();
-    attendanceDate = latest?.[0]?.taken_on ?? null;
+    if (day === "today") {
+      attendanceDate = today();
+    } else {
+      const { data: latest } = await sb
+        .from("attendance").select("taken_on").eq("tenant_id", tenantId).eq("term_id", termId)
+        .order("taken_on", { ascending: false }).limit(1)
+        .returns<{ taken_on: string }[]>();
+      attendanceDate = latest?.[0]?.taken_on ?? null;
+    }
 
     if (attendanceDate) {
-      const rows = await fetchAllPages<{ class_id: string; mark: string }>((from, to) => sb
-        .from("attendance").select("class_id,mark")
+      type Row = { class_id: string; mark: string; students: { active: boolean } | null };
+      const rows = await fetchAllPages<Row>((from, to) => sb
+        .from("attendance").select("class_id,mark,students(active)")
         .eq("tenant_id", tenantId).eq("term_id", termId).eq("taken_on", attendanceDate)
-        .order("id").range(from, to).returns<{ class_id: string; mark: string }[]>());
+        .order("id").range(from, to).returns<Row[]>());
       for (const r of rows) {
+        // A register is in once any row of it is, whoever the learner is now.
         submittedClasses.add(r.class_id);
+        // "here / on roll" counts the same learners on both sides (FIG-1409): the roll is the learners on it now, so a learner archived after the
+        // register was taken is in neither number. (The roll side comes from the active learners, above.)
+        if (r.students?.active === false) continue;
         // A late arrival still attended — only "absent"/"excused" should read as not-here.
         if (r.mark === "present" || r.mark === "late") presentByClass.set(r.class_id, (presentByClass.get(r.class_id) ?? 0) + 1);
         if (r.mark === "late") lateByClass.set(r.class_id, (lateByClass.get(r.class_id) ?? 0) + 1);

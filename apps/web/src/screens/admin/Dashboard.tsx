@@ -1,8 +1,10 @@
 import { useState } from "react";
 import {
-  feeCollectedPct, fetchSchoolOverview, formatMoney, needsYou, overviewAttendanceRate, remindClassTeacher,
-  type OverviewClass,
+  fetchAllRows, formatMoney, supabase, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
+  remindClassTeacher, today,
+  type ClassGroup, type Term,
 } from "@figbloom/shared";
+import { classRegisterFigures, figureText, type ClassRegisterFigures } from "../../lib/classRegisters";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -12,8 +14,102 @@ import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { AttendanceDetail } from "./AttendanceDetail";
+import { EarlySignOutList } from "../../components/attendance/EarlySignOutList";
+import { AttendanceSettingsPanel } from "../../components/attendance/AttendanceSettingsPanel";
+import { PmMissingReport } from "../../components/attendance/PmMissingReport";
 import { CoverageCard } from "./CoverageCard";
 import { PendingSignatures } from "../../components/signatures/PendingSignatures";
+
+/** What term_fee_totals() returns: the term's invoices added up in the database (the API cannot be read past 1,000 rows). */
+interface FeeTotals {
+  billed: number;
+  paid: number;
+  invoices: number;
+  nothing_paid: number;
+  part_paid: number;
+  full_paid: number;
+  owing: number;
+}
+const NO_FEES: FeeTotals = { billed: 0, paid: 0, invoices: 0, nothing_paid: 0, part_paid: 0, full_paid: 0, owing: 0 };
+
+interface DashboardData {
+  term: Term | null;
+  classes: Pick<ClassGroup, "id" | "name" | "class_teacher_id">[];
+  studentsByClass: Map<string, number>;
+  activeStudents: number;
+  staffCount: number;
+  fees: FeeTotals;
+  attendanceDate: string | null;
+  /** Counted in the school's percentage mode, from both registers (FIG-1514). */
+  figures: Map<string, ClassRegisterFigures>;
+  /** Classes whose morning / afternoon register is in on that date. */
+  submittedClasses: Set<string>;
+  submittedPm: Set<string>;
+  /** The afternoon column shows while the school takes an afternoon register. */
+  afternoonOn: boolean;
+}
+
+async function fetchDashboard(tenantId: string): Promise<DashboardData> {
+  const sb = supabase();
+
+  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
+  const termId = term?.id ?? null;
+
+  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, feesRes] = await Promise.all([
+    sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
+    // Read a page at a time: the API stops at 1,000 rows without saying so, which made the Learners card read 1,000 (FIG-1416).
+    fetchAllRows<{ id: string; class_id: string }>((from, to) => sb
+      .from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true)
+      .order("id").range(from, to).returns<{ id: string; class_id: string }[]>()),
+    sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
+    termId
+      ? sb.rpc("term_fee_totals", { p_tenant_id: tenantId, p_term_id: termId })
+      : Promise.resolve({ data: [] as FeeTotals[], error: null }),
+  ]);
+  if (feesRes.error) throw new Error(feesRes.error.message);
+
+  const studentsByClass = new Map<string, number>();
+  for (const s of studentRows ?? []) studentsByClass.set(s.class_id, (studentsByClass.get(s.class_id) ?? 0) + 1);
+
+  let attendanceDate: string | null = null;
+  let figures = new Map<string, ClassRegisterFigures>();
+  const submittedClasses = new Set<string>();
+  const submittedPm = new Set<string>();
+  const settings = await fetchAttendanceSettings(tenantId);
+
+  if (termId) {
+    // Attendance today is today (FIG-1401): never fall back to an earlier date when no register has been taken today.
+    attendanceDate = today();
+
+    // A late arrival still attended: only "absent"/"excused" read as not-here. Both registers count, in the school's mode.
+    const [rawEntries, signOuts] = await Promise.all([
+      fetchSessionEntries({ tenantId, termId, from: attendanceDate, to: attendanceDate }),
+      fetchSignOutDays({ tenantId, from: attendanceDate, to: attendanceDate }),
+    ]);
+    // Active learners only (FIG-1409): exclude archived learners from both numerator and denominator.
+    const activeStudentIds = new Set((studentRows ?? []).map((s) => s.id));
+    const entries = rawEntries.filter((e) => activeStudentIds.has(e.student_id));
+    figures = classRegisterFigures(entries, settings.percentage_mode, signOuts);
+    for (const [id, f] of figures) {
+      if (f.amIn) submittedClasses.add(id);
+      if (f.pmIn) submittedPm.add(id);
+    }
+  }
+
+  return {
+    term: term ?? null,
+    classes: classRows ?? [],
+    studentsByClass,
+    activeStudents: studentRows?.length ?? 0,
+    staffCount: staffRows?.length ?? 0,
+    fees: ((feesRes.data ?? []) as FeeTotals[])[0] ?? NO_FEES,
+    attendanceDate,
+    figures,
+    submittedClasses,
+    submittedPm,
+    afternoonOn: settings.afternoon_enabled,
+  };
+}
 
 /**
  * A principal opens this at 07:30. It answers three questions in order:
@@ -22,11 +118,13 @@ import { PendingSignatures } from "../../components/signatures/PendingSignatures
 export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
   const toast = useToast();
-  const { data, loading, error } = useAsync(() => fetchSchoolOverview(tenant.id), [tenant.id]);
+  // Bumped when the attendance settings are saved, so the badges and figures follow the new setting at once.
+  const [settingsVersion, setSettingsVersion] = useState(0);
+  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id, settingsVersion]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 
-  async function remindTeacher(cls: OverviewClass) {
+  async function remindTeacher(cls: Pick<ClassGroup, "id" | "name" | "class_teacher_id">) {
     if (!cls.class_teacher_id) {
       toast(`${cls.name} has no class teacher assigned yet.`);
       return;
@@ -46,15 +144,32 @@ export function AdminDashboard() {
 
   const totalBilled = data?.fees.billed ?? 0;
   const totalPaid = data?.fees.paid ?? 0;
-  const feePct = data ? feeCollectedPct(data.fees) : 0;
+  const feePct = totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 0;
 
   const nothingPaid = data?.fees.nothing_paid ?? 0;
   const partPaid = data?.fees.part_paid ?? 0;
   const fullPaid = data?.fees.full_paid ?? 0;
   const bucketTotal = Math.max(data?.fees.invoices ?? 0, 1);
 
-  const needs = data ? needsYou(data) : [];
-  const attendanceRate = data ? overviewAttendanceRate(data) : null;
+  const missingClasses = data ? data.classes.filter((c) => !data.submittedClasses.has(c.id)) : [];
+  const owingCount = data?.fees.owing ?? 0;
+
+  const needs: { title: string; body: string }[] = data
+    ? [
+        ...(missingClasses.length > 0
+          ? [{
+              title: `${missingClasses.length} class${missingClasses.length === 1 ? "" : "es"} ${missingClasses.length === 1 ? "has" : "have"} not taken attendance`,
+              body: `${missingClasses.map((c) => c.name).join(", ") || "No classes"}${data.attendanceDate ? ` for ${data.attendanceDate}` : ""}.`,
+            }]
+          : []),
+        ...(owingCount > 0
+          ? [{
+              title: `${data.term ? data.term.name + " fee" : "Fee"} balances are outstanding`,
+              body: `${owingCount} learner${owingCount === 1 ? "" : "s"} still owe a balance this term.`,
+            }]
+          : []),
+      ]
+    : [];
 
   return (
     <>
@@ -90,8 +205,14 @@ export function AdminDashboard() {
             stats={[
               {
                 label: "Attendance today",
-                value: attendanceRate !== null ? `${attendanceRate}%` : "—",
-                sub: `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
+                value: (() => {
+                  const all = [...data.figures.values()];
+                  const total = all.reduce((a, f) => a + f.total, 0);
+                  return total > 0 ? `${Math.round((all.reduce((a, f) => a + f.here, 0) / total) * 100)}%` : "—";
+                })(),
+                sub: data.afternoonOn
+                  ? `${data.submittedClasses.size} morning, ${data.submittedPm.size} afternoon of ${data.classes.length} classes`
+                  : `${data.submittedClasses.size} of ${data.classes.length} classes submitted`,
               },
               { label: "Fees collected", value: `${feePct}%`, sub: `${formatMoney(totalPaid, tenant.country)} of ${formatMoney(totalBilled, tenant.country)}` },
               { label: "Learners", value: data.activeStudents.toLocaleString(), sub: `across ${data.classes.length} classes` },
@@ -105,26 +226,30 @@ export function AdminDashboard() {
             <header className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-body font-semibold">Attendance by class · {data?.attendanceDate ?? "today"}</h2>
             </header>
-            <div>
-              {error ? (
-                <p className="px-4 py-3.5 text-[12.5px] text-warn-ink">Could not load attendance.</p>
-              ) : loading || !data ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
-                    <Skeleton className="h-3 flex-1" />
-                    <Skeleton className="h-3 w-16" />
+            <div className="divide-y divide-line">
+              {loading || !data ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-3">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-20" />
                   </div>
                 ))
               ) : (
                 data.classes.map((c) => {
-                  const total = data.studentsByClass.get(c.id) ?? 0;
-                  const present = data.presentByClass.get(c.id) ?? 0;
-                  const late = data.lateByClass.get(c.id) ?? 0;
-                  const absent = data.absentByClass.get(c.id) ?? 0;
+                  const f = data.figures.get(c.id);
+                  const total = f?.total ?? data.studentsByClass.get(c.id) ?? 0;
+                  const present = f?.here ?? 0;
+                  const late = f?.late ?? 0;
+                  const absent = f?.absent ?? 0;
                   const submitted = data.submittedClasses.has(c.id);
                   return (
-                    <div key={c.id} className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
+                    <div key={c.id} className="flex items-center gap-3 px-4 py-3">
                       <span className="min-w-0 flex-1 truncate text-[13px]">{c.name}</span>
+                      {data.afternoonOn && (
+                        <span className="text-[11px] text-ink-muted">
+                          {data.submittedPm.has(c.id) ? "PM in" : "PM waiting"}
+                        </span>
+                      )}
                       {!submitted ? (
                         <>
                           <Badge tone="warn">Not taken</Badge>
@@ -145,7 +270,7 @@ export function AdminDashboard() {
                             className="font-mono text-[12.5px] text-ink-muted underline decoration-dotted underline-offset-2"
                             title="See who was late, absent or excused"
                           >
-                            {present} / {total}
+                            {figureText({ here: present, total })}
                           </button>
                           <div className="h-1.5 w-20 overflow-hidden rounded bg-sunken">
                             <div className="h-1.5 rounded bg-ok-dot" style={{ width: `${total > 0 ? (present / total) * 100 : 0}%` }} />
@@ -215,6 +340,10 @@ export function AdminDashboard() {
             </section>
           </div>
         </div>
+        <EarlySignOutList tenantId={tenant.id} />
+        {/* FIG-1514: the afternoon report and the attendance settings, for full admins (area holders have them on AreasHome). */}
+        <PmMissingReport tenantId={tenant.id} />
+        <AttendanceSettingsPanel tenantId={tenant.id} onSaved={() => setSettingsVersion((v) => v + 1)} />
       </div>
 
       {detailFor && data?.attendanceDate && (

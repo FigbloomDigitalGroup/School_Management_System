@@ -171,7 +171,7 @@ async function putPart(url: string, chunk: Blob, signal?: AbortSignal): Promise<
       if (signal?.aborted) throw err;
       last = err;
     }
-    await new Promise((r) => setTimeout(r, 1000 * attempt));
+    await new Promise((r) => setTimeout(() => r(undefined), 1000 * attempt));
   }
   throw last instanceof Error ? last : new Error("The upload failed. Try again.");
 }

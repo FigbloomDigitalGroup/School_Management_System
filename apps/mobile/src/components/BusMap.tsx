@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Modal, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
-import { stopsInTravelOrder, type BusOnRoute, type Vehicle } from "@figbloom/shared";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Maximize2, X } from "lucide-react-native";
+import { stopsInTravelOrder, type BusOnRoute, type MapLook, type Vehicle } from "@figbloom/shared";
+import { useMapLook } from "../lib/mapLook";
+import { CONTROL_FONT_SCALE, fontSize, HIT } from "../theme";
 import { Tap } from "../ui/Tap";
 import { useTheme } from "../ui/ThemeContext";
 import { BusIcon } from "./BusIcon";
@@ -37,18 +41,72 @@ function regionFor(points: LatLng[]) {
 const GLIDE_MIN_MS = 400;
 const GLIDE_MAX_MS = 5_000;
 
+/** The full-screen map's row of controls: this far below the top of the screen, and this much of the map kept clear for it. */
+const BAR_TOP = 12;
+const BAR_CLEARANCE = BAR_TOP + HIT.minHeight + 8;
+
+/** The three dots on the Traffic control: the colours Google draws moving, slow and stopped traffic in. The same in light and dark. */
+const TRAFFIC_DOTS = ["#2EA45A", "#F2A516", "#D93A2B"];
+
+/** How much of the map's top and bottom is under something else (the controls, the phone's own edges), in dp. */
+interface Edge { top: number; bottom: number }
+
+interface MapProps { bus: BusMapBus; tint: string; follow: boolean; path: LatLng[] | null }
+
 /**
- * A lean native map for one bus (FIG-874): the bus, its route's stops in
- * order, and the line between them: the road buses drive when `path` has it
- * (see useRouteTrace), otherwise a straight line through the stops. Deliberately
- * simpler than web's LiveRouteMap (no satellite/traffic toggle) — see MAPS.md.
- * The bus glides between the positions it reports, natively, rather than jumping.
+ * A native map for one bus (FIG-874): the bus, its route's stops in order, and
+ * the line between them: the road buses drive when `path` has it (see
+ * useRouteTrace), otherwise a straight line through the stops. The bus glides
+ * between the positions it reports, natively, rather than jumping.
+ *
+ * It is drawn as a card on the screen, and the button in its corner opens the
+ * same map full screen, where a person can also switch to satellite photos and
+ * put Google's live traffic on: the two choices the web map has. They are
+ * remembered on the phone and apply to every map, the cards included (lib/mapLook).
  *
  * `follow` is for the driver's own screen (FIG-1293): the camera keeps the bus
  * in view as it moves, until the driver drags the map, and a button brings it back.
  * A family watching the bus pans for themselves, so they leave it off.
  */
 export function BusMap({ bus, tint, height = 180, follow = false, path = null }: { bus: BusMapBus; tint: string; height?: number; follow?: boolean; path?: LatLng[] | null }) {
+  const { t } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [look, setLook] = useMapLook();
+  const [fullScreen, setFullScreen] = useState(false);
+
+  // Nothing to put on a map yet (no stops, no position): no map, and no way to open one.
+  if (!bus.stops.length && (bus.vehicle.last_lat == null || bus.vehicle.last_lng == null)) return null;
+
+  return (
+    <View style={{ height, borderRadius: 12, overflow: "hidden" }}>
+      <Canvas bus={bus} tint={tint} follow={follow} path={path} look={look} />
+      <Tap
+        accessibilityLabel="Open the map full screen"
+        onPress={() => setFullScreen(true)}
+        style={[styles.round, styles.float, { position: "absolute", top: 8, right: 8, backgroundColor: t.appSurface.card }]}
+      >
+        <Maximize2 size={18} color={t.appSurface.ink} />
+      </Tap>
+
+      {fullScreen && (
+        <Modal visible animationType="slide" onRequestClose={() => setFullScreen(false)}>
+          <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: t.appSurface.page }}>
+            <Canvas bus={bus} tint={tint} follow={follow} path={path} look={look} edge={{ top: insets.top + BAR_CLEARANCE, bottom: insets.bottom }} />
+            <View pointerEvents="box-none" style={[styles.bar, { top: insets.top + BAR_TOP }]}>
+              <Tap accessibilityLabel="Close the map" onPress={() => setFullScreen(false)} style={[styles.round, styles.float, { backgroundColor: t.appSurface.card }]}>
+                <X size={20} color={t.appSurface.ink} />
+              </Tap>
+              <LookControls look={look} onChange={setLook} />
+            </View>
+          </View>
+        </Modal>
+      )}
+    </View>
+  );
+}
+
+/** The map itself, filling whatever it is put in: the card, or the whole screen. Each one keeps its own camera. */
+function Canvas({ bus, tint, follow, path, look, edge }: MapProps & { look: MapLook; edge?: Edge }) {
   const { t, accentInk, scheme } = useTheme();
   const stops = stopsInTravelOrder(bus.stops, bus.direction);
   const busPos: LatLng | null =
@@ -89,15 +147,38 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the position's two numbers are what moves the camera
   }, [following, busPos?.latitude, busPos?.longitude]);
 
+  // The same object from one render to the next, so the map is not handed its padding again with every ping.
+  const edgeTop = edge?.top;
+  const edgeBottom = edge?.bottom;
+  const padding = useMemo(
+    () => (edgeTop == null || edgeBottom == null ? undefined : { top: edgeTop, right: 0, bottom: edgeBottom, left: 0 }),
+    [edgeTop, edgeBottom],
+  );
+  // Satellite photos keep their road and place names ("hybrid"), as on the web.
+  const type: "hybrid" | "standard" = look.base === "satellite" ? "hybrid" : "standard";
+
+  // The native map takes these two when it is made and, after that, only once Google's map has loaded: a map
+  // type sent in between is dropped, and padding sent in between reaches code that expects the loaded map
+  // (react-native-maps 1.26, MapView.java setMapType and applyBaseMapPadding). So what the map was made with
+  // stands until it says it is ready, and it is handed the current values then. Without this, a look read from
+  // the phone's storage a moment after the first map appeared would never reach that map.
+  const [ready, setReady] = useState(false);
+  const made = useRef({ type, padding }).current;
+
   if (!initialRegion.current) return null;
 
   return (
-    <View style={{ height, borderRadius: 12, overflow: "hidden" }}>
+    <View style={{ flex: 1 }}>
       <MapView
         ref={mapRef}
         style={{ flex: 1 }}
         initialRegion={initialRegion.current}
+        onMapReady={() => setReady(true)}
+        mapType={ready ? type : made.type}
+        showsTraffic={look.traffic}
+        // Google draws a custom style on the road map only, so the night style can stay set under the photos.
         customMapStyle={scheme === "dark" ? DARK_MAP_STYLE : undefined}
+        mapPadding={ready ? padding : made.padding}
         pitchEnabled={false}
         toolbarEnabled={false}
         onPanDrag={follow ? () => setFollowing(false) : undefined}
@@ -128,7 +209,7 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
           accessibilityRole="button"
           accessibilityLabel="Follow the bus"
           onPress={() => setFollowing(true)}
-          style={{ position: "absolute", right: 8, bottom: 8, minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: t.appSurface.card, alignItems: "center", justifyContent: "center", elevation: 3 }}
+          style={[styles.float, { position: "absolute", right: 8, bottom: 8 + (edge?.bottom ?? 0), minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: t.appSurface.card, alignItems: "center", justifyContent: "center" }]}
         >
           <Text style={{ fontSize: 13, fontWeight: "600", color: accentInk(tint) }}>Follow the bus</Text>
         </Tap>
@@ -136,3 +217,55 @@ export function BusMap({ bus, tint, height = 180, follow = false, path = null }:
     </View>
   );
 }
+
+/**
+ * Map or Satellite, and Traffic: the web map's two controls, in the same words. The one that is on is filled
+ * with the ink colour, so it is told apart by its weight on the map and not by a hue.
+ */
+function LookControls({ look, onChange }: { look: MapLook; onChange: (next: MapLook) => void }) {
+  const { t } = useTheme();
+  const fill = (on: boolean) => ({ backgroundColor: on ? t.appSurface.ink : t.appSurface.card });
+  const label = (on: boolean) => ({ fontSize: fontSize.small, fontWeight: "600" as const, color: on ? t.appSurface.card : t.appSurface.ink });
+
+  return (
+    // box-none: the gap this row leaves beside the close button is still the map's to drag
+    <View pointerEvents="box-none" style={styles.looks}>
+      <View accessibilityRole="radiogroup" accessibilityLabel="Map type" style={[styles.segment, styles.float, { backgroundColor: t.appSurface.card }]}>
+        {(["map", "satellite"] as const).map((base) => {
+          const on = look.base === base;
+          return (
+            <Tap key={base} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange({ ...look, base })} pressedScale={1} style={[styles.choice, fill(on)]}>
+              <Text maxFontSizeMultiplier={CONTROL_FONT_SCALE} style={label(on)}>{base === "map" ? "Map" : "Satellite"}</Text>
+            </Tap>
+          );
+        })}
+      </View>
+      <Tap
+        accessibilityRole="switch"
+        accessibilityState={{ checked: look.traffic }}
+        accessibilityLabel="Traffic"
+        onPress={() => onChange({ ...look, traffic: !look.traffic })}
+        style={[styles.choice, styles.pill, styles.float, fill(look.traffic)]}
+      >
+        <View style={styles.dots}>
+          {TRAFFIC_DOTS.map((color) => <View key={color} style={[styles.dot, { backgroundColor: color }]} />)}
+        </View>
+        <Text maxFontSizeMultiplier={CONTROL_FONT_SCALE} style={label(look.traffic)}>Traffic</Text>
+      </Tap>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  /** Anything that sits on the map lifts off it, so it reads as a control over photos and roads alike. */
+  float: { elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3 },
+  round: { width: HIT.minWidth, height: HIT.minHeight, borderRadius: HIT.minHeight / 2, alignItems: "center", justifyContent: "center" },
+  bar: { position: "absolute", left: 12, right: 12, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  // Wraps under itself, to the right, on a narrow phone with large text rather than running off the screen.
+  looks: { flex: 1, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 },
+  segment: { flexDirection: "row", borderRadius: HIT.minHeight / 2, overflow: "hidden" },
+  choice: { minHeight: HIT.minHeight, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  pill: { borderRadius: HIT.minHeight / 2 },
+  dots: { flexDirection: "row", gap: 2 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+});

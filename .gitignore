@@ -15,6 +15,31 @@ test-results/
 supabase/.branches/
 supabase/.temp/
 
+# Local portable toolchains / downloaded binaries (session tooling only; never commit)
+.tools/
+
+# Local Stage 8 / Phase 3 working docs (kept on disk; not committed until owner accepts)
+apps/api/docs/PHASE3-*.md
+apps/api/docs/STAGE8-*.md
+apps/api/docs/EXECUTION-BATCH-01-VERIFICATION.md
+apps/api/docs/WORKER-ISOLATION-PROPOSAL.md
+
+# Local Stage 9 / Stage 10 working docs (handoffs and reviews; not committed until owner accepts)
+apps/api/docs/STAGE9-*.md
+apps/api/docs/STAGE10-*.md
+
+# Local Stage 11 working docs (handoffs and reviews; not committed until owner accepts)
+apps/api/docs/STAGE11-*.md
+
+# Local backend feature working docs (kept on disk; not committed)
+apps/api/docs/FIGBLOOM-AI-INTEGRATION.md
+apps/api/docs/MFA-ENFORCEMENT.md
+apps/api/docs/TRANSPORT-OPERATIONS.md
+FIGBLOOM_BACKEND_REBUILD_FINAL_HANDOVER.md
+
+# Cursor-agent local memory/rules (not team SoT)
+.cursor/
+
 # Native Android project (apps/mobile/android)
 .gradle/
 local.properties

@@ -14,6 +14,7 @@ export default tseslint.config(
       "apps/mobile/ios/**",
       "supabase/.temp/**",
       "playwright-report/**",
+      ".personal-ai/**",
     ],
   },
   js.configs.recommended,
@@ -29,6 +30,33 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "off",
     },
+  },
+  {
+    files: ["apps/api/src/**/*.ts"],
+    ignores: ["apps/api/src/db/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "pg",
+              message: "Only src/db may import pg. Pass Tx or IdentityDb into other modules.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // FIG-1620: one structured, allowlisted logger. console is for the migrate CLI only.
+    files: ["apps/api/src/**/*.ts"],
+    ignores: ["apps/api/src/db/migrate.ts", "apps/api/src/openapi/**", "apps/api/src/log.ts"],
+    rules: { "no-console": "error" },
+  },
+  {
+    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs"],
+    languageOptions: { sourceType: "module", globals: globals.node },
   },
   {
     // RN tooling loads these as plain CommonJS, not ESM — the rest of the repo is "type": "module".

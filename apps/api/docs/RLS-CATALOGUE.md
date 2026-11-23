@@ -1,0 +1,145 @@
+# RLS catalogue: protected tables and policies (FIG-1605)
+
+Maintained by hand, enforced by `test/fig1605.policyCatalogue.test.ts`: every table that has row security
+in the live catalogue must appear here (in backticks), be `FORCE`d, and carry no policy that lets the
+runtime role `figbloom_app` (directly or through `PUBLIC`) in without a predicate. A new table with RLS
+that is not listed here fails the suite.
+
+Policy shape (migration 009 onward): one `FOR ALL TO figbloom_app` policy whose `USING` and `WITH CHECK`
+are `tenant_id = app_current_tenant_id()`, plus one `FOR ALL TO PUBLIC` **owner-only** policy
+(`current_user = pg_get_userbyid(relowner)`), which is what lets the migrator work under `FORCE`. There is
+no mode GUC and no application-settable bypass.
+
+| Table | Kind | Runtime policy (figbloom_app) | Created / hardened in | Runtime isolation test |
+|---|---|---|---|---|
+| `staff_area_grants` | tenant | `tenant_id = app_current_tenant_id()` | 004, 009 | `runtimeRls.http`, `stageC.*` |
+| `school_role_assignments` | tenant | same | 004, 009 | same |
+| `school_roles` | tenant | same | 004, 009 | same |
+| `org_admin_school_delegations` | tenant | same | 005, 009 | same; FIG-1609 suites |
+| `learners` | tenant, personal data | same | 006, 009 | `phase3.runtimeIsolation`, `vs1.learners` |
+| `guardians` | tenant, personal data | same | 007, 009 | `phase3.runtimeIsolation`, `vs2.guardians` |
+| `guardian_links` | tenant, personal data | same | 007, 009 | same |
+| `school_profiles` | tenant | same | 016 | `phase3.runtimeIsolation` |
+| `staff_members` | tenant, personal data | same | 018 | `phase3.runtimeIsolation` |
+| `directory_documents` | tenant, personal data | same | 020 | `phase3.runtimeIsolation` |
+| `staff_resource_grants` | tenant, access grants (guardian read/write, FIG-1614) | same | 025 | `phase3.runtimeIsolation`, `fig1614.guardianAccess` |
+| `idempotency_keys` | tenant | tenant policy | 012 | `idempotency` |
+| `school_memberships` | identity plane | tenant policy (active rows only) plus a SELECT-only self-read policy (`user_id = app_current_user_id()` while no tenant is set) so login and `/auth/me` work before a tenant is chosen | 009 | `runtimeRls.http`, `stageC.rlsOwnership` |
+| `academic_years` | tenant | `tenant_id = app_current_tenant_id()` | 029 | `stage9.academics` |
+| `academic_terms` | tenant | same | 029 | `stage9.academics` |
+| `subjects` | tenant | same | 029 | `stage9.academics` |
+| `classes` | tenant | same | 029 | `stage9.academics` |
+| `class_memberships` | tenant | same | 029 | `stage9.academics` |
+| `teaching_assignments` | tenant | same | 029 | `stage9.academics` |
+| `timetable_slots` | tenant | same | 029 | `stage9.academics` |
+| `assessments` | tenant | same | 030 | `stage9.academics` |
+| `assessment_components` | tenant | same | 030 | `stage9.academics` |
+| `mark_entries` | tenant | same | 030 | `stage9.academics` |
+| `homework_items` | tenant | same | 030 | `stage9.academics` |
+| `learning_materials` | tenant, metadata only | same | 030 | `stage9.academics` |
+| `report_card_publications` | tenant | same | 030 | `stage9.academics` |
+| `grading_schemes` | tenant | same | 030 | `stage9.academics` |
+| `curriculum_provenance` | tenant (platform rows have a null tenant and are invisible to the runtime role) | same | 031 | `stage9.academics` |
+| `learning_areas` | tenant | same | 031 | `stage9.academics` |
+| `strands` | tenant | same | 031 | `stage9.academics` |
+| `sub_strands` | tenant | same | 031 | `stage9.academics` |
+| `learning_outcomes` | tenant | same | 031 | `stage9.academics` |
+| `rubric_descriptor_configs` | tenant | same | 031 | `stage9.academics` |
+| `cbe_assessments` | tenant | same | 031 | `stage9.academics` |
+| `cbe_results` | tenant | same | 031 | `stage9.academics` |
+| `evidence_assets` | tenant, metadata only | same | 031 | `stage9.academics` |
+| `learner_competency_ratings` | tenant | `tenant_id = app_current_tenant_id()` | 079 | `stage9.academics` |
+| `learner_competency_rating_revisions` | tenant | `tenant_id = app_current_tenant_id()` | 081 | `stage9.academics` |
+| `vehicle_locations` | tenant | `tenant_id = app_current_tenant_id()` | 082 | `stage13.transport` |
+| `attendance_coverage` | tenant | `tenant_id = app_current_tenant_id()` | 083 | `stage10.attendance` |
+| `timetable_publications` | tenant | `tenant_id = app_current_tenant_id()` | 084 | `stage9.academics` |
+| `mfa_factors` | user | `user_id = app_current_user_id()` | 085 | `auth.mfa` |
+| `mfa_recovery_codes` | user | `user_id = app_current_user_id()` | 085 | `auth.mfa` |
+| `curriculum_reference_entries` | platform + optional school rows (`tenant_id` nullable); `figbloom_app` SELECT-only via `curriculum_reference_entries_read`; migrator/owner writes | `tenant_id IS NULL OR tenant_id = app_current_tenant_id()` | 079 | `stage910.rlsCatalogue` / FIG-1605 |
+| `he_courses` | tenant | same | 032 | `stage9.academics` |
+| `he_sections` | tenant | same | 032 | `stage9.academics` |
+| `he_enrolments` | tenant | same | 032 | `stage9.academics` |
+| `he_grades` | tenant | same | 032 | `stage9.academics` |
+| `online_exam_papers` | tenant | same | 032 | `stage9.academics` |
+| `online_exam_attempts` | tenant | same | 032 | `stage9.academics` |
+| `attempt_marks` | tenant | same | 032 | `stage9.academics` |
+| `attendance_settings` | tenant | same | 033 | `stage10.attendance` |
+| `attendance` | tenant | same | 033 | `stage10.attendance` |
+| `attendance_afternoon` | tenant | same | 033 | `stage10.attendance` |
+| `early_sign_outs` | tenant | same | 033 | `stage10.attendance` |
+| `early_sign_out_collectors` | tenant, collector PII | same | 033 | `stage10.attendance` |
+| `mark_corrections` | tenant, append-only (SELECT + INSERT) | same | 035 | `stage910.ownerDecisions` |
+| `cbe_result_revisions` | tenant, append-only (SELECT + INSERT) | same | 035 | `stage910.ownerDecisions` |
+| `he_grade_revisions` | tenant, append-only (SELECT + INSERT) | same | 035 | `stage910.ownerDecisions` |
+| `jobs` | tenant (`figbloom_app`: enqueue/read; `figbloom_worker`: SELECT only — all lifecycle updates go through `jobs_claim`, `jobs_complete`, `jobs_retry`, `jobs_dead`, `jobs_extend_lease` DEFINERs per 061) | `jobs_worker` mirrors the tenant predicate | 036, 061 | `stage11.finance`, `stage11.f8.settlementAuthority` |
+| `finance_fee_items` | tenant | same (+ worker read) | 037 | `stage11.finance` |
+| `finance_invoices` | tenant; money columns derived by trigger, not writable | same (+ worker read) | 037 | `stage11.finance` |
+| `finance_invoice_lines` | tenant, append-only | same (+ worker read) | 037 | `stage11.finance` |
+| `finance_charges` | tenant; void-only, never deleted | same (+ worker read) | 037 | `stage11.finance` |
+| `finance_invoice_adjustments` | tenant, append-only | same (+ worker read) | 037 | `stage11.finance` |
+| `finance_payments` | tenant; settled payments immutable | same (+ worker settles pending prompts) | 037 | `stage11.finance` |
+| `finance_mpesa_events` | tenant, append-only provider log (masked phone) | same (+ worker insert) | 038 | `stage11.finance` |
+| `finance_mpesa_unmatched_callbacks` | none: operator-only quarantine, no runtime privilege; written through a SECURITY DEFINER function | owner policy only | 038 | `stage910.rlsCatalogue` |
+| `finance_payment_proofs` | tenant; reviewed proofs final, never deleted; file metadata only | same (+ worker read) | 038 | `stage11.finance` |
+| `finance_reconciliation_runs` | tenant, append-only | same | 038 | `stage11.finance` |
+| `finance_reconciliation_findings` | tenant; resolve-once | same | 038 | `stage11.finance` |
+| `finance_ai_helper_settings` | tenant; billing held off by CHECK | same | 039 | `stage11.finance` |
+| `finance_ai_helper_optins` | tenant | same | 039 | `stage11.finance` |
+| `finance_ai_helper_optin_log` | tenant, append-only | same | 039 | `stage11.finance` |
+| `communications_announcements` | tenant | same | 048 | `stage12.announcements` |
+| `communications_announcement_reads` | tenant + user-scoped (`AS RESTRICTIVE` `user_id = app_current_user_id()` + audience check) | tenant + restrictive own-user policy | 048, 063 | `stage12.announcements`, `stage12.adversarial` |
+| `communications_announcement_deliveries` | tenant | same (+ worker insert/select) | 048 | `stage12.announcements` |
+| `notification_preferences` | user-scoped (`user_id = app_current_user_id()`) | own-row | 050 | `stage12.visitsPrefs` |
+| `device_tokens` | user-scoped (`user_id = app_current_user_id()`) | own-row | 050 | `stage12.visitsPrefs` |
+| `gate_visits` | tenant (operational status/timestamp column-scoped `UPDATE`) | same | 051, 063 | `stage12.visitsPrefs`, `stage12.adversarial` |
+| `medical_settings` | tenant | same | 052 | `stage12.sickBay` |
+| `sick_bay_visits` | tenant (a discharged visit needs a fresh `correction_reason` in every correcting statement; the guard consumes it into the corrections history and clears the column) | same | 052, 063, 066 | `stage12.sickBay`, `postAudit.boundaries` |
+| `sick_bay_visit_corrections` | tenant `SELECT` only for the app; append-only (written by the definer guard with `corrected_by = app_current_user_id()`) | tenant | 066 | `postAudit.boundaries` |
+| `medical_notices` | tenant + `AS RESTRICTIVE`: guardian `SELECT`/`UPDATE (read_at)` only their own (`guardian_user_id = app_current_user_id()`); `INSERT` only by a staff member of the tenant for a parent member of the tenant | tenant + restrictive guardian/staff policies | 052, 063, 066 | `stage12.sickBay`, `postAudit.boundaries` |
+| `conversations` | tenant + user-scoped (`AS RESTRICTIVE` `user_a_id = app_current_user_id() OR user_b_id = app_current_user_id()`) | tenant + restrictive participant policy | 053, 063 | `stage12.chat`, `stage12.adversarial` |
+| `conversation_members` | tenant + user-scoped (`AS RESTRICTIVE` participant check via `conversations`) | tenant + restrictive participant policy | 053, 063 | `stage12.chat`, `stage12.adversarial` |
+| `chat_messages` | tenant + user-scoped (`AS RESTRICTIVE` participant `SELECT`, `sender_id = app_current_user_id()` `INSERT`) | tenant + restrictive participant/sender policy | 053, 063 | `stage12.chat`, `stage12.adversarial` |
+| `inventory_items` | tenant | same | 054, 064 | `stage13.inventory`, `stage13.adversarial` |
+| `inventory_issues` | tenant | same | 054, 064 | `stage13.inventory`, `stage13.adversarial` |
+| `leave_requests` | tenant | same | 055, 064 | `stage13.leave`, `stage13.adversarial` |
+| `activities` | tenant | same | 056 | `stage13.activities` |
+| `activity_patrons` | tenant | same | 056 | `stage13.activities` |
+| `activity_members` | tenant | same | 056 | `stage13.activities` |
+| `vehicles` | tenant | same | 057 | `stage13.transport` |
+| `transport_routes` | tenant | same | 057 | `stage13.transport` |
+| `route_stops` | tenant | same | 057, 064 | `stage13.transport`, `stage13.adversarial` |
+| `vehicle_assignments` | tenant | same | 057 | `stage13.transport` |
+| `learner_transport` | tenant | same | 057, 064 | `stage13.transport`, `stage13.adversarial` |
+| `trips` | tenant | same | 057, 064 | `stage13.transport`, `stage13.adversarial` |
+| `trip_events` | tenant (append-only: `SELECT, INSERT` only) | same | 086 | `transport.operations` |
+| `transport_notifications` | tenant + user-scoped (`AS RESTRICTIVE` recipient `SELECT`/`UPDATE (in_app_read_at)`; rows inserted only by a definer function) | tenant + restrictive recipient policy | 086 | `transport.operations` |
+| `notification_outbox` | tenant (`SELECT, INSERT` for app; worker updates status/attempts) | tenant + worker | 089 | `notifications.engine` |
+| `notifications` | tenant + user-scoped (`AS RESTRICTIVE` `recipient_user_id = app_current_user_id()`; `SELECT` + `UPDATE (read_at)` for app; worker inserts) | tenant + restrictive own-recipient + worker | 089 | `notifications.engine` |
+| `notification_delivery_attempts` | tenant (`SELECT` for app; `SELECT, INSERT` for worker) | tenant + worker | 089 | `notifications.engine` |
+| `storage_objects` | tenant (server-generated key trigger; immutable identity; worker cleans abandoned uploads) | tenant + worker | 090 | `storage.s3` |
+| `export_jobs` | tenant (`SELECT, INSERT` for app; worker updates status/artifact) | tenant + worker | 091 | `exports.ooxml` |
+| `learner_health_profiles` | tenant (restricted to `resource.medication.read/write`) | same | 092 | `health.medication` |
+| `medication_authorizations` | tenant (trigger enforces explicit guardian consent before approval) | same | 092 | `health.medication` |
+| `medication_schedules` | tenant (trigger enforces approved + consented authorization & active learner) | same | 092 | `health.medication` |
+| `medication_administration_records` | tenant (append-only MAR; `SELECT, INSERT` only; unique per schedule+slot) | same | 092 | `health.medication` |
+| `medication_administration_corrections` | tenant (append-only auditable MAR corrections; `SELECT, INSERT` only) | same | 092 | `health.medication` |
+| `medication_incidents` | tenant (incident acknowledgement and resolution) | same | 092 | `health.medication` |
+| `curriculum_import_batches` | tenant (import batch provenance and validation error reports) | same | 093 | `curriculum.catalogue` |
+| `transport_incidents` | tenant (incident acknowledge/escalate/resolve lifecycle) | same | 094 | `stage78.transportAndBloom` |
+| `import_batches` | tenant (`UPDATE (status, applied_at, preview_json)` for post-apply PII redaction) | same | 059, 062 | `stage16.importLearners`, `stage16.importLearners.adversarial` |
+| `account_tokens` | **owner-only** (no runtime privilege; reached only through the `account_*` SECURITY DEFINER functions; stores token SHA-256 only) | same | 072 | `accounts.lifecycle` |
+| `worker_heartbeats` | **owner-only** (written by `worker_heartbeat()`; read by `finance_ops_snapshot()`) | same | 071 | `finance.reconciliationCases` |
+| `guardian_invitations` | **owner-only** (token hash only; reached only through the `guardian_*` SECURITY DEFINER functions) | same | 073 | `guardian.invitations` |
+| `guardian_accounts` | **owner-only** (live guardian-record to login links; own links via `guardian_my_links()`) | same | 073 | `guardian.invitations` |
+| `finance_unmatched_cases` | **owner-only** (platform operators reach it only through the `finance_unmatched_*` SECURITY DEFINER functions; no school owns an unmatched callback) | same | 074 | `finance.unmatchedCallbacks` |
+| `finance_unmatched_case_notes` | **owner-only** (append-only operator notes) | same | 074 | `finance.unmatchedCallbacks` |
+
+Not in this table on purpose: `security_audit_events` carries `tenant_id` for attribution but is an
+append-only log; the runtime role holds `INSERT` only (asserted in `phase3.runtimeIsolation`). Identity-plane
+tables (`users`, `sessions`, organisation and platform tables) are application-filtered by design
+(`TENANT-ISOLATION.md`, decision D-3) and reached through narrow `SECURITY DEFINER` functions where they
+hold secrets.
+
+## Updating this file
+
+Add the row in the same commit as the migration that creates the table. The test above fails otherwise.

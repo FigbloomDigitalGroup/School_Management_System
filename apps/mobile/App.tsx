@@ -98,10 +98,10 @@ function AppContent() {
 
           let accent = "#7A1F2B";
           let country = "KE";
-          let tenant: { accent: string | null; country: string | null; name: string | null; slug: string | null } | null = null;
+          let tenant: { accent: string | null; country: string | null; name: string | null; slug: string | null; timezone: string | null } | null = null;
           if (profile.tenant_id) {
             ({ data: tenant } = await supabase()
-              .from("tenants").select("accent, country, name, slug").eq("id", profile.tenant_id).maybeSingle());
+              .from("tenants").select("accent, country, name, slug, timezone").eq("id", profile.tenant_id).maybeSingle());
             if (tenant?.accent) accent = tenant.accent;
             if (tenant?.country) country = tenant.country;
           }
@@ -128,6 +128,8 @@ function AppContent() {
             fresh = {
               role: profile.role, accent, profileId: userId, tenantId: profile.tenant_id!, fullName: profile.full_name, country,
               adminAreas, school: { name: tenant.name, slug: tenant.slug }, title: profile.staff_title ?? null,
+              // FIG-1514: the register's date and default session follow the school's own time zone.
+              timezone: tenant.timezone || "Africa/Nairobi",
             };
           } else if (profile.role === "driver") {
             fresh = { role: "driver", accent, profileId: userId, tenantId: profile.tenant_id!, fullName: profile.full_name };

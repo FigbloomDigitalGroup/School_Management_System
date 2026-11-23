@@ -4,6 +4,7 @@ import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, s
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
+import { SchoolAdmins } from "../../components/SchoolAdmins";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -89,6 +90,9 @@ export function OrgSchoolDetail() {
           stats={[
             { label: "Active students", value: school.active_students.toLocaleString() },
             { label: "Present today", value: school.present_today.toLocaleString(), sub: school.active_students > 0 ? `${Math.round((school.present_today / school.active_students) * 100)}% of enrolled` : undefined },
+            ...((school.present_today_pm ?? 0) > 0
+              ? [{ label: "Present this afternoon", value: (school.present_today_pm ?? 0).toLocaleString(), sub: school.active_students > 0 ? `${Math.round(((school.present_today_pm ?? 0) / school.active_students) * 100)}% of enrolled` : undefined }]
+              : []),
             // organization_tenant_summary has no country column yet — every
             // school in an org is Kenyan today (the selector is locked to
             // Kenya), so this is safe; a cross-country org is a real
@@ -100,6 +104,10 @@ export function OrgSchoolDetail() {
             },
           ]}
         />
+
+        <div className="mt-5 max-w-[760px]">
+          <SchoolAdmins tenantId={school.tenant_id} tenantName={school.name} />
+        </div>
 
         <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
           "Open school console" gives you the same access this school's own admin has — its students, staff, fees,
