@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchClassSubjects, setClassSubjectTeacher, type ClassLevel } from "@figbloom/shared";
+import { fetchClassSubjects, setClassSubjectTeacher, setupCapabilities, type ClassLevel } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -24,6 +24,8 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
   onClose: () => void;
 }) {
   const toast = useToast();
+  // On the new API a subject's teacher can be named once but not changed or cleared yet: a subject that has one shows it as text.
+  const caps = setupCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClassSubjects(tenantId, classId, classLevel, formLevel), [tenantId, classId, classLevel, formLevel, reloadKey]);
   const rows = data?.rows;
@@ -69,6 +71,9 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
               <li key={r.subject.id} className="flex items-center gap-3 rounded-lg border border-line-soft px-3 py-2">
                 <span className="min-w-0 flex-1 text-[13px] font-medium">{r.subject.name}</span>
                 <span className="font-mono text-[11px] text-ink-faint">{r.subject.code}</span>
+                {!caps.changeSubjectTeacher && r.teacherId ? (
+                  <span className="text-[13px]">{teachers.find((t) => t.id === r.teacherId)?.full_name ?? "Assigned"}</span>
+                ) : (
                 <select
                   value={r.teacherId ?? ""}
                   onChange={(e) => void setTeacher(r.subject.id, e.target.value)}
@@ -89,6 +94,7 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
                     others.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)
                   )}
                 </select>
+                )}
               </li>
             );
           })}

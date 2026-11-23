@@ -8,3 +8,4 @@ export * from "./authApi";
 export { apiLoadSchoolSession, adminAreasFromPermissions, accentFromApi, tenantFromApi, profileFromApi, roleOutsideSchools, viewOfMe, isRole, forgetApiSchools, type ApiSchoolSession, type MeView, type MembershipView } from "./sessionApi";
 export * from "./sessionEvents";
 export * from "./signInFlow";
+export { classGroupFromApi, termFromApi, subjectFromApi, yearNumberOf, listAcademicYears, listAcademicTerms, currentAcademicYear } from "./setupApi";
