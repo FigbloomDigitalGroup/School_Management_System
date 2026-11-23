@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent } from "react";
-import { supabase } from "@figbloom/shared";
+import { saveAvatarUrl } from "@figbloom/shared";
 import { uploadAvatar } from "../lib/uploads";
 import type { ToastFn } from "./ui/Toast";
 
@@ -56,9 +56,7 @@ export function AvatarEditor({ id, name, kind, tenantId, url, onUploaded, toast 
     setUploading(true);
     try {
       const newUrl = await uploadAvatar(tenantId, kind, id, file);
-      const table = kind === "students" ? "students" : "profiles";
-      const { error } = await supabase().from(table).update({ avatar_url: newUrl }).eq("id", id);
-      if (error) throw error;
+      await saveAvatarUrl(kind, id, newUrl);
       onUploaded(newUrl);
       toast("Photo updated");
     } catch (err) {
