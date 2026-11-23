@@ -1,3 +1,5 @@
+import { apiBillTerm, apiCreateFeeItem, apiDeleteFeeItem, apiFetchBillingInputs, apiFetchSchoolYearGroups, apiFetchTermFeeItems, apiUpdateFeeItem } from "./api/feesApi";
+import { onApi } from "./backend";
 import type { BillableStudent } from "./fees";
 import { yearGroupsOf, type YearGroup } from "./levels";
 import { fetchAllPages } from "./paging";
@@ -15,6 +17,7 @@ import type { ClassLevel, FeeItem } from "./types";
 
 /** The distinct year groups the school has classes in, youngest first (Grade 1 and Form 1 are both form_level 1). */
 export async function fetchSchoolYearGroups(tenantId: string): Promise<YearGroup[]> {
+  if (onApi()) return apiFetchSchoolYearGroups(tenantId);
   const { data, error } = await supabase().from("classes").select("level, form_level").eq("tenant_id", tenantId)
     .returns<{ level: ClassLevel; form_level: number }[]>();
   if (error) throw new Error(error.message);
@@ -23,6 +26,7 @@ export async function fetchSchoolYearGroups(tenantId: string): Promise<YearGroup
 
 /** The term's fee items, by name. */
 export async function fetchTermFeeItems(termId: string): Promise<FeeItem[]> {
+  if (onApi()) return apiFetchTermFeeItems(termId);
   const { data, error } = await supabase().from("fee_items").select("*").eq("term_id", termId).order("name").returns<FeeItem[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -39,6 +43,7 @@ export interface NewFeeItem {
 }
 
 export async function createFeeItem(input: NewFeeItem): Promise<void> {
+  if (onApi()) return apiCreateFeeItem(input);
   const forYear = input.appliesTo === "form_level" ? input.yearGroup ?? null : null;
   const { error } = await supabase().from("fee_items").insert({
     tenant_id: input.tenantId,
@@ -53,11 +58,13 @@ export async function createFeeItem(input: NewFeeItem): Promise<void> {
 }
 
 export async function updateFeeItem(id: string, change: { name: string; amountCents: number }): Promise<void> {
+  if (onApi()) return apiUpdateFeeItem(id, change);
   const { error } = await supabase().from("fee_items").update({ name: change.name, amount_cents: change.amountCents }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 export async function deleteFeeItem(id: string): Promise<void> {
+  if (onApi()) return apiDeleteFeeItem(id);
   const { error } = await supabase().from("fee_items").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
@@ -69,6 +76,7 @@ interface BillingStudentRow { id: string; boarding: boolean; classes: { form_lev
  * invoice for the term.
  */
 export async function fetchBillingInputs(tenantId: string, termId: string): Promise<{ students: BillableStudent[]; invoiced: Set<string> }> {
+  if (onApi()) return apiFetchBillingInputs(tenantId, termId);
   const sb = supabase();
   const [students, invoiced] = await Promise.all([
     fetchAllPages<BillingStudentRow>((from, to) =>
@@ -95,6 +103,7 @@ export interface BillTermResult {
  * saved, not what the caller planned (FIG-1331, bill_term). On failure nothing was saved, so it can be tried again.
  */
 export async function billTerm(input: { termId: string; dueOn: string; invoices: { student_id: string; total_cents: number }[] }): Promise<BillTermResult> {
+  if (onApi()) return apiBillTerm(input);
   const { data, error } = await supabase().rpc("bill_term", {
     p_term_id: input.termId,
     p_due_on: input.dueOn,

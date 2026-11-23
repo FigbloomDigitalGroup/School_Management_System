@@ -1,3 +1,5 @@
+import { apiFetchFeesCollection, apiFetchTenantCurrentTerm, apiRecordPayment, apiRejectPaymentProof, apiSearchPayableInvoices } from "./api/feesApi";
+import { onApi } from "./backend";
 import { formatMoney, parseShillings } from "./fees";
 import { fetchAllPages } from "./paging";
 import { paymentSmsFlags, type PaymentSmsFlag, type PaymentSmsSource } from "./paymentSms";
@@ -138,6 +140,7 @@ export function shapeFeesCollection(raw: { invoices: RawInvoiceRow[]; proofs: Ra
 
 /** The current term of a school, or null between terms. */
 export async function fetchTenantCurrentTerm(tenantId: string): Promise<Term | null> {
+  if (onApi()) return apiFetchTenantCurrentTerm(tenantId);
   const { data, error } = await supabase().from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   if (error) throw new Error(error.message);
   return data ?? null;
@@ -149,6 +152,7 @@ export async function fetchTenantCurrentTerm(tenantId: string): Promise<Term | n
  * school's own payee numbers. Give `term` when the caller already has it, to skip asking.
  */
 export async function fetchFeesCollection(tenantId: string, term?: Term | null): Promise<FeesCollection> {
+  if (onApi()) return apiFetchFeesCollection(tenantId, term);
   const sb = supabase();
   const current = term === undefined ? await fetchTenantCurrentTerm(tenantId) : term;
   const termId = current?.id ?? null;
@@ -247,6 +251,7 @@ interface InvoiceSearchRow {
 
 /** Invoices of the term whose learner's name or admission number matches what was typed (at most eight). */
 export async function searchPayableInvoices(termId: string, q: string): Promise<PayableInvoice[]> {
+  if (onApi()) return apiSearchPayableInvoices(termId, q);
   // These characters would end the filter early (PostgREST's or() splits on commas and brackets).
   const term = q.replace(/[%,()]/g, " ").trim();
   const { data, error } = await supabase().from("fee_invoices")
@@ -291,6 +296,7 @@ export function readPaymentEntry(input: { amount: string; method: PaymentMethodV
  * The database's own refusals ("M-Pesa receipt X has already been recorded") come back as the error's message.
  */
 export async function recordPayment(input: { invoiceId: string; cents: number; method: PaymentMethodValue; reference: string; proofId?: string | null }): Promise<void> {
+  if (onApi()) return apiRecordPayment(input);
   const { error } = await supabase().rpc("record_payment", {
     p_invoice_id: input.invoiceId,
     p_amount_cents: input.cents,
@@ -356,6 +362,7 @@ export function rejectionReason(text: string): string | null {
  * still waiting is rejected: one a colleague confirmed a moment ago is not turned into a rejection.
  */
 export async function rejectPaymentProof(input: { proofId: string; reviewerId: string; reason: string }): Promise<void> {
+  if (onApi()) return apiRejectPaymentProof(input);
   const reason = rejectionReason(input.reason);
   if (!reason) throw new Error("Say why, in a few words: the family will read it.");
   const { data, error } = await supabase()
