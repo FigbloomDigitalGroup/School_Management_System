@@ -29,6 +29,7 @@ const subject = (o: Record<string, unknown> = {}) => ({ id: S1, tenantId: T, cod
 const staff = (o: Record<string, unknown> = {}) => ({ id: TEACHER, tenantId: T, full_name: "Tabitha Teacher", staff_title: null, classification: "teacher", phone: null, email: null, userId: null, active: true, archived_at: null, ...stamp, ...o });
 const assignment = (o: Record<string, unknown> = {}) => ({ id: "a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0", tenantId: T, staff_member_id: TEACHER, class_id: C1, subject_id: S1, active: true, archived_at: null, ...stamp, ...o });
 const membership = (classId: string, n: number) => ({ id: `m-${classId}-${n}`, tenantId: T, learner_id: `l-${n}`, class_id: classId, academic_year_id: YEAR, active: true, archived_at: null, ...stamp });
+const learner = (n: number) => ({ id: `l-${n}`, tenantId: T, admission_no: String(1000 + n), full_name: `Learner ${n}`, gender: "female", boarding: false, date_of_birth: null, active: true, archived_at: null, ...stamp });
 const page = (next: string | null = null) => ({ limit: 200, next_cursor: next });
 const list = (key: string, items: unknown[], next: string | null = null): FakeReply => ({ body: { [key]: items, page: page(next) } });
 
@@ -79,6 +80,7 @@ describe("classes", () => {
     [`GET ${P}/staff`]: list("staff", [staff({ full_name: "Zed Teacher", id: TEACHER2 }), staff(), staff({ id: "x", full_name: "Driver Dan", classification: "driver" })]),
     [`GET ${P}/subjects`]: list("subjects", [subject({ id: S2, name: "Biology", code: "BIO" }), subject(), subject({ id: "gone", name: "Old", active: false })]),
     [`GET ${P}/class-memberships`]: list("memberships", [membership(C1, 1), membership(C1, 2), membership(C2, 3), membership("some-old-class", 4)]),
+    [`GET ${P}/learners`]: list("learners", [learner(1), learner(2), learner(3), learner(4)]),
     ...extra,
   });
 
@@ -92,6 +94,25 @@ describe("classes", () => {
     const q = api.callsTo(`GET ${P}/classes`)[0]!.query;
     expect(q.get("academicYearId")).toBe(YEAR);
     expect(q.get("active")).toBe("true");
+  });
+
+  it("does not count the class membership of an archived learner (the API leaves it active)", async () => {
+    // Learner 2 is archived: no longer in the active list, but their membership of C1 is still active.
+    boot(overview({ [`GET ${P}/learners`]: list("learners", [learner(1), learner(3), learner(4)]) }));
+    const o = await fetchClassesOverview(T);
+    expect([...o.studentCountByClass]).toEqual([[C1, 1], [C2, 1]]);
+    expect(api.callsTo(`GET ${P}/learners`)[0]!.query.get("active")).toBe("true");
+  });
+
+  it("counts every membership, and does not fail, for a person who may not read learners", async () => {
+    boot(overview({ [`GET ${P}/learners`]: refused("forbidden", 403) }));
+    const o = await fetchClassesOverview(T);
+    expect([...o.studentCountByClass]).toEqual([[C1, 2], [C2, 1]]);
+  });
+
+  it("fails on any other error reading learners", async () => {
+    boot(overview({ [`GET ${P}/learners`]: refused("internal_error", 500) }));
+    await expect(fetchClassesOverview(T)).rejects.toMatchObject({ code: "internal_error" });
   });
 
   it("asks for every class when no year is current yet", async () => {
@@ -158,6 +179,7 @@ describe("the term and the school's details", () => {
     [`GET ${P}/subjects`]: list("subjects", [subject(), subject({ id: S2, name: "Maths", code: "MATH" })]),
     [`GET ${P}/staff`]: list("staff", [staff()]),
     [`GET ${P}/class-memberships`]: list("memberships", [membership(C1, 1), membership(C1, 2), membership(C2, 3)]),
+    [`GET ${P}/learners`]: list("learners", [learner(1), learner(2), learner(3)]),
     ...extra,
   });
 
@@ -170,6 +192,11 @@ describe("the term and the school's details", () => {
     expect(d.activeStudents).toBe(2);
     expect(d.feeItemsCount).toBe(0);
     expect(d.teacherOptions).toEqual([{ id: TEACHER, full_name: "Tabitha Teacher" }]);
+  });
+
+  it("counts only active learners as enrolled in the current year", async () => {
+    boot(setup({ [`GET ${P}/learners`]: list("learners", [learner(2), learner(3)]) }));
+    expect((await fetchTermSetup(T)).activeStudents).toBe(1);
   });
 
   it("has no term when none is current", async () => {
