@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CAPACITY_LABEL, fetchMySignatureRequests, fileLink, signDocuments, supabase, type SignatureRequest } from "@figbloom/shared";
+import { CAPACITY_LABEL, fetchMySignatureRequests, fetchSignableAttachmentIds, fileLink, signDocuments, type SignatureRequest } from "@figbloom/shared";
 import { fileHash } from "../../lib/signing";
 import { Button } from "../ui/Button";
 import { useToast } from "../ui/Toast";
@@ -81,10 +81,6 @@ export function PendingSignatures({ onlyDocIds, compact }: { onlyDocIds?: string
 
 /** The files on one message still waiting for the viewer's signature. */
 export function MessageToSign({ announcementId }: { announcementId: string }) {
-  const { data } = useAsync(async () => {
-    const { data, error } = await supabase().from("attachments").select("id").eq("announcement_id", announcementId).eq("needs_signature", true);
-    if (error) throw new Error(error.message);
-    return ((data ?? []) as { id: string }[]).map((r) => r.id);
-  }, [announcementId]);
+  const { data } = useAsync(() => fetchSignableAttachmentIds(announcementId), [announcementId]);
   return data?.length ? <PendingSignatures onlyDocIds={data} compact /> : null;
 }

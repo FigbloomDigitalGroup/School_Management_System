@@ -279,6 +279,18 @@ export function signatureTally(rows: SignatureStatusRow[]): Map<string, { signed
   return out;
 }
 
+/** The ids of an announcement's attachments that need a signature, in creation order. */
+export async function fetchSignableAttachmentIds(announcementId: string): Promise<string[]> {
+  const { data, error } = await supabase()
+    .from("attachments")
+    .select("id")
+    .eq("announcement_id", announcementId)
+    .eq("needs_signature", true)
+    .order("created_at");
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { id: string }[]).map((r) => r.id);
+}
+
 /** The live signature in one capacity on one document, if any: what the report-card PDF stamps. */
 export function signatureFor(signatures: StoredSignature[], docId: string, capacity: SignerCapacity, opts: { currentOnly?: boolean } = {}): StoredSignature | undefined {
   return signatures.find((s) => s.docId === docId && s.capacity === capacity && (!opts.currentOnly || s.isCurrent !== false));

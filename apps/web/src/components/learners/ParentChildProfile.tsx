@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { setLearnerHome, supabase, type LatLngPoint } from "@figbloom/shared";
+import { fetchLearnerHome, setLearnerHome, type LatLngPoint } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
 import { BioDataEditor } from "./BioData";
@@ -40,15 +40,15 @@ function HomeEditor({ childId, toast }: { childId: string; toast: ToastFn }) {
 
   useEffect(() => {
     let alive = true;
-    void supabase().from("students").select("home_address, home_landmark, home_lat, home_lng").eq("id", childId)
-      .maybeSingle<{ home_address: string | null; home_landmark: string | null; home_lat: number | null; home_lng: number | null }>()
-      .then(({ data }) => {
+    void fetchLearnerHome(childId)
+      .then((data) => {
         if (!alive) return;
         setAddress(data?.home_address ?? "");
         setLandmark(data?.home_landmark ?? "");
         setPin(data?.home_lat != null && data.home_lng != null ? { lat: data.home_lat, lng: data.home_lng } : null);
         setLoaded(true);
-      });
+      })
+      .catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
   }, [childId]);
 
