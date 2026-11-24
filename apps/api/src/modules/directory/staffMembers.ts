@@ -173,6 +173,21 @@ export async function getStaffMemberById(
   return mapPublic(row);
 }
 
+/**
+ * The caller's own ACTIVE staff record in this school (linked through `user_id`), or null when the account has none (a school
+ * administrator who was never added to the directory, a parent, a student). It reads only the caller's own row, so it needs no
+ * directory permission: a teacher who cannot read the staff list can still learn their own staff id, which is what teaching
+ * assignments and class teachers are recorded against.
+ */
+export async function getOwnStaffMember(db: Tx, input: { tenantId: string; userId: string }): Promise<PublicStaffMember | null> {
+  const result = await db.query<StaffRow>(
+    `SELECT ${SELECT_COLS} FROM staff_members WHERE tenant_id = $1 AND user_id = $2 AND active = true`,
+    [input.tenantId, input.userId],
+  );
+  const row = result.rows[0];
+  return row ? mapPublic(row) : null;
+}
+
 export async function listStaffMembersPage(
   db: Tx,
   input: {

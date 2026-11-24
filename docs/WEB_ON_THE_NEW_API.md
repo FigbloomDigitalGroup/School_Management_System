@@ -48,6 +48,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Leave** (`admin/leave` and `teacher/leave`): teachers submit leave requests (dates and reason), view their history, and
   withdraw pending requests; school admins and Leave-area holders review pending requests, approve or reject them with a note
   (sending an in-app notice to the teacher), and view past requests.
+- **Inventory** (`admin/inventory`): view the register of active items with out/available counts, add stock or tracked-asset
+  items, issue copies to learners, user-linked staff, or a whole class, view Out now and Overdue issues, record returns
+  (returned, damaged, or lost), write off items with nothing out, and export CSV.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -109,6 +112,26 @@ How the model is mapped (`packages/shared/src/api/leaveApi.ts`):
 - `decideLeaveRequest` posts the review and then creates and publishes an in-app `user`-audience announcement; if only the
   announcement fails (for example, a Leave-only reviewer without `resource.announcement.write`), the decision stands and the
   screen shows the notice error.
+### Inventory screen: what the API cannot do yet
+
+`inventoryCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet:
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Edit an inventory item | no `PATCH /v1/tenants/{tenantId}/inventory/items/{itemId}` endpoint |
+| Restore a written-off item ("Put back on the register") | no unretire endpoint, and `GET /inventory/items` returns active items only |
+| Purchase date, unit cost, and item notes | not stored on the API's `InventoryItem` schema |
+| History tab and Lost counter | `GET /inventory/issues` returns open (`status = 'out'`) issues only |
+| Hand-out note when issuing an item | `POST /inventory/issues` has no `note` field (`POST .../close` does) |
+| Charge lost or damaged items to fees | waits on closed-issue history and charge-by-issue lookup |
+| Teacher's "My items" (`teacher/items`) | `GET /inventory/issues` requires `resource.inventory.read`, which regular teachers do not hold |
+
+How the model is mapped (`packages/shared/src/api/inventoryApi.ts`):
+
+- `POST /inventory/issues` requires `holder_user_id` to be an active school membership `user_id`, so the staff picker lists
+  only staff directory records linked to a user account.
+- Issuing to a whole class verifies that enough copies are on the shelf for every active learner in the class who does not
+  already hold one, then sends individual `POST /inventory/issues` calls 4 at a time (`settlePool`).
 
 Where the model differs it is mapped in `packages/shared/src/api/setupApi.ts`: a class belongs to an academic year (the screen
 shows the current year's classes, and a class needs a current year, which "Start a term" makes); a teacher is a staff record,
@@ -160,6 +183,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
 - `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
 - `packages/shared/src/api/leaveApi.ts`: the API side of `leave.ts` (`admin/leave` and `teacher/leave`), plus the API short-circuit in `hrLeave.ts`.
+- `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
@@ -225,6 +249,36 @@ inside the same 30 seconds needs the next code.
     requester's name. The web resolves names from `GET /v1/tenants/{tenantId}/staff`, which fails with 403 for a teacher holding
     only the Leave area (not People) and misses any user without a linked staff record (falling back to `"Unknown teacher"`).
     Including `staff_name` on `LeaveRequest` would remove the extra call and fix Leave-only reviewers.
+13. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
+    only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
+    issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.
+
+## Family reads (API side of A1, FIG-1869)
+
+The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). No parent
+or student page is ported yet: the web slices come after this merges.
+
+- `GET /v1/tenants/{t}/me/children`: the parent's own children in that school, with each child's current class.
+- Per child, `GET /v1/tenants/{t}/me/children/{learnerId}/…`: `attendance`, `results`, `report-cards`, `homework`,
+  `materials`, `timetable`, `fees`, `activities`, `items`, `health`. Any learner who is not the caller's child is a 404.
+- `GET /v1/tenants/{t}/me/chat-contacts`: who a parent may start a chat with.
+- Bus: the existing `/me/transport`.
+- Paying (M-Pesa prompt, invoice PDF, payment proof, AI-helper opt-in) now works for a parent whose account link reaches
+  the learner. Class and form-level notices now reach the parents of children in them, and a parent may chat with their
+  child's teachers.
+- All of them need permission `resource.family.read`, which only parents hold.
+
+Things found while doing it:
+
+14. **Learners have no sign-in on the API** (A4). There is no link from an account to a learner record and no flow that
+    makes a `student` membership. It needs owner decisions first (who makes the login, how a child without e-mail gets
+    a password, session length, MFA, chat); see "Student accounts" in `apps/api/docs/FAMILY-READS.md`. The student
+    pages stay on Supabase until then.
+15. **Sick-bay notices to guardians are never written.** `medical_notices` exists and parents could read it, but the
+    sick-bay module still reports `guardian_notices_available: false` and emits none. The family health read shows the
+    visits instead.
+16. **Push for class and form-level announcements counts nobody.** The worker's eligibility count covers only
+    whole-school, role, user and people audiences (migration 063), for staff and parents alike.
 
 ## Chats, notices and messages
 
@@ -237,9 +291,9 @@ exists it needs only the two routes.
 | Page | On the API build |
 |---|---|
 | `admin/chats` | "My chats" only: list, start a chat, read and send text. The "All school chats" and "Calls" tabs are hidden |
-| `teacher/chats` | The same list and thread. A plain teacher cannot see names or start a chat (finding 13) |
+| `teacher/chats` | The same list and thread. A plain teacher cannot see names or start a chat (finding 29) |
 | `teacher/notices` | The inbox, newest first, with the notice's text. No unread marks, attachments or signatures |
-| `teacher/messages` | Opens. A teacher without the Communication area gets a message saying why instead of a composer (finding 17) |
+| `teacher/messages` | Opens. A teacher without the Communication area gets a message saying why instead of a composer (finding 33) |
 
 ### Polling instead of realtime
 
@@ -259,11 +313,11 @@ control throws `NotOnApiError`.
 |---|---|
 | Sending and opening files in a chat | chat messages are text only; files wait on storage (A5, FIG-1873) |
 | Voice and video calls, and the school's call log | not in the contract (C13) |
-| "All school chats" (the office reading every chat) and the line "The school's administrators can read this chat" | nobody can read a chat they are not in, the office included (finding 14) |
-| Unread counts: the menu badge, a bold name, the count on a chat | the API does not say what a person has read (finding 13) |
-| Unread dots and the menu badge on notices | the inbox has no read state (finding 16) |
+| "All school chats" (the office reading every chat) and the line "The school's administrators can read this chat" | nobody can read a chat they are not in, the office included (finding 30) |
+| Unread counts: the menu badge, a bold name, the count on a chat | the API does not say what a person has read (finding 29) |
+| Unread dots and the menu badge on notices | the inbox has no read state (finding 32) |
 | Notice attachments, "Waiting for your signature", the AI writing helper in Messages | storage (A5), signatures (C12), an edge function; the same as the Announcements page |
-| A list of people to start a chat with, for a person who may not read the staff list | there is no contacts endpoint (finding 13) |
+| A list of people to start a chat with, for a person who may not read the staff list | there is no contacts endpoint (finding 29) |
 
 ### How the model is mapped
 
@@ -290,29 +344,29 @@ control throws `NotOnApiError`.
 
 ### Things found in the API while doing this (for the owner)
 
-13. **The chat list is only ids.** `GET /chat/conversations` answers `peer_user_id` and `last_message_at`: no name, no role,
+29. **The chat list is only ids.** `GET /chat/conversations` answers `peer_user_id` and `last_message_at`: no name, no role,
     no last message, no unread count. There is also no "people I may chat with" list, no unread count and no single-chat
     read. A plain teacher cannot read `/staff`, so every chat is "Someone at the school" and they cannot start one. Add to
     each conversation `peer { user_id, full_name, role }`, `last_message { body, sender_id, created_at }` and
     `unread_count` (from `conversation_members.last_read_at`, which exists and is never returned), plus
     `GET /chat/contacts` (the people `may_talk` allows, with a name and a role) and `GET /chat/unread-count`.
-14. **No oversight read.** `listMessages` needs membership of the chat, so the office cannot read other people's chats, and
+30. **No oversight read.** `listMessages` needs membership of the chat, so the office cannot read other people's chats, and
     there is no school-wide list. The Supabase app tells families and teachers "The school's administrators can read this
     chat", and the Communication area is described as reading the school's chats. That is a product and privacy decision
     first, an endpoint second.
-15. **Chat messages come newest first with no `since`**, so a poll re-reads a page. A `since` (or `after`) cursor on
+31. **Chat messages come newest first with no `since`**, so a poll re-reads a page. A `since` (or `after`) cursor on
     `GET .../messages` and on the conversation list would make polling cheaper (B7).
-16. **The announcements inbox has no read state and no author name.** Items have the composer's shape, with `author_id`
+32. **The announcements inbox has no read state and no author name.** Items have the composer's shape, with `author_id`
     only. `communications_announcement_reads` is written by `POST .../read` and never returned. Add `read_at` (null when
     unread) and the author's name and role to each inbox item. Class and year-group notices also reach no parent or learner
     until their accounts are linked (FIG-1869), and `recipients` in a class audience is ignored by
     `communications_audience_reaches`.
-17. **A teacher cannot send a class message.** `POST /communications/announcements` and `.../publish` need
+33. **A teacher cannot send a class message.** `POST /communications/announcements` and `.../publish` need
     `resource.announcement.write`, which only the school admin role and the Communication area hold. The check for a `class`
     audience does not look at who the sender is: anyone with the permission can post to any class. A rule that lets a teacher
     create and publish a `class` announcement for a class they teach (the reach function already knows who teaches what)
     would make the Messages page work for the people it is for. It widens who may write to families, so it is the owner's
     call.
-18. **`/notifications` is not announcements.** It lists generic in-app notifications (transport, medication and so on; its
+34. **`/notifications` is not announcements.** It lists generic in-app notifications (transport, medication and so on; its
     items are an untyped `object` in the OpenAPI file), and publishing an announcement creates none. The Notices page does
     not use it. A bell or a notification centre would be a new screen the web app does not have.

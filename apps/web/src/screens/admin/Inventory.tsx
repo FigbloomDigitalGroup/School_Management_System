@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  chargeLearner, fetchIssueCharges, suggestedCharge, voidFeeCharge, type FeeCharge,
+  chargeLearner, fetchIssueCharges, inventoryCapabilities, suggestedCharge, voidFeeCharge, type FeeCharge,
   closeInventoryIssue, daysOverdue, endOfSchoolYear, fetchInventory, fetchInventoryIssues, fetchInventoryPeople, formatMoney,
   formatShortDate, INVENTORY_CATEGORY_LABEL, isOverdue, ISSUE_STATUS_LABEL, issueInventoryItem, issueInventoryToClass,
   issueMatches, issuesCsv, ITEM_CONDITION_LABEL, registerCsv, saveInventoryItem, setItemRetired, sortIssues, summariseInventory,
@@ -56,13 +56,18 @@ const issuedOn = (iso: string) => formatShortDate(iso.slice(0, 10));
 export function AdminInventory() {
   const toast = useToast();
   const { tenant } = useTenantSession();
+  const caps = inventoryCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
   const { data: items, loading: itemsLoading, error: itemsError } = useAsync(() => fetchInventory(tenant.id), [tenant.id, reloadKey]);
   const { data: issues, loading: issuesLoading, error: issuesError } = useAsync(() => fetchInventoryIssues(tenant.id), [tenant.id, reloadKey]);
   const { data: people } = useAsync(() => fetchInventoryPeople(tenant.id), [tenant.id]);
-  const { data: charges } = useAsync(() => fetchIssueCharges(tenant.id), [tenant.id, reloadKey]);
+  const { data: charges } = useAsync(
+    () => (caps.chargeToFees ? fetchIssueCharges(tenant.id) : Promise.resolve(new Map<string, FeeCharge>())),
+    [tenant.id, reloadKey, caps.chargeToFees],
+  );
   const [charging, setCharging] = useState<InventoryIssueRow | null>(null);
+  const visibleTabs = caps.issueHistory ? TABS : TABS.filter((t) => t.key !== "history");
 
   const [tab, setTab] = useState<Tab>("register");
   const [query, setQuery] = useState("");
@@ -121,12 +126,12 @@ export function AdminInventory() {
           { label: "Items", value: summary ? summary.items.toLocaleString() : "", sub: summary ? `${summary.copiesOwned.toLocaleString()} copies in all` : undefined, loading: !summary },
           { label: "Out now", value: summary ? summary.out.toLocaleString() : "", sub: "copies with people", loading: !summary },
           { label: "Overdue", value: summary ? summary.overdue.toLocaleString() : "", sub: "past their return date", alarming: (summary?.overdue ?? 0) > 0, loading: !summary },
-          { label: "Lost", value: summary ? summary.lost.toLocaleString() : "", sub: "copies, all time", loading: !summary },
+          ...(caps.issueHistory ? [{ label: "Lost", value: summary ? summary.lost.toLocaleString() : "", sub: "copies, all time", loading: !summary }] : []),
         ]} />
 
         <div className="flex flex-wrap items-center gap-3">
           <div role="group" aria-label="Show" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
-            {TABS.map((t) => (
+            {visibleTabs.map((t) => (
               <button key={t.key} type="button" aria-pressed={tab === t.key} onClick={() => setTab(t.key)} className="rounded px-3 py-1.5 text-small"
                 style={tab === t.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
                 {t.label}{t.key === "overdue" && summary?.overdue ? ` · ${summary.overdue}` : ""}
@@ -165,12 +170,12 @@ export function AdminInventory() {
                   : <span className="text-[13px]"><Mono>{i.available}</Mono> of {i.quantity}</span>,
               },
               { key: "condition", header: "Condition", render: (i: InventoryItemRow) => <Badge tone={CONDITION_TONE[i.condition]}>{ITEM_CONDITION_LABEL[i.condition]}</Badge> },
-              { key: "cost", header: "Unit cost", align: "right", render: (i: InventoryItemRow) => <span className="text-[13px]">{money(i.unit_cost_cents)}</span> },
+              ...(caps.itemCostAndNotes ? [{ key: "cost", header: "Unit cost", align: "right" as const, render: (i: InventoryItemRow) => <span className="text-[13px]">{money(i.unit_cost_cents)}</span> }] : []),
               {
                 key: "actions", header: "", align: "right", width: "1.3fr",
                 render: (i: InventoryItemRow) => (
                   <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                    <Button onClick={() => setEditing(i)}>Edit</Button>
+                    {caps.editItem && <Button onClick={() => setEditing(i)}>Edit</Button>}
                     <Button variant="accent" disabled={!!i.retired_at || i.available === 0} onClick={() => setIssuing(i)}>Issue</Button>
                   </div>
                 ),
@@ -188,9 +193,9 @@ export function AdminInventory() {
           <IssueTable
             rows={issueRows}
             onReturn={setReturning}
-            onHolder={showHolder}
-            charges={charges ?? null}
-            onCharge={setCharging}
+            onHolder={caps.issueHistory ? showHolder : undefined}
+            charges={caps.chargeToFees ? (charges ?? null) : null}
+            onCharge={caps.chargeToFees ? setCharging : undefined}
             country={tenant.country}
             empty={
               q ? { title: "Nothing matches", body: "Try a different item, name or admission number." }
@@ -336,6 +341,7 @@ function IssueTable({ rows, onReturn, onHolder, charges, onCharge, country, empt
 
 function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; onClose: () => void; onSaved: (msg: string) => void }) {
   const { tenant } = useTenantSession();
+  const caps = inventoryCapabilities();
   const [form, setForm] = useState({
     name: item?.name ?? "",
     category: item?.category ?? ("textbooks" as InventoryCategory),
@@ -354,9 +360,10 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
 
   const qty = Number(form.quantity);
   const cost = form.unit_cost.trim() === "" ? null : Number(form.unit_cost);
-  const qtyBad = form.tracking === "stock" && (!Number.isInteger(qty) || qty < 0);
+  const minNewQty = caps.editItem ? 0 : 1;
+  const qtyBad = form.tracking === "stock" && (!Number.isInteger(qty) || qty < minNewQty);
   const costBad = cost != null && (!Number.isFinite(cost) || cost < 0);
-  const minQty = item?.out ?? 0;
+  const minQty = Math.max(item?.out ?? 0, minNewQty);
 
   async function save() {
     if (!form.name.trim() || qtyBad || costBad) return;
@@ -429,11 +436,17 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
         )}
         <div className="grid gap-3.5 sm:grid-cols-2">
           <TextField id="inv-location" label="Kept in (optional)" placeholder="e.g. Library store" value={form.location} onChange={(e) => set("location", e.target.value)} />
-          <TextField id="inv-purchased" label="Bought on (optional)" type="date" value={form.purchased_on} onChange={(e) => set("purchased_on", e.target.value)} />
+          {caps.itemCostAndNotes && (
+            <TextField id="inv-purchased" label="Bought on (optional)" type="date" value={form.purchased_on} onChange={(e) => set("purchased_on", e.target.value)} />
+          )}
         </div>
-        <TextField id="inv-cost" label={form.tracking === "stock" ? "Cost per copy (optional)" : "Cost (optional)"} type="number" min={0} step="0.01"
-          value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} error={costBad ? "Enter an amount, or leave it blank." : undefined} />
-        <TextArea id="inv-notes" label="Notes (optional)" value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+        {caps.itemCostAndNotes && (
+          <>
+            <TextField id="inv-cost" label={form.tracking === "stock" ? "Cost per copy (optional)" : "Cost (optional)"} type="number" min={0} step="0.01"
+              value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} error={costBad ? "Enter an amount, or leave it blank." : undefined} />
+            <TextArea id="inv-notes" label="Notes (optional)" value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          </>
+        )}
         {error && <p role="alert" className="text-[12.5px] text-warn-ink">{error}</p>}
       </div>
     </Modal>
@@ -448,6 +461,7 @@ function IssueModal({ item, people, onClose, onIssued }: {
   item: InventoryItemRow; people: InventoryPeople | null; onClose: () => void; onIssued: (msg: string) => void;
 }) {
   const { tenant } = useTenantSession();
+  const caps = inventoryCapabilities();
   const [kind, setKind] = useState<HolderKind>("learner");
   const [search, setSearch] = useState("");
   const [holderId, setHolderId] = useState("");
@@ -553,7 +567,7 @@ function IssueModal({ item, people, onClose, onIssued }: {
           <Button onClick={() => setDueOn(endOfSchoolYear())}>End of year</Button>
           {dueOn && <Button onClick={() => setDueOn("")}>No date</Button>}
         </div>
-        {kind !== "class" && <TextField id="issue-note" label="Note (optional)" placeholder="e.g. Cover torn on arrival" value={note} onChange={(e) => setNote(e.target.value)} />}
+        {kind !== "class" && caps.issueNote && <TextField id="issue-note" label="Note (optional)" placeholder="e.g. Cover torn on arrival" value={note} onChange={(e) => setNote(e.target.value)} />}
         {error && <p role="alert" className="text-[12.5px] text-warn-ink">{error}</p>}
       </div>
     </Modal>
@@ -563,6 +577,7 @@ function IssueModal({ item, people, onClose, onIssued }: {
 // ---------------------------------------------------------------- return
 
 function ReturnModal({ issue, onClose, onDone }: { issue: InventoryIssueRow; onClose: () => void; onDone: (msg: string) => void }) {
+  const caps = inventoryCapabilities();
   const [outcome, setOutcome] = useState<Exclude<IssueStatus, "out">>("returned");
   const [condition, setCondition] = useState<ItemCondition>(issue.condition_out ?? "good");
   const [note, setNote] = useState("");
@@ -577,7 +592,7 @@ function ReturnModal({ issue, onClose, onDone }: { issue: InventoryIssueRow; onC
       const fullNote = note.trim() && issue.note ? `${issue.note} · ${note.trim()}` : note;
       await closeInventoryIssue(issue.id, outcome, outcome === "lost" ? null : condition, fullNote);
       // Never charged automatically: the office can do it from History if the family is to pay.
-      const chargeHint = issue.holderKind === "learner" && outcome !== "returned" ? " To charge the family, use Charge to fees under History." : "";
+      const chargeHint = caps.chargeToFees && issue.holderKind === "learner" && outcome !== "returned" ? " To charge the family, use Charge to fees under History." : "";
       onDone((outcome === "lost"
         ? `${issue.itemName} marked lost by ${issue.holderName}.`
         : `${issue.itemName} returned by ${issue.holderName}.`) + chargeHint);
@@ -713,6 +728,7 @@ function ItemHistoryModal({ item, issues, onClose, onIssue, onReturn, onRetire }
   onReturn: (r: InventoryIssueRow) => void;
   onRetire: (retired: boolean) => Promise<void>;
 }) {
+  const caps = inventoryCapabilities();
   const [busy, setBusy] = useState(false);
   const facts = [
     INVENTORY_CATEGORY_LABEL[item.category],
@@ -733,11 +749,13 @@ function ItemHistoryModal({ item, issues, onClose, onIssue, onReturn, onRetire }
       footNote={item.notes ?? undefined}
       actions={
         <>
-          <Button variant={item.retired_at ? "secondary" : "danger"} disabled={busy || (!item.retired_at && item.out > 0)}
-            title={!item.retired_at && item.out > 0 ? "Get back what's out before writing it off" : undefined}
-            onClick={async () => { setBusy(true); await onRetire(!item.retired_at); setBusy(false); }}>
-            {item.retired_at ? "Put back on the register" : "Write off"}
-          </Button>
+          {(!item.retired_at || caps.unretireItem) && (
+            <Button variant={item.retired_at ? "secondary" : "danger"} disabled={busy || (!item.retired_at && item.out > 0)}
+              title={!item.retired_at && item.out > 0 ? "Get back what's out before writing it off" : undefined}
+              onClick={async () => { setBusy(true); await onRetire(!item.retired_at); setBusy(false); }}>
+              {item.retired_at ? "Put back on the register" : "Write off"}
+            </Button>
+          )}
           <Button variant="accent" disabled={!!item.retired_at || item.available === 0} onClick={onIssue}>Issue</Button>
         </>
       }

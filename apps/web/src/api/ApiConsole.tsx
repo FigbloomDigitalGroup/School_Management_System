@@ -17,6 +17,7 @@ import { ApiOverview, type SchoolSession } from "./ApiOverview";
 const People = lazy(() => import("../screens/admin/People").then((m) => ({ default: m.People })));
 const AdminLeave = lazy(() => import("../screens/admin/Leave").then((m) => ({ default: m.AdminLeave })));
 const TeacherLeave = lazy(() => import("../screens/teacher/Leave").then((m) => ({ default: m.TeacherLeave })));
+const AdminInventory = lazy(() => import("../screens/admin/Inventory").then((m) => ({ default: m.AdminInventory })));
 const AdminChats = lazy(() => import("../screens/admin/Chats").then((m) => ({ default: m.AdminChats })));
 const MyChats = lazy(() => import("../screens/chat/MyChats").then((m) => ({ default: m.MyChats })));
 const TeacherNotices = lazy(() => import("../screens/teacher/Notices").then((m) => ({ default: m.TeacherNotices })));
@@ -35,7 +36,7 @@ const pageFallback = (
  * hidden, and its address sends the person back to the Dashboard.
  */
 export const API_ADMIN_PAGES = [
-  "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/leave", "admin/chats",
+  "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/inventory", "admin/leave", "admin/chats",
 ] as const;
 
 /** Teacher pages available on the API build (FIG-1891). */
@@ -106,6 +107,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
       <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/leave" element={page("admin/leave", <Suspense fallback={pageFallback}><AdminLeave /></Suspense>)} />
+      <Route path="admin/inventory" element={page("admin/inventory", <Suspense fallback={pageFallback}><AdminInventory /></Suspense>)} />
       <Route path="admin/chats" element={page("admin/chats", <Suspense fallback={pageFallback}><AdminChats /></Suspense>)} />
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />

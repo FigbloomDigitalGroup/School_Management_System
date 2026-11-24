@@ -130,7 +130,7 @@ no mode GUC and no application-settable bypass.
 | `account_tokens` | **owner-only** (no runtime privilege; reached only through the `account_*` SECURITY DEFINER functions; stores token SHA-256 only) | same | 072 | `accounts.lifecycle` |
 | `worker_heartbeats` | **owner-only** (written by `worker_heartbeat()`; read by `finance_ops_snapshot()`) | same | 071 | `finance.reconciliationCases` |
 | `guardian_invitations` | **owner-only** (token hash only; reached only through the `guardian_*` SECURITY DEFINER functions) | same | 073 | `guardian.invitations` |
-| `guardian_accounts` | **owner-only** (live guardian-record to login links; own links via `guardian_my_links()`) | same | 073 | `guardian.invitations` |
+| `guardian_accounts` | **owner-only** (live guardian-record to login links; own links via `guardian_my_links()`; a parent's children in the current school via `family_my_children()`, 099) | same | 073 | `guardian.invitations`, `family.reads` |
 | `finance_unmatched_cases` | **owner-only** (platform operators reach it only through the `finance_unmatched_*` SECURITY DEFINER functions; no school owns an unmatched callback) | same | 074 | `finance.unmatchedCallbacks` |
 | `finance_unmatched_case_notes` | **owner-only** (append-only operator notes) | same | 074 | `finance.unmatchedCallbacks` |
 | `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |

@@ -160,6 +160,7 @@ export type SecurityEventType =
   | "transport.assignment.created"
   | "ai.bloom.queried"
   | "ai.bloom.denied"
+  | "family.child.denied"
   | "ai.bloom.failed"
   | "transport.trip.cancelled"
   | "transport.trip.event"

@@ -13,7 +13,8 @@ export interface DenialAuditPayload {
     | "rbac.org_delegation.denied"
     | "rbac.guardian_access.denied"
     | "rbac.staff_areas.denied"
-    | "ai.bloom.denied";
+    | "ai.bloom.denied"
+    | "family.child.denied";
   actorUserId: string;
   tenantId: string | null;
   detail: Record<string, unknown>;
