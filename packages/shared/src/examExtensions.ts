@@ -1,3 +1,4 @@
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { attemptDeadline, SUBMIT_GRACE_MS, type ExamPaperRow, type PaperMode } from "./examPapers";
 import type { Audience } from "./types";
@@ -296,7 +297,8 @@ export async function notifyExamGrant(input: {
 
 /** Missed / excused marks for one exam and subject, keyed by learner, for the Gradebook. */
 export async function fetchMarkAbsences(examId: string, subjectId: string, studentIds: string[]): Promise<Record<string, MarkAbsence>> {
-  if (!studentIds.length) return {};
+  // On the API there is no "absent" mark and no online-paper hand-off: an absent learner has no mark at all.
+  if (onApi() || !studentIds.length) return {};
   const { data, error } = await supabase().from("marks").select("student_id, absence")
     .eq("exam_id", examId).eq("subject_id", subjectId).in("student_id", studentIds).not("absence", "is", null);
   if (error) throw new Error(error.message);
