@@ -122,6 +122,41 @@ describe("startPolling", () => {
     stop();
   });
 
+  it("hiding and showing the page while an ask is open does not start a second one", async () => {
+    const page = fakePage();
+    let open = 0;
+    let most = 0;
+    const releases: (() => void)[] = [];
+    const tick = vi.fn(() => {
+      open++;
+      most = Math.max(most, open);
+      return new Promise<void>((resolve) => { releases.push(() => { open--; resolve(); }); });
+    });
+    const stop = startPolling(tick, { intervalMs: 5 * SECOND, env: page.env });
+    await page.advance(5 * SECOND);
+    await page.hide();
+    await page.show();
+    expect(tick).toHaveBeenCalledTimes(1);
+    releases[0]!();
+    await page.advance(0);
+    await page.advance(5 * SECOND);
+    expect(tick).toHaveBeenCalledTimes(2);
+    expect(most).toBe(1);
+    stop();
+  });
+
+  it("an input on a hidden page does not start asking again", async () => {
+    const page = fakePage();
+    const tick = vi.fn(async () => {});
+    const stop = startPolling(tick, { intervalMs: 5 * SECOND, env: page.env });
+    await page.hide();
+    await page.type();
+    await page.advance(60 * SECOND);
+    expect(tick).not.toHaveBeenCalled();
+    expect(page.pendingTimers()).toBe(0);
+    stop();
+  });
+
   it("does not ask at all when it starts on a hidden page, until the page is shown", async () => {
     const page = fakePage();
     await page.hide();
@@ -154,14 +189,12 @@ describe("startPolling", () => {
     const tick = vi.fn(async () => {});
     const stop = startPolling(tick, { intervalMs: 30 * SECOND, env: page.env });
     await page.advance(IDLE_AFTER_MS);
-    const before = tick.mock.calls.length;
-    expect(before).toBeGreaterThanOrEqual(19);
+    // Asks at 30 s, 60 s ... 570 s; at exactly ten minutes the page counts as idle, so there is no 20th.
+    expect(tick).toHaveBeenCalledTimes(19);
     // Nothing is asked after the pause, however long the page is left.
-    await page.advance(30 * 60 * SECOND);
-    expect(tick.mock.calls.length).toBeLessThanOrEqual(before + 1);
+    await page.advance(90 * 60 * SECOND);
+    expect(tick).toHaveBeenCalledTimes(19);
     const paused = tick.mock.calls.length;
-    await page.advance(60 * 60 * SECOND);
-    expect(tick.mock.calls.length).toBe(paused);
     expect(page.pendingTimers()).toBe(0);
 
     await page.type();
@@ -253,6 +286,22 @@ describe("startPolling", () => {
     expect(errors).toHaveLength(5);
     expect((errors[0] as Error).message).toBe("down");
     expect(MAX_BACKOFF_MS).toBe(60 * SECOND);
+    stop();
+  });
+
+  it("a success between two failures starts the backoff again: twice the wait, not four times", async () => {
+    const page = fakePage();
+    const script = [false, true, false];
+    const tick = vi.fn(async () => { if (!script.shift()) throw new Error("down"); });
+    const stop = startPolling(tick, { intervalMs: 5 * SECOND, env: page.env });
+    await page.advance(5 * SECOND);        // fails at 5 s; next after 10 s
+    await page.advance(10 * SECOND);       // works at 15 s; next after 5 s
+    await page.advance(5 * SECOND);        // fails at 20 s; next after 10 s, not 20 s
+    expect(tick).toHaveBeenCalledTimes(3);
+    await page.advance(9_999);
+    expect(tick).toHaveBeenCalledTimes(3);
+    await page.advance(1);
+    expect(tick).toHaveBeenCalledTimes(4);
     stop();
   });
 

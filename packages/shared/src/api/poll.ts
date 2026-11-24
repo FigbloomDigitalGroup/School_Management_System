@@ -192,8 +192,9 @@ export function startPolling(tick: (signal: AbortSignal) => Promise<unknown> | u
   }
 
   function wake(): void {
-    if (stopped || !sleeping || inFlight || paused()) return;
+    if (stopped || !sleeping) return;
     sleeping = false;
+    // run() asks again whether the page is still paused, and whether an ask is already open.
     void run();
   }
 
