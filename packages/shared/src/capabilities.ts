@@ -67,8 +67,12 @@ export interface PeopleCapabilities {
   deleteLearner: boolean;
   /** Learners' sign-in accounts: the Login column, "Create logins", a learner's password reset. */
   learnerLogins: boolean;
-  /** "Invite guardians" from the selected learners (parents' sign-in accounts). */
+  /** "Invite guardians" from the selected learners (parents' sign-in accounts, made with a login ID and password). */
   inviteGuardians: boolean;
+  /** API only: invite a guardian record to sign in (one invitation per guardian and learner, by e-mail or SMS), send it again, cancel it. */
+  guardianInvitations: boolean;
+  /** API only: invite a staff member to sign in by e-mail, and issue a one-time password-reset link for a staff member who has a sign-in. */
+  staffSignIn: boolean;
   /** The Guardian column (a placeholder on Supabase; guardians are read from a learner's own card on the API). */
   guardianColumn: boolean;
   /** Each learner's fee status. */
@@ -109,14 +113,14 @@ export interface PeopleCapabilities {
 }
 
 const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
-  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
+  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
   learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true,
   photos: true, passwordResets: true, staffAccounts: true, staffSubjects: true, staffCalls: true, staffArchive: false, guardianContactForm: false,
   importByAreaHolders: true, learnerWithoutClass: false, unassignClass: true,
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
-  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
+  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
   learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
