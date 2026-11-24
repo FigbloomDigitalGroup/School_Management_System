@@ -251,7 +251,16 @@ async function main() {
     if (!(isApiError(err) && err.code === "conflict")) throw err;
   }
 
-  // Also ensure a teacher staff directory record exists (idempotent).
+  // Resolve the demo teacher's user ID so the staff directory record links to their sign-in account.
+  const teacherLoginClient = makeClient();
+  const teacherLogin = await teacherLoginClient.post("/v1/auth/login/email", {
+    body: { email: TEACHER_EMAIL, password: TEACHER_PASSWORD },
+    auth: false,
+    tenantId: null,
+  });
+  const teacherUserId = teacherLogin.user.id;
+
+  // Also ensure a teacher staff directory record exists and is linked to the teacher's user account (idempotent).
   const existingStaff = await listAllPages(async (cursor) => {
     const r = await adminClient.get("/v1/tenants/{tenantId}/staff", {
       path: { tenantId },
@@ -260,7 +269,8 @@ async function main() {
     });
     return { items: r.staff, page: r.page };
   });
-  let teacherStaffId = existingStaff.find((s) => s.full_name === TEACHER_NAME)?.id ?? null;
+  const teacherStaff = existingStaff.find((s) => s.full_name === TEACHER_NAME) ?? null;
+  let teacherStaffId = teacherStaff?.id ?? null;
   if (!teacherStaffId) {
     const made = await adminClient.post("/v1/tenants/{tenantId}/staff", {
       path: { tenantId },
@@ -269,10 +279,17 @@ async function main() {
         classification: "teacher",
         staff_title: "Senior Mathematics Teacher",
         email: TEACHER_EMAIL,
+        userId: teacherUserId,
       },
       tenantId,
     });
     teacherStaffId = made.staff.id;
+  } else if (teacherStaff && teacherStaff.userId !== teacherUserId) {
+    await adminClient.patch("/v1/tenants/{tenantId}/staff/{staffId}", {
+      path: { tenantId, staffId: teacherStaffId },
+      body: { userId: teacherUserId },
+      tenantId,
+    });
   }
 
   // 7. Academic year & current term (2026 / Term 1).
