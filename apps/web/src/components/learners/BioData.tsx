@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   BIO_FIELD_LABELS, apiAddGuardian, bioChanges, bioFieldList, bioProblem, bioToInput, bioValueLabel, decideBioRequest, fetchLearnerBio,
-  fetchLearnerGuardians, fetchPendingBioRequest, fetchPendingBioRequests, fetchProfileDisplayName, peopleCapabilities, saveLearnerBio, splitBioChanges,
-  type BioIdentityField, type BioRequest, type LearnerBioInput, type LearnerGuardianContact, type PendingBioRequest,
+  apiListGuardianInvitations, fetchLearnerGuardians, fetchPendingBioRequest, fetchPendingBioRequests, fetchProfileDisplayName, peopleCapabilities, saveLearnerBio, splitBioChanges,
+  type BioIdentityField, type BioRequest, type GuardianInvitation, type LearnerBioInput, type LearnerGuardianContact, type PendingBioRequest,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import type { ToastFn } from "../ui/Toast";
 import { SendSignInAgainButton } from "../PasswordReset";
+import { GuardianInviteControl } from "./GuardianInvite";
 import { promptDialog } from "../ui/Confirm";
 
 /**
@@ -262,7 +263,7 @@ export function BioDataEditor({ studentId, toast, mode, title = "Bio data", onRe
  * The office's view of who looks after a learner and how to reach them; on Supabase parents keep it current from My account. On the new API a
  * guardian is a contact (a name, a phone, an email) the office adds here; there are no parent sign-ins to invite yet.
  */
-export function GuardianContacts({ studentId, schoolName }: { studentId: string; schoolName?: string }) {
+export function GuardianContacts({ studentId, schoolName, tenantId, toast }: { studentId: string; schoolName?: string; tenantId?: string; toast?: ToastFn }) {
   const caps = peopleCapabilities();
   const [rows, setRows] = useState<LearnerGuardianContact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -274,6 +275,15 @@ export function GuardianContacts({ studentId, schoolName }: { studentId: string;
       .catch((err: Error) => { if (alive) setError(err.message); });
     return () => { alive = false; };
   }, [studentId, reload]);
+  // The new API: which guardians already have an open invitation (the invite controls below need it).
+  const invites = caps.guardianInvitations && tenantId && toast;
+  const [pending, setPending] = useState<GuardianInvitation[]>([]);
+  useEffect(() => {
+    if (!invites || !tenantId) return;
+    let alive = true;
+    apiListGuardianInvitations(tenantId, "pending").then((r) => { if (alive) setPending(r); }).catch(() => { if (alive) setPending([]); });
+    return () => { alive = false; };
+  }, [invites, tenantId, reload]);
 
   return (
     <div className="mb-5 border-b border-line-soft pb-5">
@@ -283,7 +293,7 @@ export function GuardianContacts({ studentId, schoolName }: { studentId: string;
       ) : !rows ? (
         <p className="mt-1 text-small text-ink-faint">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="mt-1 text-[12.5px] text-ink-faint">{caps.inviteGuardians ? "No guardian linked yet. Use Invite guardians." : "No guardian on file yet."}</p>
+        <p className="mt-1 text-[12.5px] text-ink-faint">{caps.inviteGuardians ? "No guardian linked yet. Use Invite guardians." : caps.guardianInvitations ? "No guardian on file yet. Add their contact details below, then invite them." : "No guardian on file yet."}</p>
       ) : (
         <ul className="mt-1.5 grid gap-1.5">
           {rows.map((g) => (
@@ -294,6 +304,15 @@ export function GuardianContacts({ studentId, schoolName }: { studentId: string;
               {g.alt_phone && <span className="font-mono text-[12.5px] text-ink-muted">also {g.alt_phone}</span>}
               {g.email && <span className="text-[12.5px] text-ink-muted">{g.email}</span>}
               {g.email && caps.inviteGuardians && <SendSignInAgainButton profileId={g.profile_id} name={g.full_name} email={g.email} schoolName={schoolName} />}
+              {invites && tenantId && toast && (
+                <span className="basis-full">
+                  <GuardianInviteControl
+                    tenantId={tenantId} learnerId={studentId} guardian={g}
+                    pending={pending.find((i) => i.guardianId === g.profile_id && i.learnerId === studentId)}
+                    onChanged={() => setReload((k) => k + 1)} toast={toast}
+                  />
+                </span>
+              )}
             </li>
           ))}
         </ul>
