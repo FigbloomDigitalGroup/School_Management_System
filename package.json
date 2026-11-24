@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "api:types": "openapi-typescript apps/api/openapi/openapi.yaml -o packages/shared/src/api/schema.d.ts",
     "api:types:check": "npm run api:types && git diff --exit-code -- packages/shared/src/api/schema.d.ts",
+    "api:seed": "tsx scripts/api-seed/seed.ts",
     "test": "playwright test",
     "test:unit": "vitest run",
     "test:edge": "deno test --allow-env --config supabase/functions/deno.json supabase/functions",
