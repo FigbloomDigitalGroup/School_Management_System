@@ -16,10 +16,16 @@ export {
   LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiRestoreStaff, apiFetchArchivedStaff, apiAddGuardian, ImportRejectedError, apiImportLearners,
   IMPORT_BATCH_ROWS, peopleErrorText, readableApiError, type NewStaffMember, type NewGuardianContact, type ImportLearnerRow, type ImportOutcome, type ImportProblem,
 } from "./peopleApi";
+export {
+  apiInviteStaff, apiRevokeStaffInvitation, apiInviteGuardian, apiListGuardianInvitations, apiRevokeGuardianInvitation, apiIssueMemberReset,
+  guardianInviteMethod, acceptInviteLink, resetPasswordLink,
+  type InvitationDelivery, type InvitationSent, type StaffInviteRole, type GuardianInviteMethod, type GuardianInvitation, type GuardianInvitationStatus,
+} from "./invitationsApi";
 export { recentAnnouncementFromApi, activeApiChannels } from "./announcementsApi";
 export { feeItemFromApi } from "./feesApi";
 export { earlySignOutFromApi, ATTENDANCE_WRITE_CONCURRENCY } from "./attendanceApi";
 export { API_LEAVE_REASON_MIN, leaveRequestFromApi, leaveStatusFromApi } from "./leaveApi";
+export { apiPublishClassReportCard, apiCanWriteCompetencyRatings, resetCompetencyRatingVersions } from "./reportCardsApi";
 export { inventoryItemFromApi, inventoryIssueFromApi, INVENTORY_ISSUE_CONCURRENCY } from "./inventoryApi";
 export {
   accessLockedReason, apiFetchAccessPeople, apiFetchStaffAreas, apiSetStaffAreas, apiFetchGuardianAccess, apiSetGuardianAccess, guardianAccessFromCodes, apiFetchOrgDelegations,

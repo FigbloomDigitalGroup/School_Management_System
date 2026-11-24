@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, saveClassTimetable, setClassTeacher, setupCapabilities, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
+import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, saveClassTimetable, setClassTeacher, setupCapabilities, timetableCapabilities, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
 import type { ClassGroup, ClassLevel, Pathway } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -9,6 +9,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { ClassPeriods } from "./ClassPeriods";
 import { TimetableEditor } from "./TimetableEditor";
 import { SubjectsEditor } from "./SubjectsEditor";
 import { PromoteClass } from "./PromoteClass";
@@ -67,6 +68,7 @@ export function AdminClasses() {
   const { profile, tenant } = useTenantSession();
   // What the backend can do: on the new API a class's teacher is chosen when it is made, and there is no room, promotion, timetable or delete yet.
   const caps = setupCapabilities();
+  const timetableCaps = timetableCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClassesOverview(tenant.id), [tenant.id, reloadKey]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
@@ -178,7 +180,7 @@ export function AdminClasses() {
                     >
                       Subjects
                     </button>
-                    {caps.classTimetable && (
+                    {(caps.classTimetable || timetableCaps.classPeriods) && (
                     <button
                       type="button"
                       onClick={() => setEditingTimetableFor(c)}
@@ -230,7 +232,16 @@ export function AdminClasses() {
         />
       )}
 
-      {editingTimetableFor && (
+      {editingTimetableFor && timetableCaps.classPeriods && (
+        <ClassPeriods
+          classId={editingTimetableFor.id}
+          className={editingTimetableFor.name}
+          subjects={data?.subjects ?? []}
+          onClose={() => setEditingTimetableFor(null)}
+        />
+      )}
+
+      {editingTimetableFor && caps.classTimetable && (
         <TimetableEditor
           entityId={editingTimetableFor.id}
           title={editingTimetableFor.name}

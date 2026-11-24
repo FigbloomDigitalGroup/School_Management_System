@@ -1,4 +1,9 @@
 import { supabase } from "./supabase";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
+import {
+  apiFetchClassReportCards, apiFetchReportCardSetup, apiFetchTermExams, apiFetchUnpublishedMarks, apiSaveReportCards,
+} from "./api/reportCardsApi";
 import { fetchAllPages } from "./paging";
 import { gradeFor, pointsFor, summarise } from "./grading";
 import { gradingSchemeFor, rubricFor, type GradingSchemeId } from "./gradingSchemes";
@@ -262,6 +267,7 @@ export interface PrepareInput {
 
 /** Works out every active learner's card for one class and term. Reads only — saveReportCards() stores them. */
 export async function prepareClassReportCards(p: PrepareInput): Promise<ReportCardData[]> {
+  if (onApi()) throw new NotOnApiError("Preparing draft report cards");
   const sb = supabase();
   const [{ data: term, error: tErr }, { data: cls, error: cErr }, { data: learners, error: lErr }, { data: exams, error: eErr }, { data: pubs, error: pErr }] = await Promise.all([
     sb.from("terms").select("name, year, starts_on, ends_on").eq("id", p.termId).single<{ name: string; year: number; starts_on: string; ends_on: string }>(),
@@ -401,6 +407,7 @@ const toCard = (r: CardRow): StoredReportCard => ({
 
 /** One class's cards for a term, as staff see them (drafts included), by learner name. */
 export async function fetchClassReportCards(termId: string, classId: string): Promise<StoredReportCard[]> {
+  if (onApi()) return apiFetchClassReportCards(termId, classId);
   const { data, error } = await supabase().from("report_cards").select(CARD_COLS)
     .eq("term_id", termId).eq("class_id", classId).returns<CardRow[]>();
   if (error) throw new Error(error.message);
@@ -415,6 +422,7 @@ export async function fetchClassReportCards(termId: string, classId: string): Pr
 export async function saveReportCards(
   tenantId: string, termId: string, classId: string, cards: ReportCardData[],
 ): Promise<{ saved: number; skippedPublished: number }> {
+  if (onApi()) return apiSaveReportCards(tenantId, termId, classId);
   const existing = await fetchClassReportCards(termId, classId);
   const published = new Set(existing.filter((c) => c.publishedAt).map((c) => c.studentId));
   const rows = cards.filter((c) => !published.has(c.learner.id)).map((c) => ({
@@ -429,6 +437,7 @@ export async function saveReportCards(
 
 /** Admins write both comments directly. */
 export async function saveReportCardComments(id: string, comments: { teacher?: string | null; principal?: string | null }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Report card comments");
   const patch: Record<string, string | null> = {};
   if (comments.teacher !== undefined) patch.teacher_comment = comments.teacher?.trim() || null;
   if (comments.principal !== undefined) patch.principal_comment = comments.principal?.trim() || null;
@@ -439,12 +448,14 @@ export async function saveReportCardComments(id: string, comments: { teacher?: s
 
 /** The class teacher's comment, for a class teacher (admins may use it too). */
 export async function saveTeacherComment(id: string, comment: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Report card comments");
   const { error } = await supabase().rpc("set_report_card_teacher_comment", { p_card_id: id, p_comment: comment });
   if (error) throw new Error(error.message);
 }
 
 /** Sends cards out to families (or withdraws them). */
 export async function setReportCardsPublished(ids: string[], published: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Withdrawing or sending individual report cards");
   if (!ids.length) return;
   const { error } = await supabase().from("report_cards")
     .update({ published_at: published ? new Date().toISOString() : null }).in("id", ids);
@@ -453,6 +464,7 @@ export async function setReportCardsPublished(ids: string[], published: boolean)
 
 /** A family's (or learner's) published cards, newest term first. RLS returns only their own. */
 export async function fetchMyReportCards(studentIds: string[]): Promise<StoredReportCard[]> {
+  if (onApi()) throw new NotOnApiError("Family report cards");
   if (!studentIds.length) return [];
   const { data, error } = await supabase().from("report_cards").select(CARD_COLS)
     .in("student_id", studentIds).not("published_at", "is", null).returns<CardRow[]>();
@@ -475,6 +487,7 @@ export interface ReportCardSetup {
 
 /** Terms newest first, and the classes this person prepares or comments on: every class for the office, their own for a class teacher. */
 export async function fetchReportCardSetup(tenantId: string, classTeacherId?: string): Promise<ReportCardSetup> {
+  if (onApi()) return apiFetchReportCardSetup(tenantId, classTeacherId);
   let classes = supabase().from("classes").select("id, name, level, form_level").eq("tenant_id", tenantId);
   if (classTeacherId) classes = classes.eq("class_teacher_id", classTeacherId);
   const [{ data: terms, error: tErr }, { data: cls, error: cErr }] = await Promise.all([
@@ -497,6 +510,7 @@ export async function fetchReportCardSetup(tenantId: string, classTeacherId?: st
  * cards screen lists them so the office can ask for them to be published and prepare again. A missed paper (no score) is not a mark.
  */
 export async function fetchUnpublishedMarks(classId: string, examIds: string[]): Promise<{ examId: string; examName: string; subjectId: string; subjectName: string }[]> {
+  if (onApi()) return apiFetchUnpublishedMarks(classId, examIds);
   if (!examIds.length) return [];
   const sb = supabase();
   const { data: learners, error: lErr } = await sb.from("students").select("id").eq("class_id", classId).eq("active", true).returns<{ id: string }[]>();
@@ -525,6 +539,7 @@ export async function fetchUnpublishedMarks(classId: string, examIds: string[]):
 }
 
 export async function fetchTermExams(termId: string): Promise<{ id: string; name: string; outOf: number; published: boolean }[]> {
+  if (onApi()) return apiFetchTermExams(termId);
   const { data, error } = await supabase().from("exams").select("id, name, out_of, published_at").eq("term_id", termId)
     .returns<{ id: string; name: string; out_of: number; published_at: string | null }[]>();
   if (error) throw new Error(error.message);
