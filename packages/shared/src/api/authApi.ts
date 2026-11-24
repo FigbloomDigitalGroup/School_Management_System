@@ -118,3 +118,45 @@ export async function apiMfaChallenge(answer: { code: string } | { recoveryCode:
   const body = "code" in answer ? { code: answer.code } : { recovery_code: answer.recoveryCode };
   await apiClient().post("/v1/auth/mfa/challenge", { body, tenantId: null, keepSessionOn401: true });
 }
+
+/** Replaces the recovery codes. Needs a fresh 6-digit TOTP code and recent password confirmation (reauth). */
+export async function apiMfaRegenerateRecoveryCodes(code: string): Promise<string[]> {
+  const res = await apiClient().post("/v1/auth/mfa/recovery-codes/regenerate", {
+    body: { code },
+    tenantId: null,
+    keepSessionOn401: true,
+  });
+  if (!isRecord(res) || !Array.isArray(res.recoveryCodes) || !res.recoveryCodes.every((c) => typeof c === "string")) {
+    throw new Error("The server's recovery codes response was not understood.");
+  }
+  return res.recoveryCodes as string[];
+}
+
+export interface AcceptInvitationResult {
+  status: "accepted";
+  tenantId: string | null;
+}
+
+/**
+ * Accepts an invitation token (FIG-1890). New accounts set a password without a bearer token;
+ * existing accounts send their current session token.
+ */
+export async function apiAcceptInvitation(input: {
+  token: string;
+  password: string;
+  fullName?: string;
+}): Promise<AcceptInvitationResult> {
+  const c = apiClient();
+  const body: { token: string; password: string; full_name?: string } = {
+    token: input.token,
+    password: input.password,
+  };
+  if (input.fullName?.trim()) body.full_name = input.fullName.trim();
+  const res = await c.post("/v1/invitations/accept", {
+    body,
+    auth: Boolean(c.session()),
+    tenantId: null,
+    keepSessionOn401: true,
+  });
+  return { status: res.status, tenantId: res.tenant_id };
+}
