@@ -40,8 +40,8 @@ function writeCollapsed(key: string, labels: string[]) {
   }
 }
 
-/** The roles whose "My account" page runs on the new API build (admin/account and teacher/account). */
-const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher"];
+/** The roles whose "My account" page runs on the new API build (admin/account, teacher/account and staff/account). */
+const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher", "staff"];
 
 /** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
 export interface ShellAction {

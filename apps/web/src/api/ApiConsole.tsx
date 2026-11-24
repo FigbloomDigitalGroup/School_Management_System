@@ -1,8 +1,9 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { NAV, adminAccessFor, hasAdminConsole, mayOpenAdminPage } from "@figbloom/shared";
+import { NAV, adminAccessFor, apiFetchMyStaffRecord, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch, staffMayReadItems } from "@figbloom/shared";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { Skeleton } from "../components/ui/Skeleton";
+import { useAsync } from "../lib/useAsync";
 import { Announcements } from "../screens/admin/Announcements";
 import { AdminClasses } from "../screens/admin/Classes";
 import { Fees } from "../screens/admin/Fees";
@@ -12,6 +13,7 @@ import { TermSetup } from "../screens/admin/TermSetup";
 import { Attendance as TeacherAttendance } from "../screens/teacher/Attendance";
 import { TeacherReports } from "../screens/teacher/TeacherReports";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
+import { ApiStaffHome } from "./ApiStaffHome";
 
 // The People screen is large (its modals pull in a lot), so it loads when it is opened.
 const People = lazy(() => import("../screens/admin/People").then((m) => ({ default: m.People })));
@@ -21,6 +23,8 @@ const AdminInventory = lazy(() => import("../screens/admin/Inventory").then((m) 
 const AccessRoles = lazy(() => import("../screens/admin/AccessRoles").then((m) => ({ default: m.AccessRoles })));
 const AdminAccount = lazy(() => import("../screens/admin/Account").then((m) => ({ default: m.AdminAccount })));
 const TeacherAccount = lazy(() => import("../screens/teacher/Account").then((m) => ({ default: m.TeacherAccount })));
+const StaffAccount = lazy(() => import("../screens/staff/Staff").then((m) => ({ default: m.StaffAccount })));
+const StaffItems = lazy(() => import("../screens/teacher/Items").then((m) => ({ default: m.TeacherItems })));
 // The grades screens (the charts and the gradebooks are large) load when they are opened.
 const AdminExams = lazy(() => import("../screens/admin/Exams").then((m) => ({ default: m.Exams })));
 const AdminReports = lazy(() => import("../screens/admin/Reports").then((m) => ({ default: m.AdminReports })));
@@ -48,6 +52,18 @@ export const API_ADMIN_PAGES = [
 export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/gradebook", "teacher/performance"] as const;
 
 /**
+ * Staff pages (role "staff") on the API build, by their address under /s/<slug>/. Not here, and so not in the menu: Visitors, Notices
+ * and Chats (their shared modules are not on the API yet), Loans and My HR (there is no HR product on the API). `staff/items` joins
+ * for people holding the Inventory area (see staffPages).
+ */
+export const API_STAFF_PAGES = ["staff", "staff/leave", "staff/account"] as const;
+
+/** The staff pages in this person's menu: the fixed list, plus My items for someone the API lets read it (staffMayReadItems). */
+function staffPages(session: SchoolSession): readonly string[] {
+  return staffMayReadItems(session.adminAreas) ? [...API_STAFF_PAGES, "staff/items"] : API_STAFF_PAGES;
+}
+
+/**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
  * (App.tsx), without the parts that read Supabase (unread counts, the guide, the visitor alerts, My HR). Full admins see
  * every page this build has; a teacher or other staff member holding admin areas sees the pages of those areas.
@@ -61,6 +77,9 @@ function AdminPage({ page, session, children }: { page: string; session: SchoolS
       role="school_admin"
       user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
       hiddenNav={NAV.school_admin.map((i) => i.to).filter((to) => !(API_ADMIN_PAGES as readonly string[]).includes(to) || !mayOpenAdminPage(access, to))}
+      consoleSwitch={session.profile.role === "staff" && showsAdminSwitch("staff", session.adminAreas)
+        ? { current: "admin", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" }
+        : undefined}
     >
       {children}
     </ConsoleShell>
@@ -79,8 +98,43 @@ function TeacherPage({ session, children }: { session: SchoolSession; children: 
   );
 }
 
+/**
+ * The console of other staff (role "staff"): the librarian, the nurse, the receptionist. Its own menu (NAV.staff, cut down to what
+ * runs on the API) and, for someone holding admin areas, the same "Staff | Admin" switch as the Supabase app.
+ */
+function StaffPage({ session, children }: { session: SchoolSession; children: ReactNode }) {
+  // The job title is the person's own staff record: the session carries none on the API. Until it is read (or if it cannot be), "Staff".
+  const { data: record } = useAsync(() => apiFetchMyStaffRecord(session.tenant.id).catch(() => null), [session.tenant.id]);
+  const pages = staffPages(session);
+  return (
+    <ConsoleShell
+      role="staff"
+      user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: record?.staff_title ?? "Staff" }}
+      hiddenNav={NAV.staff.map((i) => i.to).filter((to) => !pages.includes(to))}
+      consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
+    >
+      {children}
+    </ConsoleShell>
+  );
+}
+
+/** The routes of the staff console, for ApiConsole's two route tables (a staff member with no admin areas, and one with some). */
+function staffRoutes(session: SchoolSession) {
+  const pages = staffPages(session);
+  const sPage = (element: ReactNode) => <StaffPage session={session}>{element}</StaffPage>;
+  return (
+    <>
+      <Route path="staff" element={sPage(<ApiStaffHome session={session} pages={pages} />)} />
+      <Route path="staff/leave" element={sPage(<Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+      <Route path="staff/account" element={sPage(<Suspense fallback={pageFallback}><StaffAccount /></Suspense>)} />
+      {pages.includes("staff/items") && <Route path="staff/items" element={sPage(<Suspense fallback={pageFallback}><StaffItems /></Suspense>)} />}
+    </>
+  );
+}
+
 export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onSignOut: () => Promise<void> }) {
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const isStaff = session.profile.role === "staff";
   if (!hasAdminConsole(access)) {
     if (session.profile.role === "teacher") {
       const teacherHome = `/s/${session.tenant.slug}/teacher`;
@@ -97,10 +151,19 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
         </Routes>
       );
     }
+    if (isStaff) {
+      return (
+        <Routes>
+          {staffRoutes(session)}
+          <Route path="*" element={<Navigate to={`/s/${session.tenant.slug}/staff`} replace />} />
+        </Routes>
+      );
+    }
     return <ApiOverview session={session} onSignOut={onSignOut} inShell={false} />;
   }
 
-  const home = `/s/${session.tenant.slug}/admin`;
+  // Other staff who hold admin areas open in their own console, as on Supabase, and switch to the admin one.
+  const home = `/s/${session.tenant.slug}/${isStaff ? "staff" : "admin"}`;
   const page = (to: string, element: ReactNode) => <AdminPage page={to} session={session}>{element}</AdminPage>;
   return (
     <Routes>
@@ -124,6 +187,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
       <Route path="teacher/gradebook" element={page("admin", <Suspense fallback={pageFallback}><GradebookRouter /></Suspense>)} />
       <Route path="teacher/performance" element={page("admin", <Suspense fallback={pageFallback}><Performance teacher /></Suspense>)} />
+      {isStaff && staffRoutes(session)}
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );

@@ -25,3 +25,4 @@ export {
   apiRevokeOrgDelegations, describeDelegatedCode, GUARDIAN_READ, GUARDIAN_WRITE, type AccessPerson, type GuardianAccess, type OrgDelegation,
 } from "./accessApi";
 export { apiFetchMyProfile, apiFetchNotificationPreferences, apiSetNotificationPreferences, notificationPreferencesFromApi } from "./accountApi";
+export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayReadItems, type MyStaffRecord } from "./otherStaffApi";
