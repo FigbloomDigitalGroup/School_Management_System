@@ -35,7 +35,7 @@ import {
   setCurrentTerm,
 } from "../../modules/academics/structure.js";
 import { AppError, notFound, validationError } from "../errors.js";
-import { assertUuid, classReadScope, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
+import { assertUuid, calendarReadScope, classReadScope, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
 const DateString = calendarDateString;
@@ -135,8 +135,9 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const params = request.params as { tenantId: string };
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      const out = await listAcademicYears(tx, { tenantId: params.tenantId, page });
+      // Teacher reads (docs/TEACHER-READS.md): academics readers see every year; a teacher sees the years of their classes.
+      const scopeYearIds = await calendarReadScope(tx, auth, ip);
+      const out = await listAcademicYears(tx, { tenantId: params.tenantId, page, scopeYearIds });
       return { academic_years: out.items, page: out.page };
     });
   });
@@ -145,7 +146,8 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const params = request.params as { tenantId: string; academicYearId: string };
     assertUuid(params.academicYearId, "academicYearId");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+      const scope = await calendarReadScope(tx, auth, ip);
+      if (scope !== null && !scope.includes(params.academicYearId)) throw notFound("Academic year not found");
       return { academic_year: await getAcademicYearById(tx, { tenantId: params.tenantId, academicYearId: params.academicYearId }) };
     });
   });
@@ -212,8 +214,9 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const academicYearId = optionalUuid(query.academicYearId, "academicYearId");
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      const out = await listTerms(tx, { tenantId: params.tenantId, academicYearId, page });
+      // Teacher reads (docs/TEACHER-READS.md): a teacher sees the terms of the years of their classes.
+      const scopeYearIds = await calendarReadScope(tx, auth, ip);
+      const out = await listTerms(tx, { tenantId: params.tenantId, academicYearId, page, scopeYearIds });
       return { terms: out.items, page: out.page };
     });
   });
@@ -222,8 +225,11 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const params = request.params as { tenantId: string; termId: string };
     assertUuid(params.termId, "termId");
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      return { term: await getTermById(tx, { tenantId: params.tenantId, termId: params.termId }) };
+      const scope = await calendarReadScope(tx, auth, ip);
+      const term = await getTermById(tx, { tenantId: params.tenantId, termId: params.termId });
+      // Outside the teacher's years: the same 404 as a term that does not exist.
+      if (scope !== null && !scope.includes(term.academic_year_id)) throw notFound("Term not found");
+      return { term };
     });
   });
 
