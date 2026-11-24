@@ -7,6 +7,8 @@
 #     sh infra/scripts/ops.sh bootstrap-admin
 #
 # Commands: infra/api/entrypoint.mjs. Output also stays in the /figbloom/schools-api/ops log group (kept 7 days).
+# Starting a task needs iam:PassRole on the ops roles; the Deployer role lacks it, so use a deploy instead:
+#   sh infra/scripts/cdk.sh deploy -c opsRun="<command>"   (infra/README.md, Operator commands)
 # Only the three bootstrap variables above are passed through; never pass a secret here (task overrides
 # are visible to anyone who can describe the task).
 set -eu

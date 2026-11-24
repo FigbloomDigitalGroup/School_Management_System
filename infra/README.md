@@ -13,7 +13,7 @@ platform's exports ([`lib/platform.ts`](lib/platform.ts)):
 | Stack | What it is |
 |---|---|
 | `SchoolsApiData-prod` | PostgreSQL 16 on RDS, the generated secrets, and the security groups that decide who may reach the database. Termination protected. The database has deletion protection and takes a snapshot on removal. Secrets are kept even if the stack goes. |
-| `SchoolsApi-prod` | The image (built from `infra/api/Dockerfile`), the ECS cluster, the **api** service (2 tasks), the **worker** service (1 task), the **ops** task definition for one-off commands, and the host rule on the shared load balancer. |
+| `SchoolsApi-prod` | The image (built from `infra/api/Dockerfile`), the ECS cluster, the **api** service (2 tasks), the **worker** service (1 task), the **ops** task definition for one-off commands (plus, only in a deploy given `-c opsRun`, the custom resource that starts it), and the host rule on the shared load balancer. |
 
 `api/entrypoint.mjs` is the container's entrypoint. It builds each process's database URL from what ECS
 injects, so a process gets only its own credential. Modes: `api`, `worker`, `release`, `bootstrap-admin`,
@@ -56,12 +56,14 @@ Needs:
    ```
 5. **DNS for the API.** Make `sms-api.figbloom.org` a CNAME to the shared load balancer, which is the `LoadBalancerDns` output of `Edge-prod`.
 6. **Check:** `curl https://sms-api.figbloom.org/readyz` should say `{"status":"ready"}`.
-7. **First platform administrator** (once; it refuses if one exists):
+7. **First platform administrator** (once; it refuses if one exists). With the Deployer role, run it through a deploy
+   (see [Operator commands](#operator-commands)):
    ```sh
    BOOTSTRAP_ADMIN_EMAIL=you@figbloom.org BOOTSTRAP_ADMIN_NAME="Your Name" FIGBLOOM_BOOTSTRAP_CONFIRM=yes \
-     sh infra/scripts/ops.sh bootstrap-admin
+     CDK_REQUIRE_APPROVAL=never sh infra/scripts/cdk.sh deploy -c opsRun=bootstrap-admin
    ```
-   It prints a **single-use setup token valid for 30 minutes**. Use it straight away to choose a password:
+   It writes a **single-use setup token valid for 30 minutes** to the newest `ops/ops/...` stream of the
+   `/figbloom/schools-api/ops` log group. Use it straight away to choose a password:
    ```sh
    curl -X POST https://sms-api.figbloom.org/v1/auth/password-reset/complete \
      -H 'content-type: application/json' -d '{"token":"<token>","password":"<a long password>"}'
@@ -87,11 +89,28 @@ Migrations are forward-only, so old tasks briefly run against the new schema: ke
 
 ## Operator commands
 
-`sh infra/scripts/ops.sh <mode> [args]` runs one command as the database owner and prints its output:
+An operator command runs once in the **ops task**, as the database owner:
 
+- `bootstrap-admin`: the first platform administrator (above).
 - `session-hmac status`: keys and replay nonces.
 - `session-hmac verify`: does the secret store's key match the database?
 - `release`: run the release step by hand.
+
+There are two ways to start one:
+
+- **Through a deploy** (works with the Deployer role). The deploy adds a custom resource that starts the ops task
+  once; the next deploy without `-c opsRun` removes it again, and removing it runs nothing. Read the output in the
+  newest `ops/ops/...` stream of `/figbloom/schools-api/ops`.
+  ```sh
+  CDK_REQUIRE_APPROVAL=never sh infra/scripts/cdk.sh deploy -c opsRun="session-hmac status"
+  sh infra/scripts/cdk.sh deploy   # afterwards: removes the one-off resource
+  ```
+- **By hand:** `sh infra/scripts/ops.sh <command> [args]` prints the output itself, but starting a task needs
+  `iam:PassRole` on the ops task's two roles. **The account's Deployer role does not have it** (AccessDenied on
+  `iam:PassRole`).
+
+Only `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME` and `FIGBLOOM_BOOTSTRAP_CONFIRM` are passed through. Never pass
+a secret: anyone who can describe the task can read its overrides.
 
 Rotating the session-mint key is a deliberate procedure: `apps/api/docs/SESSION-HMAC-PROVISIONING.md`.
 The key in Secrets Manager (`figbloom/schools-api/session-mint-hmac-key`) must end up matching the database's
