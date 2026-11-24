@@ -1,4 +1,11 @@
-import { writeErrorFrom } from "./queue";
+import {
+  apiAcknowledgeAlert, apiActiveDirections, apiAssignDriver, apiCreateRoute, apiCreateVehicle, apiEndTrip, apiFetchTripPath, apiListActiveTrips,
+  apiListAlerts, apiListBusesOnRoutes, apiListDrivers, apiListRoutes, apiListTripRiders, apiListTrips, apiListVehicles, apiMarkRider, apiMyActiveTrip,
+  apiMyAssignment, apiPingLocation, apiPollAlerts, apiPollVehiclePositions, apiReportBreakdown, apiStartTrip, locationBody, riderMarkEventBody,
+} from "./api/fleetApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
+import { writeErrorFrom, type WriteQueue } from "./queue";
 import { supabase } from "./supabase";
 import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, VehicleAssignment } from "./types";
 
@@ -12,6 +19,7 @@ import type { Route, RouteStop, Trip, TripDirection, Vehicle, VehicleAlert, Vehi
 // ---------------------------------------------------------------- vehicles
 
 export async function listVehicles(tenantId: string): Promise<Vehicle[]> {
+  if (onApi()) return apiListVehicles(tenantId);
   const { data, error } = await supabase().from("vehicles").select("*").eq("tenant_id", tenantId).order("plate_number");
   if (error) throw error;
   return (data ?? []) as Vehicle[];
@@ -26,6 +34,8 @@ export async function listVehicles(tenantId: string): Promise<Vehicle[]> {
  * call it on unmount.
  */
 export function subscribeVehiclePositions(tenantId: string, onUpdate: (vehicle: Vehicle) => void): () => void {
+  // No realtime on the API: poll the newest position of each bus on a trip (about every 10 s).
+  if (onApi()) return apiPollVehiclePositions(tenantId, onUpdate);
   const channel = supabase()
     .channel(`fleet-positions-${tenantId}`)
     .on(
@@ -40,6 +50,7 @@ export function subscribeVehiclePositions(tenantId: string, onUpdate: (vehicle: 
 export async function createVehicle(input: {
   tenantId: string; plateNumber: string; makeModel?: string; capacity?: number;
 }): Promise<Vehicle> {
+  if (onApi()) return apiCreateVehicle(input);
   const { data, error } = await supabase().from("vehicles").insert({
     tenant_id: input.tenantId, plate_number: input.plateNumber,
     make_model: input.makeModel ?? null, capacity: input.capacity ?? null,
@@ -49,6 +60,7 @@ export async function createVehicle(input: {
 }
 
 export async function setVehicleActive(id: string, active: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Changing a vehicle");
   const { error } = await supabase().from("vehicles").update({ active }).eq("id", id);
   if (error) throw error;
 }
@@ -56,12 +68,14 @@ export async function setVehicleActive(id: string, active: boolean): Promise<voi
 // ---------------------------------------------------------------- routes + stops
 
 export async function listRoutes(tenantId: string): Promise<Route[]> {
+  if (onApi()) return apiListRoutes(tenantId);
   const { data, error } = await supabase().from("routes").select("*").eq("tenant_id", tenantId).order("name");
   if (error) throw error;
   return (data ?? []) as Route[];
 }
 
 export async function createRoute(input: { tenantId: string; name: string; description?: string }): Promise<Route> {
+  if (onApi()) return apiCreateRoute(input);
   const { data, error } = await supabase().from("routes").insert({
     tenant_id: input.tenantId, name: input.name, description: input.description ?? null,
   }).select("*").single<Route>();
@@ -70,6 +84,8 @@ export async function createRoute(input: { tenantId: string; name: string; descr
 }
 
 export async function listRouteStops(routeId: string): Promise<RouteStop[]> {
+  // A route's stops can be added on the API but never read back (finding 34): screens check fleetCapabilities().routeStops first.
+  if (onApi()) throw new NotOnApiError("A route's stops");
   const { data, error } = await supabase().from("route_stops").select("*").eq("route_id", routeId).order("sequence");
   if (error) throw error;
   return (data ?? []) as RouteStop[];
@@ -87,6 +103,7 @@ export async function replaceRouteStops(
   routeId: string,
   stops: { id?: string | null; name: string; lat: number; lng: number }[],
 ): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saving a route's stops");
   const { error } = await supabase().rpc("save_route_stops", {
     p_route_id: routeId,
     p_stops: stops.map((s) => ({ ...(s.id ? { id: s.id } : {}), name: s.name, lat: s.lat, lng: s.lng })),
@@ -99,6 +116,7 @@ export async function replaceRouteStops(
 export interface DriverOption { id: string; full_name: string }
 
 export async function listDrivers(tenantId: string): Promise<DriverOption[]> {
+  if (onApi()) return apiListDrivers(tenantId);
   const { data, error } = await supabase().from("profiles").select("id, full_name").eq("tenant_id", tenantId).eq("role", "driver").order("full_name");
   if (error) throw error;
   return (data ?? []) as DriverOption[];
@@ -111,6 +129,7 @@ export interface AssignmentRow extends VehicleAssignment {
 }
 
 export async function listAssignments(tenantId: string): Promise<AssignmentRow[]> {
+  if (onApi()) throw new NotOnApiError("The list of who drives which vehicle");
   const { data, error } = await supabase()
     .from("vehicle_assignments")
     .select("*, vehicle:vehicles(plate_number), driver:profiles(id, full_name), route:routes(name)")
@@ -123,6 +142,7 @@ export async function listAssignments(tenantId: string): Promise<AssignmentRow[]
 export async function assignDriver(input: {
   tenantId: string; vehicleId: string; driverId: string; routeId: string | null;
 }): Promise<void> {
+  if (onApi()) return apiAssignDriver(input);
   const { error: deactivateErr } = await supabase()
     .from("vehicle_assignments").update({ active: false }).eq("vehicle_id", input.vehicleId).eq("active", true);
   if (deactivateErr) throw deactivateErr;
@@ -136,6 +156,7 @@ export async function assignDriver(input: {
 
 /** The vehicle+route a signed-in driver is currently assigned to, if any. */
 export async function myAssignment(driverId: string): Promise<AssignmentRow | null> {
+  if (onApi()) return apiMyAssignment(driverId);
   const { data, error } = await supabase()
     .from("vehicle_assignments")
     .select("*, vehicle:vehicles(plate_number), driver:profiles(id, full_name), route:routes(name)")
@@ -145,6 +166,7 @@ export async function myAssignment(driverId: string): Promise<AssignmentRow | nu
 }
 
 export async function myActiveTrip(driverId: string): Promise<Trip | null> {
+  if (onApi()) return apiMyActiveTrip(driverId);
   const { data, error } = await supabase().from("trips").select("*").eq("driver_id", driverId).eq("status", "active").maybeSingle<Trip>();
   if (error) throw error;
   return data;
@@ -153,6 +175,7 @@ export async function myActiveTrip(driverId: string): Promise<Trip | null> {
 export async function startTrip(input: {
   tenantId: string; vehicleId: string; routeId: string | null; driverId: string; direction: TripDirection;
 }): Promise<Trip> {
+  if (onApi()) return apiStartTrip(input);
   const { data, error } = await supabase().from("trips").insert({
     tenant_id: input.tenantId, vehicle_id: input.vehicleId, route_id: input.routeId,
     driver_id: input.driverId, direction: input.direction,
@@ -161,7 +184,9 @@ export async function startTrip(input: {
   return data;
 }
 
-export async function endTrip(tripId: string): Promise<void> {
+export async function endTrip(tripId: string, opts: { acknowledgeOpenRiders?: boolean } = {}): Promise<void> {
+  // On the API an afternoon trip with children still marked on the bus is refused until the driver says so (OpenRidersError).
+  if (onApi()) return apiEndTrip(tripId, opts);
   const { error } = await supabase().from("trips").update({ status: "completed", ended_at: new Date().toISOString() }).eq("id", tripId);
   if (error) throw error;
 }
@@ -187,6 +212,7 @@ export function locationPingRow(input: LocationPingInput) {
 
 /** One GPS reading: recorded to history and mirrored onto vehicles.last_lat/last_lng for a cheap "where is it now" read. */
 export async function pingLocation(input: LocationPingInput): Promise<void> {
+  if (onApi()) return apiPingLocation(input);
   const { error: insertErr } = await supabase().from("vehicle_locations").insert(locationPingRow(input));
   if (insertErr) throw insertErr;
   const { error: updateErr } = await supabase().from("vehicles").update({
@@ -266,10 +292,13 @@ export interface TripRider {
   avatar_url?: string | null;
   /** Evening trips only: marked absent or excused in class today, so not expected at the bus. */
   absent_from_class: boolean;
+  /** API only: the name of the child's stop, from the trip's manifest (the API cannot list a route's stops). */
+  stop_name?: string | null;
 }
 
 /** Everyone on, or assigned to, this trip's bus. */
 export async function listTripRiders(tripId: string): Promise<TripRider[]> {
+  if (onApi()) return apiListTripRiders(tripId);
   const { data, error } = await supabase().rpc("trip_rider_list", { p_trip_id: tripId });
   if (error) throw error;
   return (data ?? []) as TripRider[];
@@ -348,6 +377,8 @@ export function riderMarkRow(input: RiderMarkInput): {
 
 /** Pushes the trip's unsent rider and breakdown updates to families' phones. Fire and forget. */
 export function pushRiderUpdates(tripId: string): void {
+  // On the API the server tells the families itself, in the same request as the mark.
+  if (onApi()) return;
   void supabase().functions.invoke("rider-update", { body: { trip_id: tripId } }).catch(() => {});
 }
 
@@ -358,6 +389,7 @@ export function pushRiderUpdates(tripId: string): void {
  * no" (the child isn't on this route), which holding would never fix.
  */
 export async function markRider(input: RiderMarkInput): Promise<void> {
+  if (onApi()) return apiMarkRider(input);
   const { error, status } = await supabase().from("trip_riders").upsert(riderMarkRow(input), { onConflict: "trip_id,student_id" });
   if (error) throw writeErrorFrom(error, status);
   pushRiderUpdates(input.tripId);
@@ -365,6 +397,7 @@ export async function markRider(input: RiderMarkInput): Promise<void> {
 
 /** Tells the office and the affected families the bus has broken down. Returns how many children's families were told. */
 export async function reportBreakdown(input: { tripId: string; note: string; lat: number | null; lng: number | null }): Promise<number> {
+  if (onApi()) return apiReportBreakdown(input);
   const { data, error } = await supabase().rpc("report_breakdown", {
     p_trip_id: input.tripId, p_note: input.note, p_lat: input.lat, p_lng: input.lng,
   });
@@ -410,6 +443,7 @@ async function driverProfiles(ids: string[]): Promise<Map<string, DriverProfile>
  * this to notice a bus turning round.
  */
 export async function activeDirections(): Promise<Map<string, TripDirection>> {
+  if (onApi()) return apiActiveDirections();
   const { data } = await supabase().from("trips").select("vehicle_id, direction").eq("status", "active")
     .returns<{ vehicle_id: string; direction: TripDirection }[]>();
   return new Map((data ?? []).map((t) => [t.vehicle_id, t.direction]));
@@ -417,6 +451,7 @@ export async function activeDirections(): Promise<Map<string, TripDirection>> {
 
 /** The trips on the road now, for the office's live rider lists (trips isn't in realtime, so it polls). */
 export async function listActiveTrips(tenantId: string): Promise<Trip[]> {
+  if (onApi()) return apiListActiveTrips(tenantId);
   const { data, error } = await supabase().from("trips").select("*").eq("tenant_id", tenantId).eq("status", "active")
     .order("started_at").returns<Trip[]>();
   if (error) throw error;
@@ -435,6 +470,7 @@ export function stopsInTravelOrder<T extends { sequence: number }>(stops: T[], d
 
 /** Every active vehicle in the school with its current assignment — the admin and teacher fleet maps. */
 export async function listBusesOnRoutes(tenantId: string): Promise<BusOnRoute[]> {
+  if (onApi()) return apiListBusesOnRoutes(tenantId);
   const [vehicles, directions, { data: assignments, error }] = await Promise.all([
     listVehicles(tenantId),
     activeDirections(),
@@ -577,6 +613,8 @@ export interface AlertRow extends VehicleAlert {
 
 /** Speeding or off-route alerts raised by the vehicle_locations trigger — see the fleet_alerts migration. */
 export async function listAlerts(tenantId: string, onlyOpen = true): Promise<AlertRow[]> {
+  // On the API the alerts are the drivers' breakdown reports (incidents); there are no speeding or off-route alerts.
+  if (onApi()) return apiListAlerts(tenantId, onlyOpen);
   let query = supabase().from("vehicle_alerts").select("*, vehicle:vehicles(plate_number)").eq("tenant_id", tenantId).order("created_at", { ascending: false });
   if (onlyOpen) query = query.is("acknowledged_at", null);
   const { data, error } = await query;
@@ -584,7 +622,8 @@ export async function listAlerts(tenantId: string, onlyOpen = true): Promise<Ale
   return (data ?? []) as unknown as AlertRow[];
 }
 
-export async function acknowledgeAlert(alertId: string, byProfileId: string): Promise<void> {
+export async function acknowledgeAlert(alertId: string, byProfileId: string, tripId?: string | null): Promise<void> {
+  if (onApi()) return apiAcknowledgeAlert(alertId, tripId ?? undefined);
   const { error } = await supabase()
     .from("vehicle_alerts")
     .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: byProfileId })
@@ -593,6 +632,7 @@ export async function acknowledgeAlert(alertId: string, byProfileId: string): Pr
 }
 
 export function subscribeVehicleAlerts(tenantId: string, onInsert: (alert: VehicleAlert) => void): () => void {
+  if (onApi()) return apiPollAlerts(tenantId, onInsert);
   const channel = supabase()
     .channel(`fleet-alerts-${tenantId}`)
     .on(
@@ -616,6 +656,7 @@ export interface TripRow extends Trip {
 
 /** Most recent trips first, across the whole fleet or just one vehicle. */
 export async function listTrips(tenantId: string, vehicleId?: string, limitTo = 50): Promise<TripRow[]> {
+  if (onApi()) return apiListTrips(tenantId, vehicleId, limitTo);
   let query = supabase()
     .from("trips")
     .select("*, vehicle:vehicles(plate_number), driver:profiles(full_name), route:routes(name), vehicle_alerts(count)")
@@ -634,9 +675,54 @@ export interface TripPoint { lat: number; lng: number; speed_kmh: number | null;
 
 /** The recorded path for one trip, oldest first — what a replay scrubs across. */
 export async function fetchTripPath(tripId: string): Promise<TripPoint[]> {
+  if (onApi()) return apiFetchTripPath(tripId);
   const { data, error } = await supabase()
     .from("vehicle_locations").select("lat,lng,speed_kmh,recorded_at").eq("trip_id", tripId)
     .order("recorded_at", { ascending: true }).returns<TripPoint[]>();
   if (error) throw error;
   return data ?? [];
+}
+
+// ---------------------------------------------------------------- what the driver's screen holds for later, and what it shows from the manifest
+
+/**
+ * Holds a position for later. On Supabase it is the row to upsert; on the API it is the call to make, with the fix's own time
+ * fixed now (the server refuses a fix older than 10 minutes, so a longer dead zone loses its history).
+ */
+export function enqueueLocationPing(queue: Pick<WriteQueue, "enqueue" | "enqueueApi">, input: LocationPingInput): Promise<unknown> {
+  if (!onApi()) return queue.enqueue("vehicle_locations", [locationPingRow(input)]);
+  return queue.enqueueApi("vehicle_locations", {
+    op: "driver-location", params: { tenantId: input.tenantId, tripId: input.tripId }, body: locationBody(input),
+  });
+}
+
+/** Holds a child's mark for later (a mark cannot be taken back on the API, so "Undo" is not held). */
+export function enqueueRiderMark(queue: Pick<WriteQueue, "enqueue" | "enqueueApi">, input: RiderMarkInput): Promise<unknown> {
+  if (!onApi()) return queue.enqueue("trip_riders", [riderMarkRow(input)]);
+  return queue.enqueueApi("trip_riders", {
+    op: "trip-event", params: { tenantId: input.tenantId, tripId: input.tripId }, body: riderMarkEventBody(input),
+  });
+}
+
+/**
+ * The driver's bus for the map when the driver may not read the fleet (on the API): the vehicle and route of their own assignment,
+ * no position and no stops. The phone's own position is the bus's.
+ */
+export function busFromAssignment(a: AssignmentRow, direction: TripDirection | null): BusOnRoute {
+  const vehicle: Vehicle = {
+    id: a.vehicle_id, tenant_id: a.tenant_id, plate_number: a.vehicle?.plate_number ?? "", make_model: null, capacity: null, active: true,
+    last_lat: null, last_lng: null, last_ping_at: null, created_at: "",
+  };
+  return { vehicle, driverName: null, driver: null, route: a.route_id ? { id: a.route_id, name: a.route?.name ?? "" } : null, stops: [], direction };
+}
+
+/**
+ * The stops the children are at, in the order the trip reaches them, from the manifest (API only: the API cannot list a route's
+ * stops). The manifest is in the route's stop order, sequence 1 being the school end, so a trip to school runs it backwards.
+ */
+export function stopsOfRiders(riders: TripRider[], direction: TripDirection | null): { id: string; name: string; sequence: number }[] {
+  const seen = new Map<string, string>();
+  for (const r of riders) if (r.stop_id && !seen.has(r.stop_id)) seen.set(r.stop_id, r.stop_name ?? "Stop");
+  const stops = [...seen].map(([id, name], i) => ({ id, name, sequence: i + 1 }));
+  return stopsInTravelOrder(stops, direction);
 }

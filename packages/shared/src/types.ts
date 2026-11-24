@@ -419,7 +419,8 @@ export interface Vehicle {
   last_lat: number | null;
   last_lng: number | null;
   last_ping_at: string | null;
-  speed_limit_kmh: number;
+  /** Supabase only: the API's vehicle has no speed limit. Nothing reads it. */
+  speed_limit_kmh?: number;
   created_at: string;
 }
 
