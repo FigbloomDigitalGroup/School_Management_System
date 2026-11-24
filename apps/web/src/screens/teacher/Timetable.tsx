@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   currentPeriodIndex, currentWeekDates, fetchCoverageThisWeek, fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassTimetable, formatShortDate,
-  todayWeekday, WEEKDAYS, type TeacherTimetableRow, type Weekday,
+  timetableCapabilities, todayWeekday, WEEKDAYS, type CoverageItem, type TeacherTimetableRow, type Weekday,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -23,6 +23,7 @@ interface DisplayRow extends TeacherTimetableRow {
 
 export function TeacherTimetable() {
   const { profile, tenant } = useTenantSession();
+  const caps = timetableCapabilities();
   const [params] = useSearchParams();
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const classesData = useMemo(() => classListData ?? [], [classListData]);
@@ -41,7 +42,11 @@ export function TeacherTimetable() {
   // day tab is active — cheap (bounded by who's on leave this week) and
   // means switching tabs never re-fetches.
   const weekDates = useMemo(() => currentWeekDates(), []);
-  const { data: weekCoverage, loading: coverageLoading } = useAsync(() => fetchCoverageThisWeek(tenant.id), [tenant.id]);
+  // The "needs cover" flags are worked out from leave; the API build does not offer them (timetableCapabilities).
+  const { data: weekCoverage, loading: coverageLoading } = useAsync(
+    () => (caps.coverageFlags ? fetchCoverageThisWeek(tenant.id) : Promise.resolve([] as CoverageItem[])),
+    [tenant.id],
+  );
   const coverageByDayClassTime = useMemo(
     () => new Map((weekCoverage ?? []).map((c) => [`${c.weekday}|${c.classId}|${c.time}`, c])),
     [weekCoverage],
@@ -175,7 +180,7 @@ export function TeacherTimetable() {
         }
       />
       <div className="px-7 py-6">
-        <LiveClassPanel />
+        {caps.liveClasses && <LiveClassPanel />}
         {classesLoading ? (
           <TableSkeleton rows={6} />
         ) : classesData.length === 0 ? (
