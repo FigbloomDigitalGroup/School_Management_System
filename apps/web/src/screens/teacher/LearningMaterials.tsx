@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  MATERIAL_KIND_LABEL, createMaterial, deleteMaterial, fetchMaterials, fetchMyTeachingPairs, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, fileProblem, formatFileSize, formatShortDate, kindForLink, localIsoDate, kindForMime, materialFilePath, mediaSummary,
+  MATERIAL_KIND_LABEL, createLearningMaterial, createMaterial, deleteMaterial, fetchMaterials, fetchMyTeachingPairs, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
+  fetchTeacherSubjectsForClass, fileProblem, formatFileSize, formatShortDate, kindForLink, localIsoDate, kindForMime, materialFilePath, materialsCapabilities, mediaSummary,
   mimeForFile, setMaterialPublished, updateMaterial, validateLink, validateMaterial,
   type MaterialRow,
 } from "@figbloom/shared";
@@ -39,6 +39,7 @@ interface Scope {
 export function LearningMaterials({ admin = false }: { admin?: boolean }) {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
+  const caps = materialsCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState<{ material?: MaterialRow } | null>(null);
   const [viewing, setViewing] = useState<MaterialRow | null>(null);
@@ -90,7 +91,9 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
         eyebrow="Learning materials"
         title="Learning materials"
         blurb={admin
-          ? "Notes, worksheets, videos and links shared with every class in the school. Learners and parents see what's published."
+          ? (caps.filesAndLinks
+              ? "Notes, worksheets, videos and links shared with every class in the school. Learners and parents see what's published."
+              : "Learning material entries shared with classes in the school. File uploads and external links are not on the new system yet.")
           : "Share notes, worksheets, videos and links with a class you teach. Learners and their parents see them once you publish."}
         actions={<Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>Add material</Button>}
       />
@@ -110,7 +113,9 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
           <div className="rounded-lg border border-line bg-white">
             <EmptyState
               title="Nothing shared yet"
-              body="Upload notes, a worksheet or a lesson video, or paste a YouTube link. It stays a draft until you publish it."
+              body={caps.filesAndLinks
+                ? "Upload notes, a worksheet or a lesson video, or paste a YouTube link. It stays a draft until you publish it."
+                : "Add learning material notes for a class and subject."}
               action={<Button variant="accent" onClick={() => setEditing({})}>Add material</Button>}
             />
           </div>
@@ -121,26 +126,28 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
               { key: "title", header: "Material", width: "2fr", render: (m: MaterialRow) => (
                 <div className="flex items-center gap-2.5">
                   <MediaGlyph kind={m.kind} />
-                  <Cell sub={mediaSummary(m)}>{m.title}</Cell>
+                  <Cell sub={caps.filesAndLinks ? mediaSummary(m) : (m.description ? m.description.slice(0, 90) : "Notes (metadata only)")}>{m.title}</Cell>
                 </div>
               ) },
               { key: "class", header: "Class · subject", width: "1.2fr", render: (m: MaterialRow) => <Cell sub={m.subjectName}>{m.className}</Cell> },
               { key: "added", header: "Added", width: "0.8fr", render: (m: MaterialRow) => <Mono>{formatShortDate(localIsoDate(new Date(m.createdAt)))}</Mono> },
-              { key: "state", header: "Status", width: "0.8fr", render: (m: MaterialRow) => (
-                m.publishedAt ? <Badge tone="ok">Published</Badge> : <Badge tone="muted">Draft</Badge>
-              ) },
-              { key: "actions", header: "", align: "right", width: "2.2fr", render: (m: MaterialRow) => (
+              ...(caps.draftWorkflow
+                ? [{ key: "state", header: "Status", width: "0.8fr", render: (m: MaterialRow) => (
+                    m.publishedAt ? <Badge tone="ok">Published</Badge> : <Badge tone="muted">Draft</Badge>
+                  ) }]
+                : []),
+              { key: "actions", header: "", align: "right", width: caps.editMaterial || caps.draftWorkflow || caps.deleteMaterial ? "2.2fr" : "0.8fr", render: (m: MaterialRow) => (
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button onClick={() => setViewing(m)}>View</Button>
-                  <Button onClick={() => setEditing({ material: m })}>Edit</Button>
-                  <Button onClick={() => void togglePublish(m)}>{m.publishedAt ? "Unpublish" : "Publish"}</Button>
-                  <Button onClick={() => void remove(m)}>Delete</Button>
+                  {caps.editMaterial && <Button onClick={() => setEditing({ material: m })}>Edit</Button>}
+                  {caps.draftWorkflow && <Button onClick={() => void togglePublish(m)}>{m.publishedAt ? "Unpublish" : "Publish"}</Button>}
+                  {caps.deleteMaterial && <Button onClick={() => void remove(m)}>Delete</Button>}
                 </div>
               ) },
             ]}
             rows={materials}
             rowKey={(m) => m.id}
-            minWidth="900px"
+            minWidth={caps.draftWorkflow ? "900px" : "680px"}
             empty={{ title: "Nothing shared yet", body: "Add the first one." }}
           />
         )}
@@ -159,7 +166,15 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
         <Modal open onClose={() => setViewing(null)} eyebrow={`${MATERIAL_KIND_LABEL[viewing.kind]} · ${viewing.className} · ${viewing.subjectName}`} title={viewing.title} width={820}>
           <div className="grid gap-3">
             {viewing.description && <p className="whitespace-pre-line text-[13.5px] leading-relaxed">{viewing.description}</p>}
-            <MediaPlayer item={viewing} />
+            {viewing.filePath || viewing.url ? (
+              <MediaPlayer item={viewing} />
+            ) : (
+              <p className="text-[12.5px] text-ink-muted">
+                {viewing.description
+                  ? "File attachments and links are not on the new system yet."
+                  : "No description on file. File attachments and links are not on the new system yet."}
+              </p>
+            )}
           </div>
         </Modal>
       )}
@@ -175,6 +190,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
   onSaved: (message: string) => void;
 }) {
   const { tenant } = useTenantSession();
+  const caps = materialsCapabilities();
   const [source, setSource] = useState<"file" | "link">("file");
   const [classId, setClassId] = useState(material?.classId ?? classes[0]?.id ?? "");
   const [subjectId, setSubjectId] = useState(material?.subjectId ?? "");
@@ -267,6 +283,20 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
     }
   }
 
+  async function saveApi() {
+    const checked = validateMaterial({ classId, subjectId, title, description });
+    if (!checked.ok) { setError(checked.message); return; }
+    setError("");
+    setSaving(true);
+    try {
+      await createLearningMaterial(tenant.id, checked.value);
+      onSaved("Material added");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save.");
+      setSaving(false);
+    }
+  }
+
   async function close() {
     if (upload.current && !(await confirmDialog({ title: "Stop uploading and close?", body: "The file is still uploading.", confirmLabel: "Stop and close" }))) return;
     upload.current?.cancel();
@@ -284,11 +314,18 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
       title={material ? "Edit material" : "Add material"}
       width={640}
       actions={
-        <>
-          <Button onClick={close}>Cancel</Button>
-          <Button disabled={saving || noSubjects} onClick={() => void save(false)}>{saving ? "Saving…" : published ? "Save changes" : "Save draft"}</Button>
-          {!published && <Button variant="accent" disabled={saving || noSubjects} onClick={() => void save(true)}>Save and publish</Button>}
-        </>
+        caps.draftWorkflow ? (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button disabled={saving || noSubjects} onClick={() => void save(false)}>{saving ? "Saving…" : published ? "Save changes" : "Save draft"}</Button>
+            {!published && <Button variant="accent" disabled={saving || noSubjects} onClick={() => void save(true)}>Save and publish</Button>}
+          </>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="accent" disabled={saving || noSubjects} onClick={() => void saveApi()}>{saving ? "Saving…" : "Add material"}</Button>
+          </>
+        )
       }
     >
       <div className="grid gap-3.5">
@@ -297,7 +334,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
             options={classes.map((c) => ({ value: c.id, label: c.name }))} />
           <SelectField id="lm-subject" label="Subject" value={subjectId} disabled={saving} onChange={(e) => setSubjectId(e.target.value)}
             options={(subjects ?? []).map((s) => ({ value: s.id, label: s.name }))}
-            hint={noSubjects ? "You aren't assigned a subject in this class. Ask the school admin." : undefined} />
+            hint={noSubjects ? (caps.draftWorkflow ? "You aren't assigned a subject in this class. Ask the school admin." : "No subjects are set up yet.") : undefined} />
         </div>
 
         {material ? (
@@ -308,7 +345,7 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
               <div className="text-[11.5px] text-ink-faint">{mediaSummary(material)}. To use a different file or link, add a new material and delete this one.</div>
             </div>
           </div>
-        ) : (
+        ) : caps.filesAndLinks ? (
           <>
             <div className="flex gap-2">
               {(["file", "link"] as const).map((s) => (
@@ -350,6 +387,10 @@ function MaterialEditor({ material, classes, scope, onClose, onSaved }: {
               <TextField id="lm-link" label="Link" placeholder="e.g. https://www.youtube.com/watch?v=…" value={link} disabled={saving} onChange={(e) => setLink(e.target.value)} />
             )}
           </>
+        ) : (
+          <p className="rounded-lg border border-line-soft bg-page px-3.5 py-2.5 text-[12px] text-ink-muted">
+            File uploads and external links are not on the new system yet; entries save a title and notes for the class.
+          </p>
         )}
 
         <TextField id="lm-title" label="Title" placeholder="e.g. Photosynthesis: notes and diagrams" value={title} disabled={saving} onChange={(e) => setTitle(e.target.value)} />

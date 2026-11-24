@@ -43,3 +43,4 @@ export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiR
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
 export { feeTotalsFromInvoices } from "./adminOverviewApi";
 export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper } from "./examPapersApi";
+export { apiCreateLearningMaterial } from "./materialsApi";

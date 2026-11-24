@@ -1,7 +1,9 @@
 import { deleteFiles, fileLink } from "./files";
 import { apiPublishAnnouncement } from "./api/announcementsApi";
 import { apiClient } from "./api/client";
+import { apiCreateLearningMaterial, apiFetchMaterials } from "./api/materialsApi";
 import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /**
@@ -408,6 +410,7 @@ const toMaterial = (r: MaterialDbRow): MaterialRow => ({
 
 /** Every material in the school, newest first. Staff read them all; a teacher's screen narrows this to what they teach. */
 export async function fetchMaterials(tenantId: string): Promise<MaterialRow[]> {
+  if (onApi()) return apiFetchMaterials(tenantId);
   const { data, error } = await supabase()
     .from("learning_materials")
     .select(MATERIAL_COLS)
@@ -447,11 +450,17 @@ const NOT_YOURS = "You can only change materials for a class and subject you tea
  * material that exists), so the caller uploads to `filePath` next and calls
  * deleteMaterial if that fails.
  */
+export async function createLearningMaterial(tenantId: string, input: MaterialInput): Promise<string> {
+  if (onApi()) return apiCreateLearningMaterial(tenantId, input);
+  throw new Error("createLearningMaterial is for the API build only.");
+}
+
 export async function createMaterial(
   tenantId: string,
   input: MaterialInput,
   media: { kind: MaterialKind; url: string } | { kind: MaterialKind; id: string; filePath: string; fileName: string; mimeType: string; sizeBytes: number },
 ): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Material file uploads and links");
   const row = "url" in media
     ? { kind: media.kind, url: media.url }
     : { id: media.id, kind: media.kind, file_path: media.filePath, file_name: media.fileName, mime_type: media.mimeType, size_bytes: media.sizeBytes };
@@ -465,6 +474,7 @@ export async function createMaterial(
 }
 
 export async function updateMaterial(id: string, input: MaterialInput): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Editing a learning material");
   const { data, error } = await supabase()
     .from("learning_materials")
     .update({ class_id: input.classId, subject_id: input.subjectId, title: input.title, description: input.description })
@@ -475,6 +485,7 @@ export async function updateMaterial(id: string, input: MaterialInput): Promise<
 }
 
 export async function setMaterialPublished(id: string, published: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Publishing or unpublishing learning materials");
   const { data, error } = await supabase()
     .from("learning_materials")
     .update({ published_at: published ? new Date().toISOString() : null })
@@ -486,6 +497,7 @@ export async function setMaterialPublished(id: string, published: boolean): Prom
 
 /** Removes the file first (the storage policy reads the row), then the row. */
 export async function deleteMaterial(m: Pick<MaterialRow, "id" | "filePath">): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Deleting a learning material");
   await removeMediaFiles([m.filePath]);
   const { data, error } = await supabase().from("learning_materials").delete().eq("id", m.id).select("id");
   if (error) throw new Error(error.message);

@@ -760,3 +760,27 @@ const EXAM_PAPERS_ON_API: ExamPapersCapabilities = {
 export function examPapersCapabilities(): ExamPapersCapabilities {
   return onApi() ? EXAM_PAPERS_ON_API : EXAM_PAPERS_ON_SUPABASE;
 }
+
+/** Learning materials (admin/materials, later teacher/materials). */
+export interface MaterialsCapabilities {
+  /** Uploading files to object storage or attaching external links (API stores title/description metadata only). */
+  filesAndLinks: boolean;
+  /** Draft / publish / unpublish workflow (POST /learning-materials creates live entries immediately). */
+  draftWorkflow: boolean;
+  /** Editing a material after creation (no PATCH /learning-materials/{id} endpoint). */
+  editMaterial: boolean;
+  /** Deleting a material (no DELETE /learning-materials/{id} endpoint). */
+  deleteMaterial: boolean;
+}
+
+const MATERIALS_ON_SUPABASE: MaterialsCapabilities = {
+  filesAndLinks: true, draftWorkflow: true, editMaterial: true, deleteMaterial: true,
+};
+
+const MATERIALS_ON_API: MaterialsCapabilities = {
+  filesAndLinks: false, draftWorkflow: false, editMaterial: false, deleteMaterial: false,
+};
+
+export function materialsCapabilities(): MaterialsCapabilities {
+  return onApi() ? MATERIALS_ON_API : MATERIALS_ON_SUPABASE;
+}
