@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import {
-  CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord,
+  CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatCapabilities, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord,
   fetchChatMessages, fetchConversationPeople, formatFileSize, groupMessagesByDay, markConversationRead, mergeMessage,
   pushChatMessage, removeUnsentChatFile, sendChatMessage, subscribeChatMessages, uploadChatFile,
   type ChatMessage, type ChatPerson,
@@ -36,8 +36,12 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: 
  */
 export function ChatThread({ conversationId, myId, tenantId, canReply, oversight, onRead, onSent }: Props) {
   const toast = useToast();
+  const caps = chatCapabilities();
   const [people, setPeople] = useState<ChatPerson[] | null>(null);
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
+  // What is on screen now, so an arriving message that is already there (a poll's first answer repeats the thread) is ignored.
+  const shown = useRef<ChatMessage[] | null>(null);
+  shown.current = messages;
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -71,7 +75,7 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
       })
       .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : "Could not load this chat."); });
     const unsubscribe = subscribeChatMessages({ conversationId }, (m) => {
-      if (!alive) return;
+      if (!alive || shown.current?.some((x) => x.id === m.id)) return;
       setMessages((ms) => (ms ? mergeMessage(ms, m) : ms));
       // Reading it as it arrives: it never counts as unread.
       if (!oversight && m.senderId !== myId) markRead.current();
@@ -150,15 +154,17 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
             </div>
             {/* Chat and calls share one rule (may_talk), so whoever can be replied to can be rung. */}
             <div data-slot="call" className="flex shrink-0 items-center gap-2">
-              {canReply && <CallButton profileId={other.profileId} name={other.name} />}
+              {canReply && caps.calls && <CallButton profileId={other.profileId} name={other.name} />}
             </div>
           </>
         ) : null}
       </header>
 
-      <p className="border-b border-line-soft bg-[#FAFBFA] px-5 py-1.5 text-[11.5px] text-ink-faint">
-        <span aria-hidden>◈ </span>{CHAT_OVERSIGHT_NOTICE}
-      </p>
+      {caps.oversight && (
+        <p className="border-b border-line-soft bg-[#FAFBFA] px-5 py-1.5 text-[11.5px] text-ink-faint">
+          <span aria-hidden>◈ </span>{CHAT_OVERSIGHT_NOTICE}
+        </p>
+      )}
 
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4" aria-live="polite">
         {!messages ? (
@@ -209,8 +215,8 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
               </div>
             )}
             <div className="flex items-end gap-2">
-              <input ref={fileInput} type="file" className="hidden" onChange={pickFile} />
-              <Button type="button" onClick={() => fileInput.current?.click()} disabled={sending} aria-label="Attach a file">📎</Button>
+              {caps.attachments && <input ref={fileInput} type="file" className="hidden" onChange={pickFile} />}
+              {caps.attachments && <Button type="button" onClick={() => fileInput.current?.click()} disabled={sending} aria-label="Attach a file">📎</Button>}
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
