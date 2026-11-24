@@ -83,7 +83,9 @@ request; the per-class filter is application code, as for every other read.
 only that data); a teacher of another class; a teacher with no teaching assignment; a teacher whose staff record is not
 linked or is archived; an inactive assignment; an archived class; an archived learner and an ended membership; another
 school (by path and by `X-Tenant-Id`); an archived membership; a suspended school; a disabled account; a parent; a
-student-role member. The permission registry, the RBAC matrix (through the OpenAPI annotations), the grants matrix and the
+student-role member; a driver; a parent whose account was wrongly linked to a teaching staff record; a cursor replayed by
+another teacher. Chat: contacts never list parents or students, drop disabled and archived members, and are empty for a
+parent or a student; a conversation names its peer, with `peer_role` null once they leave. The permission registry, the RBAC matrix (through the OpenAPI annotations), the grants matrix and the
 RLS catalogue tests run unchanged.
 
 ## Open decisions for the owner (not decided here)
