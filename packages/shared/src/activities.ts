@@ -1,3 +1,5 @@
+import { apiLoadLearnerActivities } from "./api/parentApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 import type { Audience } from "./types";
@@ -441,6 +443,8 @@ export interface LearnerActivities {
 
 /** A learner's clubs, what's coming up for them, and what they've won. Works for staff and for the learner's own family. */
 export async function loadLearnerActivities(tenantId: string, studentId: string, now: Date = new Date()): Promise<LearnerActivities> {
+  // On the API this is the family read (clubs and teams only); the office reads a learner's activities another way (the Activities page).
+  if (onApi()) return apiLoadLearnerActivities(studentId);
   const sb = supabase();
   const [activities, { data: memberships, error: mErr }, { data: parts, error: pErr }] = await Promise.all([
     fetchActivities(tenantId),

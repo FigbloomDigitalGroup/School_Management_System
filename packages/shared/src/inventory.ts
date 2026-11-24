@@ -10,6 +10,7 @@ import {
   apiSaveInventoryItem,
   apiSetItemRetired,
 } from "./api/inventoryApi";
+import { apiFetchLearnerInventory } from "./api/parentApi";
 import { supabase } from "./supabase";
 import { toCsv } from "./csv";
 
@@ -284,6 +285,7 @@ export async function fetchMyInventory(profileId: string): Promise<InventoryIssu
 /** What these learners have been issued: a parent's children, or a learner themself. */
 export async function fetchLearnerInventory(studentIds: string[]): Promise<InventoryIssueRow[]> {
   if (studentIds.length === 0) return [];
+  if (onApi()) return apiFetchLearnerInventory(studentIds);
   const { data, error } = await supabase()
     .from("inventory_issues").select(ISSUE_SELECT).in("student_id", studentIds)
     .order("issued_at", { ascending: false }).returns<IssueJoin[]>();

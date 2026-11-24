@@ -150,7 +150,7 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, onMark }: {
       )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-[12px] text-ink-faint">{HAND_IN_PARENT_LABEL[item.handIn]}</span>
+        <span className="text-[12px] text-ink-faint">{item.handIn ? HAND_IN_PARENT_LABEL[item.handIn] : ""}</span>
         {item.done ? (
           <div className="flex items-center gap-3">
             <span className="text-[12.5px] text-ok-ink">{doneByWords(item.doneBy, childFirst)}</span>

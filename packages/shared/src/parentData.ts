@@ -1,5 +1,8 @@
+import { apiLoadParentData } from "./api/parentApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import type { Audience, ClassLevel, Payment } from "./types";
+import type { PaymentProof } from "./paymentProofs";
 import { receiptRef } from "./fees";
 import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharges";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
@@ -17,6 +20,11 @@ export interface ChildSubject {
   name: string;
   score: number;
   classMean: number | null;
+  /** API only: the grade the school's own scheme gave this mark (the screens would otherwise work it out from the percentage). */
+  grade?: string | null;
+  /** API only: the mark as the teacher wrote it ("40 out of 50"); `score` is then the percentage. */
+  rawScore?: number;
+  maxScore?: number;
 }
 
 export interface Receipt {
@@ -55,6 +63,10 @@ export interface ChildInfo {
   /** Every exam this child has results out for, newest first, so the screen can switch between them. */
   exams: PublishedExam[];
   receipts: Receipt[];
+  /** API only: what the invoice is made of (a parent cannot read the term's fee structure there). */
+  feeLines?: { id: string; name: string; amountCents: number }[];
+  /** API only: the payment proofs on this invoice (read with the fees, not listed apart). */
+  proofs?: PaymentProof[];
 }
 
 export interface MessageInfo {
@@ -170,6 +182,8 @@ export function formatPhone(raw: string | null): string {
 }
 
 export async function loadParentData(profileId: string): Promise<ParentData> {
+  // The API knows who is asking from the session; its children, fees, attendance and results are one read each per child (api/parentApi.ts).
+  if (onApi()) return apiLoadParentData();
   const { data: guardianRows, error: gErr } = await supabase()
     .from("guardians")
     .select("students(id, full_name, admission_no, class_id, boarding, classes(name, form_level, level))")

@@ -308,3 +308,63 @@ export interface GradesAccess {
 }
 
 export const FULL_GRADES_ACCESS: GradesAccess = { gradebook: true, gradebookReason: null, publish: true };
+
+/** The parent pages (parent/*): what a parent can do on this backend. A flag is true where that backend offers the control. */
+export interface ParentCapabilities {
+  /** Messages from the school: Home's "From the school" card and the Inbox (the notices read is not wired into the parent pages yet). */
+  inbox: boolean;
+  /** Mark a child's homework done (the API records no homework hand-in or done state). */
+  homeworkDone: boolean;
+  /** Worksheets and videos a teacher attached to homework (file storage, A5 / FIG-1873). */
+  homeworkFiles: boolean;
+  /** Opening a learning material's file (file storage, A5 / FIG-1873: the API holds the title and note only). */
+  materialFiles: boolean;
+  /** The live-class banner on Home (online classes are not on the API: C13). */
+  liveClasses: boolean;
+  /** Documents to sign: Home's "to sign" list, invoice and receipt signatures (C12 / FIG-1880). */
+  signatures: boolean;
+  /** "Call the school" on Home (voice and video are not on the API: C13). */
+  calls: boolean;
+  /** The child's bio data, health details and home address on Home (the family read has none of them, and no way to change them). */
+  childProfile: boolean;
+  /** "Progress over time" under Results (no history read for a family). */
+  progressOverTime: boolean;
+  /** Online exam papers and tests under Results (not in the family read). */
+  examPapers: boolean;
+  /** Missed or excused papers under an exam (not in the family read). */
+  examAbsences: boolean;
+  /** Download a report card as a PDF (the family read gives a summary, not the subject rows). */
+  reportCardPdf: boolean;
+  /** API only: report cards shown as a summary list. */
+  familyReportCards: boolean;
+  /** Fixtures, trips and awards under Sports & activities (the family read has clubs and teams only). */
+  activityEvents: boolean;
+  /** Ask the nurse to give a medicine, and withdraw a request (parents have no such write on the API). */
+  medicationRequests: boolean;
+  /** Notices from the sick bay (never written by the API: finding 15). */
+  sickBayNotices: boolean;
+  /** API only: the health details on file and the medicines waiting for a guardian's consent. */
+  medicationConsent: boolean;
+  /** Today's bus updates and the notify button (the API has transport notifications, not ported here). */
+  busUpdates: boolean;
+  /** Send a payment proof (a slip or the pasted message): the proof's file needs object storage that is not set up (A5). */
+  paymentProofSubmit: boolean;
+  /** The school's own paybill, till and bank details under "How to pay" (a parent cannot read the school profile). */
+  schoolPaymentDetails: boolean;
+}
+
+const PARENT_ON_SUPABASE: ParentCapabilities = {
+  inbox: true, homeworkDone: true, homeworkFiles: true, materialFiles: true, liveClasses: true, signatures: true, calls: true, childProfile: true,
+  progressOverTime: true, examPapers: true, examAbsences: true, reportCardPdf: true, familyReportCards: false, activityEvents: true,
+  medicationRequests: true, sickBayNotices: true, medicationConsent: false, busUpdates: true, paymentProofSubmit: true, schoolPaymentDetails: true,
+};
+
+const PARENT_ON_API: ParentCapabilities = {
+  inbox: false, homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, signatures: false, calls: false, childProfile: false,
+  progressOverTime: false, examPapers: false, examAbsences: false, reportCardPdf: false, familyReportCards: true, activityEvents: false,
+  medicationRequests: false, sickBayNotices: false, medicationConsent: true, busUpdates: false, paymentProofSubmit: false, schoolPaymentDetails: false,
+};
+
+export function parentCapabilities(): ParentCapabilities {
+  return onApi() ? PARENT_ON_API : PARENT_ON_SUPABASE;
+}

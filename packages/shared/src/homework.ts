@@ -1,3 +1,6 @@
+import { apiLoadParentHomework } from "./api/parentApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { formatShortDate } from "./parentData";
 import { sendClassMessage } from "./teacherData";
@@ -464,7 +467,8 @@ export interface HomeworkItem {
   subject: string;
   teacher: string;
   dueOn: string;
-  handIn: HandIn;
+  /** Null on the API, which does not record how work is handed in. */
+  handIn: HandIn | null;
   guide: ParentGuide | null;
   done: boolean;
   /** Who ticked it, from the parent's point of view. */
@@ -490,6 +494,7 @@ const PARENT_LOOKBACK_DAYS = 21;
  */
 export async function loadParentHomework(profileId: string, studentIds: string[], now: Date = new Date()): Promise<Record<string, ChildHomework>> {
   if (!studentIds.length) return {};
+  if (onApi()) return apiLoadParentHomework(studentIds);
   const { data: kids, error: kErr } = await supabase()
     .from("students")
     .select("id, class_id, profile_id, classes(level, form_level)")
@@ -575,6 +580,7 @@ export function doneByWords(doneBy: HomeworkItem["doneBy"], childFirst: string):
  * that row is the only record of the file.
  */
 export async function setHomeworkDone(assignmentId: string, studentId: string, done: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Marking homework done");
   if (done) {
     const { error } = await supabase()
       .from("assignment_submissions")

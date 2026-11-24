@@ -1,3 +1,5 @@
+import { apiFetchExamSubjects } from "./api/parentApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 
@@ -98,6 +100,7 @@ export async function fetchClassMeans(examId: string, classId: string): Promise<
  * isn't one). A higher-ed learner has no class, so no means.
  */
 export async function fetchExamSubjects(studentId: string, classId: string | null | undefined, examId: string): Promise<ExamSubject[]> {
+  if (onApi()) return apiFetchExamSubjects(studentId, examId);
   const [{ data, error }, means] = await Promise.all([
     supabase().from("marks").select("score, subject_id, subjects(name)").eq("exam_id", examId).eq("student_id", studentId)
       .returns<{ score: number | null; subject_id: string; subjects: { name: string } | null }[]>(),
