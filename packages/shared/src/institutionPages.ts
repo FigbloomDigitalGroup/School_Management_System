@@ -14,7 +14,7 @@ import type { InstitutionType } from "./types";
 export const K12_ONLY_PAGES: readonly string[] = [
   "admin/classes", "admin/subjects", "admin/exams", "admin/papers", "admin/report-cards", "admin/performance", "admin/materials",
   "teacher/classes", "teacher/attendance", "teacher/timetable", "teacher/messages", "teacher/notices", "teacher/homework",
-  "teacher/exams", "teacher/report-cards", "teacher/materials", "teacher/performance",
+  "teacher/exams", "teacher/report-cards", "teacher/materials", "teacher/performance", "teacher/behaviour",
   "parent/materials", "student/materials", "student/exams",
 ];
 

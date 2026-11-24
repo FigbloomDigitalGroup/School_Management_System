@@ -10,7 +10,7 @@
 
 export type AdminArea =
   | "people" | "fees" | "academics" | "attendance" | "transport" | "communication"
-  | "inventory" | "activities" | "visitors" | "medical" | "leave" | "audit";
+  | "inventory" | "activities" | "visitors" | "medical" | "leave" | "audit" | "discipline";
 
 export interface Caller {
   id: string;
