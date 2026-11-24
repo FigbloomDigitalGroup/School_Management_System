@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   assignSectionInstructor, createCourse, createCourseSection, createSemester, enrollStudents,
-  fetchActiveLearnerOptions, fetchCourseSections, fetchCourses, fetchEnrollmentsForSection, fetchSchoolTeacherOptions, fetchSectionTimetableSlots, fetchSemesters,
-  saveSectionTimetable, setCurrentSemester, setEnrollmentStatus,
+  coursesCapabilities, fetchActiveLearnerOptions, fetchCourseSections, fetchCourses, fetchEnrollmentsForSection, fetchSchoolTeacherOptions,
+  fetchSectionTimetableSlots, fetchSemesters, saveSectionTimetable, setCurrentSemester, setEnrollmentStatus,
   type Course, type CourseSectionRow, type EnrolledStudentRow, type Semester,
 } from "@figbloom/shared";
 import { TimetableEditor } from "./TimetableEditor";
@@ -33,13 +33,18 @@ type Tab = "semesters" | "courses" | "sections";
 export function AdminCourses() {
   const toast = useToast();
   const { tenant } = useTenantSession();
+  const caps = coursesCapabilities();
   const [tab, setTab] = useState<Tab>("semesters");
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
 
   const { data: semesters, loading: semestersLoading } = useAsync(() => fetchSemesters(tenant.id), [reloadKey]);
   const { data: courses, loading: coursesLoading } = useAsync(() => fetchCourses(tenant.id), [reloadKey]);
-  const { data: teachers, loading: teachersLoading } = useAsync(() => fetchTeachers(tenant.id), []);
+  // Teachers are only needed to name a section's instructor, which the API build does not offer.
+  const { data: teachers, loading: teachersLoading } = useAsync(
+    () => (caps.sectionInstructor ? fetchTeachers(tenant.id) : Promise.resolve([] as { id: string; full_name: string }[])),
+    [],
+  );
   const { data: students, loading: studentsLoading } = useAsync(() => fetchActiveStudents(tenant.id), []);
 
   const [semesterId, setSemesterId] = useState<string>("");
@@ -157,25 +162,31 @@ export function AdminCourses() {
               columns={[
                 { key: "course", header: "Course", width: "1.4fr", render: (s: CourseSectionRow) => <Cell sub={s.course_code}>{s.course_name}</Cell> },
                 { key: "section", header: "Section", render: (s: CourseSectionRow) => <Mono>{s.section_label}</Mono> },
-                { key: "room", header: "Room", render: (s: CourseSectionRow) => <span className="text-[13px]">{s.room ?? "—"}</span> },
-                { key: "instructor", header: "Instructor", width: "1.4fr", render: (s: CourseSectionRow) => (
-                  // Without the teacher list the select would read "Unassigned" for every section.
-                  teachersLoading && !teachers ? <Skeleton className="h-8 w-full" /> : <select
-                    value={s.instructor_id ?? ""}
-                    onChange={(e) => void setInstructor(s.id, e.target.value)}
-                    aria-label={`Instructor for ${s.course_name} ${s.section_label}`}
-                    className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
-                  >
-                    <option value="">Unassigned</option>
-                    {(teachers ?? []).map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
-                  </select>
-                ) },
+                ...(caps.sectionRoomAndCapacity ? [
+                  { key: "room", header: "Room", render: (s: CourseSectionRow) => <span className="text-[13px]">{s.room ?? "—"}</span> },
+                ] : []),
+                ...(caps.sectionInstructor ? [
+                  { key: "instructor", header: "Instructor", width: "1.4fr", render: (s: CourseSectionRow) => (
+                    // Without the teacher list the select would read "Unassigned" for every section.
+                    teachersLoading && !teachers ? <Skeleton className="h-8 w-full" /> : <select
+                      value={s.instructor_id ?? ""}
+                      onChange={(e) => void setInstructor(s.id, e.target.value)}
+                      aria-label={`Instructor for ${s.course_name} ${s.section_label}`}
+                      className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
+                    >
+                      <option value="">Unassigned</option>
+                      {(teachers ?? []).map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                    </select>
+                  ) },
+                ] : []),
                 { key: "enrolled", header: "Enrolled", align: "right", render: (s: CourseSectionRow) => <Mono>{s.enrolled_count}{s.capacity ? ` / ${s.capacity}` : ""}</Mono> },
                 { key: "actions", header: "", align: "right", width: "1.3fr", render: (s: CourseSectionRow) => (
                   <div className="flex justify-end gap-3">
-                    <button type="button" onClick={() => setScheduleFor(s)} className="text-[12px] font-semibold text-leaf hover:underline">
-                      Schedule
-                    </button>
+                    {caps.sectionSchedule && (
+                      <button type="button" onClick={() => setScheduleFor(s)} className="text-[12px] font-semibold text-leaf hover:underline">
+                        Schedule
+                      </button>
+                    )}
                     <button type="button" onClick={() => setRosterFor(s)} className="text-[12px] font-semibold text-leaf hover:underline">
                       Roster
                     </button>
@@ -184,7 +195,7 @@ export function AdminCourses() {
               ]}
               rows={sections}
               rowKey={(s) => s.id}
-              minWidth="920px"
+              minWidth={caps.sectionInstructor ? "920px" : "560px"}
               empty={{ title: "No sections yet", body: "Add a section for this semester.", action: <Button variant="primary" onClick={() => setAddingSection(true)}>Add section</Button> }}
             />
           )
@@ -216,7 +227,7 @@ export function AdminCourses() {
           toast={toast}
         />
       )}
-      {scheduleFor && (
+      {caps.sectionSchedule && scheduleFor && (
         <TimetableEditor
           entityId={scheduleFor.id}
           title={`${scheduleFor.course_code} ${scheduleFor.section_label}`}
@@ -296,6 +307,7 @@ function AddSemesterModal({ onClose, onCreated, toast }: { onClose: () => void; 
 
 function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; onCreated: () => void; toast: ToastFn }) {
   const { tenant } = useTenantSession();
+  const caps = coursesCapabilities();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [credits, setCredits] = useState(3);
@@ -334,17 +346,19 @@ function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; on
               className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none" />
           </label>
         </div>
-        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="grid gap-3" style={{ gridTemplateColumns: caps.courseDepartment ? "1fr 1fr" : "1fr" }}>
           <label className="block">
             <span className="mb-1.5 block text-[12.5px] font-semibold">Credits</span>
             <input value={credits} inputMode="decimal" onChange={(e) => setCredits(Number(e.target.value.replace(/[^0-9.]/g, "")) || credits)}
               className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none" />
           </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[12.5px] font-semibold">Department (optional)</span>
-            <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g. Computer Science"
-              className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none" />
-          </label>
+          {caps.courseDepartment && (
+            <label className="block">
+              <span className="mb-1.5 block text-[12.5px] font-semibold">Department (optional)</span>
+              <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g. Computer Science"
+                className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none" />
+            </label>
+          )}
         </div>
       </form>
     </Modal>
@@ -356,6 +370,7 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
   onClose: () => void; onCreated: () => void; toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
+  const caps = coursesCapabilities();
   const [semesterId, setSemesterId] = useState(defaultSemesterId);
   const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
   const [label, setLabel] = useState("A");
@@ -403,19 +418,23 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
               </select>
             </label>
           </div>
-          <div className="grid gap-3" style={{ gridTemplateColumns: "0.6fr 1fr 0.7fr" }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: caps.sectionRoomAndCapacity ? "0.6fr 1fr 0.7fr" : "1fr" }}>
             <label className="block">
               <span className="mb-1.5 block text-[12.5px] font-semibold">Label</span>
               <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="A" className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none" />
             </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[12.5px] font-semibold">Room (optional)</span>
-              <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="e.g. LH 3" className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none" />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[12.5px] font-semibold">Capacity (optional)</span>
-              <input value={capacity} inputMode="numeric" onChange={(e) => setCapacity(e.target.value.replace(/[^0-9]/g, ""))} className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none" />
-            </label>
+            {caps.sectionRoomAndCapacity && (
+              <>
+                <label className="block">
+                  <span className="mb-1.5 block text-[12.5px] font-semibold">Room (optional)</span>
+                  <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="e.g. LH 3" className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 text-[13px] outline-none" />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[12.5px] font-semibold">Capacity (optional)</span>
+                  <input value={capacity} inputMode="numeric" onChange={(e) => setCapacity(e.target.value.replace(/[^0-9]/g, ""))} className="w-full rounded-md border border-[#D3DAD5] px-3 py-2 font-mono text-[13px] outline-none" />
+                </label>
+              </>
+            )}
           </div>
         </form>
       )}
@@ -428,6 +447,7 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
   onClose: () => void; onChanged: () => void; toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
+  const caps = coursesCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const { data: roster } = useAsync(() => fetchEnrollmentsForSection(section.id), [section.id, reloadKey]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -479,7 +499,9 @@ function RosterModal({ section, students, onClose, onChanged, toast }: {
               {roster.filter((r) => r.status === "enrolled").map((r: EnrolledStudentRow) => (
                 <div key={r.enrollment_id} className="flex items-center justify-between gap-3 border-b border-line-soft px-3.5 py-2 last:border-0">
                   <Cell sub={`ADM ${r.admission_no}`}>{r.full_name}</Cell>
-                  <button type="button" onClick={() => void drop(r.enrollment_id)} className="text-[12px] font-semibold text-warn-ink hover:underline">Drop</button>
+                  {caps.dropEnrolment && (
+                    <button type="button" onClick={() => void drop(r.enrollment_id)} className="text-[12px] font-semibold text-warn-ink hover:underline">Drop</button>
+                  )}
                 </div>
               ))}
             </div>

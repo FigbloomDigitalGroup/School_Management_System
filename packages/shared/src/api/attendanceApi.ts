@@ -11,6 +11,7 @@ import { settlePool } from "./pool";
 import type { components } from "./schema";
 import { permissionCodes } from "./sessionApi";
 import { classGroupFromApi, currentAcademicYear, listAcademicTerms, listAcademicYears, listClasses, termFromApi } from "./setupApi";
+import { apiMyStaffId } from "./teachingLookups";
 
 /**
  * Attendance on apps/api (FIG-1891): the API side of attendanceSession.ts, earlySignOut.ts, and the attendance
@@ -335,6 +336,10 @@ function whenForbidden<T>(fallback: T): (err: unknown) => T {
  *   they teach (OD-2), and refuses it (403) when they teach none.
  * - Not the staff list, but every class (a teacher holding the Academics area and not People): nothing the
  *   API returns says which classes are theirs, so none are shown rather than a guess.
+ *
+ * A class records its class teacher as a STAFF id, and the teacher screens ask "am I this class's teacher" by comparing it with
+ * the signed-in person's own id. So in the list returned here, a class whose teacher is this person carries their sign-in id as
+ * `class_teacher_id`. Their staff id comes from the staff list when they may read it, else from `GET .../staff/me`.
  */
 export async function apiFetchTeacherClasses(teacherUserId: string, tenantId?: string): Promise<ClassGroup[]> {
   const tid = tenantIdOrThrow(tenantId);
@@ -361,17 +366,25 @@ export async function apiFetchTeacherClasses(teacherUserId: string, tenantId?: s
   if (classes.length === 0) return [];
 
   let mine: typeof classes;
+  let myStaffId: string | null = null;
   if (staff) {
     const myStaff = staff.find((s) => s.userId === teacherUserId);
     if (!myStaff) return [];
+    myStaffId = myStaff.id;
     const assignedClassIds = new Set(assignments.filter((a) => a.staff_member_id === myStaff.id).map((a) => a.class_id));
     mine = classes.filter((c) => c.class_teacher_staff_id === myStaff.id || assignedClassIds.has(c.id));
   } else {
     const codes = await permissionCodes(tid);
     mine = codes.includes("resource.academics.read") ? [] : classes;
+    if (mine.length > 0) myStaffId = await apiMyStaffId(tid).catch(() => null);
   }
 
-  return mine.map((c) => classGroupFromApi(c, tid)).sort((a, b) => a.name.localeCompare(b.name));
+  return mine
+    .map((c) => {
+      const g = classGroupFromApi(c, tid);
+      return myStaffId && c.class_teacher_staff_id === myStaffId ? { ...g, class_teacher_id: teacherUserId } : g;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Active learners currently enrolled in `classId`, sorted alphabetically by full name. */

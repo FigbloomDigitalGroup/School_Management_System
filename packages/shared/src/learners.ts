@@ -1,3 +1,4 @@
+import { apiFetchActiveLearnerOptions } from "./api/coursesApi";
 import { apiArchiveLearners, apiFetchArchivedLearners, apiRestoreLearners } from "./api/peopleApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -102,6 +103,7 @@ export interface ActiveLearnerOption {
 
 /** Active learners at a school (id, name, admission number) for pickers and chat oversight filters. */
 export async function fetchActiveLearnerOptions(tenantId: string): Promise<ActiveLearnerOption[]> {
+  if (onApi()) return apiFetchActiveLearnerOptions(tenantId);
   const { data, error } = await supabase()
     .from("students")
     .select("id, full_name, admission_no")
