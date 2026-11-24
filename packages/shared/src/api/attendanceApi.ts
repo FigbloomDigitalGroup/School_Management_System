@@ -9,6 +9,7 @@ import { isApiError } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import { settlePool } from "./pool";
 import type { components } from "./schema";
+import { permissionCodes } from "./sessionApi";
 import { classGroupFromApi, currentAcademicYear, listAcademicTerms, listAcademicYears, listClasses, termFromApi } from "./setupApi";
 
 /**
@@ -314,16 +315,32 @@ export function studentFromApiLearner(l: ApiLearner, classId: string | null): St
   };
 }
 
+/** A refused read (403) answers `fallback`; any other failure is passed on. */
+function whenForbidden<T>(fallback: T): (err: unknown) => T {
+  return (err) => {
+    if (isApiError(err) && err.code === "forbidden") return fallback;
+    throw err;
+  };
+}
+
 /**
- * Classes a teacher may mark attendance for on the API: classes where their linked staff record
- * is the class teacher or holds an active teaching assignment. Falls back to all current-year
- * active classes when the user has no linked staff record (e.g. a school admin or a newly invited teacher).
+ * Classes this teacher may act on, on the API. The same rule as the Supabase path and as the API's own
+ * `teacherClassIds`: classes where the person's active staff record is the class teacher or holds an active
+ * teaching assignment. Someone who teaches nothing gets no classes, and the screens say so. Never the whole
+ * school: that would offer registers the API then refuses.
+ *
+ * What the person may read decides how this is worked out:
+ * - The staff list: find their staff record and keep the classes it teaches. No record, no classes.
+ * - Not the staff list, and not every class: the API already answers the class list with only the classes
+ *   they teach (OD-2), and refuses it (403) when they teach none.
+ * - Not the staff list, but every class (a teacher holding the Academics area and not People): nothing the
+ *   API returns says which classes are theirs, so none are shown rather than a guess.
  */
 export async function apiFetchTeacherClasses(teacherUserId: string, tenantId?: string): Promise<ClassGroup[]> {
   const tid = tenantIdOrThrow(tenantId);
   const year = await currentAcademicYear(tid).catch(() => null);
   const [classes, staff, assignments] = await Promise.all([
-    listClasses(tid, year?.id),
+    listClasses(tid, year?.id).catch(whenForbidden([])),
     listAllPages(async (cursor) => {
       const r = await apiClient().get("/v1/tenants/{tenantId}/staff", {
         path: { tenantId: tid },
@@ -331,10 +348,7 @@ export async function apiFetchTeacherClasses(teacherUserId: string, tenantId?: s
         tenantId: tid,
       });
       return { items: r.staff, page: r.page };
-    }).catch((err) => {
-      if (isApiError(err) && err.code === "forbidden") return [];
-      throw err;
-    }),
+    }).catch(whenForbidden(null)),
     listAllPages(async (cursor) => {
       const r = await apiClient().get("/v1/tenants/{tenantId}/teaching-assignments", {
         path: { tenantId: tid },
@@ -342,22 +356,22 @@ export async function apiFetchTeacherClasses(teacherUserId: string, tenantId?: s
         tenantId: tid,
       });
       return { items: r.assignments, page: r.page };
-    }).catch((err) => {
-      if (isApiError(err) && err.code === "forbidden") return [];
-      throw err;
-    }),
+    }).catch(whenForbidden([])),
   ]);
+  if (classes.length === 0) return [];
 
-  const myStaff = staff.find((s) => s.userId === teacherUserId);
-  const filtered = myStaff
-    ? (() => {
-        const assignedClassIds = new Set(assignments.filter((a) => a.staff_member_id === myStaff.id).map((a) => a.class_id));
-        const mine = classes.filter((c) => c.class_teacher_staff_id === myStaff.id || assignedClassIds.has(c.id));
-        return mine.length > 0 ? mine : classes;
-      })()
-    : classes;
+  let mine: typeof classes;
+  if (staff) {
+    const myStaff = staff.find((s) => s.userId === teacherUserId);
+    if (!myStaff) return [];
+    const assignedClassIds = new Set(assignments.filter((a) => a.staff_member_id === myStaff.id).map((a) => a.class_id));
+    mine = classes.filter((c) => c.class_teacher_staff_id === myStaff.id || assignedClassIds.has(c.id));
+  } else {
+    const codes = await permissionCodes(tid);
+    mine = codes.includes("resource.academics.read") ? [] : classes;
+  }
 
-  return filtered.map((c) => classGroupFromApi(c, tid)).sort((a, b) => a.name.localeCompare(b.name));
+  return mine.map((c) => classGroupFromApi(c, tid)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Active learners currently enrolled in `classId`, sorted alphabetically by full name. */

@@ -173,7 +173,8 @@ async function schoolProfile(tenantId: string): Promise<SchoolProfile | null> {
   }
 }
 
-async function permissionCodes(tenantId: string): Promise<string[]> {
+/** The permission codes the signed-in person holds in this school (`GET /v1/rbac/permissions`, every page). */
+export async function permissionCodes(tenantId: string): Promise<string[]> {
   return listAllPages(async (cursor) => {
     const res = await apiClient().get("/v1/rbac/permissions", { query: { limit: API_PAGE_LIMIT, cursor }, tenantId });
     return { items: res.items, page: res.page };

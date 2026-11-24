@@ -79,6 +79,12 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
     await page.goto(`/s/${seed.slug}/admin/announcements`);
     await expect(page.getByText("Welcome to Term 1").first()).toBeVisible({ timeout: 15_000 });
 
+    // The principal has no staff record, so teaches no class: the teacher's register screen offers none, not the
+    // whole school (it used to fall back to every class).
+    await page.goto(`/s/${seed.slug}/teacher/attendance`);
+    await expect(page.getByText("No classes yet")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByLabel("Class", { exact: true })).toHaveCount(0);
+
     expect(errors).toEqual([]);
   });
 
