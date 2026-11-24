@@ -25,7 +25,7 @@ conflict. This page keeps what is common to the whole build.
 | 29 to 34 | [chats-notices-messages.md](web-on-api/chats-notices-messages.md) |
 | 35 to 37 | [sign-in-invitations.md](web-on-api/sign-in-invitations.md) |
 | 38 to 44 | [timetable-classes-courses.md](web-on-api/timetable-classes-courses.md) |
-| 45 and 46 | `report-cards.md`, when its pull request merges |
+| 45 and 46 | [report-cards.md](web-on-api/report-cards.md) |
 
 ## What a build is
 

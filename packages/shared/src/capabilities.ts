@@ -222,6 +222,34 @@ export function leaveCapabilities(): LeaveCapabilities {
   return onApi() ? LEAVE_ON_API : LEAVE_ON_SUPABASE;
 }
 
+/** The Report cards screens (admin/report-cards, teacher/report-cards). */
+export interface ReportCardsCapabilities {
+  /** Choose which exams count and configure optional sections (attendance, fees, activities, position, next term date). On the API, publishing always uses every published assessment for the class and term. */
+  selectExamsAndOptions: boolean;
+  /** Draft, send-to-families, and withdraw workflow (POST /report-cards publishes immediately with no draft or withdraw endpoint). */
+  draftWorkflow: boolean;
+  /** Per-learner class teacher and principal comments (not stored on the API's report_card_publications yet). */
+  comments: boolean;
+  /** Signing report cards and printing signatures on PDFs (waits on C12 / FIG-1880). */
+  signatures: boolean;
+  /** Bloom AI comment drafting (calls a Supabase edge function). */
+  aiComments: boolean;
+  /** Clearing a competency rating back to unrated (the API has no DELETE /competency-ratings endpoint yet). */
+  clearCompetencyRating: boolean;
+}
+
+const REPORT_CARDS_ON_SUPABASE: ReportCardsCapabilities = {
+  selectExamsAndOptions: true, draftWorkflow: true, comments: true, signatures: true, aiComments: true, clearCompetencyRating: true,
+};
+
+const REPORT_CARDS_ON_API: ReportCardsCapabilities = {
+  selectExamsAndOptions: false, draftWorkflow: false, comments: false, signatures: false, aiComments: false, clearCompetencyRating: false,
+};
+
+export function reportCardsCapabilities(): ReportCardsCapabilities {
+  return onApi() ? REPORT_CARDS_ON_API : REPORT_CARDS_ON_SUPABASE;
+}
+
 /** The timetable screens: teacher/timetable, and the Timetable window of a class on admin/classes. */
 export interface TimetableCapabilities {
   /** The week-grid editor that saves a class's whole timetable at once (the API can only add a period). */
