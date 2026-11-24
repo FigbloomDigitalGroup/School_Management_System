@@ -91,13 +91,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List every school (platform directory)
+         * @description Super administrators only (`platform.tenants.read`). Directory fields from the school record and its organisation; nothing from inside a school. The caller's school (session or `X-Tenant-Id`) is ignored. SQL keyset-paginated (FIG-1621) on `name COLLATE "C", id`; the cursor identifies the last school by id and is bound to the filters, so changing `status` or `organizationId` with an old cursor is `400 validation_error`.
+         */
+        get: operations["listPlatformSchools"];
         put?: never;
         /**
          * Provision a school
          * @description Super administrator only. Creates the school (and a single-school organisation unless organization_id is given) and issues the initial school-administrator invitation. No default credentials exist; the administrator sets their own password by accepting the invitation.
          */
         post: operations["platformProvisionSchool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/schools/{schoolId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One school's directory record (platform)
+         * @description Super administrators only (`platform.tenants.read`). The same fields as one item of the platform school list. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["getPlatformSchool"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5250,6 +5274,32 @@ export interface components {
             /** Format: uuid */
             organizationId?: string;
         };
+        /** @enum {string} */
+        PlatformSchoolStatus: "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
+        PlatformSchool: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+            status: components["schemas"]["PlatformSchoolStatus"];
+            timezone: string;
+            /** Format: date-time */
+            createdAt: string;
+            organization: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                slug: string;
+                /** @enum {string} */
+                kind: "government" | "county" | "constituency" | "group_owner";
+                /** @enum {string} */
+                status: "pending" | "active" | "suspended" | "rejected";
+            };
+        };
+        PlatformSchoolList: {
+            items: components["schemas"]["PlatformSchool"][];
+            page: components["schemas"]["PageInfo"];
+        };
         PageInfo: {
             limit: number;
             next_cursor: string | null;
@@ -8414,6 +8464,40 @@ export interface operations {
             };
         };
     };
+    listPlatformSchools: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+                /** @description Only schools with this status. */
+                status?: components["schemas"]["PlatformSchoolStatus"];
+                /** @description Only the schools of this organisation. */
+                organizationId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of schools */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSchoolList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     platformProvisionSchool: {
         parameters: {
             query?: never;
@@ -8468,6 +8552,32 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getPlatformSchool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schoolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The school */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSchool"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     accountsCreateInvitation: {
