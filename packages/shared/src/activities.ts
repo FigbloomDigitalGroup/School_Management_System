@@ -1,5 +1,7 @@
 import { apiLoadLearnerActivities } from "./api/parentApi";
 import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
+import * as activitiesApi from "./api/activitiesApi";
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 import type { Audience } from "./types";
@@ -347,6 +349,7 @@ async function patronNames(tenantId: string): Promise<Map<string, { id: string; 
 
 /** Every activity in the school with its patrons, by name. */
 export async function fetchActivities(tenantId: string): Promise<ActivityRow[]> {
+  if (onApi()) return activitiesApi.apiFetchActivities(tenantId);
   const [{ data, error }, patrons] = await Promise.all([
     supabase().from("activities").select("id, tenant_id, name, category, description, meeting_schedule, active")
       .eq("tenant_id", tenantId).order("name").returns<ActivityDb[]>(),
@@ -361,6 +364,7 @@ export async function fetchActivities(tenantId: string): Promise<ActivityRow[]> 
 
 /** The activities this teacher is a patron of. */
 export async function fetchMyPatronActivityIds(teacherId: string): Promise<Set<string>> {
+  if (onApi()) throw new NotOnApiError("The list of activities you are patron of");
   const { data, error } = await supabase().from("activity_patrons").select("activity_id").eq("teacher_id", teacherId)
     .returns<{ activity_id: string }[]>();
   if (error) throw new Error(error.message);
@@ -369,6 +373,7 @@ export async function fetchMyPatronActivityIds(teacherId: string): Promise<Set<s
 
 /** How many learners are in each activity (staff only: families can't count other people's children). */
 export async function fetchMemberCounts(tenantId: string): Promise<Map<string, number>> {
+  if (onApi()) return activitiesApi.apiFetchMemberCounts(tenantId);
   const rows = await fetchAllPages<{ activity_id: string }>((from, to) =>
     supabase().from("activity_members").select("activity_id").eq("tenant_id", tenantId)
       .order("activity_id").order("student_id").range(from, to).returns<{ activity_id: string }[]>());
@@ -379,6 +384,7 @@ export async function fetchMemberCounts(tenantId: string): Promise<Map<string, n
 
 /** Events in the school, optionally for one activity. */
 export async function fetchActivityEvents(tenantId: string, activityId?: string): Promise<ActivityEventRow[]> {
+  if (onApi()) throw new NotOnApiError("Activity events");
   let q = supabase().from("activity_events").select(EVENT_COLUMNS).eq("tenant_id", tenantId);
   if (activityId) q = q.eq("activity_id", activityId);
   const { data, error } = await q.order("starts_at", { ascending: false }).returns<EventDb[]>();
@@ -389,6 +395,7 @@ export async function fetchActivityEvents(tenantId: string, activityId?: string)
 type LearnerDb = { full_name: string; classes: { name: string } | null } | null;
 
 export async function fetchActivityMembers(activityId: string): Promise<MemberRow[]> {
+  if (onApi()) return activitiesApi.apiFetchActivityMembers(activityId);
   const { data, error } = await supabase().from("activity_members")
     .select("student_id, role, joined_on, students(full_name, classes(name))").eq("activity_id", activityId)
     .returns<{ student_id: string; role: string | null; joined_on: string; students: LearnerDb }[]>();
@@ -399,6 +406,7 @@ export async function fetchActivityMembers(activityId: string): Promise<MemberRo
 }
 
 export async function fetchEventParticipants(eventId: string): Promise<ParticipantRow[]> {
+  if (onApi()) throw new NotOnApiError("Event participants");
   const { data, error } = await supabase().from("activity_event_participants")
     .select("student_id, award, position, achievement, students(full_name, classes(name))").eq("event_id", eventId)
     .returns<{ student_id: string; award: Award | null; position: number | null; achievement: string | null; students: LearnerDb }[]>();
@@ -412,6 +420,7 @@ export interface LearnerOption { id: string; name: string; className: string; ad
 
 /** Every active learner, for the member and participant pickers. */
 export async function fetchActiveLearners(tenantId: string): Promise<LearnerOption[]> {
+  if (onApi()) return activitiesApi.apiFetchActiveLearners(tenantId);
   const rows = await fetchAllPages<{ id: string; full_name: string; admission_no: string; classes: { name: string } | null }>((from, to) =>
     supabase().from("students").select("id, full_name, admission_no, classes(name)").eq("tenant_id", tenantId).eq("active", true)
       .order("full_name").order("id").range(from, to)
@@ -421,6 +430,7 @@ export async function fetchActiveLearners(tenantId: string): Promise<LearnerOpti
 
 /** The school's teachers, for the patron picker. */
 export async function fetchTeachers(tenantId: string): Promise<{ id: string; name: string }[]> {
+  if (onApi()) return activitiesApi.apiFetchTeachers(tenantId);
   const { data, error } = await supabase().from("profiles").select("id, full_name").eq("tenant_id", tenantId).eq("role", "teacher")
     .order("full_name").returns<{ id: string; full_name: string }[]>();
   if (error) throw new Error(error.message);
@@ -566,6 +576,7 @@ export function clubsLine(clubs: TermActivities["clubs"]): string {
 export async function loadTermActivities(
   tenantId: string, studentIds: string[], term: { startsOn: string; endsOn: string },
 ): Promise<Map<string, TermActivities>> {
+  if (onApi()) throw new NotOnApiError("Term activities");
   if (!studentIds.length) return new Map();
   const sb = supabase();
   // A day either side, since starts_at is a moment and the term's days are local; termActivities() trims to the days.
@@ -607,6 +618,7 @@ export async function loadTermActivities(
 // ---------------------------------------------------------------- writing
 
 export async function createActivity(tenantId: string, input: ActivityInput): Promise<string> {
+  if (onApi()) return activitiesApi.apiCreateActivity(tenantId, input);
   const { data, error } = await supabase().from("activities").insert({
     tenant_id: tenantId, name: input.name, category: input.category, description: input.description, meeting_schedule: input.meetingSchedule,
   }).select("id").single<{ id: string }>();
@@ -616,6 +628,7 @@ export async function createActivity(tenantId: string, input: ActivityInput): Pr
 
 /** A patron may only send description and meetingSchedule; the database refuses the rest. */
 export async function updateActivity(id: string, patch: Partial<ActivityInput> & { active?: boolean }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Editing an activity");
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.category !== undefined) row.category = patch.category;
@@ -627,11 +640,13 @@ export async function updateActivity(id: string, patch: Partial<ActivityInput> &
 }
 
 export async function deleteActivity(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Deleting an activity");
   const { error } = await supabase().from("activities").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 export async function setActivityPatrons(tenantId: string, activityId: string, current: string[], wanted: string[]): Promise<void> {
+  if (onApi()) return activitiesApi.apiSetActivityPatrons(tenantId, activityId, current, wanted);
   const { add, remove } = diffIds(current, wanted);
   const sb = supabase();
   if (remove.length) {
@@ -645,6 +660,7 @@ export async function setActivityPatrons(tenantId: string, activityId: string, c
 }
 
 export async function addActivityMembers(tenantId: string, activityId: string, studentIds: string[]): Promise<void> {
+  if (onApi()) return activitiesApi.apiAddActivityMembers(tenantId, activityId, studentIds);
   if (!studentIds.length) return;
   const { error } = await supabase().from("activity_members")
     .upsert(studentIds.map((student_id) => ({ activity_id: activityId, student_id, tenant_id: tenantId })), { onConflict: "activity_id,student_id", ignoreDuplicates: true });
@@ -652,11 +668,13 @@ export async function addActivityMembers(tenantId: string, activityId: string, s
 }
 
 export async function removeActivityMember(activityId: string, studentId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Removing an activity member");
   const { error } = await supabase().from("activity_members").delete().eq("activity_id", activityId).eq("student_id", studentId);
   if (error) throw new Error(error.message);
 }
 
 export async function setMemberRole(activityId: string, studentId: string, role: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Changing a member's role");
   const { error } = await supabase().from("activity_members").update({ role: role.trim() || null }).eq("activity_id", activityId).eq("student_id", studentId);
   if (error) throw new Error(error.message);
 }
@@ -671,6 +689,7 @@ function eventRow(input: EventInput) {
 
 /** Saves a new event (no id) or changes one; returns its id. tenant_id is filled in by the database from the activity. */
 export async function saveActivityEvent(tenantId: string, input: EventInput, id?: string): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Activity events");
   const sb = supabase();
   if (id) {
     const { error } = await sb.from("activity_events").update(eventRow(input)).eq("id", id);
@@ -683,11 +702,13 @@ export async function saveActivityEvent(tenantId: string, input: EventInput, id?
 }
 
 export async function deleteActivityEvent(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Deleting an activity event");
   const { error } = await supabase().from("activity_events").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 export async function setEventParticipants(tenantId: string, eventId: string, current: string[], wanted: string[]): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Event participants");
   const { add, remove } = diffIds(current, wanted);
   const sb = supabase();
   if (remove.length) {
@@ -701,6 +722,7 @@ export async function setEventParticipants(tenantId: string, eventId: string, cu
 }
 
 export async function saveParticipantResult(eventId: string, studentId: string, r: { award: Award | null; position: number | null; achievement: string }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Event participant results");
   const { error } = await supabase().from("activity_event_participants")
     .update({ award: r.award, position: r.position, achievement: r.achievement.trim() || null })
     .eq("event_id", eventId).eq("student_id", studentId);
@@ -716,6 +738,7 @@ export async function saveParticipantResult(eventId: string, studentId: string, 
 export async function notifyEventFamilies(input: {
   tenantId: string; authorId: string; event: ActivityEventRow; activityName: string;
 }): Promise<{ reached: number; pushError: string | null }> {
+  if (onApi()) throw new NotOnApiError("Event family notifications");
   const sb = supabase();
   const { data: ids, error: idErr } = await sb.rpc("activity_event_family", { p_event_id: input.event.id });
   if (idErr) throw new Error(idErr.message);

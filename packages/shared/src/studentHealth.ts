@@ -1,4 +1,5 @@
 import { onApi } from "./backend";
+import * as medicalApi from "./api/medicalApi";
 import { supabase } from "./supabase";
 
 /**
@@ -125,6 +126,7 @@ export function healthFlags(h: HealthFlagSource | null | undefined): HealthFlags
 // ---------------------------------------------------------------- database
 
 export async function fetchStudentHealth(studentId: string): Promise<StudentHealth | null> {
+  if (onApi()) return medicalApi.apiFetchStudentHealth(studentId);
   const { data, error } = await supabase().from("student_health").select("*").eq("student_id", studentId).maybeSingle<StudentHealth>();
   if (error) throw error;
   return data;
@@ -153,6 +155,7 @@ export async function fetchHealthFlagsForStudents(studentIds: string[]): Promise
 
 /** Create or replace a learner's record. */
 export async function saveStudentHealth(tenantId: string, studentId: string, input: StudentHealthInput): Promise<StudentHealth> {
+  if (onApi()) return medicalApi.apiSaveStudentHealth(tenantId, studentId, input);
   const { data, error } = await supabase().from("student_health")
     .upsert({ tenant_id: tenantId, student_id: studentId, ...cleanHealthInput(input) }, { onConflict: "student_id" })
     .select("*").single<StudentHealth>();

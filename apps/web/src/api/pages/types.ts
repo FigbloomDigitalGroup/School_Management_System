@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { AdminArea } from "@figbloom/shared";
 
 /** One admin-console page of the API build. */
 export interface AdminPageDef {
@@ -38,9 +39,24 @@ export interface TeacherPageDef {
   inAdminConsole?: boolean;
 }
 
+/**
+ * One page of the staff console (role "staff": the librarian, the nurse, the receptionist). It is served in the staff console,
+ * and by address inside the admin console for a staff member who holds admin areas. The staff home (`staff`) is not registered
+ * here: it is the shell's own page, as `admin` and `teacher` are.
+ */
+export interface StaffPageDef {
+  /** Its address under /s/<slug>/, e.g. "staff/leave". */
+  path: string;
+  /** What the page shows. */
+  element: ReactNode;
+  /** The page is in the menu only when this is true for the person's admin areas. Default: it is for every staff member. */
+  when?: (areas: readonly AdminArea[]) => boolean;
+}
+
 /** What one area registers: the pages it ports onto the API build. */
 export interface AreaPages {
   admin?: AdminPageDef[];
   parent?: ParentPageDef[];
   teacher?: TeacherPageDef[];
+  staff?: StaffPageDef[];
 }
