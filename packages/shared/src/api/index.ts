@@ -44,3 +44,4 @@ export { OpenRidersError, isOpenRidersError } from "./fleetApi";
 export { feeTotalsFromInvoices } from "./adminOverviewApi";
 export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper } from "./examPapersApi";
 export { apiCreateLearningMaterial } from "./materialsApi";
+export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";

@@ -14,8 +14,8 @@ const dateInput = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).pa
  */
 export function AdminVisitors() {
   const [day, setDay] = useState(() => new Date());
-  const { visits, loading, error } = useDayVisits(day);
-  const actions = useDeskActions();
+  const { visits, loading, error, replace } = useDayVisits(day);
+  const actions = useDeskActions(replace);
   const waiting = visitQueue(visits).filter((v) => v.escalated);
 
   return (

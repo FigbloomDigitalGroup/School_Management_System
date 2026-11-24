@@ -784,3 +784,16 @@ const MATERIALS_ON_API: MaterialsCapabilities = {
 export function materialsCapabilities(): MaterialsCapabilities {
   return onApi() ? MATERIALS_ON_API : MATERIALS_ON_SUPABASE;
 }
+
+/** Gate & reception visitor log (admin/visitors, later teacher/visitors and staff/visitors). */
+export interface VisitorsCapabilities {
+  /** Escalating an existing visit to the principal's office after arrival (API escalates principal visits on creation only). */
+  escalateAfterArrival: boolean;
+}
+
+const VISITORS_ON_SUPABASE: VisitorsCapabilities = { escalateAfterArrival: true };
+const VISITORS_ON_API: VisitorsCapabilities = { escalateAfterArrival: false };
+
+export function visitorsCapabilities(): VisitorsCapabilities {
+  return onApi() ? VISITORS_ON_API : VISITORS_ON_SUPABASE;
+}

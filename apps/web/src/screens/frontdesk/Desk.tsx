@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  escalateVisit, nextVisitSteps, pushVisit, setVisitStatus, subscribeVisits, visitHostLabel, visitQueue, VISIT_STEP_LABEL,
+  escalateVisit, nextVisitSteps, pushVisit, setVisitStatus, subscribeVisits, visitHostLabel, visitQueue, visitorsCapabilities, VISIT_STEP_LABEL,
   type Visit, type VisitStatus,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -13,14 +13,16 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { confirmDialog } from "../../components/ui/Confirm";
 
 /** The step buttons for one visit, and escalation to the principal's office. */
-export function useDeskActions() {
+export function useDeskActions(onUpdated?: (v: Visit) => void) {
   const toast = useToast();
+  const caps = visitorsCapabilities();
   const [busy, setBusy] = useState<string | null>(null);
 
   async function step(v: Visit, status: VisitStatus) {
     setBusy(v.id);
     try {
-      await setVisitStatus(v.id, status);
+      const updated = await setVisitStatus(v.id, status);
+      if (updated) onUpdated?.(updated);
     } catch (err) {
       toast(err instanceof Error ? `Could not update: ${err.message}` : "Could not update.", "error");
     } finally {
@@ -44,7 +46,7 @@ export function useDeskActions() {
 
   return (v: Visit) => (
     <>
-      {!v.escalated && v.status !== "left" && (
+      {caps.escalateAfterArrival && !v.escalated && v.status !== "left" && (
         <Button disabled={busy === v.id} onClick={() => void escalate(v)}>Escalate</Button>
       )}
       {nextVisitSteps(v.status).map((s) => (
@@ -73,7 +75,7 @@ export function DeskVisitors() {
   const { tenant, profile } = useTenantSession();
   const today = useToday();
   const { visits, loading, error, replace } = useDayVisits(today);
-  const actions = useDeskActions();
+  const actions = useDeskActions(replace);
   const [entryPoint, setEntryPoint] = useState<Visit["entry_point"]>("gate");
 
   // A visitor someone else recorded at the gate is announced before they reach the door.
