@@ -14,7 +14,7 @@ nothing on Supabase. Only then is the production site (`schoolmanagement.figbloo
 - Everything it shows comes from `apps/api`.
 - Every control either works on the API or is hidden with a written reason ("not in the API yet: …").
 - It has unit tests and a browser check against a real local API.
-- It is listed in `docs/WEB_ON_THE_NEW_API.md`.
+- It is described in its area's file in `docs/web-on-api/` (see `docs/WEB_ON_THE_NEW_API.md`).
 
 **Done overall** means:
 
@@ -113,10 +113,10 @@ The screens stay. What changes is the shared function under them.
    - Add a flag in `packages/shared/src/capabilities.ts`, one flag per missing endpoint.
    - The shared function throws `NotOnApiError`.
    - The screen hides the control when the flag is off.
-   - Record it in the "what the API cannot do yet" tables in `docs/WEB_ON_THE_NEW_API.md`.
+   - Record it in the "what the API cannot do yet" table in your area's file in `docs/web-on-api/`.
    - Or build the endpoint in `apps/api`, in a separate PR.
 4. **Turn the page on.**
-   - For admin and teacher pages, add the page to `API_ADMIN_PAGES` or `API_TEACHER_PAGES`.
+   - For admin and teacher pages, add `apps/web/src/api/pages/<area>.pages.tsx`, which exports `pages` (see `pages/types.ts` and any existing `*.pages.tsx`). Do not edit `ApiConsole.tsx`: `pages/index.ts` picks the file up and builds `API_ADMIN_PAGES`, `API_TEACHER_PAGES` and the routes.
    - The other roles (parent, student, staff, driver, org, platform) have **no shell on the API build yet**. Add one to `ApiApp.tsx`, modelled on `ApiConsole.tsx`.
    - Lazy-load the page as the existing ones are.
 5. **Tests:**
@@ -129,7 +129,7 @@ The screens stay. What changes is the shared function under them.
    - the new behaviour on the API build;
    - that the Supabase build still works, read-only, against the local demo.
 7. **Docs and PR:**
-   - Update `docs/WEB_ON_THE_NEW_API.md`: what works, what is hidden and why, and API findings numbered after the existing 11.
+   - Add `docs/web-on-api/<area>.md` (see the existing files): what works, what is hidden and why, and your API findings, numbered inside that file with the area as a prefix (`parent-1`, `parent-2`). Do not edit `docs/WEB_ON_THE_NEW_API.md` or another area's file: that is what made pull requests conflict.
    - The PR says what was verified and what was not.
 
 ## Local API and browser checks (recipes that worked)

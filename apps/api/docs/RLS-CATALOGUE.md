@@ -143,6 +143,11 @@ tables (`users`, `sessions`, organisation and platform tables) are application-f
 (`TENANT-ISOLATION.md`, decision D-3) and reached through narrow `SECURITY DEFINER` functions where they
 hold secrets.
 
+Teacher reads (migration 103, `TEACHER-READS.md`) add no table, policy or grant: `/me/teaching/*`, the widened
+academic-year and term reads and the chat names read `classes`, `class_memberships`, `learners`, `staff_members`,
+`teaching_assignments`, `academic_years`, `academic_terms` and `school_memberships` under the policies above, plus the
+granted `users` columns (`full_name`, `status`). The per-class filter is application code (`teachingClassIds`).
+
 ## Updating this file
 
 Add the row in the same commit as the migration that creates the table. The test above fails otherwise.

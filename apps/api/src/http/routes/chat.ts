@@ -4,6 +4,7 @@ import type { AppPool } from "../../db/pool.js";
 import {
   listMessages,
   listMyConversations,
+  listStaffChatContacts,
   markConversationRead,
   sendMessage,
   startConversation,
@@ -44,6 +45,20 @@ export async function registerChatRoutes(app: FastifyInstance, pool: AppPool): P
         userId: auth.user.id,
         limit: page.limit,
         rawCursor: page.rawCursor,
+      }),
+    );
+  });
+
+  // Teacher reads (docs/TEACHER-READS.md): the staff a staff member may start a chat with, named. Empty for anyone else.
+  app.get(`${P}/contacts`, async (request) => {
+    const params = request.params as { tenantId: string };
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth }) =>
+      listStaffChatContacts(tx, {
+        tenantId: params.tenantId,
+        userId: auth.user.id,
+        callerRole: auth.authz.membership?.role ?? null,
+        page,
       }),
     );
   });
