@@ -41,3 +41,4 @@ export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayReadItems, type My
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
+export { feeTotalsFromInvoices } from "./adminOverviewApi";

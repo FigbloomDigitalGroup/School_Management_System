@@ -1,3 +1,5 @@
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { receiptRef } from "./fees";
 import { fetchAllPages } from "./paging";
 import { bytesToHex, sha256, utf8Bytes } from "./sha256";
@@ -225,6 +227,7 @@ export async function fetchDocumentSignatures(kind: SignedDocKind, ids: string[]
 }
 
 export async function fetchMySignatureRequests(): Promise<SignatureRequest[]> {
+  if (onApi()) throw new NotOnApiError("Document signatures");
   const { data, error } = await supabase().rpc("my_signature_requests");
   if (error) throw new Error(error.message);
   return ((data ?? []) as {

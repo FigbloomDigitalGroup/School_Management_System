@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ADMIN_AREA_INFO, ADMIN_AREA_PAGES, maySeeSignOutList, pageIsNotForInstitution, fetchRegisterDays, fetchSessionEntries, fetchSignOutDays,
+  ADMIN_AREA_INFO, ADMIN_AREA_PAGES, maySeeSignOutList, medicalCapabilities, pageIsNotForInstitution, fetchRegisterDays, fetchSessionEntries, fetchSignOutDays,
   type AdminArea, type ClassGroup,
 } from "@figbloom/shared";
 import { EarlySignOutList } from "../../components/attendance/EarlySignOutList";
@@ -24,11 +24,13 @@ import { OverdueMedication } from "../../components/medical/common";
  * attendance area has no page of its own, so its work is here: every
  * class's latest register, each one open to correct.
  */
-export function AreasHome() {
+export function AreasHome({ allowedPages }: { allowedPages?: readonly string[] } = {}) {
   const { profile, tenant, adminAreas } = useTenantSession();
   const online = tenant.delivery_mode === "online";
   const pagesFor = (area: AdminArea) => ADMIN_AREA_PAGES[area].filter((p) =>
-    !pageIsNotForInstitution(p.to, tenant.institution_type) && !(online && p.to === "admin/fleet"));
+    !pageIsNotForInstitution(p.to, tenant.institution_type)
+    && !(online && p.to === "admin/fleet")
+    && (!allowedPages || allowedPages.includes(p.to)));
   // Bumped when the attendance settings are saved, so the registers below follow the new setting at once.
   const [settingsVersion, setSettingsVersion] = useState(0);
 
@@ -41,22 +43,28 @@ export function AreasHome() {
       />
       <div className="px-7 py-6">
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
-          {adminAreas.map((area) => (
-            <section key={area} className="rounded-lg border border-line bg-white p-4">
-              <h2 className="text-body font-semibold">{ADMIN_AREA_INFO[area].label}</h2>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">{ADMIN_AREA_INFO[area].allows}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {pagesFor(area).map((p) => (
-                  <Link key={p.to} to={`/s/${tenant.slug}/${p.to}`} className="rounded-md border border-line px-2.5 py-1 text-[12.5px] font-semibold text-forest hover:bg-sunken">
-                    {p.label}
-                  </Link>
-                ))}
-                {area === "attendance" && <span className="text-[12px] text-ink-faint">Registers are below.</span>}
-              </div>
-            </section>
-          ))}
+          {adminAreas.map((area) => {
+            const areaPages = pagesFor(area);
+            return (
+              <section key={area} className="rounded-lg border border-line bg-white p-4">
+                <h2 className="text-body font-semibold">{ADMIN_AREA_INFO[area].label}</h2>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">{ADMIN_AREA_INFO[area].allows}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {areaPages.map((p) => (
+                    <Link key={p.to} to={`/s/${tenant.slug}/${p.to}`} className="rounded-md border border-line px-2.5 py-1 text-[12.5px] font-semibold text-forest hover:bg-sunken">
+                      {p.label}
+                    </Link>
+                  ))}
+                  {area === "attendance" && <span className="text-[12px] text-ink-faint">Registers are below.</span>}
+                  {allowedPages && areaPages.length === 0 && area !== "attendance" && (
+                    <span className="text-[12px] text-ink-faint">Not on the new system yet.</span>
+                  )}
+                </div>
+              </section>
+            );
+          })}
         </div>
-        {adminAreas.includes("medical") && <div className="mt-5"><OverdueMedication tenantId={tenant.id} slug={tenant.slug} compact /></div>}
+        {adminAreas.includes("medical") && medicalCapabilities().medicationRound && <div className="mt-5"><OverdueMedication tenantId={tenant.id} slug={tenant.slug} compact /></div>}
         {maySeeSignOutList(adminAreas) && <EarlySignOutList tenantId={tenant.id} />}
         {adminAreas.includes("attendance") && <LatestRegisters tenantId={tenant.id} settingsVersion={settingsVersion} />}
         {adminAreas.includes("attendance") && <PmMissingReport tenantId={tenant.id} />}

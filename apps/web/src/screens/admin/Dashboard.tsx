@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  fetchOverviewBasics, formatMoney, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
+  dashboardCapabilities, fetchOverviewBasics, formatMoney, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
   remindClassTeacher, today,
   type ClassGroup, type FeeTotals, type Term,
 } from "@figbloom/shared";
@@ -90,6 +90,7 @@ async function fetchDashboard(tenantId: string, timeZone?: string): Promise<Dash
  */
 export function AdminDashboard() {
   const { profile, tenant } = useTenantSession();
+  const caps = dashboardCapabilities();
   const toast = useToast();
   // Bumped when the attendance settings are saved, so the badges and figures follow the new setting at once.
   const [settingsVersion, setSettingsVersion] = useState(0);
@@ -157,7 +158,7 @@ export function AdminDashboard() {
       />
 
       <div className="px-7 py-6">
-        <PendingSignatures />
+        {caps.pendingSignatures && <PendingSignatures />}
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the dashboard: {error.message}
@@ -280,7 +281,7 @@ export function AdminDashboard() {
               </ul>
             </section>
 
-            <CoverageCard />
+            {caps.periodCoverage && <CoverageCard />}
 
             <section className="overflow-hidden rounded-lg border border-line">
               <header className="border-b border-line px-4 py-3"><h2 className="text-body font-semibold">Fee collection · this term</h2></header>

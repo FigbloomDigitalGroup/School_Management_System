@@ -707,3 +707,18 @@ const ORG_ON_API: OrgCapabilities = {
 export function orgCapabilities(): OrgCapabilities {
   return onApi() ? ORG_ON_API : ORG_ON_SUPABASE;
 }
+
+/** The admin home screens (admin: AdminDashboard and AreasHome). */
+export interface DashboardCapabilities {
+  /** "Waiting for your signature" banner on AdminDashboard (signatures wait on C12 / FIG-1880). */
+  pendingSignatures: boolean;
+  /** "Needs cover this week" card on AdminDashboard (per-period cover for approved leave has no API counterpart; finding 44). */
+  periodCoverage: boolean;
+}
+
+const DASHBOARD_ON_SUPABASE: DashboardCapabilities = { pendingSignatures: true, periodCoverage: true };
+const DASHBOARD_ON_API: DashboardCapabilities = { pendingSignatures: false, periodCoverage: false };
+
+export function dashboardCapabilities(): DashboardCapabilities {
+  return onApi() ? DASHBOARD_ON_API : DASHBOARD_ON_SUPABASE;
+}
