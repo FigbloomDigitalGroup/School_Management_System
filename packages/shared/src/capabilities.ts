@@ -793,6 +793,14 @@ export function materialsCapabilities(): MaterialsCapabilities {
   return onApi() ? MATERIALS_ON_API : MATERIALS_ON_SUPABASE;
 }
 
+/**
+ * Whether the signed-in person may read and add learning materials on `teacher/materials` (`GET/POST /learning-materials`
+ * require `resource.academics.read` / `resource.academics.write`, held by school admins and holders of the Academics area).
+ */
+export function canManageMaterials(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("academics");
+}
+
 /** Gate & reception visitor log (admin/visitors, later teacher/visitors and staff/visitors). */
 export interface VisitorsCapabilities {
   /** Escalating an existing visit to the principal's office after arrival (API escalates principal visits on creation only). */

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initBackend } from "../backend";
-import { NotOnApiError, materialsCapabilities } from "../capabilities";
+import { NotOnApiError, canManageMaterials, materialsCapabilities } from "../capabilities";
 import {
   createLearningMaterial, createMaterial, deleteMaterial, fetchMaterials, setMaterialPublished, updateMaterial,
 } from "../materials";
@@ -120,5 +120,14 @@ describe("materialsCapabilities and NotOnApiError guards", () => {
       .rejects.toThrow(NotOnApiError);
     await expect(setMaterialPublished("m1", true)).rejects.toThrow(NotOnApiError);
     await expect(deleteMaterial({ id: "m1", filePath: null })).rejects.toThrow(NotOnApiError);
+  });
+
+  it("checks canManageMaterials on Supabase vs API", () => {
+    expect(canManageMaterials([], "teacher")).toBe(true);
+
+    initBackend({ kind: "api", apiUrl: BASE });
+    expect(canManageMaterials([], "teacher")).toBe(false);
+    expect(canManageMaterials(["academics"], "teacher")).toBe(true);
+    expect(canManageMaterials([], "school_admin")).toBe(true);
   });
 });

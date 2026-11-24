@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  MATERIAL_KIND_LABEL, createLearningMaterial, createMaterial, deleteMaterial, fetchMaterials, fetchMyTeachingPairs, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, fileProblem, formatFileSize, formatShortDate, kindForLink, localIsoDate, kindForMime, materialFilePath, materialsCapabilities, mediaSummary,
+  MATERIAL_KIND_LABEL, canManageMaterials, createLearningMaterial, createMaterial, deleteMaterial, fetchHomeworkSubjectsForClass, fetchMaterials, fetchMyTeachingPairs, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
+  fileProblem, formatFileSize, formatShortDate, kindForLink, localIsoDate, kindForMime, materialFilePath, materialsCapabilities, mediaSummary,
   mimeForFile, setMaterialPublished, updateMaterial, validateLink, validateMaterial,
   type MaterialRow,
 } from "@figbloom/shared";
@@ -38,8 +38,9 @@ interface Scope {
  */
 export function LearningMaterials({ admin = false }: { admin?: boolean }) {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas } = useTenantSession();
   const caps = materialsCapabilities();
+  const mayManage = admin || canManageMaterials(adminAreas, profile.role);
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState<{ material?: MaterialRow } | null>(null);
   const [viewing, setViewing] = useState<MaterialRow | null>(null);
@@ -52,14 +53,15 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
       }
     : {
         classes: () => fetchTeacherClasses(profile.id),
-        subjectsFor: (classId: string) => fetchTeacherSubjectsForClass(profile.id, classId),
+        subjectsFor: (classId: string) => fetchHomeworkSubjectsForClass(profile.id, classId),
       }, [admin, tenant.id, profile.id]);
 
-  const { data: classes } = useAsync(() => scope.classes(), [scope]);
+  const { data: classes } = useAsync(() => (mayManage ? scope.classes() : Promise.resolve([])), [scope, mayManage]);
   const { data, loading, error } = useAsync(async () => {
+    if (!mayManage) return [] as MaterialRow[];
     const [all, pairs] = await Promise.all([fetchMaterials(tenant.id), admin ? Promise.resolve(null) : fetchMyTeachingPairs(profile.id)]);
     return pairs ? all.filter((m) => pairs.has(`${m.classId}:${m.subjectId}`)) : all;
-  }, [tenant.id, profile.id, admin, reloadKey]);
+  }, [tenant.id, profile.id, admin, mayManage, reloadKey]);
 
   const materials = data ?? [];
 
@@ -94,12 +96,21 @@ export function LearningMaterials({ admin = false }: { admin?: boolean }) {
           ? (caps.filesAndLinks
               ? "Notes, worksheets, videos and links shared with every class in the school. Learners and parents see what's published."
               : "Learning material entries shared with classes in the school. File uploads and external links are not on the new system yet.")
-          : "Share notes, worksheets, videos and links with a class you teach. Learners and their parents see them once you publish."}
-        actions={<Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>Add material</Button>}
+          : (caps.filesAndLinks
+              ? "Share notes, worksheets, videos and links with a class you teach. Learners and their parents see them once you publish."
+              : "Learning material entries for classes you teach. File uploads and external links are not on the new system yet.")}
+        actions={mayManage ? <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>Add material</Button> : undefined}
       />
 
       <div className="px-7 py-6">
-        {error ? (
+        {!mayManage ? (
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState
+              title="Teachers can't post learning materials here yet."
+              body="On the new system only the school office, or a teacher given the Academics area, can read or post learning materials. Ask the school office for the Academics area."
+            />
+          </div>
+        ) : error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the materials: {error.message}
           </p>

@@ -1,12 +1,12 @@
-# Learning materials (`admin/materials`)
+# Learning materials (`admin/materials`, `teacher/materials`)
 
 Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains why each area has its own file.
 
-Pages: `admin/materials` (`LearningMaterials admin`). Capability flags: `materialsCapabilities()` in `packages/shared/src/capabilities.ts`. The API side is `packages/shared/src/api/materialsApi.ts`, registered in `apps/web/src/api/pages/materials.pages.tsx`.
+Pages: `admin/materials` (`LearningMaterials admin`) and `teacher/materials` (`LearningMaterials`). Capability flags: `materialsCapabilities()` and `canManageMaterials()` in `packages/shared/src/capabilities.ts`. The API side is `packages/shared/src/api/materialsApi.ts`, registered in `apps/web/src/api/pages/materials.pages.tsx`.
 
 ## What works
 
-- **List learning materials:** reads `GET /v1/tenants/{tenantId}/learning-materials` across pages and resolves class and subject names (`listClassesOrEmpty`, `listApiSubjects`), showing title, description preview, class, subject, and added date.
+- **List learning materials:** reads `GET /v1/tenants/{tenantId}/learning-materials` across pages and resolves class and subject names (`listClassesOrEmpty`, `listApiSubjects`), showing title, description preview, class, subject, and added date. In teacher view (`teacher/materials`), `fetchMyTeachingPairs` (via `GET /staff/me` and `GET /teaching-assignments`) filters materials to classes and subjects the teacher is assigned to teach.
 - **View material details:** opens the modal showing the material's title, class/subject eyebrow, and full description text.
 - **Add learning material metadata:** `POST /v1/tenants/{tenantId}/learning-materials` with class, subject, title, and optional description.
 
@@ -14,6 +14,7 @@ Pages: `admin/materials` (`LearningMaterials admin`). Capability flags: `materia
 
 | Hidden on the API build | Missing in the API |
 |---|---|
+| Plain teachers without Academics area (`teacher/materials`) | `GET/POST /v1/tenants/{tenantId}/learning-materials` require `resource.academics.read` / `resource.academics.write` |
 | File uploads and external links (`Upload a file`, `Paste a link`, `MediaPlayer`) | `POST /learning-materials` registers metadata only (`storage_status: "metadata_only"` — no file storage or URL field) |
 | Draft / publish / unpublish workflow | `POST /learning-materials` creates live entries immediately |
 | Edit and delete actions | No `PATCH` or `DELETE /learning-materials/{materialId}` endpoints |
