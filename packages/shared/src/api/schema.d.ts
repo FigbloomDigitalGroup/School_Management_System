@@ -997,6 +997,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/org/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The organizations the caller administers, every status (S11)
+         * @description Only the caller's own org_admin memberships, including suspended, pending and rejected organizations, so a client can say so instead of hiding one. Requires org.tenants.read. SQL keyset-paginated: order is `name, id` with `COLLATE "C"`; the cursor carries the last organization's id. See docs/ORG-CONSOLE.md.
+         */
+        get: operations["listMyOrganizations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/org/organizations/{organizationId}/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The org admins of one organization the caller administers (S11)
+         * @description Requires org.admins.read and an org_admin membership of this organization, which must be active. Another organization, an unknown id and a non-active organization all answer the same 403. Returns the name, sign-in e-mail, account status and since-when of each admin; no other contact field. Keyset-paginated on the membership's `(created_at, id)`.
+         */
+        get: operations["listOrgAdmins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/org/organizations/{organizationId}/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's own audit events about one organization they administer (S11)
+         * @description Requires org.audit.read and an org_admin membership of this active organization (otherwise the same 403 as the admins list). Only events the caller caused: in one of the organization's schools, or naming the organization (delegation grants, revokes and refusals). Never another person's events, never the IP address. Newest first, keyset-paginated on `(occurred_at, id)`. Read through the SECURITY DEFINER function `org_my_audit_events` (migration 105); the runtime role has no SELECT on the audit table.
+         */
+        get: operations["listMyOrgAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/rbac/org-delegations": {
         parameters: {
             query?: never;
@@ -5343,6 +5403,54 @@ export interface components {
                 organizationId: string;
                 organizationName?: string;
                 organizationSlug?: string;
+            }[];
+            page: components["schemas"]["PageInfo"];
+        };
+        MyOrganizationList: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                slug: string;
+                /** @enum {string} */
+                kind: "government" | "county" | "constituency" | "group_owner";
+                /** @enum {string} */
+                status: "pending" | "active" | "suspended" | "rejected";
+            }[];
+            page: components["schemas"]["PageInfo"];
+        };
+        OrgAdminList: {
+            /** Format: uuid */
+            organizationId: string;
+            items: {
+                /** Format: uuid */
+                userId: string;
+                fullName: string;
+                email: string | null;
+                /** @enum {string} */
+                status: "active" | "disabled" | "invited";
+                /** @description When the person became an admin of this organization (UTC, microseconds). */
+                since: string;
+                isYou: boolean;
+            }[];
+            page: components["schemas"]["PageInfo"];
+        };
+        OrgAuditEventList: {
+            /** Format: uuid */
+            organizationId: string;
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** @description UTC, microseconds. */
+                occurredAt: string;
+                eventType: string;
+                /** Format: uuid */
+                schoolId: string | null;
+                schoolName: string | null;
+                /** @description The event's own detail as recorded (never token or password material). */
+                detail: {
+                    [key: string]: unknown;
+                };
             }[];
             page: components["schemas"]["PageInfo"];
         };
@@ -10371,6 +10479,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrgSchoolList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMyOrganizations: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's organizations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyOrganizationList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listOrgAdmins: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path: {
+                organizationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's administrators */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgAdminList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMyOrgAuditEvents: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path: {
+                organizationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's audit events in this organization */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgAuditEventList"];
                 };
             };
             400: components["responses"]["ValidationError"];

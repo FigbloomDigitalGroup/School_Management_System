@@ -97,3 +97,9 @@ Grants (catalog-verified by `grants.matrix`): `jobs` has no table-level grant fo
 | Function | Owner / mode | Execute | Notes |
 |---|---|---|---|
 | `family_my_children()` | DEFINER (099), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | no argument: user and school come from `app_current_user_id()` / `app_current_tenant_id()`. Returns `(learner_id, guardian_id, relationship, is_primary_payer)` only while the account link is live, the account active, the caller a parent member of a school that is not suspended, the guardian record active, the relationship live and the learner active. The single source of "my child" for every family read and for `assertMayPayFor` |
+
+## Addendum 2026-11-24 — migration 105 (org console reads, `docs/ORG-CONSOLE.md`)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `org_my_audit_events(uuid, timestamptz, uuid, integer)` | DEFINER (105), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the only read of `security_audit_events` (still no `SELECT` grant). No actor argument: the actor is `app_current_user_id()`, set by `withIdentityUserScope` from the verified session. Raises 42501 unless the actor is an `org_admin` of the given organisation and it is `active`. Returns only the actor's own events in that organisation's schools or naming it in `detail.organizationId`; never the `ip` column; newest first, keyset `(occurred_at, id)`, at most 201 rows |
