@@ -293,3 +293,56 @@ export function noticesCapabilities(): NoticesCapabilities {
 export function canMessageClasses(adminAreas: readonly string[]): boolean {
   return !onApi() || adminAreas.includes("communication");
 }
+
+/** Exams and marks: the admin Exams page, the teacher Gradebook, Performance and Reports. */
+export interface GradesCapabilities {
+  /** Rename an exam (the API has no change for an assessment's title). */
+  renameExam: boolean;
+  /** Delete an exam (the API has no delete for an assessment). */
+  deleteExam: boolean;
+  /** "Marks entered" on each exam of the Exams page (an assessment carries no mark count). */
+  examMarkCounts: boolean;
+  /** Take published marks back to draft (on the API a publication is final). */
+  withdrawResults: boolean;
+  /** Change a mark after it was published (the API takes a recorded correction with a reason instead). */
+  editPublishedMarks: boolean;
+  /** The CBE strand gradebook (a subject has no learning area on the API, so its strands cannot be found). */
+  cbeGradebook: boolean;
+  /** The higher-education gradebook (a section's assessments and marks; the API has one final grade per enrolment). */
+  gpaGradebook: boolean;
+  /** The CBE rubric charts and band tables of Performance and Reports. */
+  cbeReports: boolean;
+  /** API only: an exam is made of one paper per class and subject, each with its own status; the Exams page lists them and publishes them. */
+  examPapers: boolean;
+  /** API only: a mark may have decimals (the exam's `max_score` is a number, up to 10,000). */
+  fractionalMarks: boolean;
+}
+
+const GRADES_ON_SUPABASE: GradesCapabilities = {
+  renameExam: true, deleteExam: true, examMarkCounts: true, withdrawResults: true, editPublishedMarks: true,
+  cbeGradebook: true, gpaGradebook: true, cbeReports: true, examPapers: false, fractionalMarks: false,
+};
+
+const GRADES_ON_API: GradesCapabilities = {
+  renameExam: false, deleteExam: false, examMarkCounts: false, withdrawResults: false, editPublishedMarks: false,
+  cbeGradebook: false, gpaGradebook: false, cbeReports: false, examPapers: true, fractionalMarks: true,
+};
+
+export function gradesCapabilities(): GradesCapabilities {
+  return onApi() ? GRADES_ON_API : GRADES_ON_SUPABASE;
+}
+
+/**
+ * What the signed-in person may do with grades on this backend, from what the API lets them read (a plain teacher reads far less
+ * than a school admin). On Supabase everyone may do everything the screens offer.
+ */
+export interface GradesAccess {
+  /** The Gradebook needs the school's terms, subjects, learners and the class's assessments. */
+  gradebook: boolean;
+  /** Said to the person when `gradebook` is false. */
+  gradebookReason: string | null;
+  /** Publish and close an exam's papers (the API holds this to the Academics area). */
+  publish: boolean;
+}
+
+export const FULL_GRADES_ACCESS: GradesAccess = { gradebook: true, gradebookReason: null, publish: true };
