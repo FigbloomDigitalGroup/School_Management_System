@@ -17,6 +17,7 @@ import { ApiOverview, type SchoolSession } from "./ApiOverview";
 const People = lazy(() => import("../screens/admin/People").then((m) => ({ default: m.People })));
 const AdminLeave = lazy(() => import("../screens/admin/Leave").then((m) => ({ default: m.AdminLeave })));
 const TeacherLeave = lazy(() => import("../screens/teacher/Leave").then((m) => ({ default: m.TeacherLeave })));
+const ReportCards = lazy(() => import("../screens/admin/ReportCards").then((m) => ({ default: m.ReportCards })));
 
 const pageFallback = (
   <div className="space-y-3 p-8">
@@ -31,11 +32,11 @@ const pageFallback = (
  * hidden, and its address sends the person back to the Dashboard.
  */
 export const API_ADMIN_PAGES = [
-  "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/leave",
+  "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/leave", "admin/report-cards",
 ] as const;
 
 /** Teacher pages available on the API build (FIG-1891). */
-export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave"] as const;
+export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/report-cards"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -80,6 +81,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
           <Route path="teacher" element={tPage(<ApiOverview session={session} onSignOut={onSignOut} inShell />)} />
           <Route path="teacher/attendance" element={tPage(<TeacherAttendance />)} />
           <Route path="teacher/leave" element={tPage(<Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+          <Route path="teacher/report-cards" element={tPage(<Suspense fallback={pageFallback}><ReportCards teacher /></Suspense>)} />
           <Route path="*" element={<Navigate to={teacherHome} replace />} />
         </Routes>
       );
@@ -99,9 +101,11 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
       <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/leave" element={page("admin/leave", <Suspense fallback={pageFallback}><AdminLeave /></Suspense>)} />
+      <Route path="admin/report-cards" element={page("admin/report-cards", <Suspense fallback={pageFallback}><ReportCards /></Suspense>)} />
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/leave" element={page("admin", <Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+      <Route path="teacher/report-cards" element={page("admin", <Suspense fallback={pageFallback}><ReportCards teacher /></Suspense>)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
