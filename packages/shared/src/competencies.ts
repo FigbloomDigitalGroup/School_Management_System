@@ -1,6 +1,4 @@
 import { supabase } from "./supabase";
-import { onApi } from "./backend";
-import { apiFetchCompetencyRatings, apiSaveCompetencyRating } from "./api/reportCardsApi";
 import { CBC_RUBRIC_4 } from "./gradingSchemes";
 
 /**
@@ -65,7 +63,6 @@ export function ratedCount(levels: Map<string, string> | undefined): number {
 
 /** Every rating for these learners in a term: student id -> (kind:code -> level). */
 export async function fetchCompetencyRatings(termId: string, studentIds: string[]): Promise<Map<string, Map<string, string>>> {
-  if (onApi()) return apiFetchCompetencyRatings(termId, studentIds);
   const out = new Map<string, Map<string, string>>();
   if (!studentIds.length) return out;
   const { data, error } = await supabase().from("learner_competencies")
@@ -84,7 +81,6 @@ export async function fetchCompetencyRatings(termId: string, studentIds: string[
 export async function saveCompetencyRating(
   tenantId: string, termId: string, studentId: string, kind: CompetencyKind, item: string, level: string | null,
 ): Promise<void> {
-  if (onApi()) return apiSaveCompetencyRating(tenantId, termId, studentId, kind, item, level);
   if (level === null) {
     const { error } = await supabase().from("learner_competencies").delete()
       .eq("term_id", termId).eq("student_id", studentId).eq("kind", kind).eq("item", item);

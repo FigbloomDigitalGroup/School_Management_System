@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  COMPETENCY_ITEMS, COMPETENCY_LEVELS, competencyKey, fetchClassRoster, fetchCompetencyRatings, ratedCount, reportCardsCapabilities, saveCompetencyRating,
+  COMPETENCY_ITEMS, COMPETENCY_LEVELS, competencyKey, fetchClassRoster, fetchCompetencyRatings, ratedCount, saveCompetencyRating,
 } from "@figbloom/shared";
 import { SelectField } from "./ui/Field";
 import { TableSkeleton } from "./ui/Skeleton";
@@ -14,10 +14,7 @@ import { useAsync } from "../lib/useAsync";
  * the chosen level again clears it. The ratings go onto report cards the
  * next time the class is prepared.
  */
-export function CompetencyRatings({
-  tenantId, termId, classId, readOnly = false,
-}: { tenantId: string; termId: string; classId: string; readOnly?: boolean }) {
-  const caps = reportCardsCapabilities();
+export function CompetencyRatings({ tenantId, termId, classId }: { tenantId: string; termId: string; classId: string }) {
   const toast = useToast();
   const [itemKey, setItemKey] = useState(competencyKey(COMPETENCY_ITEMS[0]!.kind, COMPETENCY_ITEMS[0]!.code));
   const [levels, setLevels] = useState<Map<string, Map<string, string>> | null>(null);
@@ -35,9 +32,7 @@ export function CompetencyRatings({
   const ratedHere = learners.filter((l) => levels?.get(l.id)?.has(itemKey)).length;
 
   async function rate(studentId: string, level: string) {
-    if (readOnly) return;
     const current = levels?.get(studentId)?.get(itemKey) ?? null;
-    if (current === level && !caps.clearCompetencyRating) return;
     const next = current === level ? null : level;
     const update = (value: string | null) => setLevels((prev) => {
       const copy = new Map(prev ?? []);
@@ -62,9 +57,7 @@ export function CompetencyRatings({
     <section className="rounded-lg border border-line bg-white p-4">
       <h2 className="text-[14px] font-semibold">Core competencies and values</h2>
       <p className="mt-0.5 text-[12px] text-ink-faint">
-        {readOnly
-          ? "View each learner's core competency and value ratings. Only staff with Academics access can change ratings on the new system."
-          : "Rate each learner on the rubric, one item at a time. Ratings appear on report cards the next time the class is published."}
+        Rate each learner on the rubric, one item at a time. Ratings appear on report cards the next time the class is prepared.
       </p>
       <div className="mt-3 max-w-[420px]">
         <SelectField
@@ -104,7 +97,7 @@ export function CompetencyRatings({
                         type="button"
                         title={lv.label}
                         aria-pressed={chosen === lv.code}
-                        disabled={readOnly || saving === l.id}
+                        disabled={saving === l.id}
                         onClick={() => rate(l.id, lv.code)}
                         className={`h-8 w-11 rounded-md border text-[12px] font-semibold transition-colors ${
                           chosen === lv.code ? "border-accent bg-accent text-white" : "border-line bg-white text-ink-soft hover:border-accent"

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   AI_COMMENT_BATCH, chunk, draftReportComments, learnerForAi,
-  apiCanWriteCompetencyRatings, apiPublishClassReportCard, onApi, reportCardsCapabilities,
   defaultReportCardOptions, fetchClassReportCards, fetchReportCardSetup, fetchTermExams, fetchUnpublishedMarks, gradingSchemeFor, rubricFor,
   prepareClassReportCards, reportCardFileName, saveReportCardComments, saveReportCards, saveTeacherComment,
   setReportCardsPublished, suggestComment, type ReportCardOptions, type StoredReportCard,
@@ -31,7 +30,6 @@ import { confirmDialog } from "../../components/ui/Confirm";
  * can't prepare or publish.
  */
 export function ReportCards({ teacher = false }: { teacher?: boolean }) {
-  const caps = reportCardsCapabilities();
   const toast = useToast();
   const { tenant, profile } = useTenantSession();
   const [termId, setTermId] = useState("");
@@ -46,10 +44,6 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   const setup = useAsync(() => fetchReportCardSetup(tenant.id, teacher ? profile.id : undefined), [tenant.id, teacher, profile.id]);
   const terms = setup.data?.terms ?? [];
   const classes = setup.data?.classes ?? [];
-  const canRateCompetencies = useAsync(
-    () => (onApi() ? apiCanWriteCompetencyRatings(tenant.id) : Promise.resolve(true)),
-    [tenant.id],
-  );
 
   // Start on the current term and the first class.
   useEffect(() => {
@@ -76,10 +70,9 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
 
   // A card counts only the marks published to the class for that subject (FIG-1388), like the family's Results screen. These are the marks
   // the class has entered but not published, which the cards leave off: listed here so the office can ask for them to be published first.
-  const unpublishedExamIds = caps.selectExamsAndOptions ? (examIds ?? []) : (exams.data ?? []).map((e) => e.id);
   const unpublished = useAsync(
-    () => (classId && unpublishedExamIds.length ? fetchUnpublishedMarks(classId, unpublishedExamIds) : Promise.resolve([])),
-    [classId, unpublishedExamIds.join(","), reloadKey],
+    () => (classId && examIds?.length ? fetchUnpublishedMarks(classId, examIds) : Promise.resolve([])),
+    [classId, (examIds ?? []).join(","), reloadKey],
   );
   const leftOff = (() => {
     const bySubject = new Map<string, string[]>();
@@ -98,10 +91,7 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   // The office signs as principal, a class teacher as class teacher; both
   // are stamped on the PDF while the card is unchanged since signing.
   const capacity = teacher ? "class_teacher" : "principal";
-  const sigs = useAsync(
-    () => (caps.signatures && rows.length ? fetchDocumentSignatures("report_card", rows.map((c) => c.id)) : Promise.resolve([] as StoredSignature[])),
-    [caps.signatures, cards.data, reloadKey],
-  );
+  const sigs = useAsync(() => fetchDocumentSignatures("report_card", rows.map((c) => c.id)), [cards.data, reloadKey]);
   const signatures: StoredSignature[] = sigs.data ?? [];
   const unsigned = rows.filter((c) => !signatureFor(signatures, c.id, capacity, { currentOnly: true }));
 
@@ -113,15 +103,6 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
   }
 
   const prepare = () => run("prepare", async () => {
-    if (!caps.draftWorkflow) {
-      if (!termId || !classId) return;
-      const { learnerCount } = await apiPublishClassReportCard(tenant.id, termId, classId);
-      toast(learnerCount
-        ? `Report cards published for ${learnerCount} learner${learnerCount === 1 ? "" : "s"}.`
-        : "Published. No learners had published marks, CBE results, or competency ratings in this class yet.");
-      setReloadKey((k) => k + 1);
-      return;
-    }
     if (!options || !examIds) return;
     const prepared = await prepareClassReportCards({
       tenantId: tenant.id,
@@ -136,7 +117,7 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
     setReloadKey((k) => k + 1);
   });
 
-  const ai = useAiStatus(caps.aiComments);
+  const ai = useAiStatus();
 
   // Bloom (AI) drafts the empty comment boxes on cards not yet sent. They stay drafts
   // until someone reads them and sends the class.
@@ -217,12 +198,8 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
         eyebrow={term ? `Report cards · ${term.name.toLowerCase()}` : "Report cards"}
         title="Report cards"
         blurb={teacher
-          ? (caps.comments
-            ? "Your class's report cards for the term. Write the class teacher's comment for each learner and download them. The office prepares and sends them to families."
-            : "Your class's published report cards for the term. Download individual cards or the class results sheet. The office publishes report cards.")
-          : (caps.draftWorkflow
-            ? "Prepare a class's report cards from the term's exams, add comments, download them to print, and send them to families, who can then download their own from Results."
-            : "Publish a class's report cards from the term's published assessments, CBE results, and competency ratings, and download PDFs to print.")}
+          ? "Your class's report cards for the term. Write the class teacher's comment for each learner and download them. The office prepares and sends them to families."
+          : "Prepare a class's report cards from the term's exams, add comments, download them to print, and send them to families, who can then download their own from Results."}
         actions={rows.length ? (
           <div className="flex flex-wrap gap-2">
             <Button disabled={!!busy} onClick={() => download(rows, "sheet")}>{busy === "sheet" ? "Preparing…" : "Results sheet (PDF)"}</Button>
@@ -247,100 +224,63 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
               <SelectField id="rc-class" label="Class" value={classId} onChange={(e) => setClassId(e.target.value)} options={classes.map((c) => ({ value: c.id, label: c.name }))} />
             </div>
 
-            {!terms.length && (
-              <p className="rounded-lg border border-line bg-white px-4 py-4 text-[13px] text-ink-faint">
-                {teacher
-                  ? "No terms are available to your account yet, or no report cards have been published for your classes."
-                  : "Start a term in School settings first."}
-              </p>
-            )}
-
-            {!teacher && options && terms.length > 0 && (
+            {!teacher && options && (
               <section className="rounded-lg border border-line bg-white p-4">
-                <h2 className="text-[14px] font-semibold">
-                  {caps.draftWorkflow
-                    ? (rows.length ? "Prepare again" : "Prepare this class")
-                    : (rows.length ? "Publish again" : "Publish this class")}
-                </h2>
+                <h2 className="text-[14px] font-semibold">{rows.length ? "Prepare again" : "Prepare this class"}</h2>
                 <p className="mt-0.5 text-[12px] text-ink-faint">
-                  {caps.selectExamsAndOptions
-                    ? "Each subject shows a column per exam and the average of the exams a learner sat. Preparing again updates the drafts and keeps comments; cards already sent to families stay as they were."
-                    : "Publishes a report-card snapshot from every published assessment, published CBE assessment, and competency rating for this class and term."}
+                  Each subject shows a column per exam and the average of the exams a learner sat. Preparing again updates the drafts and keeps comments; cards already sent to families stay as they were.
                 </p>
-                {caps.selectExamsAndOptions && (
-                  <>
-                    <div className="mt-3 text-[12px] font-medium text-ink-soft">Exams that count</div>
-                    {exams.loading ? <p className="mt-1 text-[12.5px] text-ink-faint">Loading exams…</p> : !(exams.data ?? []).length ? (
-                      <p className="mt-1 text-[12.5px] text-ink-faint">
-                        {isCbe ? "No exams this term. The report cards will carry this term's published CBE assessments and the core competencies." : "No exams this term. Set them up under Exams."}
-                      </p>
-                    ) : (
-                      <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-2">
-                        {(exams.data ?? []).map((e) => (
-                          <label key={e.id} className="flex items-center gap-2 text-[13px]">
-                            <input type="checkbox" style={{ accentColor: "#17402A" }} checked={examIds?.includes(e.id) ?? false}
-                              onChange={(ev) => setExamIds((ids) => ev.target.checked ? [...(ids ?? []), e.id] : (ids ?? []).filter((x) => x !== e.id))} />
-                            {e.name}{!e.published && <span className="text-[11px] text-ink-faint">(no results out)</span>}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </>
+                <div className="mt-3 text-[12px] font-medium text-ink-soft">Exams that count</div>
+                {exams.loading ? <p className="mt-1 text-[12.5px] text-ink-faint">Loading exams…</p> : !(exams.data ?? []).length ? (
+                  <p className="mt-1 text-[12.5px] text-ink-faint">
+                    {isCbe ? "No exams this term. The report cards will carry this term's published CBE assessments and the core competencies." : "No exams this term. Set them up under Exams."}
+                  </p>
+                ) : (
+                  <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-2">
+                    {(exams.data ?? []).map((e) => (
+                      <label key={e.id} className="flex items-center gap-2 text-[13px]">
+                        <input type="checkbox" style={{ accentColor: "#17402A" }} checked={examIds?.includes(e.id) ?? false}
+                          onChange={(ev) => setExamIds((ids) => ev.target.checked ? [...(ids ?? []), e.id] : (ids ?? []).filter((x) => x !== e.id))} />
+                        {e.name}{!e.published && <span className="text-[11px] text-ink-faint">(no results out)</span>}
+                      </label>
+                    ))}
+                  </div>
                 )}
                 {!exams.loading && !unpublished.loading && leftOff.length > 0 && (
                   <p role="note" className="mt-3 rounded-md border border-warn-ink/30 bg-warn-ink/5 px-3 py-2 text-[12px] leading-relaxed text-warn-ink">
-                    Left off these cards, because the marks are not published to this class yet: {leftOff.join(", ")}. Ask the teacher to publish them in the Gradebook, then {caps.draftWorkflow ? "prepare" : "publish"} again.
+                    Left off these cards, because the marks are not published to this class yet: {leftOff.join(", ")}. Ask the teacher to publish them in the Gradebook, then prepare again.
                   </p>
                 )}
-                {caps.selectExamsAndOptions && (
-                  <>
-                    <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-2">
-                      {([
-                        ["showPosition", "Position in class"],
-                        ["showAttendance", "Attendance"],
-                        ["showFees", "Fee balance"],
-                        ["showActivities", "Clubs and achievements"],
-                      ] as const).map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2 text-[13px]">
-                          <input type="checkbox" style={{ accentColor: "#17402A" }} checked={options[key]}
-                            onChange={(e) => setOptions({ ...options, [key]: e.target.checked })} />
-                          {label}
-                        </label>
-                      ))}
-                      <div className="w-[190px]">
-                        <TextField id="rc-next-term" label="Next term begins (optional)" type="date" value={options.nextTermBegins ?? ""}
-                          onChange={(e) => setOptions({ ...options, nextTermBegins: e.target.value || null })} />
-                      </div>
-                    </div>
-                    {scheme === "cbc" && options.showPosition && (
-                      <p className="mt-2 text-[11.5px] text-warn-ink">CBC report cards usually leave out position. It's on for this class.</p>
-                    )}
-                  </>
+                <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-2">
+                  {([
+                    ["showPosition", "Position in class"],
+                    ["showAttendance", "Attendance"],
+                    ["showFees", "Fee balance"],
+                    ["showActivities", "Clubs and achievements"],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 text-[13px]">
+                      <input type="checkbox" style={{ accentColor: "#17402A" }} checked={options[key]}
+                        onChange={(e) => setOptions({ ...options, [key]: e.target.checked })} />
+                      {label}
+                    </label>
+                  ))}
+                  <div className="w-[190px]">
+                    <TextField id="rc-next-term" label="Next term begins (optional)" type="date" value={options.nextTermBegins ?? ""}
+                      onChange={(e) => setOptions({ ...options, nextTermBegins: e.target.value || null })} />
+                  </div>
+                </div>
+                {scheme === "cbc" && options.showPosition && (
+                  <p className="mt-2 text-[11.5px] text-warn-ink">CBC report cards usually leave out position. It's on for this class.</p>
                 )}
                 <div className="mt-4">
-                  <Button
-                    variant="accent"
-                    disabled={!!busy || (caps.selectExamsAndOptions ? (exams.loading || (!examIds?.length && !isCbe)) : (!termId || !classId))}
-                    onClick={prepare}
-                  >
-                    {busy === "prepare"
-                      ? (caps.draftWorkflow ? "Preparing…" : "Publishing…")
-                      : caps.draftWorkflow
-                        ? (rows.length ? "Prepare again" : "Prepare report cards")
-                        : (rows.length ? "Publish again" : "Publish report cards")}
+                  <Button variant="accent" disabled={!!busy || exams.loading || (!examIds?.length && !isCbe)} onClick={prepare}>
+                    {busy === "prepare" ? "Preparing…" : rows.length ? "Prepare again" : "Prepare report cards"}
                   </Button>
                 </div>
               </section>
             )}
 
-            {isCbe && termId && (
-              <CompetencyRatings
-                tenantId={tenant.id}
-                termId={termId}
-                classId={classId}
-                readOnly={canRateCompetencies.data === false}
-              />
-            )}
+            {isCbe && termId && <CompetencyRatings tenantId={tenant.id} termId={termId} classId={classId} />}
 
             {cards.error ? (
               <p className="rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">Could not load report cards: {cards.error.message}</p>
@@ -349,35 +289,33 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
             ) : (
               <DataTable
                 title={`${cls?.name ?? "Class"} · ${rows.length} report card${rows.length === 1 ? "" : "s"}`}
-                filters={rows.length && (caps.signatures || (caps.aiComments && ai?.aiEnabled) || (!teacher && (caps.comments || caps.draftWorkflow))) ? (
+                filters={rows.length ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    {caps.signatures && (
-                      <Button disabled={!!busy || !unsigned.length} onClick={() => setSigning(true)}
-                        title={`Sign as ${CAPACITY_LABEL[capacity].toLowerCase()}; the signature and date go on the PDF`}>
-                        {unsigned.length ? `Sign ${unsigned.length} card${unsigned.length === 1 ? "" : "s"}` : "All signed"}
-                      </Button>
-                    )}
-                    {caps.aiComments && ai?.aiEnabled && (
+                    <Button disabled={!!busy || !unsigned.length} onClick={() => setSigning(true)}
+                      title={`Sign as ${CAPACITY_LABEL[capacity].toLowerCase()}; the signature and date go on the PDF`}>
+                      {unsigned.length ? `Sign ${unsigned.length} card${unsigned.length === 1 ? "" : "s"}` : "All signed"}
+                    </Button>
+                    {ai?.aiEnabled && (
                       <Button disabled={!!busy || !drafts.length} onClick={aiComments} title={AI_DRAFT_NOTE}>
                         {busy === "ai" ? "Drafting…" : "Draft comments with Bloom"}
                       </Button>
                     )}
-                    {caps.comments && !teacher && <Button disabled={!!busy || !drafts.length} onClick={fillComments}>{busy === "fill" ? "Filling…" : "Suggest missing comments"}</Button>}
-                    {caps.draftWorkflow && !teacher && drafts.length > 0 && <Button variant="accent" disabled={!!busy} onClick={() => publish(drafts.map((c) => c.id), true)}>Send {drafts.length} to families</Button>}
-                    {caps.draftWorkflow && !teacher && published.length > 0 && <Button disabled={!!busy} onClick={() => publish(published.map((c) => c.id), false)}>Withdraw all</Button>}
+                    {!teacher && <Button disabled={!!busy || !drafts.length} onClick={fillComments}>{busy === "fill" ? "Filling…" : "Suggest missing comments"}</Button>}
+                    {!teacher && drafts.length > 0 && <Button variant="accent" disabled={!!busy} onClick={() => publish(drafts.map((c) => c.id), true)}>Send {drafts.length} to families</Button>}
+                    {!teacher && published.length > 0 && <Button disabled={!!busy} onClick={() => publish(published.map((c) => c.id), false)}>Withdraw all</Button>}
                   </div>
                 ) : undefined}
                 columns={[
-                  { key: "name", header: "Learner", width: "1.5fr", render: (c: StoredReportCard) => <Cell sub={c.data.learner.admissionNo ? `ADM ${c.data.learner.admissionNo}` : undefined}>{c.data.learner.name}</Cell> },
+                  { key: "name", header: "Learner", width: "1.5fr", render: (c: StoredReportCard) => <Cell sub={`ADM ${c.data.learner.admissionNo}`}>{c.data.learner.name}</Cell> },
                   { key: "mean", header: "Mean", align: "right", render: (c: StoredReportCard) => <Mono>{c.data.summary.mean === null ? "–" : `${c.data.summary.mean}%`}</Mono> },
                   { key: "grade", header: "Grade", align: "right", render: (c: StoredReportCard) => <Mono>{c.data.summary.grade ?? "–"}</Mono> },
                   ...(anyPosition ? [{ key: "pos", header: "Position", align: "right" as const, render: (c: StoredReportCard) => <Mono>{c.data.summary.position === null ? "–" : `${c.data.summary.position}/${c.data.summary.ranked}`}</Mono> }] : []),
-                  ...(caps.comments ? [{ key: "comments", header: "Comments", width: "1fr", render: (c: StoredReportCard) => (
+                  { key: "comments", header: "Comments", width: "1fr", render: (c: StoredReportCard) => (
                     <span className="text-[12px] text-ink-faint">
                       {[c.teacherComment && "Class teacher", c.principalComment && "Principal"].filter(Boolean).join(" · ") || "None yet"}
                     </span>
-                  ) }] : []),
-                  ...(caps.signatures ? [{ key: "signed", header: "Signed", width: "1fr", render: (c: StoredReportCard) => {
+                  ) },
+                  { key: "signed", header: "Signed", width: "1fr", render: (c: StoredReportCard) => {
                     const mine = signatures.filter((s) => s.docId === c.id);
                     if (!mine.length) return <span className="text-[12px] text-ink-faint">Not yet</span>;
                     return (
@@ -390,11 +328,11 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                         ))}
                       </span>
                     );
-                  } }] : []),
-                  { key: "status", header: "Status", render: (c: StoredReportCard) => (c.publishedAt ? <Badge tone="ok">{caps.draftWorkflow ? "Sent" : "Published"}</Badge> : <Badge tone="muted">Draft</Badge>) },
+                  } },
+                  { key: "status", header: "Status", render: (c: StoredReportCard) => (c.publishedAt ? <Badge tone="ok">Sent</Badge> : <Badge tone="muted">Draft</Badge>) },
                   { key: "actions", header: "", align: "right", width: "1.3fr", render: (c: StoredReportCard) => (
                     <div className="flex justify-end gap-1.5">
-                      {caps.comments && <Button onClick={() => setCommenting(c)}>Comments</Button>}
+                      <Button onClick={() => setCommenting(c)}>Comments</Button>
                       <Button disabled={!!busy} onClick={() => download([c], "cards")}>PDF</Button>
                     </div>
                   ) },
@@ -402,8 +340,8 @@ export function ReportCards({ teacher = false }: { teacher?: boolean }) {
                 rows={rows}
                 rowKey={(c) => c.id}
                 empty={teacher
-                  ? { title: caps.draftWorkflow ? "Not prepared yet" : "Not published yet", body: caps.draftWorkflow ? "The office hasn't prepared report cards for this class and term yet." : "The office hasn't published report cards for this class and term yet." }
-                  : { title: "No report cards yet", body: caps.selectExamsAndOptions ? "Choose the exams that count above, then prepare the class." : "Publish the class above once assessments or ratings are ready." }}
+                  ? { title: "Not prepared yet", body: "The office hasn't prepared report cards for this class and term yet." }
+                  : { title: "No report cards yet", body: "Choose the exams that count above, then prepare the class." }}
               />
             )}
           </>
