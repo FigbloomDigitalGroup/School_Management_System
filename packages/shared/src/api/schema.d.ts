@@ -617,7 +617,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Archive a learner (Phase 3) */
+        /**
+         * Archive a learner (Phase 3)
+         * @description The learner's active class membership ends in the same transaction. Restoring the learner does not give the class back; place them again with POST class-memberships, which is allowed even in a class they left earlier the same year.
+         */
         post: operations["archiveLearner"];
         delete?: never;
         options?: never;
@@ -1187,6 +1190,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/subjects/{subjectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a subject
+         * @description Partial update; at least one field is required and a field left out keeps its value (null clears a nullable one). Changes the code, name, level, year range or core flag. Each year bound is 1-12, the lower not above the upper, and both inside the level's own years when a level is set (400). 409 when another subject has the code. An archived subject cannot be changed (400).
+         */
+        patch: operations["updateSubject"];
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/classes": {
         parameters: {
             query?: never;
@@ -1222,6 +1245,30 @@ export interface paths {
         get: operations["getSchoolClass"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a class
+         * @description Partial update; at least one field is required and a field left out keeps its value. Changes the name, level and year, pathway, stream, room, or the class teacher (null takes the teacher off; a new teacher must be an active staff member of this school, 400 otherwise). The academic year cannot change. The level, year and pathway rule is checked on the merged result (400). An archived class cannot be changed (400). 409 when another class of the same year has the name.
+         */
+        patch: operations["updateSchoolClass"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/classes/{classId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a class
+         * @description The class stops running. Refused with 409 while an active learner is still in it (move them first). In the same transaction its active teaching assignments end, and any membership still open for an archived learner is ended. Timetable slots and history are kept. 400 when the class is already archived. There is no restore yet.
+         */
+        post: operations["archiveSchoolClass"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1281,6 +1328,46 @@ export interface paths {
         put?: never;
         /** Create a teaching assignment */
         post: operations["createTeachingAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/teaching-assignments/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change the teacher of a teaching assignment
+         * @description Gives the class's subject another teacher. The assignment keeps its id, so its timetable slots keep their link. The new teacher must be an active staff member of this school (400). Only an active assignment can be changed (400 for an archived one); sending the teacher it already has changes nothing.
+         */
+        patch: operations["updateTeachingAssignment"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/teaching-assignments/{assignmentId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a teaching assignment
+         * @description The subject has no teacher in that class until a new assignment is made, which is allowed straight away. Marks, timetable slots and history are kept. 400 when the assignment is already archived.
+         */
+        post: operations["archiveTeachingAssignment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5656,6 +5743,13 @@ export interface components {
             tenantId: string;
             code: string;
             name: string;
+            /** @description The level the year range is read within (migration 101). Null means any level. */
+            education_level: ("pre_primary" | "primary" | "junior_secondary" | "senior_school" | "secondary") | null;
+            /** @description Lowest form or grade that takes the subject. Null means no lower bound. */
+            min_form_level: number | null;
+            /** @description Highest form or grade that takes the subject. Null means no upper bound. */
+            max_form_level: number | null;
+            is_core: boolean;
             active: boolean;
             /** Format: date-time */
             archived_at: string | null;
@@ -5678,6 +5772,8 @@ export interface components {
             stream: string | null;
             /** Format: uuid */
             class_teacher_staff_id: string | null;
+            /** @description Where the class usually meets (migration 101). Null when not set. */
+            room: string | null;
             active: boolean;
             /** Format: date-time */
             archived_at: string | null;
@@ -6421,6 +6517,18 @@ export interface components {
         PostSubjectsRequest: {
             code: string;
             name: string;
+            education_level?: ("pre_primary" | "primary" | "junior_secondary" | "senior_school" | "secondary") | null;
+            min_form_level?: number | null;
+            max_form_level?: number | null;
+            is_core?: boolean;
+        };
+        PatchSubjectRequest: {
+            code?: string;
+            name?: string;
+            education_level?: ("pre_primary" | "primary" | "junior_secondary" | "senior_school" | "secondary") | null;
+            min_form_level?: number | null;
+            max_form_level?: number | null;
+            is_core?: boolean;
         };
         PostClassesRequest: {
             /** Format: uuid */
@@ -6431,6 +6539,16 @@ export interface components {
             pathway?: ("stem" | "social_sciences" | "arts_sports") | null;
             stream?: string | null;
             class_teacher_staff_id?: string | null;
+            room?: string | null;
+        };
+        PatchClassRequest: {
+            name?: string;
+            form_level?: number | null;
+            education_level?: ("pre_primary" | "primary" | "junior_secondary" | "senior_school" | "secondary") | null;
+            pathway?: ("stem" | "social_sciences" | "arts_sports") | null;
+            stream?: string | null;
+            class_teacher_staff_id?: string | null;
+            room?: string | null;
         };
         PostClassMembershipsRequest: {
             /** Format: uuid */
@@ -6445,6 +6563,10 @@ export interface components {
             class_id: string;
             /** Format: uuid */
             subject_id: string;
+        };
+        PatchTeachingAssignmentRequest: {
+            /** Format: uuid */
+            staff_member_id: string;
         };
         PostTimetableSlotsRequest: {
             /** Format: uuid */
@@ -10812,6 +10934,43 @@ export interface operations {
             422: components["responses"]["IdempotencyKeyReused"];
         };
     };
+    updateSubject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                subjectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchSubjectRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        subject: components["schemas"]["Subject"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     listSchoolClasses: {
         parameters: {
             query?: {
@@ -10922,6 +11081,79 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    updateSchoolClass: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                classId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchClassRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        school_class: components["schemas"]["SchoolClass"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    archiveSchoolClass: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                classId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        school_class: components["schemas"]["SchoolClass"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
         };
     };
     listClassMemberships: {
@@ -11105,6 +11337,78 @@ export interface operations {
         responses: {
             /** @description Created */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        assignment: components["schemas"]["TeachingAssignment"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    updateTeachingAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTeachingAssignmentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        assignment: components["schemas"]["TeachingAssignment"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveTeachingAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

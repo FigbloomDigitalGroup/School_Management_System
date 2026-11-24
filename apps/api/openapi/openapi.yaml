@@ -1689,6 +1689,9 @@ paths:
       tags:
         - directory
       summary: Archive a learner (Phase 3)
+      description: The learner's active class membership ends in the same transaction. Restoring the learner does not
+        give the class back; place them again with POST class-memberships, which is allowed even in a
+        class they left earlier the same year.
       operationId: archiveLearner
       security:
         - bearerAuth: []
@@ -3765,6 +3768,65 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/subjects/{subjectId}:
+    patch:
+      tags:
+        - academics
+      summary: Update a subject
+      description: Partial update; at least one field is required and a field left out keeps its value (null clears a
+        nullable one). Changes the code, name, level, year range or core flag. Each year bound is 1-12, the lower not
+        above the upper, and both inside the level's own years when a level is set (400). 409 when another subject has
+        the code. An archived subject cannot be changed (400).
+      operationId: updateSubject
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: subjectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchSubjectRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - subject
+                properties:
+                  subject:
+                    $ref: "#/components/schemas/Subject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/tenants/{tenantId}/classes:
     post:
       tags:
@@ -3926,6 +3988,120 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - academics
+      summary: Update a class
+      description: Partial update; at least one field is required and a field left out keeps its value. Changes the name,
+        level and year, pathway, stream, room, or the class teacher (null takes the teacher off; a new teacher must be an
+        active staff member of this school, 400 otherwise). The academic year cannot change. The level, year and pathway
+        rule is checked on the merged result (400). An archived class cannot be changed (400). 409 when another class of
+        the same year has the name.
+      operationId: updateSchoolClass
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchClassRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - school_class
+                properties:
+                  school_class:
+                    $ref: "#/components/schemas/SchoolClass"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/classes/{classId}/archive:
+    post:
+      tags:
+        - academics
+      summary: Archive a class
+      description: The class stops running. Refused with 409 while an active learner is still in it (move them first). In
+        the same transaction its active teaching assignments end, and any membership still open for an archived learner
+        is ended. Timetable slots and history are kept. 400 when the class is already archived. There is no restore yet.
+      operationId: archiveSchoolClass
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - school_class
+                properties:
+                  school_class:
+                    $ref: "#/components/schemas/SchoolClass"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
   /v1/tenants/{tenantId}/class-memberships:
     post:
       tags:
@@ -4216,6 +4392,116 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/teaching-assignments/{assignmentId}:
+    patch:
+      tags:
+        - academics
+      summary: Change the teacher of a teaching assignment
+      description: Gives the class's subject another teacher. The assignment keeps its id, so its timetable slots keep their
+        link. The new teacher must be an active staff member of this school (400). Only an active assignment can be
+        changed (400 for an archived one); sending the teacher it already has changes nothing.
+      operationId: updateTeachingAssignment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchTeachingAssignmentRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assignment
+                properties:
+                  assignment:
+                    $ref: "#/components/schemas/TeachingAssignment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/teaching-assignments/{assignmentId}/archive:
+    post:
+      tags:
+        - academics
+      summary: End a teaching assignment
+      description: The subject has no teacher in that class until a new assignment is made, which is allowed straight away.
+        Marks, timetable slots and history are kept. 400 when the assignment is already archived.
+      operationId: archiveTeachingAssignment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assignment
+                properties:
+                  assignment:
+                    $ref: "#/components/schemas/TeachingAssignment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
   /v1/tenants/{tenantId}/timetable-slots:
     post:
       tags:
@@ -19416,6 +19702,10 @@ components:
         - tenantId
         - code
         - name
+        - education_level
+        - min_form_level
+        - max_form_level
+        - is_core
         - active
         - archived_at
         - created_at
@@ -19431,6 +19721,29 @@ components:
           type: string
         name:
           type: string
+        education_level:
+          description: The level the year range is read within (migration 101). Null means any level.
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        min_form_level:
+          description: Lowest form or grade that takes the subject. Null means no lower bound.
+          type:
+            - integer
+            - "null"
+        max_form_level:
+          description: Highest form or grade that takes the subject. Null means no upper bound.
+          type:
+            - integer
+            - "null"
+        is_core:
+          type: boolean
         active:
           type: boolean
         archived_at:
@@ -19457,6 +19770,7 @@ components:
         - pathway
         - stream
         - class_teacher_staff_id
+        - room
         - active
         - archived_at
         - created_at
@@ -19504,6 +19818,11 @@ components:
             - string
             - "null"
           format: uuid
+        room:
+          type:
+            - string
+            - "null"
+          description: Where the class usually meets (migration 101). Null when not set.
         active:
           type: boolean
         archived_at:
@@ -21468,9 +21787,69 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        education_level:
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        min_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        max_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        is_core:
+          type: boolean
       required:
         - code
         - name
+      additionalProperties: false
+    PatchSubjectRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        education_level:
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        min_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        max_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        is_core:
+          type: boolean
       additionalProperties: false
     PostClassesRequest:
       type: object
@@ -21519,9 +21898,65 @@ components:
               format: uuid
               pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
             - type: "null"
+        room:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: "null"
       required:
         - academic_year_id
         - name
+      additionalProperties: false
+    PatchClassRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        education_level:
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        pathway:
+          anyOf:
+            - type: string
+              enum:
+                - stem
+                - social_sciences
+                - arts_sports
+            - type: "null"
+        stream:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 32
+            - type: "null"
+        class_teacher_staff_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        room:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: "null"
       additionalProperties: false
     PostClassMembershipsRequest:
       type: object
@@ -21557,6 +21992,16 @@ components:
         - staff_member_id
         - class_id
         - subject_id
+      additionalProperties: false
+    PatchTeachingAssignmentRequest:
+      type: object
+      properties:
+        staff_member_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - staff_member_id
       additionalProperties: false
     PostTimetableSlotsRequest:
       type: object

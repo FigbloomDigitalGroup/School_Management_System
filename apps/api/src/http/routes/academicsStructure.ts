@@ -5,7 +5,9 @@ import type { AppPool } from "../../db/pool.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import {
+  archiveClass,
   archiveClassMembership,
+  archiveTeachingAssignment,
   assignLearnerToClass,
   createAcademicYear,
   createClass,
@@ -33,6 +35,9 @@ import {
   publishTimetablePublication,
   setCurrentAcademicYear,
   setCurrentTerm,
+  updateClass,
+  updateSubject,
+  updateTeachingAssignment,
 } from "../../modules/academics/structure.js";
 import { AppError, notFound, validationError } from "../errors.js";
 import { assertUuid, classReadScope, inTenant, optionalBool, optionalUuid, pageFrom } from "../routeKit.js";
@@ -55,7 +60,6 @@ const TermBody = z.strictObject({
   ends_on: DateString,
   is_current: z.boolean().optional(),
 });
-const SubjectBody = z.strictObject({ code: z.string().min(1).max(32), name: z.string().min(1).max(120) });
 const EducationLevel = z.enum([
   "pre_primary",
   "primary",
@@ -64,21 +68,54 @@ const EducationLevel = z.enum([
   "secondary",
 ]);
 const Pathway = z.enum(["stem", "social_sciences", "arts_sports"]);
+const FormLevel = z.number().int().min(1).max(12);
+const atLeastOneField = (v: object) => Object.keys(v).length > 0;
+const SubjectBody = z.strictObject({
+  code: z.string().min(1).max(32),
+  name: z.string().min(1).max(120),
+  education_level: EducationLevel.nullable().optional(),
+  min_form_level: FormLevel.nullable().optional(),
+  max_form_level: FormLevel.nullable().optional(),
+  is_core: z.boolean().optional(),
+});
+const SubjectPatch = z
+  .strictObject({
+    code: z.string().min(1).max(32).optional(),
+    name: z.string().min(1).max(120).optional(),
+    education_level: EducationLevel.nullable().optional(),
+    min_form_level: FormLevel.nullable().optional(),
+    max_form_level: FormLevel.nullable().optional(),
+    is_core: z.boolean().optional(),
+  })
+  .refine(atLeastOneField, { message: "at least one field" });
 const ClassBody = z.strictObject({
   academic_year_id: z.guid(),
   name: z.string().min(1).max(64),
-  form_level: z.number().int().min(1).max(12).nullable().optional(),
+  form_level: FormLevel.nullable().optional(),
   education_level: EducationLevel.nullable().optional(),
   pathway: Pathway.nullable().optional(),
   stream: z.string().min(1).max(32).nullable().optional(),
   class_teacher_staff_id: z.guid().nullable().optional(),
+  room: z.string().min(1).max(64).nullable().optional(),
 });
+const ClassPatch = z
+  .strictObject({
+    name: z.string().min(1).max(64).optional(),
+    form_level: FormLevel.nullable().optional(),
+    education_level: EducationLevel.nullable().optional(),
+    pathway: Pathway.nullable().optional(),
+    stream: z.string().min(1).max(32).nullable().optional(),
+    class_teacher_staff_id: z.guid().nullable().optional(),
+    room: z.string().min(1).max(64).nullable().optional(),
+  })
+  .refine(atLeastOneField, { message: "at least one field" });
 const MembershipBody = z.strictObject({ learner_id: z.guid(), class_id: z.guid() });
 const AssignmentBody = z.strictObject({
   staff_member_id: z.guid(),
   class_id: z.guid(),
   subject_id: z.guid(),
 });
+const AssignmentPatch = z.strictObject({ staff_member_id: z.guid() });
 const SlotBody = z.strictObject({
   class_id: z.guid(),
   subject_id: z.guid(),
@@ -94,9 +131,12 @@ export const STRUCTURE_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/academic-years": YearBody,
   "POST /v1/tenants/{tenantId}/academic-terms": TermBody,
   "POST /v1/tenants/{tenantId}/subjects": SubjectBody,
+  "PATCH /v1/tenants/{tenantId}/subjects/{subjectId}": SubjectPatch,
   "POST /v1/tenants/{tenantId}/classes": ClassBody,
+  "PATCH /v1/tenants/{tenantId}/classes/{classId}": ClassPatch,
   "POST /v1/tenants/{tenantId}/class-memberships": MembershipBody,
   "POST /v1/tenants/{tenantId}/teaching-assignments": AssignmentBody,
+  "PATCH /v1/tenants/{tenantId}/teaching-assignments/{assignmentId}": AssignmentPatch,
   "POST /v1/tenants/{tenantId}/timetable-slots": SlotBody,
   "POST /v1/tenants/{tenantId}/timetable-publications": z.strictObject({ class_id: z.guid(), term_id: z.guid().nullable().optional() }),
 } as const;
@@ -289,6 +329,23 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     });
   });
 
+  app.patch("/v1/tenants/:tenantId/subjects/:subjectId", async (request) => {
+    const params = request.params as { tenantId: string; subjectId: string };
+    assertUuid(params.subjectId, "subjectId");
+    const parsed = parseOrThrow(SubjectPatch, request.body, "at least one subject field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const subject = await updateSubject(tx, {
+        tenantId: params.tenantId,
+        subjectId: params.subjectId,
+        actorUserId: auth.user.id,
+        ...parsed,
+        ip,
+      });
+      return { subject };
+    });
+  });
+
   app.post("/v1/tenants/:tenantId/classes", async (request, reply) => {
     const params = request.params as { tenantId: string };
     const parsed = parseOrThrow(ClassBody, request.body, "academic_year_id and name are required");
@@ -350,6 +407,57 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
       if (!school_class) throw notFound("Class not found");
       return { school_class };
     });
+  });
+
+  app.patch("/v1/tenants/:tenantId/classes/:classId", async (request) => {
+    const params = request.params as { tenantId: string; classId: string };
+    assertUuid(params.classId, "classId");
+    const parsed = parseOrThrow(ClassPatch, request.body, "at least one class field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const school_class = await updateClass(tx, {
+        tenantId: params.tenantId,
+        classId: params.classId,
+        actorUserId: auth.user.id,
+        ...parsed,
+        ip,
+      });
+      return { school_class };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/classes/:classId/archive", async (request, reply) => {
+    const params = request.params as { tenantId: string; classId: string };
+    assertUuid(params.classId, "classId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/classes/:classId/archive",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const school_class = await archiveClass(tx, {
+            tenantId: params.tenantId,
+            classId: params.classId,
+            actorUserId: auth.user.id,
+            ip,
+          });
+          return { value: { school_class }, resourceType: "class", resourceId: school_class.id };
+        },
+        replay: async () => {
+          const school_class = await findClassInScope(tx, {
+            tenantId: params.tenantId,
+            classId: params.classId,
+            scopeClassIds: null,
+          });
+          return school_class ? { school_class } : null;
+        },
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   app.post("/v1/tenants/:tenantId/class-memberships", async (request, reply) => {
@@ -466,6 +574,56 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
       });
       return { assignments: out.items, page: out.page };
     });
+  });
+
+  app.patch("/v1/tenants/:tenantId/teaching-assignments/:assignmentId", async (request) => {
+    const params = request.params as { tenantId: string; assignmentId: string };
+    assertUuid(params.assignmentId, "assignmentId");
+    const parsed = parseOrThrow(AssignmentPatch, request.body, "staff_member_id is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const assignment = await updateTeachingAssignment(tx, {
+        tenantId: params.tenantId,
+        assignmentId: params.assignmentId,
+        actorUserId: auth.user.id,
+        staff_member_id: parsed.staff_member_id,
+        ip,
+      });
+      return { assignment };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/teaching-assignments/:assignmentId/archive", async (request, reply) => {
+    const params = request.params as { tenantId: string; assignmentId: string };
+    assertUuid(params.assignmentId, "assignmentId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/teaching-assignments/:assignmentId/archive",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const assignment = await archiveTeachingAssignment(tx, {
+            tenantId: params.tenantId,
+            assignmentId: params.assignmentId,
+            actorUserId: auth.user.id,
+            ip,
+          });
+          return { value: { assignment }, resourceType: "teaching_assignment", resourceId: assignment.id };
+        },
+        replay: async () => {
+          const assignment = await getTeachingAssignmentById(tx, {
+            tenantId: params.tenantId,
+            assignmentId: params.assignmentId,
+          });
+          return assignment ? { assignment } : null;
+        },
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   app.post("/v1/tenants/:tenantId/timetable-slots", async (request, reply) => {
