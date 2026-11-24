@@ -98,8 +98,12 @@ describe("GET /v1/tenants/:tenantId/subjects is teacher-scoped for a caller with
 
   it("grants no write and no wider read to that teacher", async () => {
     expect((await call("POST", "/subjects", teacher, { code: "NEW", name: "Nope" })).statusCode).toBe(403);
-    // Other academics lists stay closed to them (the classes list is scoped by the same rule and is a separate read).
-    expect((await call("GET", "/academic-years", teacher)).statusCode).toBe(403);
+    // Teacher reads (docs/TEACHER-READS.md): the academic years are scoped the same way (only the year of their classes);
+    // the full learner directory stays closed.
+    const years = await call("GET", "/academic-years", teacher);
+    expect(years.statusCode).toBe(200);
+    expect((years.json().academic_years as { label: string }[]).map((y) => y.label)).toEqual(["Subj 2026"]);
+    expect((await call("GET", "/learners", teacher)).statusCode).toBe(403);
   });
 
   it("a parent, another school's teacher and an unauthenticated caller are refused", async () => {
