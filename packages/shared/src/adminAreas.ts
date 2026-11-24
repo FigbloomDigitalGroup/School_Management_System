@@ -1,3 +1,6 @@
+import { apiFetchAccessPeople, apiFetchStaffAreas, apiSetStaffAreas } from "./api/accessApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import type { Role } from "./types";
 
@@ -227,6 +230,7 @@ export async function fetchMyAdminAreas(): Promise<AdminArea[]> {
 
 /** Everyone's direct areas at a school, by profile (full admins only; RLS returns nothing to anyone else). */
 export async function fetchSchoolAdminAreas(tenantId: string): Promise<Map<string, AdminArea[]>> {
+  if (onApi()) return apiFetchStaffAreas();
   const { data, error } = await supabase().from("staff_permissions").select("profile_id, area").eq("tenant_id", tenantId);
   if (error) throw new Error(error.message);
   const byProfile = new Map<string, string[]>();
@@ -238,6 +242,7 @@ export async function fetchSchoolAdminAreas(tenantId: string): Promise<Map<strin
 
 /** Replaces a teacher's or other staff member's areas (set_staff_areas: full admins only, never your own). */
 export async function setStaffAreas(profileId: string, areas: readonly AdminArea[]): Promise<AdminArea[]> {
+  if (onApi()) return apiSetStaffAreas(profileId, areas);
   const { data, error } = await supabase().rpc("set_staff_areas", { p_profile_id: profileId, p_areas: sortAreas(areas) });
   if (error) throw new Error(error.message);
   return sortAreas((data ?? []) as string[]);
@@ -255,6 +260,8 @@ export interface SchoolRole {
 
 /** The school's roles with who holds each (full admins only; RLS returns nothing to anyone else). */
 export async function fetchSchoolRoles(tenantId: string): Promise<SchoolRole[]> {
+  // The API has no school roles (no write path): areas are given one person at a time.
+  if (onApi()) return [];
   const [{ data: roles, error }, { data: held, error: heldError }] = await Promise.all([
     supabase().from("school_roles").select("id, name, areas").eq("tenant_id", tenantId).order("name"),
     supabase().from("staff_role_assignments").select("role_id, profile_id").eq("tenant_id", tenantId),
@@ -281,6 +288,7 @@ export function effectiveAreas(direct: readonly AdminArea[], roles: readonly Sch
 
 /** Creates a role (id null) or changes one; everyone holding it gets the new areas straight away. */
 export async function saveSchoolRole(tenantId: string, id: string | null, name: string, areas: readonly AdminArea[]): Promise<string> {
+  if (onApi()) throw new NotOnApiError("School roles");
   const { data, error } = await supabase().rpc("save_school_role", { p_id: id, p_tenant_id: tenantId, p_name: name, p_areas: sortAreas(areas) });
   if (error) throw new Error(error.message);
   return data as string;
@@ -288,6 +296,7 @@ export async function saveSchoolRole(tenantId: string, id: string | null, name: 
 
 /** Deletes a role, taking its areas from everyone who held it; answers how many people that was. */
 export async function deleteSchoolRole(id: string): Promise<number> {
+  if (onApi()) throw new NotOnApiError("School roles");
   const { data, error } = await supabase().rpc("delete_school_role", { p_id: id });
   if (error) throw new Error(error.message);
   return (data ?? 0) as number;
@@ -295,6 +304,7 @@ export async function deleteSchoolRole(id: string): Promise<number> {
 
 /** Replaces the school roles a teacher or other staff member holds (full admins only, never your own). */
 export async function setStaffRoles(profileId: string, roleIds: readonly string[]): Promise<string[]> {
+  if (onApi()) throw new NotOnApiError("School roles");
   const { data, error } = await supabase().rpc("set_staff_roles", { p_profile_id: profileId, p_role_ids: [...roleIds] });
   if (error) throw new Error(error.message);
   return (data ?? []) as string[];
@@ -302,6 +312,8 @@ export async function setStaffRoles(profileId: string, roleIds: readonly string[
 
 /** Names of teachers and other staff at a school, keyed by profile id. */
 export async function fetchSchoolStaffNames(tenantId: string): Promise<Map<string, string>> {
+  // People with a sign-in only: the keys are sign-in ids, as areas are given to those.
+  if (onApi()) return new Map((await apiFetchAccessPeople(tenantId)).flatMap((p) => (p.userId ? [[p.userId, p.name] as const] : [])));
   const { data, error } = await supabase()
     .from("profiles")
     .select("id, full_name")

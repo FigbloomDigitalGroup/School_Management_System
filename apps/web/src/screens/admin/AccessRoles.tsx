@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ADMIN_PRESETS, deleteSchoolRole, describeAreas, fetchSchoolAdminAreas, fetchSchoolRoles, fetchSchoolStaffNames, saveSchoolRole,
+  ADMIN_PRESETS, accessCapabilities, deleteSchoolRole, describeAreas, fetchSchoolAdminAreas, fetchSchoolRoles, fetchSchoolStaffNames, saveSchoolRole,
   type AdminArea, type SchoolRole,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -14,6 +14,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { AccessAreas } from "./AccessAreas";
 
 interface AccessData {
   roles: SchoolRole[];
@@ -37,8 +38,15 @@ async function fetchAccess(tenantId: string): Promise<AccessData> {
  * attendance), and who has admin access of their own. Roles are given to
  * people on their card in Students & staff. Changing a role's areas changes
  * what everyone holding it can do straight away.
+ *
+ * On the new API there are no school roles (it has no write path for them), so the screen is the one that gives areas to one person
+ * at a time (AccessAreas.tsx).
  */
 export function AccessRoles() {
+  return accessCapabilities().schoolRoles ? <SchoolRoles /> : <AccessAreas />;
+}
+
+function SchoolRoles() {
   const { tenant } = useTenantSession();
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
