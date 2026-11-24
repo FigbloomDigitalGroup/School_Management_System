@@ -53,3 +53,19 @@ describe("fetchAllRows", () => {
     expect(answer.data).toEqual([]);
   });
 });
+
+describe("a range past the end (416)", () => {
+  it("is recognised by status, PostgREST code, message or type", async () => {
+    const { isRangeNotSatisfiable, pageError, RangeNotSatisfiableError } = await import("./paging");
+    expect(isRangeNotSatisfiable({ message: "x" }, 416)).toBe(true);
+    expect(isRangeNotSatisfiable({ code: "PGRST103", message: "x" })).toBe(true);
+    expect(isRangeNotSatisfiable(new Error("Requested range not satisfiable"))).toBe(true);
+    expect(isRangeNotSatisfiable(new RangeNotSatisfiableError())).toBe(true);
+    expect(isRangeNotSatisfiable(new Error("canceling statement due to statement timeout"))).toBe(false);
+    expect(isRangeNotSatisfiable(null)).toBe(false);
+    expect(pageError({ message: "Requested range not satisfiable", code: "PGRST103" }, 416)).toBeInstanceOf(RangeNotSatisfiableError);
+    const other = pageError({ message: "permission denied" }, 403);
+    expect(other).not.toBeInstanceOf(RangeNotSatisfiableError);
+    expect(other.message).toBe("permission denied");
+  });
+});

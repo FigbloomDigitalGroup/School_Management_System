@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { pageError } from "./paging";
 
 /**
  * Behaviour and discipline log with merit / demerit points (20261124400000_behaviour_log).
@@ -339,9 +340,9 @@ export async function fetchBehaviourEntriesPage(tenantId: string, f: EntryFilter
   if (f.openOnly) q = q.eq("follow_up_status", "open");
   if (f.seriousOnly) q = q.eq("severity", "serious");
   if (!f.includeVoided) q = q.is("voided_at", null);
-  const { data, error, count } = await q.order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).order("id")
+  const { data, error, count, status } = await q.order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).order("id")
     .range(offset, offset + limit - 1).returns<EntryJoin[]>();
-  if (error) throw new Error(error.message);
+  if (error) throw pageError(error, status);
   return { rows: (data ?? []).map(toRow), total: count ?? 0 };
 }
 

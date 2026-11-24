@@ -125,6 +125,33 @@ export interface QueryState<T> {
   /** A refetch is under way (old data still shown). */
   refreshing: boolean;
   error: Error | null;
+  /** Fetch this key again now (the retry button on a section that failed). */
+  retry: () => void;
+}
+
+/**
+ * A failure is kept only briefly: long enough not to refetch in a loop, short
+ * enough that opening another page (or coming back) tries again rather than
+ * showing the same error for the whole staleTime.
+ */
+export const ERROR_STALE_MS = 5_000;
+
+/** Whether an entry should be fetched (again): never fetched, invalidated, older than its staleTime, or a failure past ERROR_STALE_MS. */
+export function isStale(e: { at: number; error?: Error; data?: unknown }, staleTime: number, now = Date.now()): boolean {
+  if (e.at === 0) return true;
+  if (e.error && e.data === undefined) return now - e.at > Math.min(staleTime, ERROR_STALE_MS);
+  return now - e.at > staleTime;
+}
+
+/** Marks one key for refetching (exactly that key, unlike invalidate's prefix) and wakes its readers. */
+export function refetch(key: string): void {
+  const e = store.get(key);
+  if (!e) return;
+  e.gen += 1;
+  e.at = 0;
+  e.error = undefined;
+  e.inflight = undefined;
+  notify(e);
 }
 
 /**
@@ -146,14 +173,14 @@ export function useQuery<T>(key: string | null, fn: () => Promise<T>, { staleTim
   useEffect(() => {
     if (!key) return;
     const e = entry(key);
-    if (!e.inflight && (e.at === 0 || Date.now() - e.at > staleTime)) {
+    if (!e.inflight && isStale(e, staleTime)) {
       run(key, fn).catch(() => force((n) => n + 1));
     }
     // fn is recreated each render; the key names what it fetches
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, snapshot, staleTime]);
 
-  if (!key) return { data: null, loading: false, refreshing: false, error: null };
+  if (!key) return { data: null, loading: false, refreshing: false, error: null, retry: () => {} };
   const e = entry(key);
   const has = e.data !== undefined;
   return {
@@ -161,5 +188,6 @@ export function useQuery<T>(key: string | null, fn: () => Promise<T>, { staleTim
     loading: !has && !e.error,
     refreshing: !!e.inflight && has,
     error: has ? null : e.error ?? null,
+    retry: () => refetch(key),
   };
 }

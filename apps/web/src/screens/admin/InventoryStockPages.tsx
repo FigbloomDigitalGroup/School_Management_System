@@ -8,6 +8,7 @@ import { BarList } from "../../components/analytics/BarList";
 import { ColumnChart, shortNumber } from "../../components/analytics/ColumnChart";
 import { PageHead } from "../../components/ConsoleShell";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
+import { SectionError } from "../../components/ui/SectionError";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -15,7 +16,7 @@ import { FlagsPanel } from "./InventoryFlags";
 import { PerHeadCharts, TopItemsCharts, UseByStoreChart } from "./InventoryTrends";
 import { CoverBar, LowStockTable, MealTrendChart, StockFilters, StockLevelCell, UsageTable } from "./InventoryStock";
 import {
-  mealTrend, monthLabel, PERIODS, useFlags, useInventoryBase, useItemIndex, useLevels, useMealTrend, useSpend, useStockParams, useStockRange,
+  firstFailure, mealTrend, monthLabel, PERIODS, type Failure, useFlags, useInventoryBase, useItemIndex, useLevels, useMealTrend, useSpend, useStockParams, useStockRange,
   useUniforms, useUsage, usageSeries,
 } from "./inventoryStockData";
 
@@ -72,7 +73,7 @@ export function InventoryStockPage() {
           ))}
         </nav>
         <StockFilters period={period} store={fixedStore ?? store} onPeriod={setPeriod} onStore={setStore} range={range}
-          hidePeriod={s === "levels" || s === "low-stock" || s === "spend"} hideStore={!!fixedStore} />
+          hidePeriod={s === "levels" || s === "low-stock" || s === "spend" || s === "flags"} hideStore={!!fixedStore} />
         {s === "levels" && <LevelsSection store={store} onOpenItem={openItem} />}
         {s === "low-stock" && <LowSection store={store} onOpenItem={openItem} />}
         {s === "flags" && <FlagsSection store={store} />}
@@ -98,7 +99,9 @@ function useMoney() {
   return (c: number | null | undefined) => (c == null ? "—" : formatMoney(c, tenant.country));
 }
 
-function Loading({ when, children }: { when: boolean; children: ReactNode }) {
+/** A skeleton while loading; if a read failed, what failed and a retry instead of an empty or broken section. */
+function Loading({ when, failed, what = "load this", children }: { when: boolean; failed?: Failure | null; what?: string; children: ReactNode }) {
+  if (failed) return <SectionError what={what} error={failed.error} onRetry={failed.retry} boxed />;
   return when ? <TableSkeleton rows={8} /> : <>{children}</>;
 }
 
@@ -109,7 +112,7 @@ function LevelsSection({ store, onOpenItem }: { store: StoreKey; onOpenItem: (id
   const rows = useMemo(() => (levels.data ?? []).filter((l) => inStore(l.category, store)).sort((a, b) => b.value_cents - a.value_cents), [levels.data, store]);
   const total = rows.reduce((a, l) => a + l.value_cents, 0);
   return (
-    <Loading when={levels.loading}>
+    <Loading when={levels.loading} failed={firstFailure(levels)} what="load the stock levels">
       <StatRow stats={[
         { label: "Stock value", value: money(total), sub: `${rows.length} stock lines` },
         { label: "Biggest line", value: rows[0] ? money(rows[0].value_cents) : "—", sub: rows[0]?.name },
@@ -150,7 +153,7 @@ function LowSection({ store, onOpenItem }: { store: StoreKey; onOpenItem: (id: s
   const levels = useLevels(tenant.id);
   const rows = (levels.data ?? []).filter((l) => inStore(l.category, store) && (l.low || l.quantity <= 0 || (l.consumable && l.days_of_cover != null && l.days_of_cover < 7)));
   return (
-    <Loading when={levels.loading}>
+    <Loading when={levels.loading} failed={firstFailure(levels)} what="load the stock levels">
       <StatRow stats={[
         { label: "Out of stock", value: String(rows.filter((l) => l.quantity <= 0).length), alarming: rows.some((l) => l.quantity <= 0) },
         { label: "At reorder level", value: String(rows.filter((l) => l.low && l.quantity > 0).length) },
@@ -165,10 +168,10 @@ function LowSection({ store, onOpenItem }: { store: StoreKey; onOpenItem: (id: s
 function FlagsSection({ store }: { store: StoreKey }) {
   const { tenant } = useTenantSession();
   const { period } = useStockParams();
-  const { ready, flagFrom, range } = useStockRange(tenant.id, period);
-  const flags = useFlags(tenant.id, ready, flagFrom, range.to);
+  const { ready, flagFrom, flagTo } = useStockRange(tenant.id, period);
+  const flags = useFlags(tenant.id, ready, flagFrom, flagTo);
   const rows = (flags.data ?? []).filter((f) => inStore(f.category, store));
-  return <FlagsPanel flags={rows} loading={flags.loading || !ready} error={flags.error} title={`Flags, ${PERIODS.find((p) => p.key === period)!.label.toLowerCase()}`} />;
+  return <FlagsPanel flags={rows} loading={flags.loading || !ready} error={flags.error} onRetry={flags.retry} title="Flags" />;
 }
 
 function SpendSection({ store }: { store: StoreKey }) {
@@ -183,7 +186,7 @@ function SpendSection({ store }: { store: StoreKey }) {
   const total = rows.reduce((a, r) => a + r.spend_cents, 0);
   const avg = rows.length ? total / rows.length : 0;
   return (
-    <Loading when={spend.loading}>
+    <Loading when={spend.loading} failed={firstFailure(spend)} what="load the spend">
       <StatRow stats={[
         { label: "Last 12 months", value: money(total), sub: `${rows.reduce((a, r) => a + r.deliveries, 0)} priced deliveries` },
         { label: "Average month", value: money(Math.round(avg)) },
@@ -218,8 +221,8 @@ function UsageSection({ store, onOpenItem, only }: { store: StoreKey; onOpenItem
   const series = useMemo(() => usageSeries(usage.data ?? []), [usage.data]);
   const rows = totals.filter((u) => inStore(index.byId.get(u.item_id)?.category, scope) && (u.used || u.wasted || u.shrinkage));
   return (
-    <Loading when={usage.loading || index.loading || !ready}>
-      {usage.error ? <p className="text-[12.5px] text-warn-ink">Could not load use: {usage.error.message}</p> : (
+    <Loading when={usage.loading || index.loading || !ready} failed={firstFailure(usage, index)} what="load use">
+      {(
         <>
           <StatRow stats={[
             { label: "Cost of use", value: money(rows.reduce((a, u) => a + u.used_cost_cents, 0)), sub: `${rows.length} items` },
@@ -236,8 +239,8 @@ function UsageSection({ store, onOpenItem, only }: { store: StoreKey; onOpenItem
 function ClinicSection({ onOpenItem }: { onOpenItem: (id: string) => void }) {
   const { tenant } = useTenantSession();
   const { period } = useStockParams();
-  const { ready, flagFrom, range } = useStockRange(tenant.id, period);
-  const flags = useFlags(tenant.id, ready, flagFrom, range.to);
+  const { ready, flagFrom, flagTo } = useStockRange(tenant.id, period);
+  const flags = useFlags(tenant.id, ready, flagFrom, flagTo);
   const clinicFlags = (flags.data ?? []).filter((f) => storeOf(f.category) === "clinic");
   const g = groupFlags(clinicFlags);
   return (
@@ -247,7 +250,7 @@ function ClinicSection({ onOpenItem }: { onOpenItem: (id: string) => void }) {
         No learner's name or visit appears here: only supplies.
       </p>
       <UsageSection store="clinic" only="clinic" onOpenItem={onOpenItem} />
-      <FlagsPanel flags={clinicFlags} loading={flags.loading || !ready} error={flags.error} title="Clinic flags" />
+      <FlagsPanel flags={clinicFlags} loading={flags.loading || !ready} error={flags.error} onRetry={flags.retry} title="Clinic flags" />
     </>
   );
 }
@@ -256,14 +259,13 @@ function KitchenSection({ onOpenItem }: { onOpenItem: (id: string) => void }) {
   const { tenant } = useTenantSession();
   const meals = useMealTrend(tenant.id);
   const { period } = useStockParams();
-  const { ready, flagFrom, range } = useStockRange(tenant.id, period);
-  const flags = useFlags(tenant.id, ready, flagFrom, range.to);
+  const { ready, flagFrom, flagTo } = useStockRange(tenant.id, period);
+  const flags = useFlags(tenant.id, ready, flagFrom, flagTo);
   const money = useMoney();
   const trend = mealTrend(meals.data ?? []);
   return (
     <>
-      <Loading when={meals.loading}>
-        {meals.error && <p className="text-[12.5px] text-warn-ink">Could not work out the cost per meal: {meals.error.message}</p>}
+      <Loading when={meals.loading} failed={firstFailure(meals)} what="work out the cost per meal">
         <div className="grid gap-5 lg:grid-cols-2">
           <MealTrendChart rows={meals.data ?? []} country={tenant.country} />
           {trend.length > 0 ? (
@@ -280,7 +282,7 @@ function KitchenSection({ onOpenItem }: { onOpenItem: (id: string) => void }) {
         </div>
       </Loading>
       <UsageSection store="kitchen" only="kitchen" onOpenItem={onOpenItem} />
-      <FlagsPanel flags={(flags.data ?? []).filter((f) => storeOf(f.category) === "kitchen")} loading={flags.loading || !ready} error={flags.error} title="Kitchen flags" />
+      <FlagsPanel flags={(flags.data ?? []).filter((f) => storeOf(f.category) === "kitchen")} loading={flags.loading || !ready} error={flags.error} onRetry={flags.retry} title="Kitchen flags" />
     </>
   );
 }
@@ -311,7 +313,7 @@ function UniformsSection() {
   const copies = rows.reduce((a, r) => a + r.copies, 0);
   const billed = rows.reduce((a, r) => a + r.billedCents, 0);
   return (
-    <Loading when={issues.loading || !ready}>
+    <Loading when={issues.loading || !ready} failed={firstFailure(issues)} what="load the uniforms issued">
       <StatRow stats={[
         { label: "Issued", value: copies.toLocaleString(), sub: `${new Set((issues.data ?? []).map((i) => i.student_id).filter(Boolean)).size.toLocaleString()} learners` },
         { label: "Billed to families", value: charges.loading ? "…" : money(billed), sub: `${rows.reduce((a, r) => a + r.billed, 0).toLocaleString()} charges` },

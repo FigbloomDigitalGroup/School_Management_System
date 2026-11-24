@@ -118,6 +118,22 @@ export function periodRange(period: ReportPeriod, now = new Date(), term?: { sta
   return { from: `${today.slice(0, 4)}-01-01`, to: today };
 }
 
+/** How far back the flags look, whatever period the rest of the page shows. */
+export const FLAG_WINDOW_WEEKS = 8;
+
+/**
+ * The dates the flags are worked out over: the last eight weeks up to the
+ * period's end (today, or the end of a term that has finished). Flags are
+ * about recent use, and the database's flags read slow over a whole year
+ * (it timed out), so the window never grows with the period. Also inside
+ * ai-assist's 120-day limit for the insights.
+ */
+export function flagWindow(to: string, weeks = FLAG_WINDOW_WEEKS): { from: string; to: string } {
+  const [y, m, d] = to.split("-").map(Number) as [number, number, number];
+  const from = new Date(y, m - 1, d - (weeks * 7 - 1));
+  return { from: todayIso(from), to };
+}
+
 /** 1 Jan of the month n months before this one. */
 export function monthsBack(n: number, now = new Date()): string {
   const d = new Date(now.getFullYear(), now.getMonth() - n, 1);

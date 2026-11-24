@@ -46,12 +46,14 @@ export function BehaviourLog({ tenantId, fixed, classes, categories, recorders, 
   };
   const key = JSON.stringify(filters);
   const [total, setTotal] = useState(0);
-  const paging = usePaging(total, key, 25);
+  const [pageError, setPageError] = useState<unknown>(null);
+  const paging = usePaging(total, key, 25, pageError);
   const { data, loading, error } = useAsync(async () => {
     const page = await fetchBehaviourEntriesPage(tenantId, filters, paging.offset, paging.size);
     setTotal(page.total);
     return page;
   }, [tenantId, key, paging.offset, paging.size, reloadKey]);
+  if (error !== pageError) setPageError(error);
 
   const filterBar = (
     <div className="flex flex-wrap items-center gap-2">

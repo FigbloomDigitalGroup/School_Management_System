@@ -55,3 +55,28 @@ describe("page numbers", () => {
     expect(pageNumbers(66, 66)).toEqual([1, null, 63, 64, 65, 66]);
   });
 });
+
+describe("query cache: failures", () => {
+  it("keeps a failure only briefly, so another page (or coming back) tries again", async () => {
+    const { isStale, ERROR_STALE_MS } = await import("./queryCache");
+    const failed = { at: 1_000, error: new Error("timeout") };
+    expect(isStale(failed, 120_000, 1_000 + ERROR_STALE_MS - 1)).toBe(false);
+    expect(isStale(failed, 120_000, 1_000 + ERROR_STALE_MS + 1)).toBe(true);
+    // data is still kept for the whole staleTime
+    expect(isStale({ at: 1_000, data: [1] }, 120_000, 1_000 + ERROR_STALE_MS + 1)).toBe(false);
+    expect(isStale({ at: 0 }, 120_000, 5)).toBe(true);
+  });
+
+  it("refetch marks exactly one key stale and drops its error", async () => {
+    const { refetch } = await import("./queryCache");
+    cacheSet("t1:inv:flags:a", [1]);
+    cacheSet("t1:inv:flags:ab", [2]);
+    refetch("t1:inv:flags:a");
+    expect(peek("t1:inv:flags:a")).toEqual([1]);
+    // the other key that shares the prefix is untouched
+    expect(cacheGet("t1:inv:flags:ab")).toEqual([2]);
+    // a key never read is a no-op, not a new entry
+    refetch("t1:inv:nothing");
+    expect(peek("t1:inv:nothing")).toBeUndefined();
+  });
+});

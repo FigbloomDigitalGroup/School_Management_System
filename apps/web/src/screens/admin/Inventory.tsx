@@ -17,6 +17,7 @@ import { SelectField, TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { Pagination } from "../../components/ui/Pagination";
 import { usePaging } from "../../components/ui/usePaging";
+import { SectionError } from "../../components/ui/SectionError";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
@@ -103,7 +104,9 @@ export function AdminInventory() {
 
   // the register and the issue lists, one page at a time from the server
   const [total, setTotal] = useState(0);
-  const paging = usePaging(total, `${tab}|${q}`);
+  // the last page's error (a 416 when a filter left fewer pages) sends the list back to page 1
+  const [pageError, setPageError] = useState<Error | null>(null);
+  const paging = usePaging(total, `${tab}|${q}`, 25, pageError);
   const isIssues = tab === "out" || tab === "overdue" || tab === "history";
   const registerQ = useQuery(tab === "register" ? invKey(tenant.id, "register", q, paging.offset, paging.size) : null,
     () => fetchRegisterPage(tenant.id, { query: q, offset: paging.offset, limit: paging.size }), { staleTime: 60_000 });
@@ -112,6 +115,7 @@ export function AdminInventory() {
   const pageQ = tab === "register" ? registerQ : issuesQ;
   const pageTotal = pageQ.data?.total;
   if (pageTotal != null && pageTotal !== total) setTotal(pageTotal);
+  if (pageQ.error !== pageError) setPageError(pageQ.error);
   // fee charges matter only where lost / damaged issues are listed
   const chargesQ = useQuery(tab === "history" ? invKey(tenant.id, "charges") : null, () => fetchIssueCharges(tenant.id), { staleTime: 60_000 });
 
@@ -195,9 +199,7 @@ export function AdminInventory() {
         {tab === "stock" ? (
           <StockView onOpenItem={(id) => setParam("item", id)} />
         ) : pageQ.error ? (
-          <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
-            <span aria-hidden>✕</span>Could not load the inventory: {pageQ.error.message}
-          </p>
+          <SectionError what="load the inventory" error={pageQ.error} onRetry={pageQ.retry} boxed />
         ) : pageQ.loading ? (
           <TableSkeleton rows={8} />
         ) : tab === "register" ? (

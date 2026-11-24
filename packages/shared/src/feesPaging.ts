@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { fetchAllPages } from "./paging";
+import { fetchAllPages, pageError } from "./paging";
 import { targetYearLabel } from "./levels";
 import type { FeeItem, InvoiceStatus } from "./types";
 import { shapeFeesCollection, type FeesCollection, type OutstandingRow, type OverpaidRow, type RawProofRow } from "./adminFees";
@@ -167,8 +167,8 @@ export async function fetchCollectionPage(tenantId: string, termId: string, opts
     q = q.or([`full_name.ilike.${like}`, `admission_no.ilike.${like}`, ...(classIds.length ? [`class_id.in.(${classIds.join(",")})`] : [])].join(","), { referencedTable: "students" });
   }
   // by learner name: PostgREST orders a parent by a to-one embed's column
-  const { data, error, count } = await q.order("students(full_name)").order("id").range(opts.offset, opts.offset + opts.limit - 1).returns<CollectionJoin[]>();
-  if (error) throw new Error(error.message);
+  const { data, error, count, status } = await q.order("students(full_name)").order("id").range(opts.offset, opts.offset + opts.limit - 1).returns<CollectionJoin[]>();
+  if (error) throw pageError(error, status);
   const rows = (data ?? []).map((r) => ({
     id: r.id, studentName: r.students?.full_name ?? "Unknown learner", admissionNo: r.students?.admission_no ?? null,
     cls: r.students?.classes?.name ?? "—", total: r.total_cents, charges: r.charges_cents, paid: r.paid_cents, dueOn: r.due_on, status: r.status,

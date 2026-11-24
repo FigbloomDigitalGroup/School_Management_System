@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
   fetchConsumptionFlags, fetchCostPerMeal, fetchCurrentTermDates, fetchHeadcount, fetchIssueCharges, fetchItemIndex, fetchSpendByMonth, fetchStockLevels,
-  fetchUniformIssues, fetchUsage, monthsBack, periodRange, STORES, todayIso,
+  fetchUniformIssues, fetchUsage, flagWindow, monthsBack, periodRange, STORES, todayIso,
   type CostPerMealRow, type ItemIndexRow, type ReportPeriod, type StoreKey, type UsageRow,
 } from "@figbloom/shared";
 import { invalidate, useQuery } from "../../lib/queryCache";
@@ -66,9 +66,20 @@ export function useStockRange(tenantId: string, period: ReportPeriod) {
   // "This term" waits for the term's dates rather than fetching the year and then the term
   const ready = period !== "term" || !term.loading;
   const range = periodRange(period, new Date(), term.data);
-  // the flags look at a window long enough for a baseline and a 4-week trend, even for "this week"
-  const flagFrom = period === "week" ? todayIso(new Date(Date.now() - 27 * 86_400_000)) : range.from;
-  return { ready, range, flagFrom };
+  // the flags always look at the last eight weeks up to the period's end, whatever the period:
+  // long enough for a baseline and a 4-week trend, short enough to stay quick (a whole year timed out)
+  const flags = flagWindow(range.to);
+  return { ready, range, flagFrom: flags.from, flagTo: flags.to };
+}
+
+/** A read that failed and how to try it again. */
+export interface Failure { error: Error; retry: () => void }
+
+/** The first of these reads that failed (its retry fetches all of the failed ones again), or null. */
+export function firstFailure(...qs: { error: Error | null; retry: () => void }[]): Failure | null {
+  const failed = qs.filter((q) => q.error);
+  if (!failed.length) return null;
+  return { error: failed[0]!.error!, retry: () => { for (const q of failed) q.retry(); } };
 }
 
 export function useItemIndex(tenantId: string) {
