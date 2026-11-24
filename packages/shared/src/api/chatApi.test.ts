@@ -161,6 +161,22 @@ describe("fetchMyConversations on the API", () => {
     expect(api.callsTo(`GET ${P}/staff`)).toHaveLength(2);
   });
 
+  it("does not use one school's staff list for another school", async () => {
+    const T2 = "22222222-2222-4222-8222-222222222222";
+    boot({
+      [`GET ${P}/chat/conversations`]: { body: { conversations: [conv(C1, ANN, null)], page: page() } },
+      [`GET ${P}/staff`]: { body: { staff: [staff()], page: page() } },
+      [`GET /v1/tenants/${T2}/chat/conversations`]: { body: { conversations: [conv(C1, ANN, null)], page: page() } },
+      [`GET /v1/tenants/${T2}/staff`]: { body: { staff: [staff({ full_name: "Other School Ann" })], page: page() } },
+    });
+    expect((await fetchMyConversations())[0]!.otherName).toBe("Ann Mwangi");
+    setApiActiveTenant(T2);
+    expect((await fetchMyConversations())[0]!.otherName).toBe("Other School Ann");
+    setApiActiveTenant(T);
+    expect((await fetchMyConversations())[0]!.otherName).toBe("Ann Mwangi");
+    expect(api.callsTo(`GET ${P}/staff`)).toHaveLength(2);
+  });
+
   it("keeps a refusal to read the staff list for a minute too", async () => {
     boot({
       [`GET ${P}/chat/conversations`]: { body: { conversations: [], page: page() } },
@@ -237,7 +253,7 @@ describe("startConversation, people and messages on the API", () => {
   });
 
   it("stops at the newest 1,000 messages of a long thread", async () => {
-    let n = 1_300;
+    const n = 1_300;
     boot({
       [`GET ${P}/chat/conversations/${C1}/messages`]: (call) => {
         const cursor = Number(call.query.get("cursor") ?? 0);

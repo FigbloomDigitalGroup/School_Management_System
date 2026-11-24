@@ -111,6 +111,11 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/leave" element={page("admin", <Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
+      {/* A teacher who holds admin areas lands here and has no console switch on the API build yet: their teacher chats, notices and
+          messages are reachable by address only, as teacher/leave is. */}
+      <Route path="teacher/chats" element={page("admin", <Suspense fallback={pageFallback}><MyChats role="teacher" /></Suspense>)} />
+      <Route path="teacher/notices" element={page("admin", <Suspense fallback={pageFallback}><TeacherNotices /></Suspense>)} />
+      <Route path="teacher/messages" element={page("admin", <Suspense fallback={pageFallback}><TeacherMessages /></Suspense>)} />
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );
