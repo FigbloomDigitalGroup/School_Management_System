@@ -5016,6 +5016,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The child's clubs and teams (active first), with the patrons' names; at most 200 */
+        get: operations["familyChildActivities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Items issued to the child (books, uniforms, equipment), open ones first; at most 200 */
+        get: operations["familyChildItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The child's health profile, medication authorizations (with consent status), active schedules, administrations of the last 60 days and the newest 100 sick-bay visits
+         * @description A parent answers a consent request through POST /health/medications/authorizations/{authorizationId}/consent.
+         */
+        get: operations["familyChildHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/chat-contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who a parent may start a chat with: the school's administrators and the teachers of their children's current classes
+         * @description The same rule as POST /chat/conversations (may_talk), which is checked again on every chat write.
+         */
+        get: operations["familyChatContacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7908,6 +7982,122 @@ export interface components {
                 rejection_reason: string | null;
                 /** Format: date-time */
                 created_at: string;
+            }[];
+        };
+        FamilyActivity: {
+            /** Format: uuid */
+            activity_id: string;
+            name: string;
+            category: string;
+            description: string;
+            meeting_schedule: string;
+            active: boolean;
+            role: string | null;
+            /** Format: date */
+            joined_on: string;
+            patrons: string[];
+        };
+        FamilyItem: {
+            /** Format: uuid */
+            id: string;
+            item: {
+                name: string;
+                category: string;
+                asset_tag: string | null;
+            };
+            quantity: number;
+            /** Format: date-time */
+            issued_at: string;
+            /** Format: date */
+            due_on: string | null;
+            status: string;
+            condition_out: string | null;
+            returned_condition: string | null;
+            /** Format: date-time */
+            closed_at: string | null;
+        };
+        FamilyHealth: {
+            profile: {
+                blood_group: string | null;
+                allergies: string[];
+                chronic_conditions: string[];
+                dietary_notes: string | null;
+                emergency_notes: string | null;
+                /** Format: date-time */
+                updated_at: string;
+            } | null;
+            medication_authorizations: {
+                /** Format: uuid */
+                id: string;
+                medication_name: string;
+                dosage_instruction: string;
+                frequency_instruction: string;
+                route: string;
+                /** Format: date */
+                start_date: string;
+                /** Format: date */
+                end_date: string;
+                /** @enum {string} */
+                status: "draft" | "pending_consent" | "approved" | "rejected" | "expired" | "revoked";
+                /** @enum {string} */
+                guardian_consent_status: "pending" | "granted" | "declined" | "revoked";
+                /** Format: date-time */
+                guardian_consent_at: string | null;
+                rejection_reason: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            medication_schedules: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                authorization_id: string;
+                schedule_times: string[];
+                window_minutes: number;
+            }[];
+            medication_administrations: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                authorization_id: string;
+                /** Format: date-time */
+                scheduled_for: string;
+                /** Format: date-time */
+                administered_at: string | null;
+                outcome: string;
+                exception_reason: string | null;
+            }[];
+            sick_bay_visits: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                time_in: string;
+                /** Format: date-time */
+                time_out: string | null;
+                complaint: string;
+                /** @description Decimal as text */
+                temperature_c: string | null;
+                pulse_bpm: number | null;
+                observations: string | null;
+                assessment: string | null;
+                treatment: string | null;
+                outcome: string | null;
+                referred_to: string | null;
+                follow_up: string | null;
+            }[];
+        };
+        FamilyChatContact: {
+            /** Format: uuid */
+            user_id: string;
+            full_name: string;
+            /** @enum {string} */
+            role: "school_admin" | "teacher";
+            /** @description For a teacher, which of the caller's children they teach (subject null = class teacher) */
+            teaches: {
+                /** Format: uuid */
+                learner_id: string;
+                class_name: string;
+                subject: string | null;
             }[];
         };
     };
@@ -21966,6 +22156,135 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildActivities: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Activities of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        activities: components["schemas"]["FamilyActivity"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildItems: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Items issued to the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["FamilyItem"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildHealth: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Health of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        health: components["schemas"]["FamilyHealth"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChatContacts: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Chat contacts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        contacts: components["schemas"]["FamilyChatContact"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

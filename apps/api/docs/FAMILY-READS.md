@@ -81,6 +81,10 @@ times are ISO 8601.
 
 Bus: `/me/transport` and `/me/transport/notifications` (migration 086) already serve the bus page and are not changed.
 
+Every list has a fixed cap so a response stays bounded: results 500 marks and 500 CBE results (newest first; `termId`
+narrows), fees 50 invoices, homework, materials, activities, items and medication authorizations and schedules 200,
+administrations 500 (last 60 days), sick-bay visits 100. There is no paging on these reads: one child's lists are small.
+
 ### Changes to existing behaviour (said plainly)
 
 1. **Paying** (`assertMayPayFor`, `src/modules/finance/payer.ts`): allowed when the caller is a `parent` member and the
@@ -141,3 +145,6 @@ Decision needed from the owner on point 2 and 3 before building. Until then the 
 - Medical notices to guardians (`medical_notices`): the sick-bay module does not emit them yet (`guardian_notices_available:
   false`); the health read shows visits instead.
 - Report-card export (PDF) for a parent: the existing export is per class (all learners), so it is not opened to parents.
+- Push for a `class` or `form_level` announcement: the worker's eligibility count
+  (`communications_announcement_push_eligible_count`, 063) still counts only whole-school, role, user and people
+  audiences, for staff and parents alike. The in-app inbox reach above is what changed.

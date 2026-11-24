@@ -12,6 +12,8 @@ import {
   childTimetable,
 } from "../../modules/family/academics.js";
 import { childFees } from "../../modules/family/fees.js";
+import { childActivities, childHealth, childItems } from "../../modules/family/life.js";
+import { myChatContacts } from "../../modules/family/contacts.js";
 import { validationError } from "../errors.js";
 import type { RequestAuth } from "../middleware/authContext.js";
 import { assertUuid, inTenant, optionalUuid } from "../routeKit.js";
@@ -100,4 +102,30 @@ export async function registerFamilyRoutes(app: FastifyInstance, pool: AppPool):
       invoices: await childFees(tx, { tenantId, learnerId }),
     })),
   );
+
+  app.get(`${C}/activities`, async (request) =>
+    inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
+      activities: await childActivities(tx, { tenantId, learnerId }),
+    })),
+  );
+
+  app.get(`${C}/items`, async (request) =>
+    inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
+      items: await childItems(tx, { tenantId, learnerId }),
+    })),
+  );
+
+  app.get(`${C}/health`, async (request) =>
+    inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
+      health: await childHealth(tx, { tenantId, learnerId }),
+    })),
+  );
+
+  app.get(`${P}/chat-contacts`, async (request) => {
+    const params = request.params as { tenantId: string };
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, FAMILY_READ, { ip, deferAudit: true });
+      return { contacts: await myChatContacts(tx, params.tenantId) };
+    });
+  });
 }

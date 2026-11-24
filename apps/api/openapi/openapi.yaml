@@ -17584,6 +17584,193 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/children/{learnerId}/activities:
+    get:
+      tags:
+        - family
+      summary: "The child's clubs and teams (active first), with the patrons' names; at most 200"
+      operationId: familyChildActivities
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.family.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          description: One of the caller's own children (GET /me/children); any other id answers 404
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Activities of the child"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [activities]
+                additionalProperties: false
+                properties:
+                  activities:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FamilyActivity"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/children/{learnerId}/items:
+    get:
+      tags:
+        - family
+      summary: "Items issued to the child (books, uniforms, equipment), open ones first; at most 200"
+      operationId: familyChildItems
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.family.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          description: One of the caller's own children (GET /me/children); any other id answers 404
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Items issued to the child"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FamilyItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/children/{learnerId}/health:
+    get:
+      tags:
+        - family
+      summary: "The child's health profile, medication authorizations (with consent status), active schedules, administrations of the last 60 days and the newest 100 sick-bay visits"
+      description: "A parent answers a consent request through POST /health/medications/authorizations/{authorizationId}/consent."
+      operationId: familyChildHealth
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.family.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          description: One of the caller's own children (GET /me/children); any other id answers 404
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Health of the child"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [health]
+                additionalProperties: false
+                properties:
+                  health:
+                    $ref: "#/components/schemas/FamilyHealth"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/chat-contacts:
+    get:
+      tags:
+        - family
+      summary: "Who a parent may start a chat with: the school's administrators and the teachers of their children's current classes"
+      description: "The same rule as POST /chat/conversations (may_talk), which is checked again on every chat write."
+      operationId: familyChatContacts
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.family.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Chat contacts"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contacts]
+                additionalProperties: false
+                properties:
+                  contacts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FamilyChatContact"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   securitySchemes:
     bearerAuth:
@@ -25874,3 +26061,238 @@ components:
               created_at:
                 type: string
                 format: date-time
+    FamilyActivity:
+      type: object
+      required: [activity_id, name, category, description, meeting_schedule, active, role, joined_on, patrons]
+      additionalProperties: false
+      properties:
+        activity_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        meeting_schedule:
+          type: string
+        active:
+          type: boolean
+        role:
+          type: [string, "null"]
+        joined_on:
+          type: string
+          format: date
+        patrons:
+          type: array
+          items:
+            type: string
+    FamilyItem:
+      type: object
+      required: [id, item, quantity, issued_at, due_on, status, condition_out, returned_condition, closed_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        item:
+          type: object
+          required: [name, category, asset_tag]
+          additionalProperties: false
+          properties:
+            name:
+              type: string
+            category:
+              type: string
+            asset_tag:
+              type: [string, "null"]
+        quantity:
+          type: integer
+        issued_at:
+          type: string
+          format: date-time
+        due_on:
+          type: [string, "null"]
+          format: date
+        status:
+          type: string
+        condition_out:
+          type: [string, "null"]
+        returned_condition:
+          type: [string, "null"]
+        closed_at:
+          type: [string, "null"]
+          format: date-time
+    FamilyHealth:
+      type: object
+      required: [profile, medication_authorizations, medication_schedules, medication_administrations, sick_bay_visits]
+      additionalProperties: false
+      properties:
+        profile:
+          anyOf:
+            - type: object
+              required: [blood_group, allergies, chronic_conditions, dietary_notes, emergency_notes, updated_at]
+              additionalProperties: false
+              properties:
+                blood_group:
+                  type: [string, "null"]
+                allergies:
+                  type: array
+                  items:
+                    type: string
+                chronic_conditions:
+                  type: array
+                  items:
+                    type: string
+                dietary_notes:
+                  type: [string, "null"]
+                emergency_notes:
+                  type: [string, "null"]
+                updated_at:
+                  type: string
+                  format: date-time
+            - type: "null"
+        medication_authorizations:
+          type: array
+          items:
+            type: object
+            required: [id, medication_name, dosage_instruction, frequency_instruction, route, start_date, end_date, status, guardian_consent_status, guardian_consent_at, rejection_reason, created_at]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              medication_name:
+                type: string
+              dosage_instruction:
+                type: string
+              frequency_instruction:
+                type: string
+              route:
+                type: string
+              start_date:
+                type: string
+                format: date
+              end_date:
+                type: string
+                format: date
+              status:
+                type: string
+                enum: [draft, pending_consent, approved, rejected, expired, revoked]
+              guardian_consent_status:
+                type: string
+                enum: [pending, granted, declined, revoked]
+              guardian_consent_at:
+                type: [string, "null"]
+                format: date-time
+              rejection_reason:
+                type: [string, "null"]
+              created_at:
+                type: string
+                format: date-time
+        medication_schedules:
+          type: array
+          items:
+            type: object
+            required: [id, authorization_id, schedule_times, window_minutes]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              authorization_id:
+                type: string
+                format: uuid
+              schedule_times:
+                type: array
+                items:
+                  type: string
+              window_minutes:
+                type: integer
+        medication_administrations:
+          type: array
+          items:
+            type: object
+            required: [id, authorization_id, scheduled_for, administered_at, outcome, exception_reason]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              authorization_id:
+                type: string
+                format: uuid
+              scheduled_for:
+                type: string
+                format: date-time
+              administered_at:
+                type: [string, "null"]
+                format: date-time
+              outcome:
+                type: string
+              exception_reason:
+                type: [string, "null"]
+        sick_bay_visits:
+          type: array
+          items:
+            type: object
+            required: [id, time_in, time_out, complaint, temperature_c, pulse_bpm, observations, assessment, treatment, outcome, referred_to, follow_up]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              time_in:
+                type: string
+                format: date-time
+              time_out:
+                type: [string, "null"]
+                format: date-time
+              complaint:
+                type: string
+              temperature_c:
+                type: [string, "null"]
+                description: Decimal as text
+              pulse_bpm:
+                type: [integer, "null"]
+              observations:
+                type: [string, "null"]
+              assessment:
+                type: [string, "null"]
+              treatment:
+                type: [string, "null"]
+              outcome:
+                type: [string, "null"]
+              referred_to:
+                type: [string, "null"]
+              follow_up:
+                type: [string, "null"]
+    FamilyChatContact:
+      type: object
+      required: [user_id, full_name, role, teaches]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [school_admin, teacher]
+        teaches:
+          type: array
+          description: For a teacher, which of the caller's children they teach (subject null = class teacher)
+          items:
+            type: object
+            required: [learner_id, class_name, subject]
+            additionalProperties: false
+            properties:
+              learner_id:
+                type: string
+                format: uuid
+              class_name:
+                type: string
+              subject:
+                type: [string, "null"]

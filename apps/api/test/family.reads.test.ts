@@ -15,7 +15,7 @@ const NEW_PW = "brand-new-passw0rd";
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
 /** Every per-child GET path, relative to /v1/tenants/{t}/me/children/{learnerId}. */
-const CHILD_PATHS: string[] = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees"];
+const CHILD_PATHS: string[] = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items", "/health"];
 
 function isoDay(offsetDays: number): string {
   const d = new Date();
@@ -101,6 +101,7 @@ describe("family reads (A1)", () => {
   let p1: string; // token, linked through the real invitation flow
   let p1User: string;
   let p2: string;
+  let p2User: string;
   let pb: string;
   let lone: string; // a parent member with no link at all
 
@@ -142,7 +143,9 @@ describe("family reads (A1)", () => {
 
     const g2 = await guardian(A());
     await relate(A(), g2, c3);
-    p2 = (await parentAccount(A(), g2, "PT-0902")).token;
+    const fam2 = await parentAccount(A(), g2, "PT-0902");
+    p2 = fam2.token;
+    p2User = fam2.userId;
     const gb = await guardian(B());
     await relate(B(), gb, cb);
     pb = (await parentAccount(B(), gb, "PT-0903")).token;
@@ -202,8 +205,8 @@ describe("family reads (A1)", () => {
     const adm = (method: "GET" | "POST" | "PUT", path: string, payload?: unknown) => call(method, `/v1/tenants/${A()}${path}`, admin, payload, A());
     async function ok(method: "GET" | "POST" | "PUT", path: string, payload?: unknown): Promise<Record<string, any>> {
       const r = await adm(method, path, payload);
-      expect([200, 201], `${method} ${path}: ${r.body}`).toContain(r.statusCode);
-      return r.json();
+      expect([200, 201, 204], `${method} ${path}: ${r.body}`).toContain(r.statusCode);
+      return r.statusCode === 204 ? {} : r.json();
     }
     const child = (learnerId: string, p: string, token = p1) => get(`${base(A())}/${learnerId}${p}`, token, A());
     let maths: string;
@@ -472,6 +475,165 @@ describe("family reads (A1)", () => {
     });
   });
 
+  describe("clubs, issued items and health", () => {
+    const adm = (method: "GET" | "POST" | "PUT", path: string, payload?: unknown) => call(method, `/v1/tenants/${A()}${path}`, admin, payload, A());
+    async function ok(method: "GET" | "POST" | "PUT", path: string, payload?: unknown): Promise<Record<string, any>> {
+      const r = await adm(method, path, payload);
+      expect([200, 201, 204], `${method} ${path}: ${r.body}`).toContain(r.statusCode);
+      return r.statusCode === 204 ? {} : r.json();
+    }
+    const child = (learnerId: string, p: string, token = p1) => get(`${base(A())}/${learnerId}${p}`, token, A());
+    let authorization: string;
+
+    beforeAll(async () => {
+      const chess = (await ok("POST", "/activities", { name: "Chess club", category: "club", meeting_schedule: "Fridays 4pm" })).activity.id;
+      const choir = (await ok("POST", "/activities", { name: "Choir", category: "arts" })).activity.id;
+      await ok("POST", `/activities/${chess}/members`, { learner_id: c1, role: "Captain" });
+      await ok("POST", `/activities/${chess}/members`, { learner_id: c3 });
+      await ok("POST", `/activities/${choir}/members`, { learner_id: c3 });
+      await ok("POST", `/activities/${chess}/patrons`, { teacher_user_id: ctx.ids.teacherA });
+
+      const book = (await ok("POST", "/inventory/items", { name: "Maths textbook", category: "textbooks", tracking: "asset", asset_tag: "BK-001" })).item.id;
+      const jumper = (await ok("POST", "/inventory/items", { name: "School jumper", category: "uniforms", tracking: "asset", asset_tag: "UN-007" })).item.id;
+      await ok("POST", "/inventory/issues", { item_id: book, learner_id: c1, due_on: isoDay(60) });
+      await ok("POST", "/inventory/issues", { item_id: jumper, learner_id: c3 });
+
+      await ok("PUT", `/health/learners/${c1}/profile`, { blood_group: "O+", allergies: ["Peanuts"], chronic_conditions: [] });
+      await ok("PUT", `/health/learners/${c3}/profile`, { blood_group: "A-", allergies: ["Penicillin"] });
+      authorization = (await ok("POST", "/health/medications/authorizations", {
+        learner_id: c1, medication_name: "Salbutamol", dosage_instruction: "2 puffs", frequency_instruction: "when needed", route: "inhaled",
+        start_date: isoDay(0), end_date: isoDay(30),
+      })).authorization.id;
+      await ok("POST", "/health/medications/authorizations", {
+        learner_id: c3, medication_name: "Amoxicillin", dosage_instruction: "250mg", frequency_instruction: "3 times a day", start_date: isoDay(0), end_date: isoDay(7),
+      });
+      await ok("POST", "/health/sick-bay/visits", { learner_id: c1, complaint: "Headache", temperature_c: 37.4, treatment: "Rest" });
+      await ok("POST", "/health/sick-bay/visits", { learner_id: c3, complaint: "Stomach ache" });
+    }, 120_000);
+
+    it("activities: the child's own clubs with patron names, nothing of a classmate's", async () => {
+      const r = await child(c1, "/activities");
+      expect(r.statusCode, r.body).toBe(200);
+      conforms("/v1/tenants/{tenantId}/me/children/{learnerId}/activities", 200, r.json());
+      expect(r.json().activities).toEqual([
+        expect.objectContaining({ name: "Chess club", category: "club", meeting_schedule: "Fridays 4pm", active: true, role: "Captain", patrons: ["Teacher A"] }),
+      ]);
+      expect(JSON.stringify(r.json())).not.toContain("Choir");
+      expect((await child(c3, "/activities", p2)).json().activities.map((a: { name: string }) => a.name)).toEqual(["Chess club", "Choir"]);
+    });
+
+    it("items: what was issued to the child only", async () => {
+      const r = await child(c1, "/items");
+      expect(r.statusCode, r.body).toBe(200);
+      conforms("/v1/tenants/{tenantId}/me/children/{learnerId}/items", 200, r.json());
+      expect(r.json().items).toEqual([expect.objectContaining({ item: { name: "Maths textbook", category: "textbooks", asset_tag: "BK-001" }, quantity: 1, status: "out", due_on: isoDay(60) })]);
+      expect(JSON.stringify(r.json())).not.toContain("UN-007");
+    });
+
+    it("health: profile, authorizations a parent can consent to, sick-bay visits; nothing of another learner", async () => {
+      const r = await child(c1, "/health");
+      expect(r.statusCode, r.body).toBe(200);
+      conforms("/v1/tenants/{tenantId}/me/children/{learnerId}/health", 200, r.json());
+      const h = r.json().health;
+      expect(h.profile).toMatchObject({ blood_group: "O+", allergies: ["Peanuts"] });
+      expect(h.medication_authorizations).toEqual([expect.objectContaining({ id: authorization, medication_name: "Salbutamol", status: "pending_consent", guardian_consent_status: "pending" })]);
+      expect(h.sick_bay_visits).toEqual([expect.objectContaining({ complaint: "Headache", temperature_c: "37.4", treatment: "Rest" })]);
+      for (const leak of ["Penicillin", "Amoxicillin", "Stomach ache"]) expect(JSON.stringify(r.json())).not.toContain(leak);
+      // the parent answers through the existing consent endpoint, and the read shows it
+      const consent = await call("POST", `/v1/tenants/${A()}/health/medications/authorizations/${authorization}/consent`, p1, { decision: "granted" }, A());
+      expect(consent.statusCode, consent.body).toBe(200);
+      expect((await child(c1, "/health")).json().health.medication_authorizations[0].guardian_consent_status).toBe("granted");
+      // a child with no health record
+      expect((await child(c2, "/health")).json().health).toEqual({ profile: null, medication_authorizations: [], medication_schedules: [], medication_administrations: [], sick_bay_visits: [] });
+    });
+  });
+
+  describe("announcements inbox and chat for families", () => {
+    const comms = (method: "GET" | "POST", path: string, token: string, payload?: unknown) => call(method, `/v1/tenants/${A()}${path}`, token, payload, A());
+    const ids: Record<string, string> = {};
+    let otherTeacher: string; // a teacher of school A who teaches none of family 1's children
+    let otherTeacherUser: string;
+
+    beforeAll(async () => {
+      const post = async (key: string, audience: Record<string, unknown>, publish = true) => {
+        const r = await comms("POST", "/communications/announcements", admin, { subject: `Notice ${key}`, body: "Hello", audience, channels: ["in_app"] });
+        expect(r.statusCode, r.body).toBe(201);
+        ids[key] = r.json().announcement.id;
+        if (publish) expect((await comms("POST", `/communications/announcements/${ids[key]}/publish`, admin)).statusCode).toBe(200);
+      };
+      await post("class1A", { kind: "class", class_id: class1A });
+      await post("class2B", { kind: "class", class_id: class2B });
+      await post("form2", { kind: "form_level", form_level: 2 });
+      await post("form3", { kind: "form_level", form_level: 3 });
+      await post("parents", { kind: "role", role: "parent" });
+      await post("teachers", { kind: "role", role: "teacher" });
+      await post("draft1A", { kind: "class", class_id: class1A }, false);
+
+      otherTeacherUser = randomUUID();
+      const hash = (await owner(`SELECT password_hash AS h FROM users WHERE id = $1`, [ctx.ids.adminA]))[0].h as string;
+      await owner(`INSERT INTO users (id, email, password_hash, full_name, status) VALUES ($1, NULL, $2, 'Teacher Other', 'active')`, [otherTeacherUser, hash]);
+      await owner(`INSERT INTO school_memberships (user_id, tenant_id, role, login_id) VALUES ($1, $2, 'teacher', 'TC-0777')`, [otherTeacherUser, A()]);
+      const staff = await comms("POST", "/staff", admin, { full_name: "Teacher Other", classification: "teacher", userId: otherTeacherUser });
+      expect(staff.statusCode, staff.body).toBe(201);
+      otherTeacher = await login({ tenantId: A(), loginId: "TC-0777", password: PASSWORD });
+    }, 120_000);
+
+    const inbox = async (token: string) => {
+      const r = await comms("GET", "/communications/announcements/inbox?limit=200", token);
+      expect(r.statusCode, r.body).toBe(200);
+      const seen = new Set((r.json().announcements as Array<{ id: string }>).map((a) => a.id));
+      return Object.keys(ids).filter((k) => seen.has(ids[k]!)).sort();
+    };
+
+    it("a class or form-level notice reaches the parents of children in it, and nobody else's parents", async () => {
+      expect(await inbox(p1)).toEqual(["class1A", "class2B", "form2", "parents"].sort()); // C1 in 1A, C2 in 2B (form 2)
+      expect(await inbox(p2)).toEqual(["class1A", "parents"].sort()); // C3 in 1A only
+      expect(await inbox(lone)).toEqual(["parents"]); // no linked child
+      expect(await inbox(teacher)).toEqual(["class1A", "teachers"]); // staff reach unchanged: the teacher teaches maths in 1A
+    });
+
+    it("chat contacts: the school administrators and the teachers of the caller's children", async () => {
+      const r = await comms("GET", "/me/chat-contacts", p1);
+      expect(r.statusCode, r.body).toBe(200);
+      conforms("/v1/tenants/{tenantId}/me/chat-contacts", 200, r.json());
+      const contacts = r.json().contacts as Array<Record<string, any>>;
+      expect(contacts.find((c) => c.user_id === ctx.ids.adminA)).toMatchObject({ role: "school_admin", teaches: [] });
+      expect(contacts.find((c) => c.user_id === ctx.ids.teacherA)).toMatchObject({ role: "teacher", full_name: "Teacher A", teaches: [{ learner_id: c1, class_name: "Form 1 A", subject: "Mathematics" }] });
+      expect(contacts.some((c) => c.user_id === otherTeacherUser)).toBe(false);
+      expect((await comms("GET", "/me/chat-contacts", lone)).json().contacts.map((c: { role: string }) => c.role)).toEqual(["school_admin"]);
+      expect((await comms("GET", "/me/chat-contacts", teacher)).statusCode).toBe(403);
+    });
+
+    it("a parent may chat with their child's teacher (either may start), not with another teacher or another parent", async () => {
+      const start = await comms("POST", "/chat/conversations", p1, { peer_user_id: ctx.ids.teacherA });
+      expect(start.statusCode, start.body).toBe(201);
+      const conv = start.json().conversation.id as string;
+      expect((await comms("POST", `/chat/conversations/${conv}/messages`, p1, { body: "Hello teacher" })).statusCode).toBe(201);
+      expect((await comms("POST", `/chat/conversations/${conv}/messages`, teacher, { body: "Hello parent" })).statusCode).toBe(201);
+      expect((await comms("POST", "/chat/conversations", teacher, { peer_user_id: p1User })).statusCode).toBe(201);
+      expect((await comms("POST", "/chat/conversations", p1, { peer_user_id: otherTeacherUser })).statusCode).toBe(403);
+      expect((await comms("POST", "/chat/conversations", otherTeacher, { peer_user_id: p1User })).statusCode).toBe(403);
+      expect((await comms("POST", "/chat/conversations", p1, { peer_user_id: p2User })).statusCode).toBe(403);
+      expect((await comms("POST", "/chat/conversations", p1, { peer_user_id: ctx.ids.adminA })).statusCode).toBe(201); // unchanged
+    });
+
+    it("a revoked link closes the class inbox and the teacher chat at once (an open conversation cannot be written to)", async () => {
+      const l = await learner(A(), "Chat Child");
+      await owner(`INSERT INTO class_memberships (tenant_id, learner_id, class_id, academic_year_id) VALUES ($1, $2, $3, $4)`, [A(), l, class1A, year]);
+      const g = await guardian(A());
+      await relate(A(), g, l);
+      const fam = await parentAccount(A(), g, "PT-0960");
+      expect(await inbox(fam.token)).toContain("class1A");
+      const conv = (await comms("POST", "/chat/conversations", fam.token, { peer_user_id: ctx.ids.teacherA })).json().conversation.id as string;
+      expect((await comms("POST", `/chat/conversations/${conv}/messages`, fam.token, { body: "Before" })).statusCode).toBe(201);
+      expect((await comms("POST", `/guardians/${g}/account-link/revoke`, admin, { reason: "custody changed" })).statusCode).toBe(200);
+      expect(await inbox(fam.token)).not.toContain("class1A");
+      expect((await comms("POST", `/chat/conversations/${conv}/messages`, fam.token, { body: "After" })).statusCode).toBe(403);
+      expect((await comms("POST", `/chat/conversations/${conv}/messages`, teacher, { body: "After" })).statusCode).toBe(403);
+      expect((await comms("GET", "/me/chat-contacts", fam.token)).json().contacts.map((c: { role: string }) => c.role)).toEqual(["school_admin"]);
+    });
+  });
+
   describe("every per-child path", () => {
     it("is 200 for the caller's own child", async () => {
       for (const p of CHILD_PATHS) {
@@ -570,6 +732,20 @@ describe("family reads (A1)", () => {
       // the membership trigger also revoked the account link, so restoring the membership does not bring the child back
       await owner(`UPDATE school_memberships SET archived_at = NULL WHERE user_id = $1 AND tenant_id = $2`, [f.userId, A()]);
       await expectClosed(f);
+    });
+
+    it("an expired invitation never makes a link (links themselves do not expire; revocation is final)", async () => {
+      const l = await learner(A(), "Expired Invite Child");
+      const g = await guardian(A());
+      await relate(A(), g, l);
+      const inv = await call("POST", `/v1/tenants/${A()}/guardians/${g}/invitations`, admin, { learner_id: l, method: "sms" }, A());
+      expect(inv.statusCode, inv.body).toBe(201);
+      await owner(`UPDATE guardian_invitations SET created_at = now() - interval '4 days', expires_at = now() - interval '1 day' WHERE id = $1`, [inv.json().invitation.id]);
+      // the signed-in parent (no link yet) holds the token and the phone, but it has expired
+      const acc = await call("POST", "/v1/guardian-invitations/accept", lone, { token: inv.json().invitation.token, contact: "0712345678", confirm: true });
+      expect(acc.statusCode).toBe(400);
+      expect((await get(base(A()), lone, A())).json().children).toEqual([]);
+      for (const p of CHILD_PATHS) expect((await get(`${base(A())}/${l}${p}`, lone, A())).statusCode, p).toBe(404);
     });
 
     it("a disabled account", async () => {
