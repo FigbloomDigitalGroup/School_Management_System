@@ -2408,7 +2408,7 @@ export interface paths {
         put?: never;
         /**
          * Start an M-Pesa payment prompt (family payer)
-         * @description Family payer: a guardian or the learner acting for the learner. The API has no link between an account and a guardian or learner yet (login/invite provisioning is an Identity decision), so this operation answers 403 for every caller until it exists. Invoice existence is not revealed. When available: whole shillings, at least KES 1, at most the outstanding balance rounded up to the next shilling. One pending prompt per invoice; the same phone and amount within 2 minutes returns the existing prompt (200, reused true); otherwise 409. The provider is called outside any database transaction; a refusal answers 502 with the failed payment. The payment becomes success only when the provider confirms it (the callback or the settle job re-checks with the provider's status query) and is credited for the prompt's own amount. Poll GET /payments/{paymentId}. An overpayment from a prompt that settles after a manual payment is recorded and flagged by reconciliation, not rejected. 503 when M-Pesa is not configured.
+         * @description Family payer: a parent member of this school whose live account link reaches the invoice's learner (docs/FAMILY-READS.md, `family_my_children()`); every other caller, staff included, answers 403. Invoice existence is not revealed. Whole shillings, at least KES 1, at most the outstanding balance rounded up to the next shilling. One pending prompt per invoice; the same phone and amount within 2 minutes returns the existing prompt (200, reused true); otherwise 409. The provider is called outside any database transaction; a refusal answers 502 with the failed payment. The payment becomes success only when the provider confirms it (the callback or the settle job re-checks with the provider's status query) and is credited for the prompt's own amount. Poll GET /payments/{paymentId}. An overpayment from a prompt that settles after a manual payment is recorded and flagged by reconciliation, not rejected. 503 when M-Pesa is not configured.
          */
         post: operations["financeStartMpesaPrompt"];
         delete?: never;
@@ -2432,7 +2432,7 @@ export interface paths {
         put?: never;
         /**
          * Submit a payment proof
-         * @description Evidence of a payment made outside the app: the pasted message text (the transaction code must appear in it) and/or file METADATA (name, type, size). No object storage exists: no file byte is stored or served, and no storage key is ever returned. Allowed file types: JPEG, PNG, WebP, PDF up to 10 MB. The office (`resource.finance.administer`) may submit on a family's behalf (submitted_via office). A family member needs the payer link, which is not provisioned yet (403). A transaction code is accepted once per school while its proof is live (a rejected proof frees it) and never when it is already recorded as a payment (409). Confirm a proof only by recording its payment with proof_id.
+         * @description Evidence of a payment made outside the app: the pasted message text (the transaction code must appear in it) and/or file METADATA (name, type, size). No object storage exists: no file byte is stored or served, and no storage key is ever returned. Allowed file types: JPEG, PNG, WebP, PDF up to 10 MB. The office (`resource.finance.administer`) may submit on a family's behalf (submitted_via office). A family member needs a live account link to the invoice's learner (docs/FAMILY-READS.md); anyone else answers 403. A transaction code is accepted once per school while its proof is live (a rejected proof frees it) and never when it is already recorded as a payment (409). Confirm a proof only by recording its payment with proof_id.
          */
         post: operations["financeSubmitProof"];
         delete?: never;
@@ -2860,7 +2860,7 @@ export interface paths {
         get: operations["financeListAiHelperOptins"];
         /**
          * Record a family's AI helper opt-in choice
-         * @description Family payer: a guardian or the learner acting for the learner. The API has no link between an account and a guardian or learner yet (login/invite provisioning is an Identity decision), so this operation answers 403 for every caller until it exists. Invoice existence is not revealed. Never creates a charge.
+         * @description Family payer: a parent member of this school whose live account link reaches the learner (docs/FAMILY-READS.md, `family_my_children()`); every other caller, staff included, answers 403. Never creates a charge.
          */
         put: operations["financePutAiHelperOptin"];
         post?: never;
@@ -4862,6 +4862,154 @@ export interface paths {
         put?: never;
         /** Mark a submitted teacher report as reviewed */
         post: operations["teacherReportsReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A parent's own children in this school (live account link, live relationship, active guardian record and learner)
+         * @description Empty for anyone with no linked child. A learner appears only while every link condition holds; see docs/FAMILY-READS.md.
+         */
+        get: operations["familyMyChildren"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One child's register marks (morning and afternoon) and early sign-outs that were not voided
+         * @description Default window: the current term up to today, or the last 90 days when no term is current. At most 366 days.
+         */
+        get: operations["familyChildAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One child's own marks on published or closed assessments, and CBE results likewise (never a draft)
+         * @description class_mean is null unless at least 3 learners have a mark on the assessment. At most 500 rows each, newest first.
+         */
+        get: operations["familyChildResults"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/report-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest published report card per term and class, reduced to the child's own slice of the class snapshot */
+        get: operations["familyChildReportCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/homework": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Homework of the child's current-year class, due on or after `from` (default 21 days ago); at most 200 */
+        get: operations["familyChildHomework"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Learning materials registered for the child's current-year class, newest first; at most 200 (files are metadata only) */
+        get: operations["familyChildMaterials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/timetable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest PUBLISHED timetable of the child's current-year class, or null (drafts never appear) */
+        get: operations["familyChildTimetable"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/fees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One child's invoices (newest first, at most 50) with lines, charges that were not voided, payments and payment proofs
+         * @description Payments carry no phone number and no staff user id. Amounts are minor units (cents).
+         */
+        get: operations["familyChildFees"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7520,6 +7668,247 @@ export interface components {
         };
         GenericObject: {
             [key: string]: unknown;
+        };
+        /** @description The learner's class in the current academic year (active membership of an active class) */
+        FamilyChildClass: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            form_level: number | null;
+            stream: string | null;
+            /** Format: uuid */
+            academic_year_id: string;
+        };
+        FamilyChild: {
+            /** Format: uuid */
+            learner_id: string;
+            full_name: string;
+            admission_no: string;
+            boarding: boolean;
+            /** @enum {string} */
+            relationship: "mother" | "father" | "guardian";
+            is_primary_payer: boolean;
+            class: components["schemas"]["FamilyChildClass"] | null;
+        };
+        FamilyRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        FamilyTermRef: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+        };
+        FamilyAttendance: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            marks: {
+                /** Format: date */
+                date: string;
+                /** @enum {string} */
+                session: "morning" | "afternoon";
+                /** @enum {string} */
+                mark: "present" | "absent" | "late" | "excused";
+            }[];
+            /** @description Number of marks of each kind per session, e.g. {"morning":{"present":40,"absent":2},"afternoon":{}} */
+            counts: {
+                morning: {
+                    [key: string]: number;
+                };
+                afternoon: {
+                    [key: string]: number;
+                };
+            };
+            early_sign_outs: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date */
+                date: string;
+                /** Format: date-time */
+                signed_out_at: string;
+                reason: string;
+                collected_by_name: string;
+                collected_by_relationship: string;
+            }[];
+        };
+        FamilyResults: {
+            marks: {
+                /** Format: uuid */
+                assessment_id: string;
+                title: string;
+                /** @enum {string} */
+                kind: "exam" | "homework" | "cbe" | "other";
+                /** @enum {string} */
+                status: "published" | "closed";
+                /** Format: date-time */
+                published_at: string | null;
+                /** @description Decimal as text */
+                max_score: string;
+                /** @description Decimal as text */
+                score: string;
+                grade: string | null;
+                /** @description Mean of the assessment's marks (2 decimals, as text); null unless at least 3 learners have a mark */
+                class_mean: string | null;
+                subject: components["schemas"]["FamilyRef"];
+                term: components["schemas"]["FamilyTermRef"];
+            }[];
+            cbe_results: {
+                /** Format: uuid */
+                cbe_assessment_id: string;
+                title: string;
+                /** @enum {string} */
+                status: "published" | "closed";
+                /** Format: date-time */
+                published_at: string | null;
+                /** Format: date */
+                assessment_date: string | null;
+                learning_area: components["schemas"]["FamilyRef"];
+                strand: components["schemas"]["FamilyRef"] | null;
+                level_code: string;
+                points: string;
+                teacher_feedback: string | null;
+                term: components["schemas"]["FamilyTermRef"];
+            }[];
+        };
+        FamilyReportCard: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            published_at: string;
+            term: components["schemas"]["FamilyTermRef"];
+            class: components["schemas"]["FamilyRef"];
+            method: string | null;
+            grading_scheme_name: string | null;
+            /** @description The child's own sum, count and average of published scores at publication; null when the child had no mark */
+            summary: {
+                sum: string;
+                count: number;
+                average: string | null;
+                grade: string | null;
+            } | null;
+            cbe_results: {
+                /** Format: uuid */
+                cbe_assessment_id: string;
+                title: string;
+                level_code: string;
+                points: string;
+                teacher_feedback: string | null;
+            }[];
+            competencies: {
+                kind: string;
+                item: string;
+                level_code: string;
+            }[];
+        };
+        FamilyHomework: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            body: string;
+            /** Format: date */
+            due_on: string;
+            /** Format: uuid */
+            term_id: string;
+            subject: components["schemas"]["FamilyRef"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        FamilyMaterial: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            description: string | null;
+            subject: components["schemas"]["FamilyRef"] | null;
+            storage_status: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        FamilyTimetable: {
+            /** Format: uuid */
+            publication_id: string;
+            version: number;
+            /** Format: date-time */
+            published_at: string;
+            /** Format: uuid */
+            term_id: string | null;
+            class: components["schemas"]["FamilyRef"];
+            slots: {
+                day_of_week: number;
+                /** @description HH:MM */
+                starts_at: string;
+                /** @description HH:MM */
+                ends_at: string;
+                room: string | null;
+                subject: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string | null;
+                };
+                teacher_name: string | null;
+            }[];
+        };
+        FamilyInvoice: {
+            /** Format: uuid */
+            id: string;
+            term: components["schemas"]["FamilyTermRef"];
+            /** @enum {string} */
+            currency: "KES";
+            /** Format: date */
+            due_on: string;
+            /** @enum {string} */
+            status: "paid" | "overdue" | "part_paid" | "unpaid" | "voided";
+            lines_minor: number;
+            charges_minor: number;
+            adjustments_minor: number;
+            total_minor: number;
+            paid_minor: number;
+            balance_minor: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            voided_at: string | null;
+            lines: {
+                name: string;
+                amount_minor: number;
+            }[];
+            charges: {
+                amount_minor: number;
+                reason: string;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            payments: {
+                /** Format: uuid */
+                id: string;
+                amount_minor: number;
+                /** @enum {string} */
+                method: "mpesa" | "bank" | "cash" | "cheque";
+                /** @enum {string} */
+                status: "pending" | "success" | "failed" | "cancelled" | "timeout";
+                mpesa_receipt: string | null;
+                reference: string | null;
+                failure_reason: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                completed_at: string | null;
+            }[];
+            proofs: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                status: "pending" | "confirmed" | "rejected";
+                txn_code: string | null;
+                txn_amount_minor: number | null;
+                note: string | null;
+                file_name: string | null;
+                rejection_reason: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
         };
     };
     responses: {
@@ -21299,6 +21688,278 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenericObject"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyMyChildren: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's children */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        children: components["schemas"]["FamilyChild"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    familyChildAttendance: {
+        parameters: {
+            query?: {
+                /** @description First day (YYYY-MM-DD) */
+                from?: string;
+                /** @description Last day (YYYY-MM-DD) */
+                to?: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attendance of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        attendance: components["schemas"]["FamilyAttendance"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildResults: {
+        parameters: {
+            query?: {
+                /** @description Only this term */
+                termId?: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Results of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyResults"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildReportCards: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report cards of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        report_cards: components["schemas"]["FamilyReportCard"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildHomework: {
+        parameters: {
+            query?: {
+                /** @description Earliest due date (YYYY-MM-DD) */
+                from?: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Homework of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        homework: components["schemas"]["FamilyHomework"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildMaterials: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Materials of the child's class */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        materials: components["schemas"]["FamilyMaterial"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildTimetable: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Timetable of the child's class */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        timetable: components["schemas"]["FamilyTimetable"] | null;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    familyChildFees: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fees of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invoices: components["schemas"]["FamilyInvoice"][];
+                    };
                 };
             };
             400: components["responses"]["ValidationError"];
