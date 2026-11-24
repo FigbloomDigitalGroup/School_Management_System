@@ -172,6 +172,25 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
   read classes, memberships or guardians, and cannot import. Those parts show "none" instead of failing the page, and a
   change to a learner's name does not touch their class.
 
+### Report cards: what the API cannot do yet
+
+`reportCardsCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet (`admin/report-cards` and `teacher/report-cards`), and the shared functions behind them throw `NotOnApiError`:
+
+| Hidden or different on the API build | Missing or different in the API |
+|---|---|
+| Choosing a subset of exams, and toggling position, attendance, fees, activities, or next-term date | `POST /v1/tenants/{tenantId}/report-cards` takes `{ term_id, class_id, grading_scheme_id? }` and always aggregates every published assessment, published/closed CBE assessment, and competency rating for that class and term |
+| Draft state, "Send to families", and "Withdraw all" | `POST /report-cards` publishes immediately; there is no draft or withdraw endpoint |
+| Per-learner class teacher and principal comments (and "Suggest missing comments") | `report_card_publications` stores a class-level `figures` snapshot with no per-learner comment fields |
+| Signing report cards and printing signatures on PDFs | document signatures wait on C12 (`FIG-1880`) |
+| "Draft comments with Bloom" (AI helper) | calls a Supabase edge function |
+| Clearing a competency rating back to unrated | `POST /v1/tenants/{tenantId}/competency-ratings` only sets `EE \| ME \| AE \| BE`; there is no `DELETE` endpoint |
+
+How the model is mapped (`packages/shared/src/api/reportCardsApi.ts`):
+
+- `fetchClassReportCards` reads `GET /v1/tenants/{tenantId}/report-cards?termId=&classId=` (ordered newest first), takes the latest snapshot, and hydrates one `StoredReportCard` per learner from its `figures` (plus assessment marks, CBE results, and competency ratings) so the table and client-side PDF downloads (`Results sheet (PDF)`, `All report cards (PDF)`, and per-learner `PDF`) work.
+- `saveCompetencyRating` tracks `row_version` per rating so updates send the optimistic concurrency version the API requires.
+- **Plain teacher (OD-2) scope:** a plain teacher can read `/classes`, `/report-cards`, `/assessments`, `/assessments/{id}/marks`, and `/competency-ratings` for classes they teach, but gets 403 on `/academic-terms`, `/academic-years`, `/learners`, `/subjects`, and `POST /competency-ratings`. `fetchReportCardSetup` discovers terms from existing published report cards when `/academic-terms` returns 403, `fetchClassReportCards` degrades gracefully without learner names if `/learners` returns 403, and `CompetencyRatings` renders read-only when the caller lacks `resource.academics.write`.
+
 ## Where the code is
 
 - `packages/shared/src/api/`: `schema.d.ts` (generated), `client.ts` (the one way to call the API), `errors.ts`,
@@ -182,6 +201,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
 - `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
 - `packages/shared/src/api/leaveApi.ts`: the API side of `leave.ts` (`admin/leave` and `teacher/leave`), plus the API short-circuit in `hrLeave.ts`.
+- `packages/shared/src/api/reportCardsApi.ts`: the API side of `reportCards.ts` and `competencies.ts` (`admin/report-cards` and `teacher/report-cards`).
 - `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
 - `packages/shared/src/api/accountApi.ts` and `accessApi.ts`: the API side of `profile.ts` and `notificationPreferences.ts` (My account), and of `adminAreas.ts` plus the guardian-access and delegation calls (Access & roles).
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
@@ -638,6 +658,17 @@ on the web reads it, so it is not used.
 44. **Per-period cover for approved leave** (the Supabase "Needs cover" list) has no API counterpart: `/attendance-coverage` assigns
     who may take a class's register on a day.
 
+### API findings: report cards and competency ratings (numbered 45 and 46 so that no other slice shares a number)
+
+45. **Report cards are class-level published snapshots only.** `POST /v1/tenants/{tenantId}/report-cards` publishes immediately
+    with no draft/withdraw workflow, no per-learner teacher/principal comments, and no learner names in `figures`. For a plain
+    teacher (OD-2), `GET /report-cards` works for taught classes, but `GET /academic-terms` and `GET /learners` return 403,
+    so a plain teacher cannot pick terms that have no published report cards yet and sees fallback learner labels instead of
+    full names.
+46. **Competency ratings cannot be cleared and require `resource.academics.write`.** There is no `DELETE` endpoint for
+    `/v1/tenants/{tenantId}/competency-ratings`, and `POST` requires `resource.academics.write`, so a plain class teacher
+    can view ratings for their taught classes (`GET` is OD-2 scoped) but cannot save ratings on the API yet.
+
 ## AI and Bloom (admin/assistant, admin/study-helper, admin/bloom, teacher/bloom)
 
 Four pages: `admin/assistant` (School assistant), `admin/study-helper` (Bloom study helper), and `admin/bloom` / `teacher/bloom`
@@ -685,24 +716,24 @@ Four pages: `admin/assistant` (School assistant), `admin/study-helper` (Bloom st
 | Lesson plans, paper import, report card comments, question, homework and message drafting and translation (`aiDrafting`) | not in `bloom-school/1` (`capability: "chat"`, `tools: []`, C13) |
 | School assistant setup plans ("Create N") and links to pages | `bloom-school/1` has `tools: []`, so no structured actions or links come back |
 | Study helper "Turned on by", monthly usage columns (questions, tokens, last used) | `/finance/ai-helper/optins` returns `changed_by` ids only, and per-learner AI usage is not tracked |
-| School AI on/off and web-search switches (`saveAiSettings`), and the "turn it on in School settings" wording | no endpoint to turn Bloom on or off (finding 45) |
+| School AI on/off and web-search switches (`saveAiSettings`), and the "turn it on in School settings" wording | no endpoint to turn Bloom on or off (finding 47) |
 | Study helper chat for learners and the learner status call (`askTutor`, `fetchAiHelperStatus`) | learners and parents have no sign-in on the API build yet, and `/ai/query` is the only AI route |
 
 `invokeEdge` now throws `NotOnApiError` on an API build, so a Supabase edge function is never called by mistake.
 
 ### Things found in the API while doing this
 
-45. **Bloom is "on" when a school has a row in `finance_ai_helper_settings`.** `GET /ai/status` sets `enabled_for_school: true`
+47. **Bloom is "on" when a school has a row in `finance_ai_helper_settings`.** `GET /ai/status` sets `enabled_for_school: true`
     only then (the row is made by `PUT /finance/ai-helper/settings`, which needs the finance administer permission). There is no
     switch to turn Bloom on or off, and no way to remove the row, so the web app cannot offer the "turn it on in School settings"
     control. Suggest: an explicit `ai_enabled` flag with its own `PUT`.
-46. **`POST /ai/query` answers 503 outside the error envelope.** When the provider is not configured or unavailable it sends
+48. **`POST /ai/query` answers 503 outside the error envelope.** When the provider is not configured or unavailable it sends
     `{ status, scope, reason }`, not `{ error: { code, message } }`, so `apiClient` only sees "The server answered 503." The web
     tells the two apart by the `Retry-After` header (sent only for `unavailable`). Suggest: use the standard envelope with a
     `reason` detail.
-47. **No Bloom chat persistence, no tools.** There are no endpoints to store or list Bloom chats, and `bloom-school/1` is one prompt
+49. **No Bloom chat persistence, no tools.** There are no endpoints to store or list Bloom chats, and `bloom-school/1` is one prompt
     (4,000 characters, `tools: []`). Multi-turn context is packed into the prompt by the web, and lesson plans, paper import and
     assistant setup plans stay hidden (C13).
-48. **Study helper opt-ins carry no names and no usage.** `GET /finance/ai-helper/optins` has `changed_by` ids only (no guardian
+50. **Study helper opt-ins carry no names and no usage.** `GET /finance/ai-helper/optins` has `changed_by` ids only (no guardian
     name) and no monthly question or token counts, so those columns are hidden. The school profile also has no payment details or
     crest, so the School assistant leaves those two checklist steps off.

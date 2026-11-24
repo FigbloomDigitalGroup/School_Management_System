@@ -7,9 +7,9 @@ import { useTenantSession } from "./sessionContext";
  * screens only show AI buttons that will work. Null while loading or if it
  * can't be read: screens treat that as off.
  */
-export function useAiStatus(): AiStatus | null {
+export function useAiStatus(enabled = true): AiStatus | null {
   const { tenant } = useTenantSession();
-  const { data } = useAsync(() => fetchAiStatus(tenant.id).catch(() => null), [tenant.id]);
+  const { data } = useAsync(() => (enabled ? fetchAiStatus(tenant.id).catch(() => null) : Promise.resolve(null)), [tenant.id, enabled]);
   return data ?? null;
 }
 

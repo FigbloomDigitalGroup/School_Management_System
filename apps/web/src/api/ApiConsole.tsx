@@ -19,6 +19,7 @@ import { ApiOverview, type SchoolSession } from "./ApiOverview";
 const People = lazy(() => import("../screens/admin/People").then((m) => ({ default: m.People })));
 const AdminLeave = lazy(() => import("../screens/admin/Leave").then((m) => ({ default: m.AdminLeave })));
 const TeacherLeave = lazy(() => import("../screens/teacher/Leave").then((m) => ({ default: m.TeacherLeave })));
+const ReportCards = lazy(() => import("../screens/admin/ReportCards").then((m) => ({ default: m.ReportCards })));
 const AdminCourses = lazy(() => import("../screens/admin/Courses").then((m) => ({ default: m.AdminCourses })));
 const TeacherTimetable = lazy(() => import("../screens/teacher/Timetable").then((m) => ({ default: m.TeacherTimetable })));
 const TeacherClasses = lazy(() => import("../screens/teacher/Classes").then((m) => ({ default: m.TeacherClasses })));
@@ -53,14 +54,14 @@ const pageFallback = (
  */
 export const API_ADMIN_PAGES = [
   "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/inventory", "admin/leave",
-  "admin/access", "admin/account", "admin/chats", "admin/exams", "admin/performance", "admin/reports", "admin/courses",
+  "admin/access", "admin/account", "admin/chats", "admin/exams", "admin/performance", "admin/reports", "admin/courses", "admin/report-cards",
   "admin/assistant", "admin/study-helper", "admin/bloom",
 ] as const;
 
 /** Teacher pages available on the API build (FIG-1891). */
 export const API_TEACHER_PAGES = [
   "teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/chats", "teacher/notices", "teacher/messages", "teacher/gradebook", "teacher/performance",
-  "teacher/timetable", "teacher/classes", "teacher/bloom",
+  "teacher/timetable", "teacher/classes", "teacher/report-cards", "teacher/bloom",
 ] as const;
 
 /**
@@ -113,6 +114,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
           <Route path="teacher" element={tPage(<ApiOverview session={session} onSignOut={onSignOut} inShell />)} />
           <Route path="teacher/attendance" element={tPage(<TeacherAttendance />)} />
           <Route path="teacher/leave" element={tPage(<Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+          <Route path="teacher/report-cards" element={tPage(<Suspense fallback={pageFallback}><ReportCards teacher /></Suspense>)} />
           <Route path="teacher/timetable" element={tPage(<Suspense fallback={pageFallback}><TeacherTimetable /></Suspense>)} />
           <Route path="teacher/classes" element={tPage(<Suspense fallback={pageFallback}><TeacherClasses /></Suspense>)} />
           <Route path="teacher/account" element={tPage(<Suspense fallback={pageFallback}><TeacherAccount /></Suspense>)} />
@@ -141,6 +143,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
       <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/leave" element={page("admin/leave", <Suspense fallback={pageFallback}><AdminLeave /></Suspense>)} />
+      <Route path="admin/report-cards" element={page("admin/report-cards", <Suspense fallback={pageFallback}><ReportCards /></Suspense>)} />
       <Route path="admin/courses" element={page("admin/courses", <Suspense fallback={pageFallback}><AdminCourses /></Suspense>)} />
       <Route path="admin/inventory" element={page("admin/inventory", <Suspense fallback={pageFallback}><AdminInventory /></Suspense>)} />
       <Route path="admin/access" element={page("admin/access", <Suspense fallback={pageFallback}><AccessRoles /></Suspense>)} />
@@ -155,6 +158,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/leave" element={page("admin", <Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+      <Route path="teacher/report-cards" element={page("admin", <Suspense fallback={pageFallback}><ReportCards teacher /></Suspense>)} />
       <Route path="teacher/timetable" element={page("admin", <Suspense fallback={pageFallback}><TeacherTimetable /></Suspense>)} />
       <Route path="teacher/classes" element={page("admin", <Suspense fallback={pageFallback}><TeacherClasses /></Suspense>)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
