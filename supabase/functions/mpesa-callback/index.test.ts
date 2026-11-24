@@ -266,7 +266,7 @@ describe("mpesa-callback: replay, order and retries", () => {
 
     assertEquals(res.status, 200);
     assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
-    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt, undefined);
+    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt ?? null, null);
     assertEquals(admin.rowsIn("audit_events").length, 0);
     assertEquals(late.asked, []);
   });

@@ -285,7 +285,7 @@ describe("one prompt at a time per invoice (FIG-1321)", () => {
     assertEquals(old.failure_reason, "cancelled");
   });
 
-  it("never prompts again over a stale prompt Daraja says was paid", async () => {
+  it("never prompts again over a stale prompt Daraja says was paid, and credits it as the callback would", async () => {
     const { admin, asUser } = makeClients();
     admin.seed("payments", [{
       id: "old", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000,
@@ -296,7 +296,9 @@ describe("one prompt at a time per invoice (FIG-1321)", () => {
     const res = await handle(request(validBody), { admin, asUser, queryStk });
     assertEquals(res.status, 409);
     assertEquals(sent.length, 0);
-    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+    assertEquals(admin.rowsIn("payments").length, 1);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("audit_events").length, 1);
   });
 
   it("waits while Daraja is still processing a stale prompt, or can't be reached", async () => {
