@@ -26,6 +26,7 @@ import {
   listClassMemberships,
   listClasses,
   listSubjects,
+  subjectIdsInClasses,
   listTeachingAssignments,
   listTerms,
   listTimetablePublications,
@@ -289,8 +290,11 @@ export async function registerAcademicsStructureRoutes(app: FastifyInstance, poo
     const active = optionalBool((request.query as { active?: unknown }).active, "active");
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
-      const out = await listSubjects(tx, { tenantId: params.tenantId, active, page });
+      // OD-2: holders of resource.academics.read read every subject; a teacher without it reads only the subjects of the classes
+      // they teach (so they can name their timetable periods); a caller who teaches nothing gets the standard audited 403.
+      const classScope = await classReadScope(tx, auth, ip, "resource.academics.read");
+      const scopeSubjectIds = classScope === null ? null : await subjectIdsInClasses(tx, { tenantId: params.tenantId, classIds: classScope });
+      const out = await listSubjects(tx, { tenantId: params.tenantId, active, page, scopeSubjectIds });
       return { subjects: out.items, page: out.page };
     });
   });
