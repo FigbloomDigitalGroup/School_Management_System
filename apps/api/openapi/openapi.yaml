@@ -39,6 +39,7 @@ tags:
   - name: import
   - name: me
   - name: family
+  - name: teaching
 paths:
   /livez:
     get:
@@ -120,6 +121,52 @@ paths:
               schema:
                 $ref: "#/components/schemas/LivenessStatus"
   /v1/platform/schools:
+    get:
+      tags:
+        - platform
+      summary: List every school (platform directory)
+      description: >
+        Super administrators only (`platform.tenants.read`). Directory fields from the school record and its
+        organisation; nothing from inside a school. The caller's school (session or `X-Tenant-Id`) is ignored. SQL
+        keyset-paginated (FIG-1621) on `name COLLATE "C", id`; the cursor identifies the last school by id and is
+        bound to the filters, so changing `status` or `organizationId` with an old cursor is `400 validation_error`.
+      operationId: listPlatformSchools
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.tenants.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+        - name: status
+          in: query
+          required: false
+          description: Only schools with this status.
+          schema:
+            $ref: "#/components/schemas/PlatformSchoolStatus"
+        - name: organizationId
+          in: query
+          required: false
+          description: Only the schools of this organisation.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: One page of schools
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSchoolList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags:
         - platform
@@ -233,6 +280,43 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/platform/schools/{schoolId}:
+    get:
+      tags:
+        - platform
+      summary: One school's directory record (platform)
+      description: >
+        Super administrators only (`platform.tenants.read`). The same fields as one item of the platform school list.
+        The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: getPlatformSchool
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.tenants.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: schoolId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The school
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSchool"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/invitations:
     post:
       tags:
@@ -3310,7 +3394,10 @@ paths:
         - academics
       summary: List academic years
       description: "Newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from
-        `page.next_cursor`, fixed sort (`sort` is refused)."
+        `page.next_cursor`, fixed sort (`sort` is refused). Teacher reads (docs/TEACHER-READS.md): a caller without
+        `resource.academics.read` who holds `resource.teaching.read` and teaches (class teacher or an active teaching
+        assignment of an active class, through their linked active staff record) reads only the academic years of those
+        classes; a caller who teaches nothing gets 403."
       operationId: listAcademicYears
       security:
         - bearerAuth: []
@@ -3360,6 +3447,9 @@ paths:
       tags:
         - academics
       summary: Get an academic year
+      description: "Teacher reads (docs/TEACHER-READS.md): a caller without `resource.academics.read` who teaches reads only
+        the academic years of the classes they teach (404 for any other year, as for one that does not exist); a caller
+        who teaches nothing gets 403."
       operationId: getAcademicYear
       security:
         - bearerAuth: []
@@ -3512,7 +3602,10 @@ paths:
         - academics
       summary: List academic terms
       description: "With academicYearId: by term index; otherwise newest start date first. Paged (FIG-1621): `limit` 1-200
-        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). Teacher reads
+        (docs/TEACHER-READS.md): a caller without `resource.academics.read` who holds `resource.teaching.read` and teaches
+        reads only the terms of the academic years of the classes they teach (an `academicYearId` outside them gives an
+        empty list); a caller who teaches nothing gets 403."
       operationId: listAcademicTerms
       security:
         - bearerAuth: []
@@ -3568,6 +3661,9 @@ paths:
       tags:
         - academics
       summary: Get an academic term
+      description: "Teacher reads (docs/TEACHER-READS.md): a caller without `resource.academics.read` who teaches reads only
+        the terms of the academic years of the classes they teach (404 for any other term, as for one that does not exist);
+        a caller who teaches nothing gets 403."
       operationId: getAcademicTerm
       security:
         - bearerAuth: []
@@ -11605,6 +11701,56 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/chat/contacts:
+    get:
+      tags:
+        - chat
+      summary: Staff a staff member may start a chat with
+      description: "Teacher reads (docs/TEACHER-READS.md). For a caller whose role in this school is school_admin, teacher,
+        driver or staff: every other member of the school with one of those roles and an active account (the staff-to-staff
+        rule of may_talk, which starting a chat checks again). Empty for anyone else: a parent's list is
+        `/me/chat-contacts`, and parents are not listed for staff. By name. Paged (FIG-1621): `limit` 1-200 (default 50),
+        opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: chatListStaffContacts
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: Contacts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - contacts
+                  - page
+                properties:
+                  contacts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ChatStaffContact"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/chat/conversations/{conversationId}/messages:
     get:
       tags:
@@ -17802,6 +17948,117 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/teaching/learners:
+    get:
+      tags:
+        - teaching
+      summary: The learners in the classes the caller teaches (names only)
+      description: "Teacher reads (docs/TEACHER-READS.md). One row per active class membership of an active learner in a
+        class the caller teaches now: an active class whose class teacher, or an active teaching assignment, is the caller's
+        linked active staff record. `classId` narrows to one class (a class they do not teach gives an empty list). Empty
+        for a caller who teaches nothing or has no linked staff record. No date of birth, gender, boarding or contacts. By
+        name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is
+        refused)."
+      operationId: teachingMyLearners
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The learners
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - learners
+                  - page
+                properties:
+                  learners:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeachingLearner"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/teaching/colleagues:
+    get:
+      tags:
+        - teaching
+      summary: The staff who teach the caller's classes (names only)
+      description: "Teacher reads (docs/TEACHER-READS.md). The active staff records that are class teacher, or hold an active
+        teaching assignment, in the classes the caller teaches now (the caller's own record included), so a timetable or
+        an assignment's staff id can be named. Empty for a caller who teaches nothing. No phone, e-mail, title or account
+        id. By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort
+        (`sort` is refused)."
+      operationId: teachingMyColleagues
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The colleagues
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - colleagues
+                  - page
+                properties:
+                  colleagues:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeachingColleague"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/me/chat-contacts:
     get:
       tags:
@@ -18142,6 +18399,85 @@ components:
         organizationId:
           type: string
           format: uuid
+    PlatformSchoolStatus:
+      type: string
+      enum:
+        - active
+        - trial
+        - onboarding
+        - overdue
+        - suspended
+        - setup_stalled
+    PlatformSchool:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - slug
+        - status
+        - timezone
+        - createdAt
+        - organization
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          $ref: "#/components/schemas/PlatformSchoolStatus"
+        timezone:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        organization:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+            - slug
+            - kind
+            - status
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+            kind:
+              type: string
+              enum:
+                - government
+                - county
+                - constituency
+                - group_owner
+            status:
+              type: string
+              enum:
+                - pending
+                - active
+                - suspended
+                - rejected
+    PlatformSchoolList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformSchool"
+        page:
+          $ref: "#/components/schemas/PageInfo"
     PageInfo:
       type: object
       required:
@@ -24445,6 +24781,53 @@ components:
         peer_user_id:
           type: string
           format: uuid
+        peer_full_name:
+          type: string
+          description: List only. The other person's account name (docs/TEACHER-READS.md).
+        peer_role:
+          type:
+            - string
+            - "null"
+          enum: [school_admin, teacher, parent, student, driver, staff, null]
+          description: List only. The other person's role in this school; null once they are no longer a member.
+    ChatStaffContact:
+      type: object
+      additionalProperties: false
+      required: [user_id, full_name, role]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [school_admin, teacher, driver, staff]
+    TeachingLearner:
+      type: object
+      additionalProperties: false
+      required: [learner_id, full_name, admission_no, class_id]
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        admission_no:
+          type: string
+        class_id:
+          type: string
+          format: uuid
+    TeachingColleague:
+      type: object
+      additionalProperties: false
+      required: [staff_member_id, full_name]
+      properties:
+        staff_member_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
     ChatOpenConversationRequest:
       type: object
       additionalProperties: false
