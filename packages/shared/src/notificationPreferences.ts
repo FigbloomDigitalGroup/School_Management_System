@@ -1,4 +1,7 @@
+import { apiFetchNotificationPreferences, apiSetNotificationPreferences } from "./api/accountApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
+import type { Role } from "./types";
 
 /**
  * The parent "how we reach you" channel toggles (FIG-872) — real persistence
@@ -23,6 +26,29 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   chatMessages: true,
 };
 
+/** One choice on the account screen: what it is called, and what it covers, in the words a person reads. */
+export interface NotificationTopic {
+  key: keyof NotificationPreferences;
+  label: string;
+  note: string;
+}
+
+const TOPICS: readonly NotificationTopic[] = [
+  { key: "feeReminders", label: "Fee reminders", note: "When a fee is due or overdue." },
+  { key: "absenceToday", label: "Absence on the day", note: "When a child is marked absent." },
+  { key: "resultsPublished", label: "Results published", note: "When the school publishes exam results." },
+  { key: "generalNotices", label: "General school notices", note: "Announcements sent to the whole school." },
+  { key: "chatMessages", label: "Chat messages", note: "A push when someone writes to you in a chat." },
+];
+
+/** The choices that mean something to a role: a family is told about fees, absences and results; everyone else about notices and chat. */
+export function notificationTopicsFor(role: Role): NotificationTopic[] {
+  const keys: ReadonlyArray<keyof NotificationPreferences> = role === "parent"
+    ? ["feeReminders", "absenceToday", "resultsPublished", "generalNotices", "chatMessages"]
+    : ["generalNotices", "chatMessages"];
+  return TOPICS.filter((t) => keys.includes(t.key));
+}
+
 interface Row {
   fee_reminders: boolean;
   absence_today: boolean;
@@ -42,6 +68,7 @@ function fromRow(row: Row): NotificationPreferences {
 }
 
 export async function fetchMyNotificationPreferences(profileId: string): Promise<NotificationPreferences> {
+  if (onApi()) return apiFetchNotificationPreferences();
   const { data, error } = await supabase()
     .from("notification_preferences")
     .select("fee_reminders, absence_today, results_published, general_notices, chat_messages")
@@ -56,6 +83,7 @@ export async function setMyNotificationPreference(
   profileId: string,
   patch: Partial<Record<keyof NotificationPreferences, boolean>>,
 ): Promise<void> {
+  if (onApi()) { await apiSetNotificationPreferences(patch); return; }
   const columns: Record<keyof NotificationPreferences, keyof Row> = {
     feeReminders: "fee_reminders",
     absenceToday: "absence_today",

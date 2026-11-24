@@ -167,6 +167,42 @@ export function feesCapabilities(): FeesCapabilities {
   return onApi() ? FEES_ON_API : FEES_ON_SUPABASE;
 }
 
+/** The account pages (admin/account, teacher/account; later staff/account and parent/settings). */
+export interface AccountCapabilities {
+  /** Change your own name, phone and second phone (the API has no endpoint for it). */
+  editProfile: boolean;
+  /** Upload your own photo (waits on file storage, A5 / FIG-1873). */
+  photo: boolean;
+  /** Voice and video calls from the account page (not on the API: C13). */
+  calls: boolean;
+  /** API only: change the password (asking for the current one) and manage two-step verification on the account page. */
+  security: boolean;
+  /** API only: real choices for how the school reaches you, saved on the server. */
+  notificationChoices: boolean;
+}
+
+const ACCOUNT_ON_SUPABASE: AccountCapabilities = { editProfile: true, photo: true, calls: true, security: false, notificationChoices: false };
+const ACCOUNT_ON_API: AccountCapabilities = { editProfile: false, photo: false, calls: false, security: true, notificationChoices: true };
+
+export function accountCapabilities(): AccountCapabilities {
+  return onApi() ? ACCOUNT_ON_API : ACCOUNT_ON_SUPABASE;
+}
+
+/** The Access & roles screen (admin/access). */
+export interface AccessCapabilities {
+  /** The school's own named roles ("Exams officer"): the API has no write path for them, so only areas given one by one exist. */
+  schoolRoles: boolean;
+  /** API only: who holds which admin areas, edited per person (needs `GET /v1/rbac/staff-areas`). */
+  perPersonAreas: boolean;
+}
+
+const ACCESS_ON_SUPABASE: AccessCapabilities = { schoolRoles: true, perPersonAreas: false };
+const ACCESS_ON_API: AccessCapabilities = { schoolRoles: false, perPersonAreas: true };
+
+export function accessCapabilities(): AccessCapabilities {
+  return onApi() ? ACCESS_ON_API : ACCESS_ON_SUPABASE;
+}
+
 /** The Leave screens (admin/leave, teacher/leave). */
 export interface LeaveCapabilities {
   /** Figbloom HR leave handoff ("Leave to approve" and HR-backed applications; blocked on C13). */
@@ -227,3 +263,94 @@ const COURSES_ON_API: CoursesCapabilities = {
 export function coursesCapabilities(): CoursesCapabilities {
   return onApi() ? COURSES_ON_API : COURSES_ON_SUPABASE;
 }
+
+/** The admin Inventory screen (admin/inventory). */
+export interface InventoryCapabilities {
+  /** Editing an existing inventory item (no PATCH /inventory/items/{itemId} endpoint on API). */
+  editItem: boolean;
+  /** Putting a written-off item back on the register (no unretire endpoint; GET /inventory/items lists active items only). */
+  unretireItem: boolean;
+  /** Purchase date, unit cost, and item notes (not stored on the API's InventoryItem schema). */
+  itemCostAndNotes: boolean;
+  /** Closed-issue history tab and Lost counter (GET /inventory/issues lists open issues only). */
+  issueHistory: boolean;
+  /** Adding a note when issuing an item (POST /inventory/issues accepts no note; closing an issue does). */
+  issueNote: boolean;
+  /** Charging a learner's fees for lost or damaged items (waits on closed-issue history and charge-by-issue lookup). */
+  chargeToFees: boolean;
+}
+
+const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
+  editItem: true,
+  unretireItem: true,
+  itemCostAndNotes: true,
+  issueHistory: true,
+  issueNote: true,
+  chargeToFees: true,
+};
+
+const INVENTORY_ON_API: InventoryCapabilities = {
+  editItem: false,
+  unretireItem: false,
+  itemCostAndNotes: false,
+  issueHistory: false,
+  issueNote: false,
+  chargeToFees: false,
+};
+
+export function inventoryCapabilities(): InventoryCapabilities {
+  return onApi() ? INVENTORY_ON_API : INVENTORY_ON_SUPABASE;
+}
+
+/** Exams and marks: the admin Exams page, the teacher Gradebook, Performance and Reports. */
+export interface GradesCapabilities {
+  /** Rename an exam (the API has no change for an assessment's title). */
+  renameExam: boolean;
+  /** Delete an exam (the API has no delete for an assessment). */
+  deleteExam: boolean;
+  /** "Marks entered" on each exam of the Exams page (an assessment carries no mark count). */
+  examMarkCounts: boolean;
+  /** Take published marks back to draft (on the API a publication is final). */
+  withdrawResults: boolean;
+  /** Change a mark after it was published (the API takes a recorded correction with a reason instead). */
+  editPublishedMarks: boolean;
+  /** The CBE strand gradebook (a subject has no learning area on the API, so its strands cannot be found). */
+  cbeGradebook: boolean;
+  /** The higher-education gradebook (a section's assessments and marks; the API has one final grade per enrolment). */
+  gpaGradebook: boolean;
+  /** The CBE rubric charts and band tables of Performance and Reports. */
+  cbeReports: boolean;
+  /** API only: an exam is made of one paper per class and subject, each with its own status; the Exams page lists them and publishes them. */
+  examPapers: boolean;
+  /** API only: a mark may have decimals (the exam's `max_score` is a number, up to 10,000). */
+  fractionalMarks: boolean;
+}
+
+const GRADES_ON_SUPABASE: GradesCapabilities = {
+  renameExam: true, deleteExam: true, examMarkCounts: true, withdrawResults: true, editPublishedMarks: true,
+  cbeGradebook: true, gpaGradebook: true, cbeReports: true, examPapers: false, fractionalMarks: false,
+};
+
+const GRADES_ON_API: GradesCapabilities = {
+  renameExam: false, deleteExam: false, examMarkCounts: false, withdrawResults: false, editPublishedMarks: false,
+  cbeGradebook: false, gpaGradebook: false, cbeReports: false, examPapers: true, fractionalMarks: true,
+};
+
+export function gradesCapabilities(): GradesCapabilities {
+  return onApi() ? GRADES_ON_API : GRADES_ON_SUPABASE;
+}
+
+/**
+ * What the signed-in person may do with grades on this backend, from what the API lets them read (a plain teacher reads far less
+ * than a school admin). On Supabase everyone may do everything the screens offer.
+ */
+export interface GradesAccess {
+  /** The Gradebook needs the school's terms, subjects, learners and the class's assessments. */
+  gradebook: boolean;
+  /** Said to the person when `gradebook` is false. */
+  gradebookReason: string | null;
+  /** Publish and close an exam's papers (the API holds this to the Academics area). */
+  publish: boolean;
+}
+
+export const FULL_GRADES_ACCESS: GradesAccess = { gradebook: true, gradebookReason: null, publish: true };

@@ -302,6 +302,8 @@ jobs:
           CORS_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173" \
           AUTH_RATE_CAPACITY=1000 \
           AUTH_RATE_REFILL=1000 \
+          MFA_ATTEMPT_RATE_CAPACITY=1000 \
+          MFA_ATTEMPT_RATE_REFILL=1000 \
           MFA_ENFORCEMENT=enforce \
           node apps/api/dist/index.js > /tmp/figbloom-api.log 2>&1 &
           API_PID=$!

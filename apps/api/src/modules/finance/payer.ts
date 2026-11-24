@@ -1,29 +1,24 @@
 import type { Tx } from "../../db/sql.js";
 import { forbidden } from "../../http/errors.js";
+import { isMyChild } from "../family/children.js";
 import type { AuthzContext } from "../rbac/authorize.js";
 
 /**
- * Payer authorization seam (Stage 11).
+ * Payer authorization seam (Stage 11; family link since A1, docs/FAMILY-READS.md).
  *
- * Legacy: a family pays (M-Pesa prompt), submits payment proofs and opts in to the AI helper as a
- * guardian of the learner, or as the learner, through a link between the signed-in account and the
- * guardian/learner record. Staff cannot pay (legacy mpesa-stk-push `paysFor`).
+ * Legacy: a family pays (M-Pesa prompt), submits payment proofs and opts in to the AI helper as a guardian of the learner
+ * (`paysFor`: any guardian row of the caller for that learner). Staff cannot pay.
  *
- * The new backend has NO account-to-guardian or account-to-learner link: guardians are directory
- * contacts and "login/invite provisioning" is a deferred Identity decision (GRAPH.md, School Directory).
- * Creating such a link would grant payment power and access to children's financial records, so it is
- * an owner/Identity decision and is NOT invented here.
- *
- * Until it exists, this check fails closed for every caller. When Identity provisions the link, only
- * this function changes; every payer-facing finance path already goes through it.
+ * The caller may pay for a learner only when they are a `parent` member of the school of the request AND the learner is
+ * one of their children by `family_my_children()` (migration 099): a live account link, an active account, an active
+ * guardian record, a live guardian-learner relationship and an active learner, all in this school, checked now. Any
+ * linked guardian may pay (`is_primary_payer` is shown, not enforced), as in the legacy app. Everyone else, staff and
+ * super administrators included, is refused with the same message. Student accounts do not exist yet (A4), so a learner
+ * cannot pay for themselves. Every payer-facing finance path goes through this one function.
  */
-export const PAYER_LINK_MISSING =
-  "This account is not linked to the learner as a guardian. Family accounts are not provisioned yet.";
+export const PAYER_LINK_MISSING = "This account is not linked to the learner as a guardian.";
 
-export async function assertMayPayFor(
-  _tx: Tx,
-  _authz: AuthzContext,
-  _learnerId: string,
-): Promise<void> {
-  throw forbidden(PAYER_LINK_MISSING);
+export async function assertMayPayFor(tx: Tx, authz: AuthzContext, learnerId: string): Promise<void> {
+  if (authz.membership?.role !== "parent" || !authz.tenantId) throw forbidden(PAYER_LINK_MISSING);
+  if (!(await isMyChild(tx, learnerId))) throw forbidden(PAYER_LINK_MISSING);
 }
