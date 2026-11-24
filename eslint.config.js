@@ -14,6 +14,7 @@ export default tseslint.config(
       "apps/mobile/ios/**",
       "supabase/.temp/**",
       "playwright-report/**",
+      "**/cdk.out/**",
       ".personal-ai/**",
       // Generated from apps/api/openapi/openapi.yaml by `npm run api:types`; never edited by hand.
       "packages/shared/src/api/schema.d.ts",
@@ -86,7 +87,7 @@ export default tseslint.config(
     rules: { "no-console": "error" },
   },
   {
-    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs", "scripts/supabase-to-api/**/*.mjs"],
+    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs", "scripts/supabase-to-api/**/*.mjs", "infra/**/*.mjs", "infra/**/*.ts"],
     languageOptions: { sourceType: "module", globals: globals.node },
   },
   {

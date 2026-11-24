@@ -1,0 +1,22 @@
+# Used by infra/api/Dockerfile (the API image). An ALLOWLIST: everything is left out except what the build needs.
+# Keep it that way so .env files, node_modules and the rest of the repository never reach an image.
+*
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!apps/api/package.json
+!apps/api/tsconfig.json
+!apps/api/tsconfig.build.json
+!apps/api/src
+!apps/api/migrations
+!apps/api/scripts
+!apps/web/package.json
+!apps/mobile/package.json
+!packages/shared/package.json
+!infra/api
+
+# Never, even inside an allowed folder.
+**/.env
+**/.env.*
+**/node_modules
+**/dist

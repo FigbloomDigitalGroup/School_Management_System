@@ -1,0 +1,25 @@
+{
+  "name": "figbloom-infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Production infrastructure for the FigBloom API (AWS CDK). Not an npm workspace: it has its own lockfile.",
+  "engines": {
+    "node": ">=24.7"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.278.0",
+    "constructs": "10.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "aws-cdk": "2.1149.0",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  }
+}
