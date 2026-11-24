@@ -31,7 +31,7 @@ export function ParentBus() {
   const { tenant } = useTenantSession();
   const { children, loading: parentLoading, error: parentError } = useParentData();
   const key = children.map((c) => c.id).join(",");
-  const { data, loading: ridesLoading, error: ridesError } = useAsync(() => loadRides(children), [key]);
+  const { data, loading: ridesLoading, error: ridesError } = useAsync(() => loadRides(children), [key], { cache: false });
   // Until the parent's children are known, `children` is [] and the rides for
   // it resolve to [] — which would read as "Not on a bus route".
   const loading = parentLoading || ridesLoading;

@@ -42,12 +42,14 @@ export function ParentFees() {
   const { data: invoiceId, loading: invoiceLoading } = useAsync(
     () => (child ? fetchCurrentInvoiceId(child.id) : Promise.resolve(null)),
     [child?.id],
+    { cache: false },
   );
   // Tagged with the invoice they belong to: after a child switch the previous
   // child's proofs must not show, but a reload after an upload keeps the list up.
   const { data: proofsFor, loading: proofsLoading } = useAsync(
     async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload],
+    { cache: false },
   );
   const proofs = !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
   const proofsPending = !proofs && (invoiceLoading || proofsLoading);

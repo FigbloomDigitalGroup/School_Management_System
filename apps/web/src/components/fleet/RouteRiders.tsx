@@ -20,6 +20,7 @@ export function RouteRiders({ routeId, toast, onSaved }: { routeId: string; toas
   const { data, loading, error } = useAsync(
     () => Promise.all([listRouteRiders(routeId), listRouteStops(routeId)]).then(([riders, stops]) => ({ riders, stops })),
     [routeId, reload],
+    { cache: false },
   );
   const [preview, setPreview] = useState<PlannedStop[] | null>(null);
   const [saving, setSaving] = useState(false);

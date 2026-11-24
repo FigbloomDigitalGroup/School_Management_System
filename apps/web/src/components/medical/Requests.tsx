@@ -26,7 +26,7 @@ export function MedicationRequests({ onChanged }: { onChanged: () => void }) {
   const toast = useToast();
   const { tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchPendingRequests(tenant.id), [tenant.id, reloadKey]);
+  const { data, loading, error } = useAsync(() => fetchPendingRequests(tenant.id), [tenant.id, reloadKey], { cache: false });
   const [deciding, setDeciding] = useState<MedicationRequest | null>(null);
 
   async function openPhoto(path: string) {

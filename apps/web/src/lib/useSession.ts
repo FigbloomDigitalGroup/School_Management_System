@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AdminArea, Profile, Tenant } from "@figbloom/shared";
 import { fetchMyAdminAreas, mayHoldAdminAreas, sessionSchoolSuspended, supabase } from "@figbloom/shared";
+import { setCacheScope } from "./queryCache";
 
 export interface Session {
   loading: boolean;
@@ -102,6 +103,9 @@ export function useSession(slug: string | null): Session {
       const raw = sessionStorage.getItem("figbloom.impersonation");
       const impersonating = raw ? (JSON.parse(raw) as Session["impersonating"]) : null;
 
+      // The screens' cache belongs to this person in this school: signing out, another person
+      // signing in, or moving to another school (or impersonating one) starts it empty.
+      setCacheScope(profile ? `${profile.id}:${tenant?.id ?? ""}:${impersonating ? JSON.stringify(impersonating) : ""}` : null);
       if (alive) setState({ loading: false, profile: profile ?? null, tenant, impersonating, actingForTenant, actingOrganization, adminAreas, schoolSuspended, resolvedFor: slug });
     }
 

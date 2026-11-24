@@ -54,7 +54,7 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
   const [problem, setProblem] = useState<string | null>(null);
 
   const { data: health, loading: healthLoading } = useAsync(
-    () => (learner ? fetchStudentHealth(learner.id) : Promise.resolve(null)), [learner?.id]);
+    () => (learner ? fetchStudentHealth(learner.id) : Promise.resolve(null)), [learner?.id], { cache: false });
   const { data: stock } = useAsync(() => fetchMedicalStock(tenant.id).catch(() => []), [tenant.id]);
 
   const set = (patch: Partial<SickBayVisitDraft>) => setD((x) => ({ ...x, ...patch }));
