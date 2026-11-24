@@ -48,6 +48,16 @@ export function apiReauth(password: string): Promise<{ ok: boolean; valid_for_se
   return apiClient().post("/v1/auth/reauth", { body: { password }, tenantId: null, keepSessionOn401: true });
 }
 
+/** The server's password rule (apps/api passwordPolicy.ts): at least 10 characters, with letters and numbers. */
+export const API_PASSWORD_MIN_LENGTH = 10;
+
+/** What is wrong with a new password under the server's rule, in words for a person; null when it passes. */
+export function apiPasswordProblem(password: string): string | null {
+  if (password.length < API_PASSWORD_MIN_LENGTH) return `The new password needs at least ${API_PASSWORD_MIN_LENGTH} characters.`;
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) return "The new password needs letters and numbers.";
+  return null;
+}
+
 /** Changes the password. Allowed while must_change_password is set; the server ends the person's other sessions and keeps this one. */
 export function apiChangePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean; user: ApiUser }> {
   return apiClient().post("/v1/auth/password/change", { body: { currentPassword, newPassword }, tenantId: null, keepSessionOn401: true });
@@ -130,6 +140,14 @@ export async function apiMfaRegenerateRecoveryCodes(code: string): Promise<strin
     throw new Error("The server's recovery codes response was not understood.");
   }
   return res.recoveryCodes as string[];
+}
+
+/**
+ * Turns two-step verification off. Needs a fresh 6-digit code and a recent password confirmation (reauth); a wrong code is a 401
+ * that keeps the session. The server then drops the two-step assurance of every session of the person.
+ */
+export async function apiMfaDisable(code: string): Promise<void> {
+  await apiClient().post("/v1/auth/mfa/disable", { body: { code }, tenantId: null, keepSessionOn401: true });
 }
 
 /**
