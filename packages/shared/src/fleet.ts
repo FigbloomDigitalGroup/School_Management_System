@@ -689,7 +689,7 @@ export async function fetchTripPath(tripId: string): Promise<TripPoint[]> {
  * Holds a position for later. On Supabase it is the row to upsert; on the API it is the call to make, with the fix's own time
  * fixed now (the server refuses a fix older than 10 minutes, so a longer dead zone loses its history).
  */
-export function enqueueLocationPing(queue: Pick<WriteQueue, "enqueue" | "enqueueApi">, input: LocationPingInput): Promise<unknown> {
+export async function enqueueLocationPing(queue: Pick<WriteQueue, "enqueue" | "enqueueApi">, input: LocationPingInput): Promise<unknown> {
   if (!onApi()) return queue.enqueue("vehicle_locations", [locationPingRow(input)]);
   return queue.enqueueApi("vehicle_locations", {
     op: "driver-location", params: { tenantId: input.tenantId, tripId: input.tripId }, body: locationBody(input),
@@ -697,7 +697,7 @@ export function enqueueLocationPing(queue: Pick<WriteQueue, "enqueue" | "enqueue
 }
 
 /** Holds a child's mark for later (a mark cannot be taken back on the API, so "Undo" is not held). */
-export function enqueueRiderMark(queue: Pick<WriteQueue, "enqueue" | "enqueueApi">, input: RiderMarkInput): Promise<unknown> {
+export async function enqueueRiderMark(queue: Pick<WriteQueue, "enqueue" | "enqueueApi">, input: RiderMarkInput): Promise<unknown> {
   if (!onApi()) return queue.enqueue("trip_riders", [riderMarkRow(input)]);
   return queue.enqueueApi("trip_riders", {
     op: "trip-event", params: { tenantId: input.tenantId, tripId: input.tripId }, body: riderMarkEventBody(input),

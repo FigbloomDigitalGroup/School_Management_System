@@ -357,7 +357,9 @@ export async function apiStartTrip(input: { tenantId: string; vehicleId: string;
   const r = await apiClient().post("/v1/tenants/{tenantId}/driver/trips", {
     path: { tenantId: input.tenantId }, body: { vehicle_id: input.vehicleId, direction: input.direction }, tenantId: input.tenantId,
   });
-  const made = tripFromApi((r as Record<string, unknown>).trip, input.tenantId, input.driverId);
+  // The answer is only `{ id, status, route_id }`: the vehicle and direction are the ones asked for.
+  const raw = (r as Record<string, unknown>).trip;
+  const made = isRecord(raw) ? tripFromApi({ vehicle_id: input.vehicleId, direction: input.direction, ...raw }, input.tenantId, input.driverId) : null;
   // The answer has no start time or direction: read the running trip back so the clock starts where the server's did.
   const running = await apiMyActiveTrip(input.driverId).catch(() => null);
   if (running && (!made || running.id === made.id)) return running;

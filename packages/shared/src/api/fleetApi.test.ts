@@ -470,7 +470,7 @@ describe("alerts are the drivers' breakdown reports", () => {
       ], page: page() } },
       [`GET ${P}/vehicles`]: list("vehicles", [apiVehicle(), apiVehicle({ id: V2, plate_number: "KDB 100A" })]),
       [`GET ${P}/trips/${TRIP}/incidents`]: { body: { incidents: [incident()] } },
-      [`GET ${P}/trips/${TRIP2}/incidents`]: { body: { incidents: [incident({ id: "i2", trip_id: TRIP2, created_at: "2026-11-24T07:00:00Z" }), incident({ id: "i3", trip_id: TRIP2, status: "acknowledged", acknowledged_at: "2026-11-24T07:05:00Z" })] } },
+      [`GET ${P}/trips/${TRIP2}/incidents`]: { body: { incidents: [incident({ id: "i2", trip_id: TRIP2, created_at: "2026-11-24T07:00:00Z" }), incident({ id: "i3", trip_id: TRIP2, status: "acknowledged", created_at: "2026-11-24T06:30:00Z", acknowledged_at: "2026-11-24T07:05:00Z" })] } },
     });
     const open = await listAlerts(T);
     expect(open.map((a) => a.id)).toEqual(["i2", "i1"]);
