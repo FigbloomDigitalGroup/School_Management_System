@@ -63,8 +63,7 @@ import { MyChats } from "./screens/chat/MyChats";
 import { useChatUnread } from "./lib/useChatUnread";
 
 import { Attendance } from "./screens/teacher/Attendance";
-import { K12Gradebook } from "./screens/teacher/K12Gradebook";
-import { GpaGradebook } from "./screens/teacher/GpaGradebook";
+import { GradebookRouter } from "./screens/teacher/GradebookRouter";
 import { TeacherTimetable } from "./screens/teacher/Timetable";
 import { TeacherClasses } from "./screens/teacher/Classes";
 import { TeacherMySections } from "./screens/teacher/MySections";
@@ -608,12 +607,6 @@ function StaffLeave() {
   if (!access) return <FullPageSkeleton />;
   if (showsStaffLeave(access)) return <HrLeave />;
   return <Navigate to={`/s/${session.tenant.slug}/staff`} replace />;
-}
-
-/** One "Gradebook" nav entry, two different screens underneath — K-12's letter-grade/class-mean model vs higher-ed's credit/GPA one (FIG-330). */
-function GradebookRouter() {
-  const { tenant } = useTenantSession();
-  return tenant.institution_type === "higher_ed" ? <GpaGradebook /> : <K12Gradebook />;
 }
 
 const ParentShell = ({ children }: { children: ReactNode }) => {
