@@ -1,4 +1,6 @@
+import { apiFetchNotices } from "./api/noticesApi";
 import { audienceIncludes } from "./audience";
+import { onApi } from "./backend";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
 import { supabase } from "./supabase";
@@ -22,6 +24,8 @@ export const STAFF_TITLE_SUGGESTIONS = [
  * same rule is applied here so a stale row never shows.
  */
 export async function fetchStaffNotices(profileId: string): Promise<NoticeInfo[]> {
+  // On the API the inbox already holds only what reaches the signed-in person.
+  if (onApi()) return apiFetchNotices();
   const [{ data, error }, { data: reads, error: readsError }] = await Promise.all([
     supabase()
       .from("announcements")
