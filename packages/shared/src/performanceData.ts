@@ -1,3 +1,8 @@
+import {
+  apiFetchClassLearnerMeans, apiFetchClassLearnerNames, apiFetchClassOptions, apiFetchClassPerformance, apiFetchLearnerTrend,
+} from "./api/performanceApi";
+import { onApi } from "./backend";
+import { gradesCapabilities } from "./capabilities";
 import { rubricFor, summariseStrands } from "./gradingSchemes";
 import { yearSortKey } from "./levels";
 import { fetchAllPages } from "./paging";
@@ -16,6 +21,7 @@ import type { ClassGroup, ClassLevel } from "./types";
 
 /** One learner's published marks across every exam, as series. Families and staff alike. */
 export async function fetchLearnerTrend(studentId: string): Promise<LearnerTrend> {
+  if (onApi()) return apiFetchLearnerTrend(studentId);
   const { data, error } = await supabase().rpc("learner_results_history", { p_student_id: studentId });
   if (error) throw new Error(error.message);
   return learnerTrend((data ?? []) as LearnerHistoryRow[]);
@@ -23,6 +29,7 @@ export async function fetchLearnerTrend(studentId: string): Promise<LearnerTrend
 
 /** Per exam x class x subject for one class, or the whole school when classId is null. Staff only. */
 export async function fetchClassPerformance(tenantId: string, classId: string | null): Promise<ClassPerformanceRow[]> {
+  if (onApi()) return apiFetchClassPerformance(tenantId, classId);
   return fetchAllPages<ClassPerformanceRow>((from, to) =>
     supabase()
       .rpc("class_exam_performance", { p_tenant_id: tenantId, p_class_id: classId })
@@ -33,6 +40,7 @@ export async function fetchClassPerformance(tenantId: string, classId: string | 
 
 /** Each learner's mean per exam in one class. Staff only. */
 export async function fetchClassLearnerMeans(classId: string): Promise<LearnerMeanRow[]> {
+  if (onApi()) return apiFetchClassLearnerMeans(classId);
   return fetchAllPages<LearnerMeanRow>((from, to) =>
     supabase()
       .rpc("class_learner_exam_means", { p_class_id: classId })
@@ -47,6 +55,8 @@ export async function fetchClassLearnerMeans(classId: string): Promise<LearnerMe
  * holds staff to the same line.
  */
 export async function fetchCbeLevels(scope: { studentId: string } | { classId: string } | { tenantId: string }): Promise<CbeLevelRow[]> {
+  // The CBE charts are not on the new system yet (gradesCapabilities().cbeReports): none, and the charts leave themselves out.
+  if (onApi() && !gradesCapabilities().cbeReports) return [];
   const rows = await fetchAllPages<{ level_code: string; cbe_assessments: { assessed_on: string } | null }>((from, to) => {
     let q = supabase()
       .from("cbe_results")
@@ -85,6 +95,7 @@ export type ClassOption = Pick<ClassGroup, "id" | "name" | "level" | "form_level
 
 /** Every class in the school, youngest year first, then by name. Throws the database's message. */
 export async function fetchClassOptions(tenantId: string): Promise<ClassOption[]> {
+  if (onApi()) return apiFetchClassOptions(tenantId);
   const { data, error } = await supabase().from("classes").select("id, name, level, form_level")
     .eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassOption[]>();
   if (error) throw new Error(error.message);
@@ -93,6 +104,7 @@ export async function fetchClassOptions(tenantId: string): Promise<ClassOption[]
 
 /** The active learners of one class, by name. Throws the database's message. */
 export async function fetchClassLearnerNames(classId: string): Promise<{ id: string; full_name: string }[]> {
+  if (onApi()) return apiFetchClassLearnerNames(classId);
   const { data, error } = await supabase().from("students").select("id, full_name")
     .eq("class_id", classId).eq("active", true).order("full_name").returns<{ id: string; full_name: string }[]>();
   if (error) throw new Error(error.message);
@@ -128,6 +140,7 @@ interface CbeReportRow {
  * Throws the database's message.
  */
 export async function fetchCbeBandReport(tenantId: string, termId: string, country: string): Promise<CbeBandRow[]> {
+  if (onApi() && !gradesCapabilities().cbeReports) return [];
   const { data, error } = await supabase().from("cbe_results")
     .select("student_id, level_code, cbe_assessments!inner(id, title, assessed_on, published_at, term_id, class_id, subject_id, subjects(name), classes(name, level, form_level))")
     .eq("tenant_id", tenantId)

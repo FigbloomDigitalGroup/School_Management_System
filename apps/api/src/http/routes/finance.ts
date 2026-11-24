@@ -620,7 +620,7 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
 
   // ------------------------------------------------------------------ proofs
   // The office (finance administer) records a proof for a family (legacy insert-by-office); a family
-  // member submits through the payer link, which is not provisioned yet (403).
+  // member submits through the payer link (assertMayPayFor: a live account link to the invoice's learner).
   app.post(`${P}/proofs`, async (request, reply) => {
     const params = request.params as { tenantId: string };
     const body = parseOrThrow(ProofBody, request.body, "invoice_id and a message or file are required");

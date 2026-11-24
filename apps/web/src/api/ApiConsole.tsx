@@ -18,6 +18,15 @@ const People = lazy(() => import("../screens/admin/People").then((m) => ({ defau
 const AdminLeave = lazy(() => import("../screens/admin/Leave").then((m) => ({ default: m.AdminLeave })));
 const TeacherLeave = lazy(() => import("../screens/teacher/Leave").then((m) => ({ default: m.TeacherLeave })));
 const ReportCards = lazy(() => import("../screens/admin/ReportCards").then((m) => ({ default: m.ReportCards })));
+const AdminInventory = lazy(() => import("../screens/admin/Inventory").then((m) => ({ default: m.AdminInventory })));
+const AccessRoles = lazy(() => import("../screens/admin/AccessRoles").then((m) => ({ default: m.AccessRoles })));
+const AdminAccount = lazy(() => import("../screens/admin/Account").then((m) => ({ default: m.AdminAccount })));
+const TeacherAccount = lazy(() => import("../screens/teacher/Account").then((m) => ({ default: m.TeacherAccount })));
+// The grades screens (the charts and the gradebooks are large) load when they are opened.
+const AdminExams = lazy(() => import("../screens/admin/Exams").then((m) => ({ default: m.Exams })));
+const AdminReports = lazy(() => import("../screens/admin/Reports").then((m) => ({ default: m.AdminReports })));
+const Performance = lazy(() => import("../screens/admin/Performance").then((m) => ({ default: m.Performance })));
+const GradebookRouter = lazy(() => import("../screens/teacher/GradebookRouter").then((m) => ({ default: m.GradebookRouter })));
 
 const pageFallback = (
   <div className="space-y-3 p-8">
@@ -32,11 +41,12 @@ const pageFallback = (
  * hidden, and its address sends the person back to the Dashboard.
  */
 export const API_ADMIN_PAGES = [
-  "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/leave", "admin/report-cards",
+  "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/inventory", "admin/leave",
+  "admin/access", "admin/account", "admin/exams", "admin/performance", "admin/reports", "admin/report-cards",
 ] as const;
 
 /** Teacher pages available on the API build (FIG-1891). */
-export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/report-cards"] as const;
+export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/gradebook", "teacher/performance", "teacher/report-cards"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -82,6 +92,9 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
           <Route path="teacher/attendance" element={tPage(<TeacherAttendance />)} />
           <Route path="teacher/leave" element={tPage(<Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
           <Route path="teacher/report-cards" element={tPage(<Suspense fallback={pageFallback}><ReportCards teacher /></Suspense>)} />
+          <Route path="teacher/account" element={tPage(<Suspense fallback={pageFallback}><TeacherAccount /></Suspense>)} />
+          <Route path="teacher/gradebook" element={tPage(<Suspense fallback={pageFallback}><GradebookRouter /></Suspense>)} />
+          <Route path="teacher/performance" element={tPage(<Suspense fallback={pageFallback}><Performance teacher /></Suspense>)} />
           <Route path="*" element={<Navigate to={teacherHome} replace />} />
         </Routes>
       );
@@ -102,11 +115,19 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/leave" element={page("admin/leave", <Suspense fallback={pageFallback}><AdminLeave /></Suspense>)} />
       <Route path="admin/report-cards" element={page("admin/report-cards", <Suspense fallback={pageFallback}><ReportCards /></Suspense>)} />
+      <Route path="admin/inventory" element={page("admin/inventory", <Suspense fallback={pageFallback}><AdminInventory /></Suspense>)} />
+      <Route path="admin/access" element={page("admin/access", <Suspense fallback={pageFallback}><AccessRoles /></Suspense>)} />
+      <Route path="admin/account" element={page("admin/account", <Suspense fallback={pageFallback}><AdminAccount /></Suspense>)} />
+      <Route path="admin/exams" element={page("admin/exams", <Suspense fallback={pageFallback}><AdminExams /></Suspense>)} />
+      <Route path="admin/performance" element={page("admin/performance", <Suspense fallback={pageFallback}><Performance /></Suspense>)} />
+      <Route path="admin/reports" element={page("admin/reports", <Suspense fallback={pageFallback}><AdminReports /></Suspense>)} />
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/leave" element={page("admin", <Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
       <Route path="teacher/report-cards" element={page("admin", <Suspense fallback={pageFallback}><ReportCards teacher /></Suspense>)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
+      <Route path="teacher/gradebook" element={page("admin", <Suspense fallback={pageFallback}><GradebookRouter /></Suspense>)} />
+      <Route path="teacher/performance" element={page("admin", <Suspense fallback={pageFallback}><Performance teacher /></Suspense>)} />
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );

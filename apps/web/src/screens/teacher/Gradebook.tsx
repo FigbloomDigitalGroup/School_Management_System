@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  ABSENCE_LABEL, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchMarkAbsences, fetchMarksForExamSubject, fetchPublishedSubjects,
-  fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradingSchemeFor, parseScoreInput, publishMarks, saveExamMarks,
+  ABSENCE_LABEL, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchGradesAccess, fetchMarkAbsences, fetchMarksForExamSubject, fetchPublishedSubjects,
+  fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradesCapabilities, gradingSchemeFor, parseScoreInput, publishMarks, saveExamMarks,
   summarise, unpublishMarks, type MarkAbsence,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -23,6 +23,9 @@ import { confirmDialog } from "../../components/ui/Confirm";
 export function Gradebook() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
+  const caps = gradesCapabilities();
+  // On the new system a person who cannot read the school's terms, subjects and learners cannot use the Gradebook, and only the office publishes.
+  const { data: access } = useAsync(() => fetchGradesAccess(), [tenant.id]);
 
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data: term, loading: termLoading } = useAsync(() => fetchCurrentTerm(), [tenant.id]);
@@ -85,10 +88,10 @@ export function Gradebook() {
   // if they were this one's.
   const { data: existingMarksData, error: marksError } = useAsync(
     () => (examId && subjectId && rosterData && rosterData.length
-      ? fetchMarksForExamSubject(examId, subjectId, rosterData.map((s) => s.id))
+      ? fetchMarksForExamSubject(examId, subjectId, rosterData.map((s) => s.id), classId ?? undefined)
       : Promise.resolve({} as Record<string, number | null>))
       .then((marks) => ({ examId, subjectId, rosterData, marks })),
-    [examId, subjectId, rosterData, marksVersion],
+    [examId, subjectId, rosterData, marksVersion, classId],
   );
   const marksReady = !rosterLoading && (!!marksError || (!!existingMarksData && existingMarksData.examId === examId
     && existingMarksData.subjectId === subjectId && existingMarksData.rosterData === rosterData));
@@ -116,6 +119,13 @@ export function Gradebook() {
   const exam = examsData.find((e) => e.id === examId);
   const selectedClass = classesData.find((c) => c.id === classId);
   const scheme = gradingSchemeFor(tenant.country, selectedClass?.level ?? "secondary");
+  // The paper's total: always 100 on Supabase, the paper's own `max_score` on the new system. Grades and means are worked out as percentages.
+  const outOf = exam?.out_of ?? 100;
+  const scoreOptions = { decimals: caps.fractionalMarks };
+  const toPercent = (n: number) => (outOf === 100 ? n : Math.round((n * 1000) / outOf) / 10);
+  // Published marks are final on the new system: the boxes are read-only and the office records a correction instead.
+  const locked = isPublished && !caps.editPublishedMarks;
+  const mayPublish = access?.publish !== false;
 
   const value = (id: string) => {
     const key = `${classId}|${examId}|${subjectId}|${id}`;
@@ -129,7 +139,7 @@ export function Gradebook() {
 
   function set(id: string, raw: string) {
     const key = `${classId}|${examId}|${subjectId}|${id}`;
-    const parsed = parseScoreInput(raw);
+    const parsed = parseScoreInput(raw, outOf, scoreOptions);
     setScores((s) => ({ ...s, [key]: raw }));
     setErrors((e) => {
       const next = { ...e };
@@ -140,17 +150,17 @@ export function Gradebook() {
 
   // A box the screen has refused (a mark out of range, or text that is not a number) is not an entry. Counting it made a column with one
   // such box "complete", turned Publish on, and published the class with that learner missing (FIG-1374).
-  const refused = roster.filter((s) => { const v = value(s.id).trim(); return v !== "" && !parseScoreInput(v).ok; }).length;
-  const entered = roster.filter((s) => { const v = value(s.id).trim(); return v !== "" && parseScoreInput(v).ok; }).length;
+  const refused = roster.filter((s) => { const v = value(s.id).trim(); return v !== "" && !parseScoreInput(v, outOf, scoreOptions).ok; }).length;
+  const entered = roster.filter((s) => { const v = value(s.id).trim(); return v !== "" && parseScoreInput(v, outOf, scoreOptions).ok; }).length;
   const summary = summarise(roster.map((s) => {
-    const v = parseScoreInput(value(s.id));
-    return { subject: s.id, score: v.ok ? v.score : null };
+    const v = parseScoreInput(value(s.id), outOf, scoreOptions);
+    return { subject: s.id, score: v.ok && v.score !== null ? toPercent(v.score) : null };
   }), scheme);
   const mean = useMemo(() => {
     const vals = Object.values(existingMarks).filter((v): v is number => v !== null);
     if (!vals.length) return null;
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-  }, [existingMarks]);
+    return Math.round(vals.reduce((a, b) => a + (outOf === 100 ? b : (b * 100) / outOf), 0) / vals.length);
+  }, [existingMarks, outOf]);
 
   function focusNext(i: number) {
     const el = document.querySelector<HTMLInputElement>(`[data-row="${i + 1}"]`);
@@ -163,7 +173,7 @@ export function Gradebook() {
     return roster.flatMap((s) => {
       const raw = value(s.id).trim();
       if (raw === "") return [];
-      const parsed = parseScoreInput(raw);
+      const parsed = parseScoreInput(raw, outOf, scoreOptions);
       if (!parsed.ok) return [];
       return [{
         tenant_id: tenant.id,
@@ -180,7 +190,7 @@ export function Gradebook() {
     const rows = buildMarkRows();
     if (!rows.length) { toast("Nothing to save yet."); return; }
     try {
-      await saveExamMarks(rows);
+      await saveExamMarks(rows, classId ?? undefined);
     } catch (err) {
       toast(`Could not save: ${err instanceof Error ? err.message : String(err)}`, "error");
       return;
@@ -197,7 +207,7 @@ export function Gradebook() {
     if (!examId || !subject || !exam || !classId) return;
     const rows = buildMarkRows();
     try {
-      await saveExamMarks(rows);
+      await saveExamMarks(rows, classId);
       await publishMarks(examId, classId, subject.id);
     } catch (err) {
       toast(`Could not publish: ${err instanceof Error ? err.message : String(err)}`, "error");
@@ -218,6 +228,19 @@ export function Gradebook() {
     }
     setMarksVersion((v) => v + 1);
     toast("Withdrawn. Parents and learners no longer see these marks.");
+  }
+
+  if (access && !access.gradebook) {
+    return (
+      <>
+        <PageHead eyebrow="Gradebook" title="Gradebook" />
+        <div className="px-7 py-6">
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState title="The Gradebook is not open to you yet" body={access.gradebookReason ?? "The new system does not let you read what the Gradebook needs."} />
+          </div>
+        </div>
+      </>
+    );
   }
 
   if (!classesLoading && classesData.length === 0) {
@@ -250,10 +273,10 @@ export function Gradebook() {
         blurb="Type a mark and press Enter to drop to the next learner. Type abs for anyone who missed the paper — it is recorded as missing, not as zero."
         actions={
           <>
-            <Button onClick={() => { void saveDraft(); }}>{isPublished ? "Save changes" : "Save draft"}</Button>
+            {!locked && <Button onClick={() => { void saveDraft(); }}>{isPublished ? "Save changes" : "Save draft"}</Button>}
             {isPublished ? (
-              <Button onClick={() => { void withdraw(); }}>Withdraw results</Button>
-            ) : (
+              caps.withdrawResults ? <Button onClick={() => { void withdraw(); }}>Withdraw results</Button> : null
+            ) : !mayPublish ? null : (
               <Button
                 variant="accent"
                 disabled={!marksReady || entered < roster.length}
@@ -308,17 +331,34 @@ export function Gradebook() {
         ) : termLoading || !marksReady ? (
           <TableSkeleton rows={8} />
         ) : (
+          <>
+          {marksError && (
+            <p role="alert" className="mb-3 flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+              <span aria-hidden>✕</span>{marksError instanceof Error ? marksError.message : "Could not load the marks."}
+            </p>
+          )}
+          {locked && (
+            <p className="mb-3 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[12.5px] text-ink-muted">
+              These marks are published, and published marks are final on the new system. To correct one, ask the school office.
+            </p>
+          )}
+          {!mayPublish && !isPublished && (
+            <p className="mb-3 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[12.5px] text-ink-muted">
+              Save your marks here as a draft. On the new system the school office publishes them, in Exams.
+            </p>
+          )}
           <div className="overflow-hidden rounded-lg border border-line bg-white">
             <div className="grid gap-3.5 border-b border-line bg-sunken px-4 py-2.5 font-mono text-micro tracking-[0.1em] text-ink-muted"
               style={{ gridTemplateColumns: "40px minmax(0,2fr) 120px 80px minmax(0,1.4fr)" }}>
-              <div>#</div><div>LEARNER</div><div>MARK / 100</div><div>GRADE</div><div>AGAINST CLASS MEAN</div>
+              <div>#</div><div>LEARNER</div><div>MARK / {outOf}</div><div>GRADE</div><div>AGAINST CLASS MEAN</div>
             </div>
 
             {roster.map((s, i) => {
               const raw = value(s.id);
               const parsed = parseScoreInput(raw);
               const score = parsed.ok ? parsed.score : null;
-              const grade = score === null ? null : gradeFor(score, scheme);
+              const percent = score === null ? null : toPercent(score);
+              const grade = percent === null ? null : gradeFor(percent, scheme);
               const err = errors[s.id];
               return (
                 <div key={s.id} className="grid items-center gap-3.5 border-b border-line-soft px-4 py-2"
@@ -334,7 +374,8 @@ export function Gradebook() {
                       value={raw}
                       onChange={(e) => set(s.id, e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusNext(i); } }}
-                      inputMode="numeric"
+                      inputMode={caps.fractionalMarks ? "decimal" : "numeric"}
+                      disabled={locked}
                       aria-label={`Mark for ${s.full_name}`}
                       aria-invalid={!!err}
                       className="w-[92px] rounded-md border px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-forest"
@@ -346,19 +387,22 @@ export function Gradebook() {
                     {grade ?? (raw.trim().toLowerCase().startsWith("abs") ? (absences[s.id] ? ABSENCE_LABEL[absences[s.id]!] : "abs") : "—")}
                   </div>
                   <div className="text-[12.5px] text-ink-muted">
-                    {score === null || mean === null ? "" : score === mean ? `Exactly the class mean of ${mean}` : `${Math.abs(score - mean)} ${score > mean ? "above" : "below"} the mean`}
+                    {percent === null || mean === null ? "" : percent === mean ? `Exactly the class mean of ${mean}` : `${Math.round(Math.abs(percent - mean) * 10) / 10} ${percent > mean ? "above" : "below"} the mean`}
                   </div>
                 </div>
               );
             })}
           </div>
+          </>
         )}
 
         <p className="mt-4 max-w-[620px] text-[12.5px] leading-relaxed text-ink-muted">
           Publishing releases {subject ? `${subject.name} marks` : "these marks"} for {selectedClass?.name ?? "this class"} to its
           learners and their parents, and nothing else: other teachers' subjects stay private until they publish their own. Until
           then only school staff can see the marks, so a mistyped mark never reaches a parent before you have checked the column.
-          If you spot a mistake afterwards, withdraw the results, correct them and publish again.
+          {caps.withdrawResults
+            ? "If you spot a mistake afterwards, withdraw the results, correct them and publish again."
+            : "Published marks are final on the new system, so check the column before the office publishes it."}
         </p>
       </div>
     </>

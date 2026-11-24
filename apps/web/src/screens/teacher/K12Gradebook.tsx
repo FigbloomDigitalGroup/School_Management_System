@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom";
-import { fetchTeacherClasses, rubricFor } from "@figbloom/shared";
+import { fetchTeacherClasses, gradesCapabilities, rubricFor } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -36,7 +36,8 @@ export function K12Gradebook() {
     );
   }
 
-  if (!hasCbe) return <Gradebook />;
+  // The strand gradebook is not on the new system yet (a subject has no learning area there): every class gets the exam marks.
+  if (!hasCbe || !gradesCapabilities().cbeGradebook) return <Gradebook />;
 
   function pick(next: Mode) {
     const p = new URLSearchParams(params);
