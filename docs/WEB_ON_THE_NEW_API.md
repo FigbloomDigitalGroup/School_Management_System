@@ -59,7 +59,6 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 |---|---|
 | Sign in with a school ID | `POST /v1/auth/login/login-id` takes the school's UUID and there is no public school search or login-ID lookup (FIG-1872) |
 | Password reset by email, accept-invitation page | No email provider is set up (FIG-1872); the reset and invitation tokens are only returned in API responses |
-| The re-enter-password prompt (`reauth_required`) | The client supports it (`setApiAuthHandlers`), but no screen on the API build does a sensitive action yet. The two-step set-up asks for the password inline |
 | A QR code for two-step set-up | The key is shown for typing in, with an `otpauth://` link for a phone. A QR needs a small library; left for a decision |
 | Every other screen | Each area moves over on its own, after its shared module is on the API (FIG-1889 onwards) |
 
@@ -184,6 +183,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
 - `packages/shared/src/api/leaveApi.ts`: the API side of `leave.ts` (`admin/leave` and `teacher/leave`), plus the API short-circuit in `hrLeave.ts`.
 - `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
+- `packages/shared/src/api/accountApi.ts` and `accessApi.ts`: the API side of `profile.ts` and `notificationPreferences.ts` (My account), and of `adminAreas.ts` plus the guardian-access and delegation calls (Access & roles).
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
@@ -253,6 +253,91 @@ inside the same 30 seconds needs the next code.
     only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
     issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.
 
+## Family reads (API side of A1, FIG-1869)
+
+The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). No parent
+or student page is ported yet: the web slices come after this merges.
+
+- `GET /v1/tenants/{t}/me/children`: the parent's own children in that school, with each child's current class.
+- Per child, `GET /v1/tenants/{t}/me/children/{learnerId}/…`: `attendance`, `results`, `report-cards`, `homework`,
+  `materials`, `timetable`, `fees`, `activities`, `items`, `health`. Any learner who is not the caller's child is a 404.
+- `GET /v1/tenants/{t}/me/chat-contacts`: who a parent may start a chat with.
+- Bus: the existing `/me/transport`.
+- Paying (M-Pesa prompt, invoice PDF, payment proof, AI-helper opt-in) now works for a parent whose account link reaches
+  the learner. Class and form-level notices now reach the parents of children in them, and a parent may chat with their
+  child's teachers.
+- All of them need permission `resource.family.read`, which only parents hold.
+
+Things found while doing it:
+
+14. **Learners have no sign-in on the API** (A4). There is no link from an account to a learner record and no flow that
+    makes a `student` membership. It needs owner decisions first (who makes the login, how a child without e-mail gets
+    a password, session length, MFA, chat); see "Student accounts" in `apps/api/docs/FAMILY-READS.md`. The student
+    pages stay on Supabase until then.
+15. **Sick-bay notices to guardians are never written.** `medical_notices` exists and parents could read it, but the
+    sick-bay module still reports `guardian_notices_available: false` and emits none. The family health read shows the
+    visits instead.
+16. **Push for class and form-level announcements counts nobody.** The worker's eligibility count covers only
+    whole-school, role, user and people audiences (migration 063), for staff and parents alike.
+
+## Account and access (admin/account, teacher/account, admin/access)
+
+Opened from the menu on an API build: **My account** (the avatar menu, and the sidebar's "My account" / "Account" entry) for school
+admins and teachers, and **Access & roles** for full admins. The shared account code is built to be reused by `staff/account` and
+`parent/settings` (`AccountSections`, `apps/web/src/components/account/`).
+
+### My account
+
+- **Your details**: name, email, sign-in ID, role and school, read from `GET /v1/auth/me`. Read-only (see below).
+- **Password**: current password, new password twice, with the server's rule (10 or more characters, letters and numbers). The server
+  ends the person's other sessions and keeps this one. The sidebar's "Change password" does the same call.
+- **Two-step verification**: its state from `GET /v1/auth/mfa/status`. A person who has it can make new recovery codes (a fresh code
+  from the app is needed) and, where their role does not require it, turn it off. Setting it up still happens at sign-in, when the server
+  asks for it.
+- **How we reach you**: the notification switches of `GET`/`PATCH /v1/me/notification-preferences`, saved when flipped. A staff
+  member has "General school notices" and "Chat messages"; a family has all five.
+- Every call that needs the password again (`reauth_required`: new recovery codes, turning two-step off, giving access) opens the app's
+  own "Confirm your password" prompt (`ApiSessionGuard`) and is retried once.
+
+| Hidden on the API build | Why |
+|---|---|
+| Changing your own name, phone or second phone | no endpoint: `PATCH /v1/auth/me` does not exist, and `/v1/auth/me` carries no phone |
+| Your photo | needs file storage (A5, FIG-1873), and the API holds no photo |
+| "Call someone" (teacher) | calls are not on the API (C13) |
+| Setting up two-step from the account page | the server only asks for the code from people it requires it of, so a set-up on this page would never be used (finding 18) |
+| Turning two-step off, for a person whose role needs it | the server would only ask them to set it up again at the next sign-in |
+
+### Access & roles
+
+Full admins give **admin areas** to a teacher or other staff member, one person at a time (`PUT /v1/rbac/staff-areas`, read back with
+`GET /v1/rbac/staff-areas`, the new endpoint of the API PR #362), with the same quick picks and area ticks as the Supabase build. The same
+card gives or takes away **access to parents' records** (`/v1/rbac/guardian-access`, read and change apart). **Organization
+administrators** who were given access to the school are listed, with a way to take it all back (`/v1/rbac/org-delegations`).
+
+| Hidden on the API build | Why |
+|---|---|
+| The school's own named roles ("Exams officer": make, edit, delete, give to people) | the API has no write path for school roles (finding 20) |
+| Giving an organization administrator access | the list carries user ids only and nothing looks an administrator up; it starts from the organization console, which is not on the API build (finding 21) |
+| Admin areas for a person with no sign-in, a driver, a full admin, or yourself | areas belong to a sign-in; the server only lets teachers and staff hold them, and refuses your own |
+
+### API findings (for the API owner)
+
+17. **No way to change your own name, phone or photo.** The `users` table has a `full_name` and a `phone`, but there is no
+    `PATCH /v1/auth/me`, and `GET /v1/auth/me` returns no phone. The staff directory holds its own name and phone for the same person, so
+    one of the two would have to win.
+18. **Two-step is only asked of the people it is required of.** `auth_mfa_state` makes `required` true for admins, org admins, super
+    admins, anyone with the Fees area (and `MFA_REQUIRED_ROLES`). A teacher who sets it up anyway is never asked for the code at
+    sign-in, so it protects nothing. The account page therefore offers no set-up to people who are not required.
+19. **Nothing read another person's admin areas** (`GET /v1/rbac/permissions` is the caller's own), so `PUT /v1/rbac/staff-areas`, which
+    replaces, could only be used blind. `GET /v1/rbac/staff-areas` is added in the API PR #362: one row per person with areas of their
+    own, keyset-paged, for holders of `rbac.staff_areas.manage`.
+20. **School roles have tables and a place in `authorize.ts` but no endpoints** (`school_roles`, `school_role_assignments`), and the API's
+    own test says they have no write path. The Access screen shows none.
+21. **Delegations name nobody.** `GET /v1/rbac/org-delegations` gives `delegateUserId` only, and no endpoint lists an organization's
+    administrators, so a school cannot choose one to give access to.
+22. **The password rule is not in the contract.** `passwordPolicy.ts` wants 10 or more characters with letters and numbers; the OpenAPI
+    file says nothing, and the web's sidebar dialog said 8 (fixed here).
+
 ## Sign-in invitations (People page)
 
 On the API a sign-in is made by an **invitation**, not by the school choosing a password. The People page now has:
@@ -269,19 +354,19 @@ On the API a sign-in is made by an **invitation**, not by the school choosing a 
 
 | Hidden or missing on the API build | Why |
 |---|---|
-| A list of open staff invitations (the staff card shows only the one sent in this visit, which can be cancelled) | no endpoint lists them (finding 19) |
-| Joining the new sign-in to the staff record by itself | nothing tells the web which sign-in accepted: the record's `userId` can only be set with a user id the web cannot find (finding 20) |
+| A list of open staff invitations (the staff card shows only the one sent in this visit, which can be cancelled) | no endpoint lists them (finding 23) |
+| Joining the new sign-in to the staff record by itself | nothing tells the web which sign-in accepted: the record's `userId` can only be set with a user id the web cannot find (finding 24) |
 | A page where a guardian accepts the code | the guardian accept endpoints exist (`/v1/guardian-invitations/preview` and `/accept`) but the web has no page for them, and families can read nothing yet (FIG-1869) |
 | Guardian invitations by e-mail text | the server sends no e-mail for guardian invitations (they are "handed over as a code or QR by the school"), so a guardian invitation always shows the code |
 | Making a reset link for yourself or for an administrator | the server refuses both |
 
 ### API findings (continued)
 
-19. **No list of open staff invitations.** `POST /v1/tenants/{id}/invitations` and its `revoke` exist; nothing lists them, so a page cannot show who
+23. **No list of open staff invitations.** `POST /v1/tenants/{id}/invitations` and its `revoke` exist; nothing lists them, so a page cannot show who
     was invited and is still waiting. Guardian invitations have a list.
-20. **Accepting a staff invitation does not link the staff record.** The invitation takes an e-mail, a role and a name, and accepting makes a user and a
+24. **Accepting a staff invitation does not link the staff record.** The invitation takes an e-mail, a role and a name, and accepting makes a user and a
     membership; the staff record keeps `userId: null`. `PATCH .../staff/{id}` can set `userId`, but nothing returns a user's id (no members list, no
     lookup by e-mail). Linking by e-mail inside `account_accept_invitation` (a staff record of the school with the same e-mail and no `userId`), or a
     `staff_id` on the invitation, would fix it. Until then an invited teacher has a sign-in but is not "their" staff record (their classes, leave).
-21. **Guardian invitations carry no e-mail and no accept page.** `guardian_invitation` messages are never sent (the e-mail notifier returns
+25. **Guardian invitations carry no e-mail and no accept page.** `guardian_invitation` messages are never sent (the e-mail notifier returns
     `not_configured` for them), so the school hands over the code, and the web has no page that takes it.

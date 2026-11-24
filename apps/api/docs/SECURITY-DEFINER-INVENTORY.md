@@ -91,3 +91,9 @@ Migrations 001-009 are byte-identical. `pgcrypto` (platform-owned, `PUBLIC` `EXE
 | `security_audit_events_worker_scope()` | INVOKER trigger (065) | none | `figbloom_worker` has **no INSERT** on `security_audit_events`; the trigger rejects any worker insert as defence in depth |
 
 Grants (catalog-verified by `grants.matrix`): `jobs` has no table-level grant for `figbloom_app`/`figbloom_worker` — column-level SELECT (all columns except `lease_token`) and, for the app, column-level INSERT of the enqueue columns only.
+
+## Addendum 2026-11-24 — migration 099 (family reads, `docs/FAMILY-READS.md`)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `family_my_children()` | DEFINER (099), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | no argument: user and school come from `app_current_user_id()` / `app_current_tenant_id()`. Returns `(learner_id, guardian_id, relationship, is_primary_payer)` only while the account link is live, the account active, the caller a parent member of a school that is not suspended, the guardian record active, the relationship live and the learner active. The single source of "my child" for every family read and for `assertMayPayFor` |

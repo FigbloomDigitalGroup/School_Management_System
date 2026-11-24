@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, apiChangePassword, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
+import { NAV, API_PASSWORD_MIN_LENGTH, apiChangePassword, apiPasswordProblem, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
@@ -39,6 +39,9 @@ function writeCollapsed(key: string, labels: string[]) {
     // Private window or blocked storage: the folds just don't outlast the page.
   }
 }
+
+/** The roles whose "My account" page runs on the new API build (admin/account and teacher/account). */
+const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher"];
 
 /** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
 export interface ShellAction {
@@ -162,8 +165,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // 403) get a clickable avatar — org_admin/super_admin/student have none to
   // send them to yet.
   const ACCOUNT_ROUTE: Partial<Record<Role, string>> = { school_admin: "admin/account", teacher: "teacher/account", parent: "parent/settings", staff: "staff/account" };
-  // The account screens are not on the new API yet: no "My account" there, only Accessibility, Change password and Sign out.
-  const accountTo = onApi() ? undefined : ACCOUNT_ROUTE[role];
+  // On the new API only the roles whose account page is ported get "My account" (API_ACCOUNT_ROLES); the rest have only Accessibility,
+  // Change password and Sign out.
+  const accountTo = onApi() && !API_ACCOUNT_ROLES.includes(role) ? undefined : ACCOUNT_ROUTE[role];
   const accountHref = accountTo
     ? (tenantScoped ? `/s/${slug}/${accountTo}` : orgScoped ? `/org/${orgSlug}/${accountTo}` : accountTo)
     : null;
@@ -683,7 +687,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   async function submit() {
     setError("");
     if (askCurrent && !current) { setError("Enter your current password."); return; }
-    if (password.length < 8) { setError("At least 8 characters."); return; }
+    const tooShort = askCurrent ? apiPasswordProblem(password) : password.length < 8 ? "At least 8 characters." : null;
+    if (tooShort) { setError(tooShort); return; }
     if (password !== confirm) { setError("The passwords don't match."); return; }
     setBusy(true);
     try {
@@ -720,7 +725,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     >
       <form onSubmit={handleSubmit} className="grid gap-3.5">
         {askCurrent && <TextField id="current-pw" label="Current password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
-        <TextField id="new-pw" label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} hint="At least 8 characters." />
+        <TextField id="new-pw" label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} hint={askCurrent ? `At least ${API_PASSWORD_MIN_LENGTH} characters, with letters and numbers.` : "At least 8 characters."} />
         <TextField id="new-pw2" label="Confirm password" type="password" value={confirm} error={error} onChange={(e) => setConfirm(e.target.value)} />
       </form>
     </Modal>

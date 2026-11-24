@@ -171,6 +171,42 @@ export function feesCapabilities(): FeesCapabilities {
   return onApi() ? FEES_ON_API : FEES_ON_SUPABASE;
 }
 
+/** The account pages (admin/account, teacher/account; later staff/account and parent/settings). */
+export interface AccountCapabilities {
+  /** Change your own name, phone and second phone (the API has no endpoint for it). */
+  editProfile: boolean;
+  /** Upload your own photo (waits on file storage, A5 / FIG-1873). */
+  photo: boolean;
+  /** Voice and video calls from the account page (not on the API: C13). */
+  calls: boolean;
+  /** API only: change the password (asking for the current one) and manage two-step verification on the account page. */
+  security: boolean;
+  /** API only: real choices for how the school reaches you, saved on the server. */
+  notificationChoices: boolean;
+}
+
+const ACCOUNT_ON_SUPABASE: AccountCapabilities = { editProfile: true, photo: true, calls: true, security: false, notificationChoices: false };
+const ACCOUNT_ON_API: AccountCapabilities = { editProfile: false, photo: false, calls: false, security: true, notificationChoices: true };
+
+export function accountCapabilities(): AccountCapabilities {
+  return onApi() ? ACCOUNT_ON_API : ACCOUNT_ON_SUPABASE;
+}
+
+/** The Access & roles screen (admin/access). */
+export interface AccessCapabilities {
+  /** The school's own named roles ("Exams officer"): the API has no write path for them, so only areas given one by one exist. */
+  schoolRoles: boolean;
+  /** API only: who holds which admin areas, edited per person (needs `GET /v1/rbac/staff-areas`). */
+  perPersonAreas: boolean;
+}
+
+const ACCESS_ON_SUPABASE: AccessCapabilities = { schoolRoles: true, perPersonAreas: false };
+const ACCESS_ON_API: AccessCapabilities = { schoolRoles: false, perPersonAreas: true };
+
+export function accessCapabilities(): AccessCapabilities {
+  return onApi() ? ACCESS_ON_API : ACCESS_ON_SUPABASE;
+}
+
 /** The Leave screens (admin/leave, teacher/leave). */
 export interface LeaveCapabilities {
   /** Figbloom HR leave handoff ("Leave to approve" and HR-backed applications; blocked on C13). */

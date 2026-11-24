@@ -1,3 +1,6 @@
+import { apiFetchMyProfile } from "./api/accountApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /**
@@ -16,6 +19,7 @@ export interface MyProfile {
 }
 
 export async function fetchMyProfile(id: string): Promise<MyProfile> {
+  if (onApi()) return apiFetchMyProfile();
   const { data, error } = await supabase()
     .from("profiles").select("full_name, phone, alt_phone, avatar_url, login_id, email").eq("id", id)
     .single<MyProfile>();
@@ -26,6 +30,7 @@ export async function fetchMyProfile(id: string): Promise<MyProfile> {
 /** full_name is optional: a driver's name is the school's to change, not theirs
  *  (guard_profile_self_edit, 20261007010000_profile_self_edit.sql). */
 export async function updateMyProfile(id: string, fields: { full_name?: string; phone: string | null; alt_phone?: string | null }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Changing your own name or phone");
   const { error } = await supabase().from("profiles").update(fields).eq("id", id);
   if (error) throw new Error(error.message);
 }
@@ -35,6 +40,8 @@ export async function updateMyProfile(id: string, fields: { full_name?: string; 
  * the "choose your own password" prompt that came with it.
  */
 export async function setMyPassword(id: string, password: string): Promise<void> {
+  // On the API a new password needs the current one: screens call apiChangePassword (authApi.ts) instead.
+  if (onApi()) throw new NotOnApiError("Setting a password without the current one");
   const { error } = await supabase().auth.updateUser({ password });
   if (error) throw new Error(error.message);
   const { error: flagErr } = await supabase().from("profiles").update({ must_change_password: false }).eq("id", id);
@@ -42,6 +49,7 @@ export async function setMyPassword(id: string, password: string): Promise<void>
 }
 
 export async function updateMyAvatarUrl(id: string, avatarUrl: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Your photo");
   const { error } = await supabase().from("profiles").update({ avatar_url: avatarUrl }).eq("id", id);
   if (error) throw new Error(error.message);
 }
