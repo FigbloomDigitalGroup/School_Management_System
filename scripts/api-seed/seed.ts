@@ -13,6 +13,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
   createApiClient,
@@ -57,7 +58,9 @@ export interface SeedOutput {
 }
 
 const API_URL = (process.env.API_URL ?? process.env.VITE_API_URL ?? "http://127.0.0.1:4199").replace(/\/+$/, "");
-const OUTPUT_PATH = resolve(process.cwd(), process.env.API_SEED_OUTPUT ?? "test-results/api-seed.json");
+const OUTPUT_PATH = process.env.API_SEED_OUTPUT
+  ? resolve(process.cwd(), process.env.API_SEED_OUTPUT)
+  : resolve(tmpdir(), "figbloom-api-seed.json");
 
 const SUPER_EMAIL = (process.env.BOOTSTRAP_ADMIN_EMAIL ?? "bootstrap@figbloom.test").trim().toLowerCase();
 const SUPER_PASSWORD = process.env.API_SEED_SUPER_PASSWORD ?? "FigbloomSuper!2026";

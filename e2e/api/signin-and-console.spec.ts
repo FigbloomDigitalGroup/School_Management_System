@@ -1,10 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { SeedOutput } from "../../scripts/api-seed/seed";
 import { computeTotpCode } from "../../scripts/api-seed/totp";
 
-const SEED_PATH = resolve(process.cwd(), process.env.API_SEED_OUTPUT ?? "test-results/api-seed.json");
+const SEED_PATH = process.env.API_SEED_OUTPUT
+  ? resolve(process.cwd(), process.env.API_SEED_OUTPUT)
+  : resolve(tmpdir(), "figbloom-api-seed.json");
 
 function loadSeed(): SeedOutput {
   if (!existsSync(SEED_PATH)) {
