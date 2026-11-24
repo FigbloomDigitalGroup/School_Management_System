@@ -1,5 +1,10 @@
+import { apiAddClassPeriod, apiFetchClassPeriods, type ClassPeriod, type NewClassPeriod } from "./api/timetableApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import type { TimetableSlot, Weekday } from "./types";
+
+export type { ClassPeriod, NewClassPeriod };
 
 export const WEEKDAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
@@ -47,6 +52,18 @@ export async function fetchClassTimetable(classId: string): Promise<Record<Weekd
   return byDay;
 }
 
+/** API build only: a class's periods (Monday to Friday, with start and end times) for the read-only Timetable window. */
+export async function fetchClassPeriods(classId: string): Promise<ClassPeriod[]> {
+  if (!onApi()) throw new Error("A class's periods are listed on the new system only; the Supabase screens use the week grid.");
+  return apiFetchClassPeriods(classId);
+}
+
+/** API build only: adds one period to a class's timetable (the API cannot edit or remove one yet). */
+export async function addClassPeriod(period: NewClassPeriod): Promise<void> {
+  if (!onApi()) throw new Error("Adding a single period is on the new system only; the Supabase screens save the whole week.");
+  return apiAddClassPeriod(period);
+}
+
 /** Today's timetable key, or null on a weekend when there's no school day to show. */
 export function todayWeekday(now: Date = new Date()): Weekday | null {
   const short = now.toLocaleDateString("en-US", { weekday: "short" });
@@ -73,6 +90,8 @@ export async function saveClassTimetable(
   classId: string,
   slots: { day: Weekday; start_time: string; label: string; room: string | null; subject_id?: string | null }[],
 ): Promise<void> {
+  // The API can make a period and list them; it cannot replace the week or remove a period (see addClassPeriod).
+  if (onApi()) throw new NotOnApiError("Editing a class timetable");
   const rows = slots
     .filter((s) => s.label.trim().length > 0)
     .map((s) => ({ day: s.day, start_time: s.start_time, label: s.label.trim(), room: s.room?.trim() || null, subject_id: s.subject_id ?? null }));
