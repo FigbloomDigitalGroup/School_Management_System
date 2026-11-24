@@ -184,3 +184,104 @@ jobs:
           name: playwright-results
           path: test-results
           retention-days: 7
+
+  # FIG-1890 (W1): Playwright smoke tests for the web app built with VITE_BACKEND=api against a local apps/api.
+  browser-api:
+    name: Browser tests (local API)
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: figbloom_api
+        ports: ["59822:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d figbloom_api"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:59822/figbloom_api
+      FIGBLOOM_TEST_DB_DESIGNATION: 127.0.0.1:59822/figbloom_api
+      API_URL: http://127.0.0.1:4199
+      VITE_BACKEND: api
+      VITE_API_URL: http://127.0.0.1:4199
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build --workspace @figbloom/api
+      - run: npm run migrate --workspace @figbloom/api
+      - run: node apps/api/scripts/designate-test-db.mjs
+      - run: npx playwright install --with-deps chromium
+      - name: Bootstrap API, seed demo school, and run Playwright API specs
+        run: |
+          set -euo pipefail
+          APP_PW=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=')
+          HMAC_KEY=$(openssl rand -base64 36 | tr '+/' '-_' | tr -d '=')
+          echo "::add-mask::$APP_PW"
+          echo "::add-mask::$HMAC_KEY"
+
+          APP_PW="$APP_PW" node --input-type=module -e '
+            import pg from "pg";
+            const client = new pg.Client({ connectionString: process.env.MIGRATION_DATABASE_URL });
+            await client.connect();
+            const pw = process.env.APP_PW.replace(/'\''/g, "'\'''\''");
+            await client.query(`ALTER ROLE figbloom_app WITH LOGIN PASSWORD '\''${pw}'\''`);
+            await client.end();
+          '
+
+          SESSION_MINT_HMAC_KEY="$HMAC_KEY" node apps/api/scripts/session-hmac.mjs provision --key-id ci-browser-api --from-env
+
+          BOOTSTRAP_OUT=$(
+            BOOTSTRAP_ADMIN_EMAIL=bootstrap@figbloom.test \
+            BOOTSTRAP_ADMIN_NAME="CI Super Admin" \
+            FIGBLOOM_BOOTSTRAP_CONFIRM=yes \
+            node apps/api/scripts/bootstrap-admin.mjs
+          )
+          SETUP_TOKEN=$(printf '%s\n' "$BOOTSTRAP_OUT" | tail -n 1 | tr -d '\r')
+          echo "::add-mask::$SETUP_TOKEN"
+
+          DATABASE_URL="postgresql://figbloom_app:${APP_PW}@127.0.0.1:59822/figbloom_api" \
+          SESSION_MINT_HMAC_KEY="$HMAC_KEY" \
+          API_HOST=127.0.0.1 \
+          API_PORT=4199 \
+          CORS_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173" \
+          AUTH_RATE_CAPACITY=1000 \
+          AUTH_RATE_REFILL=1000 \
+          MFA_ENFORCEMENT=enforce \
+          node apps/api/dist/index.js > /tmp/figbloom-api.log 2>&1 &
+          API_PID=$!
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:4199/readyz > /dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:4199/readyz > /dev/null || { cat /tmp/figbloom-api.log; exit 1; }
+
+          BOOTSTRAP_ADMIN_EMAIL=bootstrap@figbloom.test BOOTSTRAP_SETUP_TOKEN="$SETUP_TOKEN" npm run api:seed
+          npx playwright test e2e/api/ --project=desktop
+          # Verify re-running the demo seed is idempotent.
+          BOOTSTRAP_ADMIN_EMAIL=bootstrap@figbloom.test npm run api:seed
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: playwright-results-api
+          path: test-results
+          retention-days: 7
