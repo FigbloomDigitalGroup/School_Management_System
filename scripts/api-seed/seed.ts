@@ -133,22 +133,45 @@ async function loginAndSatisfyMfa(
   if (!existingSecret) {
     throw new Error(`MFA challenge required for ${email}, but no existing TOTP secret was found in ${OUTPUT_PATH}.`);
   }
-  // Try offset -1 first (for fresh runs), then 0, then 1 in case this script was re-run within the same 30 s window.
-  let lastErr: unknown;
-  for (const offset of [-1, 0, 1]) {
+  await answerTotpChallenge(client, existingSecret);
+  return { totpSecret: existingSecret, recoveryCodes: [] };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The re-run's MFA challenge. The API accepts a code only for a step LATER than the last one it accepted, and every
+ * attempt, right or wrong, spends one of the account's 5 MFA attempts (refilled one a minute). An E2E sign-in moments
+ * ago may already have used the current step, so trying steps blindly (-1, 0, +1) can spend the whole budget: CI's
+ * idempotency re-run did, after leave.spec added a second admin sign-in. So: present the current step once; if it
+ * is refused, wait for the next step and present that. Never +1: a sign-in at offset 0 right after this run would
+ * then be refused for two steps. A spent budget (429) is waited out once.
+ */
+async function answerTotpChallenge(client: ApiClient, secret: string): Promise<void> {
+  let waitedForNextStep = false;
+  let waitedForBudget = false;
+  for (;;) {
     try {
-      const code = computeTotpCode(existingSecret, Date.now(), offset);
       await client.post("/v1/auth/mfa/challenge", {
-        body: { code },
+        body: { code: computeTotpCode(secret, Date.now(), 0) },
         tenantId: null,
         keepSessionOn401: true,
       });
-      return { totpSecret: existingSecret, recoveryCodes: [] };
+      return;
     } catch (err) {
-      lastErr = err;
+      if (isApiError(err) && err.code === "unauthorized" && !waitedForNextStep) {
+        waitedForNextStep = true;
+        await sleep(30_000 - (Date.now() % 30_000) + 750);
+        continue;
+      }
+      if (isApiError(err) && err.code === "rate_limited" && !waitedForBudget) {
+        waitedForBudget = true;
+        await sleep((err.retryAfterSeconds ?? 60) * 1000 + 500);
+        continue;
+      }
+      throw err;
     }
   }
-  throw lastErr;
 }
 
 async function main() {

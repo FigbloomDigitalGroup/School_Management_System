@@ -17,8 +17,9 @@ function loadSeed(): SeedOutput {
 }
 
 /**
- * Signs in as the seeded admin, handling single-use TOTP replay without spending the +1 step
- * (so a follow-up idempotent `api:seed` run inside the same 30-second window can still succeed).
+ * Signs in as the seeded admin, handling single-use TOTP replay by waiting for the next step instead of
+ * spending +1 (the API only accepts a step later than the last one it accepted, so +1 would also refuse
+ * the next sign-in, at offset 0, for two steps).
  */
 async function signInAdmin(page: Page, seed: SeedOutput) {
   await page.goto("/signin");
