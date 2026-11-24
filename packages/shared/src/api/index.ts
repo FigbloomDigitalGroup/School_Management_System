@@ -4,6 +4,7 @@ export * from "./errors";
 export * from "./tokenStore";
 export * from "./client";
 export * from "./paging";
+export * from "./poll";
 export * from "./authApi";
 export * from "./sessionLifecycle";
 export * from "./qrCode";
