@@ -39,7 +39,7 @@ const imports = (t: Template) => [...new Set(JSON.stringify(t.toJSON()).match(/"
 
 test("the API process never receives the owner's or the worker's credentials", () => {
   const api = containers(API).find((c) => c.Name === "api")!;
-  assert.deepEqual(secretNames(api), ["APP_DB_PASSWORD", "IDEMPOTENCY_FINGERPRINT_KEY", "MFA_ENCRYPTION_KEY", "SESSION_MINT_HMAC_KEY"]);
+  assert.deepEqual(secretNames(api), ["APP_DB_PASSWORD", "IDEMPOTENCY_FINGERPRINT_KEY", "MFA_ENCRYPTION_KEY", "RESEND_API_KEY", "SESSION_MINT_HMAC_KEY"]);
   assert.equal(envValue(api, "MIGRATION_DATABASE_URL"), undefined);
 });
 
@@ -57,6 +57,17 @@ test("API and worker start only after the release step succeeded", () => {
     assert.ok(secretNames(release).includes("OWNER_DB_PASSWORD"));
     const main = defs.find((c) => c.Name === name)!;
     assert.deepEqual(main.DependsOn, [{ ContainerName: "release", Condition: "SUCCESS" }]);
+  }
+});
+
+test("e-mail goes out from figbloom.org and account links open the web app (the CORS origin)", () => {
+  const api = containers(API).find((c) => c.Name === "api")!;
+  assert.equal(envValue(api, "ACCOUNT_EMAIL_FROM"), "FigBloom <no-reply@figbloom.org>");
+  assert.equal(envValue(api, "EMAIL_FROM"), "FigBloom Billing <billing@figbloom.org>");
+  assert.equal(envValue(api, "ACCOUNT_LINK_BASE_URL"), envValue(api, "CORS_ALLOWED_ORIGINS"));
+  // Only the API sends e-mail: the worker and the release step never see the Resend key.
+  for (const c of [...containers(WORKER), ...containers(API).filter((x) => x.Name !== "api")]) {
+    assert.ok(!secretNames(c).includes("RESEND_API_KEY"), c.Name);
   }
 });
 
@@ -121,6 +132,16 @@ test("the API port is open to the shared load balancer only", () => {
   for (const sg of Object.values(taskSgs)) assert.equal(sg.Properties.SecurityGroupIngress, undefined, sg.Properties.GroupDescription);
 });
 
+test("the shared load balancer may send to the API port, and only to our API tasks (it allows no outbound traffic by default)", () => {
+  const egress = Object.values(serviceT.findResources("AWS::EC2::SecurityGroupEgress")).map((r) => r.Properties);
+  assert.equal(egress.length, 1);
+  assert.deepEqual(egress[0].GroupId, { "Fn::ImportValue": "Edge-prod:ExportsOutputFnGetAttLbSecurityGroup89A8258DGroupId639A5917" });
+  assert.equal(egress[0].FromPort, settings.api.port);
+  assert.equal(egress[0].ToPort, settings.api.port);
+  assert.match(JSON.stringify(egress[0].DestinationSecurityGroupId), /ApiSg/);
+  assert.equal(egress[0].CidrIp, undefined);
+});
+
 test("PostgreSQL 16 is private, encrypted, backed up, protected from deletion and forces TLS", () => {
   dataT.hasResourceProperties("AWS::RDS::DBInstance", {
     Engine: "postgres",
@@ -158,7 +179,7 @@ test("the database admits only the API, worker and operator tasks", () => {
 
 test("every generated secret and the owner's credentials survive a stack deletion, under figbloom/schools-api/", () => {
   const secrets = dataT.findResources("AWS::SecretsManager::Secret");
-  assert.equal(Object.keys(secrets).length, 6);
+  assert.equal(Object.keys(secrets).length, 7);
   for (const [id, s] of Object.entries(secrets)) {
     assert.equal(s.DeletionPolicy, "Retain", id);
     assert.match(s.Properties.Name, /^figbloom\/schools-api\//, id);

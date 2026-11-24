@@ -107,13 +107,27 @@ active key. `release` never changes the database's key: on a mismatch it stops w
 | `session-mint-hmac-key` | API, `release` | see rotation above |
 | `idempotency-fingerprint-key` | API | |
 | `mfa-encryption-key` | API | **Encrypts every user's two-step secret. Never change or delete it.** |
+| `resend-api-key` | API | Created as a random placeholder (e-mail off). Store the real key as below. |
+
+### Turning on e-mail (Resend)
+
+1. In Resend, verify the domain **figbloom.org**. The senders are `no-reply@figbloom.org` (accounts) and `billing@figbloom.org` (invoices), set in `lib/settings.ts`.
+2. Store the key without typing it into the command line. Put it in a file, store it, then delete the file:
+   ```sh
+   aws secretsmanager put-secret-value --profile figbloom-prod --region eu-west-1 \
+     --secret-id figbloom/schools-api/resend-api-key --secret-string file://resend-key.txt
+   ```
+3. `aws ecs update-service --profile figbloom-prod --region eu-west-1 --cluster figbloom-schools-api-prod --service api --force-new-deployment`.
+   The API log then says `"msg":"account_email","outcome":"resend"`.
+
+From then on, the API e-mails invitations and password resets **instead of** handing the one-time code to whoever issued it. The links open `https://schoolmanagement.figbloom.org/accept-invite` and `/reset-password`, so they only work once that site runs the API build. A send that Resend refuses falls back to handing the code to the issuer (log line `account_email_failed`).
 
 After changing a secret's value, force new tasks:
 `aws ecs update-service --cluster figbloom-schools-api-prod --service api --force-new-deployment`.
 
 ## Not set up yet (the API answers "not configured" for these)
 
-- Email and SMS (invitations and password resets).
+- SMS and WhatsApp. E-mail is Resend, above.
 - M-Pesa or PayHero.
 - Push notifications (FCM).
 - Document storage (S3).
@@ -131,6 +145,9 @@ Also not set up:
 
 ## Recovery
 
+- **A first deploy of `SchoolsApi-prod` rolled back** (for example, the circuit breaker stopped tasks that never became healthy). The three log groups are kept by design, so a plain re-deploy fails with "already exists". Deploy with `--import-existing-resources` so CloudFormation adopts them:
+  `CDK_REQUIRE_APPROVAL=never sh infra/scripts/cdk.sh deploy --import-existing-resources`.
+- **The shared load balancer answers 504** for our host: its security group allows no outbound traffic except each app's own rule (ours: `EdgeEgressToApi`, port 4100).
 - **Database:** point-in-time restore for the last 14 days (automated backups). There is a final snapshot if the instance is ever deleted.
 - **Secrets:** kept on stack deletion. A restored database needs the same `db-owner` password, the same session-mint key and the same MFA encryption key.
 - **Logs:**

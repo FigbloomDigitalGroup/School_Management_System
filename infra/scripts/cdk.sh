@@ -6,6 +6,8 @@
 #   sh infra/scripts/cdk.sh synth
 #
 # AWS_PROFILE defaults to figbloom-prod. Region and domain match infra/lib/settings.ts.
+# Without a terminal (CI, an agent) the approval question cannot be answered: after reading the diff, run
+# CDK_REQUIRE_APPROVAL=never sh infra/scripts/cdk.sh deploy. (The CLI refuses --require-approval twice.)
 set -eu
 export MSYS_NO_PATHCONV=1 # Git Bash on Windows: do not rewrite /paths in arguments
 
@@ -26,6 +28,6 @@ if [ -z "$CERT" ] || [ "$CERT" = "None" ]; then
 fi
 
 case "$cmd" in
-  deploy) exec npx cdk deploy --all --profile "$PROFILE" -c certificateArn="$CERT" --require-approval broadening "$@" ;;
+  deploy) exec npx cdk deploy --all --profile "$PROFILE" -c certificateArn="$CERT" --require-approval "${CDK_REQUIRE_APPROVAL:-broadening}" "$@" ;;
   *) exec npx cdk "$cmd" --all --profile "$PROFILE" -c certificateArn="$CERT" "$@" ;;
 esac

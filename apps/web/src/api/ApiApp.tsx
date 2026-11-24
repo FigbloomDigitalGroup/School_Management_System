@@ -3,6 +3,7 @@ import { ConfirmHost } from "../components/ui/Confirm";
 import { ToastHost } from "../components/ui/Toast";
 import { ApiAcceptInvite } from "./ApiAcceptInvite";
 import { ApiSchool } from "./ApiHome";
+import { ApiForgotPassword, ApiResetPassword } from "./ApiPasswordReset";
 import { ApiSessionGuard } from "./ApiSessionGuard";
 import { ApiSignIn } from "./ApiSignIn";
 
@@ -20,6 +21,9 @@ export function ApiApp() {
           <Route path="/signin" element={<ApiSignIn />} />
           <Route path="/accept-invite" element={<ApiAcceptInvite />} />
           <Route path="/invite" element={<ApiAcceptInvite />} />
+          {/* Account e-mails link here (apps/api resendNotifier.ts). */}
+          <Route path="/forgot-password" element={<ApiForgotPassword />} />
+          <Route path="/reset-password" element={<ApiResetPassword />} />
           <Route path="/s/:slug/*" element={<ApiSchool />} />
           <Route path="*" element={<Navigate to="/signin" replace />} />
         </Routes>

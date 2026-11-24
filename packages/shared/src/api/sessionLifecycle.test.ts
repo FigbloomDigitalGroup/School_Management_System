@@ -46,6 +46,7 @@ describe("sessionLifecycle", () => {
     expect(buildSignInRedirect({ reason: "expired", next: "https://evil.example" })).toBe("/signin?reason=expired");
     expect(signOutReasonNotice("idle")).toContain("15 minutes");
     expect(signOutReasonNotice("expired")).toContain("8-hour");
+    expect(signOutReasonNotice("password_reset")).toContain("new password");
     expect(signOutReasonNotice("unknown")).toBe("");
   });
 });

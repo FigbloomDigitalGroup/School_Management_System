@@ -12,8 +12,17 @@ export const settings = {
 
   /** The API's public address. Its certificate is attached to the shared load balancer (infra/README.md). */
   apiDomain: "sms-api.figbloom.org",
-  /** Browser origins allowed to call the API (exact origins; the API refuses wildcards). */
+  /**
+   * Browser origins allowed to call the API (exact origins; the API refuses wildcards). The first is also where
+   * account e-mails link (accept-invite, reset-password): the web app's address once it runs on the API.
+   */
   webOrigins: ["https://schoolmanagement.figbloom.org"],
+
+  /** Senders for Resend. figbloom.org must be verified in Resend, or every send is refused. */
+  email: {
+    accountFrom: "FigBloom <no-reply@figbloom.org>",
+    billingFrom: "FigBloom Billing <billing@figbloom.org>",
+  },
 
   /** The shared platform this app plugs into (lib/platform.ts). Values read from the live account on 2026-11-24. */
   platform: {
