@@ -5,7 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { TripReplayMap } from "../../components/TripReplayMap";
 import { useAsync } from "../../lib/useAsync";
-import { fetchTripPath, listRouteStops, listTrips, type RouteStop, type TripRow } from "@figbloom/shared";
+import { fetchTripPath, fleetCapabilities, listRouteStops, listTrips, type RouteStop, type TripRow } from "@figbloom/shared";
 
 const STATUS_TONE: Record<TripRow["status"], Tone> = { active: "ok", completed: "muted", cancelled: "warn" };
 const DIRECTION_LABEL: Record<TripRow["direction"], string> = { to_school: "To school", from_school: "From school" };
@@ -45,12 +45,13 @@ export function TripHistory({ tenantId }: { tenantId: string }) {
             { key: "direction", header: "Direction", render: (t: TripRow) => <span className="text-[13px]">{DIRECTION_LABEL[t.direction]}</span> },
             { key: "started", header: "Started", render: (t: TripRow) => <span className="font-mono text-[12px] text-ink-muted">{fmtWhen(t.started_at)}</span> },
             { key: "duration", header: "Duration", render: (t: TripRow) => <span className="font-mono text-[12px] text-ink-muted">{fmtDuration(t.started_at, t.ended_at)}</span> },
-            {
+            // The new system keeps no speeding or off-route alerts, so there is no count to show.
+            ...(fleetCapabilities().tripAlertCounts ? [{
               key: "alerts", header: "Alerts",
               render: (t: TripRow) => t.alertCount > 0
                 ? <Badge tone="warn">{t.alertCount} raised</Badge>
                 : <span className="text-[12px] text-ink-faint">None</span>,
-            },
+            }] : []),
             { key: "status", header: "", align: "right", render: (t: TripRow) => <Badge tone={STATUS_TONE[t.status]}>{t.status}</Badge> },
           ]}
           rows={trips}
@@ -67,7 +68,7 @@ export function TripHistory({ tenantId }: { tenantId: string }) {
 }
 
 async function fetchReplayData(trip: TripRow): Promise<{ path: Awaited<ReturnType<typeof fetchTripPath>>; stops: RouteStop[] }> {
-  const [path, stops] = await Promise.all([fetchTripPath(trip.id), trip.route_id ? listRouteStops(trip.route_id) : Promise.resolve([])]);
+  const [path, stops] = await Promise.all([fetchTripPath(trip.id), trip.route_id && fleetCapabilities().routeStops ? listRouteStops(trip.route_id) : Promise.resolve([])]);
   return { path, stops };
 }
 

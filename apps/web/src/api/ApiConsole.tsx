@@ -11,6 +11,7 @@ import { BankReconciliation } from "../screens/admin/BankReconciliation";
 import { TermSetup } from "../screens/admin/TermSetup";
 import { Attendance as TeacherAttendance } from "../screens/teacher/Attendance";
 import { TeacherReports } from "../screens/teacher/TeacherReports";
+import { ApiDriverConsole } from "./ApiDriver";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
 
 // The People screen is large (its modals pull in a lot), so it loads when it is opened.
@@ -30,6 +31,9 @@ const AdminExams = lazy(() => import("../screens/admin/Exams").then((m) => ({ de
 const AdminReports = lazy(() => import("../screens/admin/Reports").then((m) => ({ default: m.AdminReports })));
 const Performance = lazy(() => import("../screens/admin/Performance").then((m) => ({ default: m.Performance })));
 const GradebookRouter = lazy(() => import("../screens/teacher/GradebookRouter").then((m) => ({ default: m.GradebookRouter })));
+// Buses (the live maps pull in the Google Maps script), loaded when opened.
+const Fleet = lazy(() => import("../screens/admin/Fleet").then((m) => ({ default: m.Fleet })));
+const TeacherBuses = lazy(() => import("../screens/teacher/Buses").then((m) => ({ default: m.TeacherBuses })));
 
 const pageFallback = (
   <div className="space-y-3 p-8">
@@ -46,10 +50,11 @@ const pageFallback = (
 export const API_ADMIN_PAGES = [
   "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/inventory", "admin/leave",
   "admin/access", "admin/account", "admin/chats", "admin/exams", "admin/performance", "admin/reports",
+  "admin/fleet",
 ] as const;
 
 /** Teacher pages available on the API build (FIG-1891). */
-export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/chats", "teacher/notices", "teacher/messages", "teacher/gradebook", "teacher/performance"] as const;
+export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/chats", "teacher/notices", "teacher/messages", "teacher/gradebook", "teacher/performance", "teacher/buses"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -84,6 +89,8 @@ function TeacherPage({ session, children }: { session: SchoolSession; children: 
 }
 
 export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onSignOut: () => Promise<void> }) {
+  // A driver has their own full-width pages (ApiDriver.tsx), not the console.
+  if (session.profile.role === "driver") return <ApiDriverConsole session={session} />;
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
   if (!hasAdminConsole(access)) {
     if (session.profile.role === "teacher") {
@@ -100,6 +107,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
           <Route path="teacher/messages" element={tPage(<Suspense fallback={pageFallback}><TeacherMessages /></Suspense>)} />
           <Route path="teacher/gradebook" element={tPage(<Suspense fallback={pageFallback}><GradebookRouter /></Suspense>)} />
           <Route path="teacher/performance" element={tPage(<Suspense fallback={pageFallback}><Performance teacher /></Suspense>)} />
+          <Route path="teacher/buses" element={tPage(<Suspense fallback={pageFallback}><TeacherBuses /></Suspense>)} />
           <Route path="*" element={<Navigate to={teacherHome} replace />} />
         </Routes>
       );
@@ -126,6 +134,8 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/exams" element={page("admin/exams", <Suspense fallback={pageFallback}><AdminExams /></Suspense>)} />
       <Route path="admin/performance" element={page("admin/performance", <Suspense fallback={pageFallback}><Performance /></Suspense>)} />
       <Route path="admin/reports" element={page("admin/reports", <Suspense fallback={pageFallback}><AdminReports /></Suspense>)} />
+      <Route path="admin/fleet" element={page("admin/fleet", <Suspense fallback={pageFallback}><Fleet /></Suspense>)} />
+      <Route path="teacher/buses" element={page("admin", <Suspense fallback={pageFallback}><TeacherBuses /></Suspense>)} />
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/leave" element={page("admin", <Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />

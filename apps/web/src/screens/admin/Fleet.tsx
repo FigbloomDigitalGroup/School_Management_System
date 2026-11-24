@@ -6,6 +6,7 @@ import {
   FLEET_ALERT_LABEL,
   createRoute,
   createVehicle,
+  fleetCapabilities,
   listAlerts,
   listAssignments,
   listDrivers,
@@ -50,7 +51,8 @@ async function fetchFleet(tenantId: string): Promise<FleetData> {
     listVehicles(tenantId),
     listRoutes(tenantId),
     listDrivers(tenantId),
-    listAssignments(tenantId),
+    // The new system has no read of who drives which vehicle: the table, the stat and "Currently ..." are left out there.
+    fleetCapabilities().assignments ? listAssignments(tenantId) : Promise.resolve([] as AssignmentRow[]),
     listAlerts(tenantId),
     listBusesOnRoutes(tenantId),
   ]);
@@ -76,6 +78,7 @@ function fmtAlertTime(iso: string): string {
  */
 export function Fleet() {
   const toast = useToast();
+  const caps = fleetCapabilities();
   const { profile, tenant } = useTenantSession();
   const [refreshKey, setRefreshKey] = useState(0);
   // first load only: a refresh (alerts, saved stops) must not blank the page and remount the live map
@@ -98,7 +101,7 @@ export function Fleet() {
   async function ack(alertId: string) {
     setAcking(alertId);
     try {
-      await acknowledgeAlert(alertId, profile.id);
+      await acknowledgeAlert(alertId, profile.id, data?.alerts.find((a) => a.id === alertId)?.trip_id);
       refresh();
     } catch (err) {
       toast("Could not acknowledge the alert: " + (err instanceof Error ? err.message : String(err)), "error");
@@ -112,6 +115,8 @@ export function Fleet() {
     for (const a of data?.assignments ?? []) m.set(a.vehicle_id, a);
     return m;
   }, [data]);
+  // The vehicle list carries no position on the new system; each bus's last position is read with the map's buses.
+  const lastSeenOf = useMemo(() => new Map((data?.buses ?? []).map((b) => [b.vehicle.id, b.vehicle.last_ping_at])), [data]);
 
 
   return (
@@ -146,7 +151,7 @@ export function Fleet() {
                 { label: "Vehicles", value: String(data.vehicles.length), sub: `${data.vehicles.filter((v) => v.active).length} active` },
                 { label: "Routes", value: String(data.routes.length) },
                 { label: "Drivers", value: String(data.drivers.length) },
-                { label: "Assigned", value: String(data.assignments.length), sub: `of ${data.vehicles.length} vehicles` },
+                ...(caps.assignments ? [{ label: "Assigned", value: String(data.assignments.length), sub: `of ${data.vehicles.length} vehicles` }] : []),
                 { label: "Open alerts", value: String(data.alerts.length), sub: data.alerts.length > 0 ? "needs a look" : "all clear" },
               ]}
             />
@@ -197,7 +202,7 @@ export function Fleet() {
                   },
                   { key: "capacity", header: "Capacity", render: (v: Vehicle) => <span className="text-[13px]">{v.capacity ?? "—"}</span> },
                   { key: "status", header: "Status", render: (v: Vehicle) => <Badge tone={v.active ? "ok" : "muted"}>{v.active ? "Active" : "Inactive"}</Badge> },
-                  {
+                  ...(caps.assignments ? [{
                     key: "assigned", header: "Driver & route", width: "1.6fr",
                     render: (v: Vehicle) => {
                       const a = assignmentByVehicle.get(v.id);
@@ -209,8 +214,8 @@ export function Fleet() {
                         </span>
                       );
                     },
-                  },
-                  { key: "seen", header: "Last seen", render: (v: Vehicle) => <span className="text-[12px] text-ink-faint">{fmtLastSeen(v.last_ping_at)}</span> },
+                  }] : []),
+                  { key: "seen", header: "Last seen", render: (v: Vehicle) => <span className="text-[12px] text-ink-faint">{fmtLastSeen(v.last_ping_at ?? lastSeenOf.get(v.id) ?? null)}</span> },
                 ]}
                 rows={data.vehicles}
                 rowKey={(v) => v.id}
@@ -237,6 +242,7 @@ export function Fleet() {
                       route={r}
                       tenantId={tenant.id}
                       open={openRouteId === r.id}
+                      canEditStops={caps.routeStops}
                       onToggle={() => setOpenRouteId(openRouteId === r.id ? null : r.id)}
                       toast={toast}
                       onSaved={() => { toast(`Stops saved for ${r.name}`); refresh(); }}
@@ -253,7 +259,11 @@ export function Fleet() {
               {data.vehicles.length === 0 ? (
                 <p className="text-[13px] text-ink-muted">Add a vehicle first.</p>
               ) : data.drivers.length === 0 ? (
-                <p className="text-[13px] text-ink-muted">No driver accounts exist yet. A driver needs an account with the "driver" role before they can be assigned.</p>
+                <p className="text-[13px] text-ink-muted">
+                  {caps.assignments
+                    ? 'No driver accounts exist yet. A driver needs an account with the "driver" role before they can be assigned.'
+                    : "No drivers to choose from. A driver needs a sign-in with the driver role, and you need the People area to see the school's staff."}
+                </p>
               ) : (
                 <div className="grid gap-2">
                   {data.vehicles.map((v) => (
@@ -263,6 +273,7 @@ export function Fleet() {
                       drivers={data.drivers}
                       routes={data.routes}
                       current={assignmentByVehicle.get(v.id) ?? null}
+                      known={caps.assignments}
                       tenantId={tenant.id}
                       toast={toast}
                       onAssigned={() => { toast(`Assigned a driver to ${v.plate_number}`); refresh(); }}
@@ -293,8 +304,8 @@ export function Fleet() {
   );
 }
 
-function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
-  route: Route; tenantId: string; open: boolean; onToggle: () => void; onSaved: () => void; toast: ToastFn;
+function RouteCard({ route, tenantId, open, canEditStops, onToggle, onSaved, toast }: {
+  route: Route; tenantId: string; open: boolean; canEditStops: boolean; onToggle: () => void; onSaved: () => void; toast: ToastFn;
 }) {
   // Bumped on every save, so both panels reload what the other one changed.
   const [version, setVersion] = useState(0);
@@ -311,10 +322,19 @@ function RouteCard({ route, tenantId, open, onToggle, onSaved, toast }: {
 
       {open && (
         <div className="border-t border-line-soft bg-page px-4 py-3.5">
-          <StopsEditor key={`stops-${version}`} routeId={route.id} tenantId={tenantId} toast={toast} onSaved={saved} />
-          <div className="mt-4 border-t border-line-soft pt-3.5">
-            <RouteRiders key={`riders-${version}`} routeId={route.id} toast={toast} onSaved={saved} />
-          </div>
+          {canEditStops ? (
+            <>
+              <StopsEditor key={`stops-${version}`} routeId={route.id} tenantId={tenantId} toast={toast} onSaved={saved} />
+              <div className="mt-4 border-t border-line-soft pt-3.5">
+                <RouteRiders key={`riders-${version}`} routeId={route.id} toast={toast} onSaved={saved} />
+              </div>
+            </>
+          ) : (
+            <p className="text-[12.5px] text-ink-muted">
+              A route's stops and riders cannot be shown or changed here yet: the new system can add a stop but cannot list them.
+              While a bus is on a trip, the Children on the buses list above shows each child's stop.
+            </p>
+          )}
         </div>
       )}
     </li>
@@ -397,8 +417,8 @@ function StopsEditor({ routeId, tenantId, toast, onSaved }: {
   );
 }
 
-function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssigned }: {
-  vehicle: Vehicle; drivers: DriverOption[]; routes: Route[]; current: AssignmentRow | null;
+function AssignRow({ vehicle, drivers, routes, current, known, tenantId, toast, onAssigned }: {
+  vehicle: Vehicle; drivers: DriverOption[]; routes: Route[]; current: AssignmentRow | null; known: boolean;
   tenantId: string; toast: ToastFn; onAssigned: () => void;
 }) {
   const [driverId, setDriverId] = useState(current?.driver_id ?? "");
@@ -423,7 +443,7 @@ function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssig
       <div className="min-w-[150px]">
         <div className="text-[13px] font-medium"><Mono>{vehicle.plate_number}</Mono></div>
         <div className="mt-0.5 text-[11.5px] text-ink-faint">
-          {current ? `Currently ${current.driver?.full_name ?? "assigned"}${current.route?.name ? ` · ${current.route.name}` : ""}` : "Unassigned"}
+          {!known ? "Choosing a driver replaces the one now on this bus" : current ? `Currently ${current.driver?.full_name ?? "assigned"}${current.route?.name ? ` · ${current.route.name}` : ""}` : "Unassigned"}
         </div>
       </div>
       <select
@@ -441,7 +461,7 @@ function AssignRow({ vehicle, drivers, routes, current, tenantId, toast, onAssig
         {routes.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
       </select>
       <Button variant="primary" onClick={() => void assign()} disabled={saving || !driverId}>
-        {saving ? "Assigning…" : current ? "Reassign" : "Assign"}
+        {saving ? "Assigning…" : current && known ? "Reassign" : "Assign"}
       </Button>
     </div>
   );
@@ -531,7 +551,7 @@ function AddRouteModal({ open, onClose, tenantId, toast, onCreated }: {
       onClose={onClose}
       eyebrow="Fleet"
       title="Add a route"
-      blurb="Add stops once the route exists."
+      blurb={fleetCapabilities().routeStops ? "Add stops once the route exists." : "The new system cannot show or change a route's stops yet."}
       actions={
         <Button variant="primary" onClick={() => void submit()} disabled={saving || !name.trim()}>
           {saving ? "Adding…" : "Add route"}
