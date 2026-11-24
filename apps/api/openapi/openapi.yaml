@@ -1939,6 +1939,42 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/staff/me:
+    get:
+      tags:
+        - directory
+      summary: Get my own staff record
+      description: The caller's own ACTIVE staff record in this school (linked through `userId`). Any member of the school may
+        read their own row; no directory permission is needed, so a teacher who cannot read the staff list can still learn
+        their own staff id (teaching assignments, class teachers and timetable slots name staff ids). 404 when the account
+        has no active staff record here (a school administrator who was never added to the directory, a parent, a student).
+      operationId: getMyStaff
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The caller's staff record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/staff/{staffId}:
     get:
       tags:
@@ -3130,6 +3166,40 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
   /v1/rbac/staff-areas:
+    get:
+      tags:
+        - rbac
+      summary: List who holds admin areas of their own in the active school
+      description: >
+        The read side of `PUT /v1/rbac/staff-areas`. One row per person with at least one area granted directly to them,
+        ordered by user id; `areas` is in the catalogue's order. Areas a person might hold through a school role are not
+        listed (school roles have no write path). SQL keyset-paginated (FIG-1621): `{ tenantId, items, page: { limit,
+        next_cursor } }`, fixed sort.
+      operationId: listStaffAreas
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - rbac.staff_areas.manage
+      x-figbloom-tenantScope: session
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: Rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffAreasList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     put:
       tags:
         - rbac
@@ -18266,6 +18336,33 @@ components:
           type: array
           items:
             type: string
+    StaffAreasList:
+      type: object
+      required:
+        - tenantId
+        - items
+        - page
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - userId
+              - areas
+            properties:
+              userId:
+                type: string
+                format: uuid
+              areas:
+                type: array
+                items:
+                  type: string
+        page:
+          $ref: "#/components/schemas/PageInfo"
     StaffAreasResult:
       type: object
       properties:

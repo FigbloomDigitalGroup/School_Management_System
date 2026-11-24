@@ -29,6 +29,7 @@ import {
   listGuardianAccess,
   revokeGuardianAccess,
 } from "../../modules/rbac/guardianAccess.js";
+import { listStaffAreasPage } from "../../modules/rbac/staffAreas.js";
 import { clientIp } from "../clientIp.js";
 import { forbidden, notFound, validationError } from "../errors.js";
 import { pageFromKeysetRows, parseListQuery } from "../pagination.js";
@@ -288,6 +289,26 @@ export async function registerRbacRoutes(app: FastifyInstance, pool: AppPool): P
         ip: clientIp(request),
       });
       return { ok: true, tenantId, userId: parsed.userId, revoked: result.revoked };
+    });
+  });
+
+  // Who holds admin areas of their own in the active school (the read side of PUT below). One row per person, keyset on user id.
+  app.get("/v1/rbac/staff-areas", async (request) => {
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      await requirePermission(tx, auth.authz, "rbac.staff_areas.manage", {
+        ip: clientIp(request),
+        deferAudit: true,
+      });
+      const tenantId = auth.authz.tenantId!;
+      const sort = "user_id";
+      const { limit, cursor, fingerprint } = parseListQuery(request.query as Record<string, unknown>, {
+        sort,
+        filter: { resource: "staff-areas", tenantId },
+        keySpecs: [{ kind: "uuid" }],
+      });
+      const rows = await listStaffAreasPage(tx, { tenantId, limit: limit + 1, afterUserId: cursor ? cursor.k[0]! : null });
+      const page = pageFromKeysetRows(rows, { limit, sort, fingerprint, keysOf: (row) => [row.userId] });
+      return { tenantId, items: page.items, page: page.page };
     });
   });
 

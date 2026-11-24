@@ -99,6 +99,14 @@ function loadDotEnv(): boolean {
  */
 export const POOL_MAX_CAP = 20;
 
+/**
+ * The throttle on two-step (TOTP) code attempts and enrolments, per account: a burst, then a slow refill. It is what
+ * stops a stolen password plus a guessing script from walking through the 10^6 codes, so staging and production
+ * refuse to run with it looser than this (see `assertStrictApiConfig`). Local and test may loosen it, so that a
+ * browser-test run that signs in as the same administrator many times is not starved.
+ */
+export const MFA_ATTEMPT_RATE_DEFAULTS = { capacity: 5, refill: 1, intervalMs: 60_000 } as const;
+
 const ConfigSchema = z.object({
   databaseUrl: z.string().min(1),
   host: z.string().default("127.0.0.1"),
@@ -116,6 +124,15 @@ const ConfigSchema = z.object({
   authRateCapacity: z.coerce.number().positive().default(5),
   authRateRefill: z.coerce.number().positive().default(2),
   authRateIntervalMs: z.coerce.number().int().positive().default(5_000),
+  /**
+   * Two-step code attempts and enrolments, per account (MFA_ATTEMPT_RATE_*): `capacity` attempts at once, then `refill`
+   * more every `intervalMs`. Every attempt counts, right or wrong. Only local and test may set these looser than
+   * MFA_ATTEMPT_RATE_DEFAULTS; staging and production refuse that at startup. Whole numbers of at least 1, so a bad
+   * value fails loudly instead of locking everyone out (capacity 0) or switching the limit off.
+   */
+  mfaAttemptRateCapacity: z.coerce.number().int().min(1).max(100_000).default(MFA_ATTEMPT_RATE_DEFAULTS.capacity),
+  mfaAttemptRateRefill: z.coerce.number().int().min(1).max(100_000).default(MFA_ATTEMPT_RATE_DEFAULTS.refill),
+  mfaAttemptRateIntervalMs: z.coerce.number().int().min(100).max(3_600_000).default(MFA_ATTEMPT_RATE_DEFAULTS.intervalMs),
   /**
    * M-Pesa callback throttling (remediation batch 6). The callback is NOT a login: Safaricom calls it from a few
    * addresses, in bursts at fee deadlines, and a throttled callback may never be redelivered. Two separate policies:
@@ -267,6 +284,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     authRateCapacity: env.AUTH_RATE_CAPACITY,
     authRateRefill: env.AUTH_RATE_REFILL,
     authRateIntervalMs: env.AUTH_RATE_INTERVAL_MS,
+    mfaAttemptRateCapacity: env.MFA_ATTEMPT_RATE_CAPACITY,
+    mfaAttemptRateRefill: env.MFA_ATTEMPT_RATE_REFILL,
+    mfaAttemptRateIntervalMs: env.MFA_ATTEMPT_RATE_INTERVAL_MS,
     mpesaCallbackRateCapacity: env.MPESA_CALLBACK_RATE_CAPACITY,
     mpesaCallbackRateRefill: env.MPESA_CALLBACK_RATE_REFILL,
     mpesaCallbackRateIntervalMs: env.MPESA_CALLBACK_RATE_INTERVAL_MS,
@@ -450,6 +470,18 @@ function assertVerifiedTls(url: string, variable: string, kind: "API" | "migrate
 function assertStrictApiConfig(config: AppConfig, env: NodeJS.ProcessEnv): void {
   if (config.mfaEnforcement !== "enforce") {
     throw new Error("Invalid API config: MFA_ENFORCEMENT must be 'enforce' outside local/test.");
+  }
+  // Tightening the two-step attempt limit is fine; loosening it is not. Compared as whole numbers
+  // (refill per interval, cross-multiplied) so there is no rounding to argue about.
+  const d = MFA_ATTEMPT_RATE_DEFAULTS;
+  if (
+    config.mfaAttemptRateCapacity > d.capacity ||
+    config.mfaAttemptRateRefill * d.intervalMs > d.refill * config.mfaAttemptRateIntervalMs
+  ) {
+    throw new Error(
+      "Invalid API config: MFA_ATTEMPT_RATE_* may not be looser than the default outside local/test " +
+        `(at most ${d.capacity} attempts, refilling no faster than ${d.refill} every ${d.intervalMs / 1000} seconds).`,
+    );
   }
   if (!config.mfaEncryptionKey) {
     throw new Error("Invalid API config: MFA_ENCRYPTION_KEY is required outside local/test (at least 32 characters).");
