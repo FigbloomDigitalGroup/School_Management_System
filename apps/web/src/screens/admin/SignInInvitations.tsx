@@ -35,7 +35,6 @@ export function InviteGuardiansApiModal({ tenantId, students, onClose, toast }: 
       batch.forEach((s, j) => out.set(s.id, lists[j]!));
     }
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const [reloadKey, setReloadKey] = useState(0);
   const pending = useAsync(() => apiListGuardianInvitations(tenantId, "pending"), [tenantId, reloadKey]);
