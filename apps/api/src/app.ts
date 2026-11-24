@@ -46,6 +46,7 @@ import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
 import { registerUnmatchedCallbackRoutes } from "./http/routes/unmatchedCallbacks.js";
 import { registerAccountRoutes } from "./http/routes/accounts.js";
 import { registerGuardianInvitationRoutes } from "./http/routes/guardianInvitations.js";
+import { registerFamilyRoutes } from "./http/routes/family.js";
 import { registerAiRoutes } from "./http/routes/ai.js";
 import { mpesaProviderFromConfig, type MpesaProvider } from "./modules/finance/mpesaProvider.js";
 
@@ -236,6 +237,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerUnmatchedCallbackRoutes(app, pool);
   await registerAccountRoutes(app, pool);
   await registerGuardianInvitationRoutes(app, pool);
+  await registerFamilyRoutes(app, pool);
   await registerAiRoutes(app, pool);
 
   return app;
