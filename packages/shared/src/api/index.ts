@@ -45,3 +45,4 @@ export { feeTotalsFromInvoices } from "./adminOverviewApi";
 export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper } from "./examPapersApi";
 export { apiCreateLearningMaterial } from "./materialsApi";
 export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
+export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";

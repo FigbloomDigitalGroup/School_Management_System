@@ -512,6 +512,7 @@ const OWNER_COLUMN: Record<AttachmentOwner, "announcement_id" | "assignment_id">
 
 /** Attachments for several announcements or homework at once, keyed by owner id, oldest first. */
 export async function fetchAttachments(owner: AttachmentOwner, ownerIds: string[]): Promise<Map<string, MediaItem[]>> {
+  if (onApi()) return new Map();
   const out = new Map<string, MediaItem[]>();
   const ids = [...new Set(ownerIds)];
   if (!ids.length) return out;
@@ -536,6 +537,7 @@ export async function addAttachment(
   ownerId: string,
   item: { kind: MaterialKind; title: string; url: string } | { kind: MaterialKind; title: string; filePath: string; fileName: string; mimeType: string; sizeBytes: number },
 ): Promise<void> {
+  if (onApi()) throw new NotOnApiError("File attachments");
   const media = "url" in item
     ? { url: item.url }
     : { file_path: item.filePath, file_name: item.fileName, mime_type: item.mimeType, size_bytes: item.sizeBytes };
@@ -551,6 +553,7 @@ export async function addAttachment(
 
 /** Removes one attachment and its file. */
 export async function removeAttachment(a: Pick<MediaItem, "id" | "filePath">): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Removing file attachments");
   await removeMediaFiles([a.filePath]);
   const { data, error } = await supabase().from("attachments").delete().eq("id", a.id).select("id");
   if (error) throw new Error(error.message);

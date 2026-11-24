@@ -797,3 +797,54 @@ const VISITORS_ON_API: VisitorsCapabilities = { escalateAfterArrival: false };
 export function visitorsCapabilities(): VisitorsCapabilities {
   return onApi() ? VISITORS_ON_API : VISITORS_ON_SUPABASE;
 }
+
+/** Teacher homework management (teacher/homework). */
+export interface HomeworkCapabilities {
+  /** Editing a homework item after it is set (no PATCH /v1/tenants/{tenantId}/homework-items/{id} endpoint). */
+  editHomework: boolean;
+  /** Deleting a homework item (no DELETE /v1/tenants/{tenantId}/homework-items/{id} endpoint). */
+  deleteHomework: boolean;
+  /** Choosing how learners hand work in (API Homework schema has no `hand_in` field). */
+  handInMethod: boolean;
+  /** Structured "For parents" guide (API Homework schema has no `parent_guide` field). */
+  parentGuide: boolean;
+  /** Reading handed-in submission counts (API has no homework submission endpoint yet). */
+  submissions: boolean;
+  /** Attaching files or links to homework (waits on API file storage, A5 / FIG-1873). */
+  attachments: boolean;
+  /** Leaving instructions blank (POST /homework-items requires non-empty `body`). */
+  optionalInstructions: boolean;
+}
+
+const HOMEWORK_ON_SUPABASE: HomeworkCapabilities = {
+  editHomework: true,
+  deleteHomework: true,
+  handInMethod: true,
+  parentGuide: true,
+  submissions: true,
+  attachments: true,
+  optionalInstructions: true,
+};
+
+const HOMEWORK_ON_API: HomeworkCapabilities = {
+  editHomework: false,
+  deleteHomework: false,
+  handInMethod: false,
+  parentGuide: false,
+  submissions: false,
+  attachments: false,
+  optionalInstructions: false,
+};
+
+export function homeworkCapabilities(): HomeworkCapabilities {
+  return onApi() ? HOMEWORK_ON_API : HOMEWORK_ON_SUPABASE;
+}
+
+/**
+ * Whether the signed-in person may read and set homework on `teacher/homework`. On Supabase every teacher may. On the
+ * API `GET/POST /homework-items` require `resource.academics.read/write` (school administrators and holders of the
+ * Academics area).
+ */
+export function canManageHomework(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("academics");
+}
