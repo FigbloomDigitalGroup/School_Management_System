@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addActivityMembers, createActivity, deleteActivity, deleteActivityEvent, fetchActiveLearners, fetchActivities, fetchActivityEvents,
-  fetchActivityMembers, fetchEventParticipants, fetchMemberCounts, fetchMyPatronActivityIds, fetchTeachers, loadLearnerActivities,
+  fetchActivityMembers, fetchEventParticipants, fetchMemberCounts, fetchMyPatronActivityIds, fetchTeachers,
   loadTermActivities, removeActivityMember, saveActivityEvent, saveParticipantResult, setActivityPatrons, setEventParticipants,
   setMemberRole, updateActivity, type EventInput,
 } from "../activities";
@@ -293,7 +293,6 @@ describe("what the API cannot do, which throws before any call", () => {
     ["reading participants", () => fetchEventParticipants("e1")],
     ["setting participants", () => setEventParticipants(T, "e1", [], [L1])],
     ["saving a result", () => saveParticipantResult("e1", L1, { award: null, position: 1, achievement: "" })],
-    ["a learner's activities", () => loadLearnerActivities(T, L1)],
     ["a term's activities", () => loadTermActivities(T, [L1], { startsOn: "2026-01-01", endsOn: "2026-04-01" })],
   ])("%s", async (_what, run) => {
     boot({});
