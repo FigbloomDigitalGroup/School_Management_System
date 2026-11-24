@@ -88,6 +88,24 @@ export async function queryStk(checkoutRequestId: string): Promise<StkOutcome> {
   return { done: true, resultCode: code };
 }
 
+/**
+ * DARAJA_TENANTS: the schools (tenant ids, comma-separated) that may use
+ * M-Pesa on this project, or null when it isn't set, meaning every school
+ * may, as before the setting existed. Set but empty means none may: a
+ * mistyped list fails closed. Lets one demo school use Daraja (e.g. sandbox
+ * credentials) while every other school is answered as if M-Pesa weren't set up.
+ */
+export function darajaTenants(raw: string | undefined = Deno.env.get("DARAJA_TENANTS")): Set<string> | null {
+  if (raw === undefined) return null;
+  return new Set(raw.split(",").map((t) => t.trim()).filter(Boolean));
+}
+
+/** Whether this school may use M-Pesa under DARAJA_TENANTS (null: every school may). */
+export function tenantMayUseDaraja(tenantId: string | null | undefined, allowed: Set<string> | null): boolean {
+  if (allowed === null) return true;
+  return typeof tenantId === "string" && allowed.has(tenantId);
+}
+
 /** Compare a secret without the time taken revealing how much of it matched. */
 export function secretsMatch(given: string | null, expected: string): boolean {
   const a = new TextEncoder().encode(given ?? "");

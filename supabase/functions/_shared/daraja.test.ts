@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd";
 import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
-import { darajaToken, queryStk, secretsMatch, stkPassword, timestamp } from "./daraja.ts";
+import { darajaTenants, darajaToken, queryStk, secretsMatch, stkPassword, tenantMayUseDaraja, timestamp } from "./daraja.ts";
 
 const realFetch = globalThis.fetch;
 const realNow = Date.now;
@@ -131,6 +131,9 @@ describe("which Daraja the functions talk to", () => {
       Deno.env.delete("DARAJA_ENV");
       const unset = await import("./daraja.ts?env=unset");
       assertEquals(unset.darajaUrl("/x"), "https://sandbox.safaricom.co.ke/x");
+      Deno.env.set("DARAJA_ENV", "sandbox");
+      const sandbox = await import("./daraja.ts?env=sandbox");
+      assertEquals(sandbox.darajaUrl("/oauth/v1/generate"), "https://sandbox.safaricom.co.ke/oauth/v1/generate");
       Deno.env.set("DARAJA_ENV", "Production");
       const wrongCase = await import("./daraja.ts?env=wrong-case");
       assertEquals(wrongCase.darajaUrl("/x"), "https://sandbox.safaricom.co.ke/x");
@@ -167,5 +170,21 @@ describe("secretsMatch (the callback's secret path)", () => {
   it("compares bytes, so a multi-byte secret works and a look-alike doesn't", () => {
     assertEquals(secretsMatch("clé-secrète", "clé-secrète"), true);
     assertEquals(secretsMatch("cle-secrete", "clé-secrète"), false);
+  });
+});
+
+describe("DARAJA_TENANTS", () => {
+  it("darajaTenants: unset is null (every school), set is the trimmed list, empty is nobody", () => {
+    assertEquals(darajaTenants(undefined), null);
+    assertEquals([...darajaTenants(" t-1 ,t-2,, ")!], ["t-1", "t-2"]);
+    assertEquals(darajaTenants("")!.size, 0);
+  });
+
+  it("tenantMayUseDaraja", () => {
+    assertEquals(tenantMayUseDaraja("t-1", null), true);
+    assertEquals(tenantMayUseDaraja("t-1", new Set(["t-1"])), true);
+    assertEquals(tenantMayUseDaraja("t-2", new Set(["t-1"])), false);
+    assertEquals(tenantMayUseDaraja(null, new Set(["t-1"])), false);
+    assertEquals(tenantMayUseDaraja("t-1", new Set()), false);
   });
 });

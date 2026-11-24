@@ -21,7 +21,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
-import { queryStk, secretsMatch, type StkOutcome, unpaidOutcome } from "../_shared/daraja.ts";
+import { darajaTenants, queryStk, secretsMatch, type StkOutcome, tenantMayUseDaraja, unpaidOutcome } from "../_shared/daraja.ts";
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
@@ -29,9 +29,11 @@ export interface Deps {
   /** DARAJA_CALLBACK_SECRET. */
   callbackSecret: string | undefined;
   queryStk: (checkoutRequestId: string) => Promise<StkOutcome>;
+  /** DARAJA_TENANTS (darajaTenants()): the schools that may use M-Pesa; null or left out, every school may. */
+  allowedTenants?: Set<string> | null;
 }
 
-export async function handle(req: Request, { admin, callbackSecret, queryStk }: Deps): Promise<Response> {
+export async function handle(req: Request, { admin, callbackSecret, queryStk, allowedTenants = null }: Deps): Promise<Response> {
   const token = new URL(req.url).searchParams.get("token");
   if (!callbackSecret || !secretsMatch(token, callbackSecret)) {
     return new Response("Forbidden", { status: 403 });
@@ -48,10 +50,16 @@ export async function handle(req: Request, { admin, callbackSecret, queryStk }: 
   if (!checkoutId) return ok();
 
   const { data: payment, error: readErr } = await admin
-    .from("payments").select("id, status, amount_cents").eq("checkout_request_id", checkoutId).maybeSingle();
+    .from("payments").select("id, tenant_id, status, amount_cents").eq("checkout_request_id", checkoutId).maybeSingle();
   if (readErr) return retry("read the payment", readErr);
   if (!payment) return ok();                       // unknown prompt, nothing to do
   if (payment.status !== "pending") return ok();   // already settled — retry, ignore
+  // DARAJA_TENANTS: a school not on the list never has a payment settled from here, nor Daraja asked about it.
+  // mpesa-stk-push won't raise a prompt for one, so this is a prompt from before the list or a forged callback.
+  if (!tenantMayUseDaraja(payment.tenant_id, allowedTenants)) {
+    console.error(`mpesa-callback: payment ${payment.id} is for a school not in DARAJA_TENANTS; left pending, not credited`);
+    return ok();
+  }
 
   let outcome: StkOutcome;
   try {
@@ -111,7 +119,7 @@ if (import.meta.main) {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    return handle(req, { admin, callbackSecret: Deno.env.get("DARAJA_CALLBACK_SECRET"), queryStk });
+    return handle(req, { admin, callbackSecret: Deno.env.get("DARAJA_CALLBACK_SECRET"), queryStk, allowedTenants: darajaTenants() });
   });
 }
 
