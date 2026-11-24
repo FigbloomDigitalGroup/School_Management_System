@@ -20,3 +20,8 @@ export { feeItemFromApi } from "./feesApi";
 export { earlySignOutFromApi, ATTENDANCE_WRITE_CONCURRENCY } from "./attendanceApi";
 export { API_LEAVE_REASON_MIN, leaveRequestFromApi, leaveStatusFromApi } from "./leaveApi";
 export { inventoryItemFromApi, inventoryIssueFromApi, INVENTORY_ISSUE_CONCURRENCY } from "./inventoryApi";
+export {
+  accessLockedReason, apiFetchAccessPeople, apiFetchStaffAreas, apiSetStaffAreas, apiFetchGuardianAccess, apiSetGuardianAccess, guardianAccessFromCodes, apiFetchOrgDelegations,
+  apiRevokeOrgDelegations, describeDelegatedCode, GUARDIAN_READ, GUARDIAN_WRITE, type AccessPerson, type GuardianAccess, type OrgDelegation,
+} from "./accessApi";
+export { apiFetchMyProfile, apiFetchNotificationPreferences, apiSetNotificationPreferences, notificationPreferencesFromApi } from "./accountApi";
