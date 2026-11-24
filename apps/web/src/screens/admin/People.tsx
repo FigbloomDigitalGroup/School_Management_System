@@ -26,6 +26,7 @@ import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, u
 import { HealthEditor, OptionalHealthSection, type PaperConsent } from "../../components/learners/Health";
 import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { BioDataEditor, BioRequestsPanel, GuardianContacts } from "../../components/learners/BioData";
+import { InviteGuardiansApiModal, StaffSignInSection } from "./SignInInvitations";
 import { StudentEarlySignOuts } from "../../components/learners/EarlySignOuts";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, setHealthConsent, type StudentHealthInput } from "@figbloom/shared";
 import { CallButton } from "../../components/calls/CallButton";
@@ -306,7 +307,7 @@ export function People() {
           <span className="text-small font-semibold">{picked.size} selected</span>
           {view === "current" ? (
             <>
-              {caps.inviteGuardians && <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>}
+              {(caps.inviteGuardians || caps.guardianInvitations) && <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>}
               {caps.learnerLogins && (data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
                 <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
               )}
@@ -474,6 +475,9 @@ export function People() {
               toast={toast}
             />
           )}
+          {manage.kind === "staff" && caps.staffSignIn && fullAdmin && !manageStaffArchived && (manageRow as StaffRow).user_id !== profile.id && (
+            <StaffSignInSection tenantId={tenant.id} staff={manageRow as StaffRow} toast={toast} />
+          )}
           {manage.kind === "staff" && caps.staffAccounts && fullAdmin && access && manageRow.id !== profile.id && mayHoldAdminAreas((manageRow as StaffRow).role) && (
             <AdminAccessEditor
               key={`${manageRow.id}:${(access.direct.get(manageRow.id) ?? []).join()}:${rolesHeldBy(access.roles, manageRow.id).join()}`}
@@ -511,7 +515,7 @@ export function People() {
             <div className="mt-5">
               {caps.learnerHome && <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />}
               {caps.bioData && <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />}
-              <GuardianContacts studentId={manageRow.id} schoolName={tenant.name} />
+              <GuardianContacts studentId={manageRow.id} schoolName={tenant.name} tenantId={tenant.id} toast={toast} />
               {caps.learnerHealth && <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />}
             </div>
           )}
@@ -588,7 +592,15 @@ export function People() {
         />
       )}
 
-      {inviteGuardiansOpen && data && (
+      {inviteGuardiansOpen && data && caps.guardianInvitations && (
+        <InviteGuardiansApiModal
+          tenantId={tenant.id}
+          students={data.students.filter((s) => picked.has(s.id)).map((s) => ({ id: s.id, name: s.full_name }))}
+          onClose={() => setInviteGuardiansOpen(false)}
+          toast={toast}
+        />
+      )}
+      {inviteGuardiansOpen && data && !caps.guardianInvitations && (
         <InviteGuardiansModal
           tenantId={tenant.id}
           students={data.students.filter((s) => picked.has(s.id)).map((s) => ({ id: s.id, name: s.full_name }))}
@@ -1036,7 +1048,7 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
             <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <TextField id="staff-email" type="email" label="Email (optional)" placeholder="e.g. otieno@gmail.com" hint={accounts ? "We'll email their sign-in details. They still sign in with their login ID." : "Kept with their record. No sign-in details are sent yet."} value={email} onChange={(e) => setEmail(e.target.value)} />
+          <TextField id="staff-email" type="email" label="Email (optional)" placeholder="e.g. otieno@gmail.com" hint={accounts ? "We'll email their sign-in details. They still sign in with their login ID." : "Kept with their record. To let them sign in, open their card and invite them there."} value={email} onChange={(e) => setEmail(e.target.value)} />
           {accounts && role !== "driver" && (
             <p className="text-[12px] leading-relaxed text-ink-faint">
               A deputy, bursar, secretary or receptionist? Once they're added, open their card and give them admin access there.
