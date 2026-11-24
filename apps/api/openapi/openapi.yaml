@@ -1773,6 +1773,9 @@ paths:
       tags:
         - directory
       summary: Archive a learner (Phase 3)
+      description: The learner's active class membership ends in the same transaction. Restoring the learner does not
+        give the class back; place them again with POST class-memberships, which is allowed even in a
+        class they left earlier the same year.
       operationId: archiveLearner
       security:
         - bearerAuth: []
@@ -2942,6 +2945,120 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/org/organizations:
+    get:
+      tags:
+        - org
+      summary: The organizations the caller administers, every status (S11)
+      description: >
+        Only the caller's own org_admin memberships, including suspended, pending and rejected organizations, so a
+        client can say so instead of hiding one. Requires org.tenants.read. SQL keyset-paginated: order is
+        `name, id` with `COLLATE "C"`; the cursor carries the last organization's id. See docs/ORG-CONSOLE.md.
+      operationId: listMyOrganizations
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - org.tenants.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The caller's organizations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyOrganizationList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/org/organizations/{organizationId}/admins:
+    get:
+      tags:
+        - org
+      summary: The org admins of one organization the caller administers (S11)
+      description: >
+        Requires org.admins.read and an org_admin membership of this organization, which must be active. Another
+        organization, an unknown id and a non-active organization all answer the same 403. Returns the name, sign-in
+        e-mail, account status and since-when of each admin; no other contact field. Keyset-paginated on the
+        membership's `(created_at, id)`.
+      operationId: listOrgAdmins
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - org.admins.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The organization's administrators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgAdminList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/org/organizations/{organizationId}/audit-events:
+    get:
+      tags:
+        - org
+      summary: The caller's own audit events about one organization they administer (S11)
+      description: >
+        Requires org.audit.read and an org_admin membership of this active organization (otherwise the same 403 as the
+        admins list). Only events the caller caused: in one of the organization's schools, or naming the organization
+        (delegation grants, revokes and refusals). Never another person's events, never the IP address. Newest first,
+        keyset-paginated on `(occurred_at, id)`. Read through the SECURITY DEFINER function `org_my_audit_events`
+        (migration 105); the runtime role has no SELECT on the audit table.
+      operationId: listMyOrgAuditEvents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - org.audit.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The caller's audit events in this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgAuditEventList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/rbac/org-delegations:
     get:
       tags:
@@ -3863,6 +3980,65 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/subjects/{subjectId}:
+    patch:
+      tags:
+        - academics
+      summary: Update a subject
+      description: Partial update; at least one field is required and a field left out keeps its value (null clears a
+        nullable one). Changes the code, name, level, year range or core flag. Each year bound is 1-12, the lower not
+        above the upper, and both inside the level's own years when a level is set (400). 409 when another subject has
+        the code. An archived subject cannot be changed (400).
+      operationId: updateSubject
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: subjectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchSubjectRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - subject
+                properties:
+                  subject:
+                    $ref: "#/components/schemas/Subject"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/tenants/{tenantId}/classes:
     post:
       tags:
@@ -4024,6 +4200,120 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - academics
+      summary: Update a class
+      description: Partial update; at least one field is required and a field left out keeps its value. Changes the name,
+        level and year, pathway, stream, room, or the class teacher (null takes the teacher off; a new teacher must be an
+        active staff member of this school, 400 otherwise). The academic year cannot change. The level, year and pathway
+        rule is checked on the merged result (400). An archived class cannot be changed (400). 409 when another class of
+        the same year has the name.
+      operationId: updateSchoolClass
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchClassRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - school_class
+                properties:
+                  school_class:
+                    $ref: "#/components/schemas/SchoolClass"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/classes/{classId}/archive:
+    post:
+      tags:
+        - academics
+      summary: Archive a class
+      description: The class stops running. Refused with 409 while an active learner is still in it (move them first). In
+        the same transaction its active teaching assignments end, and any membership still open for an archived learner
+        is ended. Timetable slots and history are kept. 400 when the class is already archived. There is no restore yet.
+      operationId: archiveSchoolClass
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - school_class
+                properties:
+                  school_class:
+                    $ref: "#/components/schemas/SchoolClass"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
   /v1/tenants/{tenantId}/class-memberships:
     post:
       tags:
@@ -4314,6 +4604,116 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/teaching-assignments/{assignmentId}:
+    patch:
+      tags:
+        - academics
+      summary: Change the teacher of a teaching assignment
+      description: Gives the class's subject another teacher. The assignment keeps its id, so its timetable slots keep their
+        link. The new teacher must be an active staff member of this school (400). Only an active assignment can be
+        changed (400 for an archived one); sending the teacher it already has changes nothing.
+      operationId: updateTeachingAssignment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchTeachingAssignmentRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assignment
+                properties:
+                  assignment:
+                    $ref: "#/components/schemas/TeachingAssignment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/teaching-assignments/{assignmentId}/archive:
+    post:
+      tags:
+        - academics
+      summary: End a teaching assignment
+      description: The subject has no teacher in that class until a new assignment is made, which is allowed straight away.
+        Marks, timetable slots and history are kept. 400 when the assignment is already archived.
+      operationId: archiveTeachingAssignment
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - assignment
+                properties:
+                  assignment:
+                    $ref: "#/components/schemas/TeachingAssignment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
   /v1/tenants/{tenantId}/timetable-slots:
     post:
       tags:
@@ -15336,6 +15736,18 @@ paths:
       tags:
         - Storage
       summary: Initiate an authorized object upload and obtain a presigned upload URL
+      description: "Authorization, accepted content types and size limits depend on `owner_resource_type`
+        (apps/api/docs/STORAGE-OWNER-TYPES.md). Staff need the owning domain's permission: directory_document,
+        export_artifact, medication_authorization, general and avatar `resource.document.write`; payment_proof
+        `resource.finance.administer`; homework_attachment, learning_material and exam_paper `resource.academics.write`;
+        school_logo `resource.school_profile.write`. Without that permission only two narrow paths exist: a parent may
+        upload a payment_proof whose owner_resource_id is an invoice of one of their own children (live family link), and
+        any member of the school may upload the avatar whose owner_resource_id is their own user id. owner_resource_id is
+        required for payment_proof (an invoice of this school) and avatar (a learner or a member of this school); for the
+        other types it is optional and not used to authorize. Content types: payment_proof JPEG, PNG, WebP or PDF up to 10
+        MiB; avatar and school_logo JPEG, PNG or WebP up to 5 MiB; every other type PDF, JPEG, PNG, WebP, CSV, plain text,
+        JSON, XLSX or DOCX up to 25 MiB. A caller with no staff write permission and no membership of this school is
+        refused (403) before the body is read."
       parameters:
         - name: tenantId
           in: path
@@ -15358,6 +15770,12 @@ paths:
                     - export_artifact
                     - medication_authorization
                     - general
+                    - payment_proof
+                    - homework_attachment
+                    - learning_material
+                    - exam_paper
+                    - avatar
+                    - school_logo
                 owner_resource_id:
                   anyOf:
                     - type: string
@@ -15452,6 +15870,9 @@ paths:
       tags:
         - Storage
       summary: Verify and finalize an uploaded object
+      description: "Needs the owner type's staff write permission (see initStorageUpload), or: a parent finishing their own
+        payment_proof upload while the invoice's learner is still their child; a member finishing their own avatar upload.
+        A caller without any staff write permission gets 403 for an object that does not exist or is not theirs."
       parameters:
         - name: tenantId
           in: path
@@ -15508,6 +15929,12 @@ paths:
       tags:
         - Storage
       summary: Get storage object metadata
+      description: "Needs the owner type's staff read permission: directory_document, export_artifact,
+        medication_authorization, general and avatar `resource.document.read`; payment_proof `resource.finance.read`;
+        homework_attachment, learning_material and exam_paper `resource.academics.read`; school_logo
+        `resource.school_profile.read`. Without it: a parent may read payment_proof objects of their own children's invoices,
+        a member may read the avatar that names their own user id, and every member of the school may read a school_logo.
+        A caller without any staff read permission gets 403 for an object that does not exist or is not theirs."
       parameters:
         - name: tenantId
           in: path
@@ -15544,6 +15971,9 @@ paths:
       tags:
         - Storage
       summary: Delete a storage object
+      description: "Needs the owner type's staff write permission (see initStorageUpload), or a member deleting the avatar
+        that names their own user id. A family cannot delete a payment proof. A caller without any staff write permission
+        gets 403 for an object that does not exist or is not theirs."
       parameters:
         - name: tenantId
           in: path
@@ -15576,6 +16006,9 @@ paths:
       tags:
         - Storage
       summary: Authorize and issue a short-lived presigned download URL
+      description: "Same authorization as getStorageObjectMetadata: the owner type's staff read permission, or a parent for
+        payment_proof objects of their own children's invoices, a member for their own avatar, any member for a
+        school_logo. The object must be available (409 otherwise)."
       parameters:
         - name: tenantId
           in: path
@@ -18567,6 +19000,124 @@ components:
                 type: string
         page:
           $ref: "#/components/schemas/PageInfo"
+    MyOrganizationList:
+      type: object
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - name
+              - slug
+              - kind
+              - status
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              slug:
+                type: string
+              kind:
+                type: string
+                enum: [government, county, constituency, group_owner]
+              status:
+                type: string
+                enum: [pending, active, suspended, rejected]
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    OrgAdminList:
+      type: object
+      required:
+        - organizationId
+        - items
+        - page
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - userId
+              - fullName
+              - email
+              - status
+              - since
+              - isYou
+            properties:
+              userId:
+                type: string
+                format: uuid
+              fullName:
+                type: string
+              email:
+                type:
+                  - string
+                  - "null"
+              status:
+                type: string
+                enum: [active, disabled, invited]
+              since:
+                type: string
+                description: When the person became an admin of this organization (UTC, microseconds).
+              isYou:
+                type: boolean
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    OrgAuditEventList:
+      type: object
+      required:
+        - organizationId
+        - items
+        - page
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - occurredAt
+              - eventType
+              - schoolId
+              - schoolName
+              - detail
+            properties:
+              id:
+                type: string
+                format: uuid
+              occurredAt:
+                type: string
+                description: UTC, microseconds.
+              eventType:
+                type: string
+              schoolId:
+                type:
+                  - string
+                  - "null"
+                format: uuid
+              schoolName:
+                type:
+                  - string
+                  - "null"
+              detail:
+                type: object
+                additionalProperties: true
+                description: The event's own detail as recorded (never token or password material).
+        page:
+          $ref: "#/components/schemas/PageInfo"
     OrgDelegationList:
       type: object
       required:
@@ -19754,6 +20305,10 @@ components:
         - tenantId
         - code
         - name
+        - education_level
+        - min_form_level
+        - max_form_level
+        - is_core
         - active
         - archived_at
         - created_at
@@ -19769,6 +20324,29 @@ components:
           type: string
         name:
           type: string
+        education_level:
+          description: The level the year range is read within (migration 101). Null means any level.
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        min_form_level:
+          description: Lowest form or grade that takes the subject. Null means no lower bound.
+          type:
+            - integer
+            - "null"
+        max_form_level:
+          description: Highest form or grade that takes the subject. Null means no upper bound.
+          type:
+            - integer
+            - "null"
+        is_core:
+          type: boolean
         active:
           type: boolean
         archived_at:
@@ -19795,6 +20373,7 @@ components:
         - pathway
         - stream
         - class_teacher_staff_id
+        - room
         - active
         - archived_at
         - created_at
@@ -19842,6 +20421,11 @@ components:
             - string
             - "null"
           format: uuid
+        room:
+          type:
+            - string
+            - "null"
+          description: Where the class usually meets (migration 101). Null when not set.
         active:
           type: boolean
         archived_at:
@@ -21806,9 +22390,69 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        education_level:
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        min_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        max_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        is_core:
+          type: boolean
       required:
         - code
         - name
+      additionalProperties: false
+    PatchSubjectRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        education_level:
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        min_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        max_form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        is_core:
+          type: boolean
       additionalProperties: false
     PostClassesRequest:
       type: object
@@ -21857,9 +22501,65 @@ components:
               format: uuid
               pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
             - type: "null"
+        room:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: "null"
       required:
         - academic_year_id
         - name
+      additionalProperties: false
+    PatchClassRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        form_level:
+          anyOf:
+            - type: integer
+              minimum: 1
+              maximum: 12
+            - type: "null"
+        education_level:
+          anyOf:
+            - type: string
+              enum:
+                - pre_primary
+                - primary
+                - junior_secondary
+                - senior_school
+                - secondary
+            - type: "null"
+        pathway:
+          anyOf:
+            - type: string
+              enum:
+                - stem
+                - social_sciences
+                - arts_sports
+            - type: "null"
+        stream:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 32
+            - type: "null"
+        class_teacher_staff_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        room:
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: "null"
       additionalProperties: false
     PostClassMembershipsRequest:
       type: object
@@ -21895,6 +22595,16 @@ components:
         - staff_member_id
         - class_id
         - subject_id
+      additionalProperties: false
+    PatchTeachingAssignmentRequest:
+      type: object
+      properties:
+        staff_member_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+      required:
+        - staff_member_id
       additionalProperties: false
     PostTimetableSlotsRequest:
       type: object

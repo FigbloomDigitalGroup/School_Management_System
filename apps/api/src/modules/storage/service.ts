@@ -1,9 +1,10 @@
 import type { Tx } from "../../db/sql.js";
 import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
+import { validateContentForOwnerType, type OwnerResourceType } from "./ownerTypes.js";
 import { getStorageProvider, type StorageProvider } from "./storageProvider.js";
 
-export type OwnerResourceType = "directory_document" | "export_artifact" | "medication_authorization" | "general";
+export type { OwnerResourceType } from "./ownerTypes.js";
 
 export interface StorageObjectRecord {
   id: string;
@@ -39,19 +40,7 @@ export interface PublicStorageObject {
   updated_at: string;
 }
 
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "text/csv",
-  "text/plain",
-  "application/json",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MiB default limit
+// Content types and size limits are per owner type (OWNER_TYPE_RULES in ./ownerTypes.ts).
 
 // eslint-disable-next-line no-control-regex
 const UNSAFE_FILENAME = /[\\/\u0000-\u001f\u007f]/;
@@ -66,17 +55,6 @@ export function sanitizeFilename(name: string): string {
     throw validationError("Invalid filename: path separators and control characters are not allowed");
   }
   return trimmed;
-}
-
-export function validateMimeAndSize(contentType: string, byteSize: number): { contentType: string; byteSize: number } {
-  const normalized = contentType.trim().toLowerCase().split(";")[0]!.trim();
-  if (!ALLOWED_MIME_TYPES.has(normalized)) {
-    throw validationError(`Unsupported content_type: ${normalized}`);
-  }
-  if (!Number.isInteger(byteSize) || byteSize < 1 || byteSize > MAX_UPLOAD_BYTES) {
-    throw validationError(`byte_size must be between 1 and ${MAX_UPLOAD_BYTES} bytes`);
-  }
-  return { contentType: normalized, byteSize };
 }
 
 export function toPublicStorageObject(row: StorageObjectRecord): PublicStorageObject {
@@ -113,7 +91,7 @@ export async function createPendingStorageObject(
   },
 ): Promise<StorageObjectRecord> {
   const filename = sanitizeFilename(input.originalFilename);
-  const { contentType, byteSize } = validateMimeAndSize(input.contentType, input.byteSize);
+  const { contentType, byteSize } = validateContentForOwnerType(input.ownerResourceType, input.contentType, input.byteSize);
   const provider = input.provider ?? getStorageProvider();
 
   const res = await tx.query<StorageObjectRecord>(
@@ -148,13 +126,19 @@ export async function createPendingStorageObject(
   return row;
 }
 
-export async function getStorageObjectById(tx: Tx, tenantId: string, objectId: string): Promise<StorageObjectRecord> {
+/** One object of this school, or null (RLS and the tenant filter both confine it to the school of the request). */
+export async function findStorageObjectById(tx: Tx, tenantId: string, objectId: string): Promise<StorageObjectRecord | null> {
   const res = await tx.query<StorageObjectRecord>(
     `SELECT ${COLS} FROM storage_objects WHERE tenant_id = $1 AND id = $2`,
     [tenantId, objectId],
   );
-  if (!res.rows[0]) throw notFound("Storage object not found");
-  return res.rows[0];
+  return res.rows[0] ?? null;
+}
+
+export async function getStorageObjectById(tx: Tx, tenantId: string, objectId: string): Promise<StorageObjectRecord> {
+  const row = await findStorageObjectById(tx, tenantId, objectId);
+  if (!row) throw notFound("Storage object not found");
+  return row;
 }
 
 export async function markStorageObjectAvailable(

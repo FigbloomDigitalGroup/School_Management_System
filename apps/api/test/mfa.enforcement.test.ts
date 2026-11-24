@@ -103,6 +103,12 @@ describe("MFA is a server-enforced control (migration 088)", () => {
     expect((await get(su, `/v1/tenants/${ids.tenantA}/vehicles`, { "x-tenant-id": ids.tenantA })).json().error.code).toBe("mfa_required");
     const org = await login("orgadmin@example.com");
     expect((await get(org, "/v1/auth/mfa/status")).json().required).toBe(true);
+    // The org console reads (migration 105) are not on the MFA allowlist: an org admin without a factor gets nothing.
+    for (const path of ["/v1/org/schools", "/v1/org/organizations", `/v1/org/organizations/${ids.orgA}/admins`, `/v1/org/organizations/${ids.orgA}/audit-events`]) {
+      const r = await get(org, path);
+      expect(r.statusCode, path).toBe(403);
+      expect(r.json().error.code, path).toBe("mfa_required");
+    }
     const staffy = await login("staffy@example.com");
     expect((await get(staffy, "/v1/auth/mfa/status")).json()).toMatchObject({ required: false, next: "none" });
     expect((await tenantRoute(staffy)).json().error?.code).not.toBe("mfa_required");
