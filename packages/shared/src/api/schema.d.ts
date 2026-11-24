@@ -1013,7 +1013,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List who holds admin areas of their own in the active school
+         * @description The read side of `PUT /v1/rbac/staff-areas`. One row per person with at least one area granted directly to them, ordered by user id; `areas` is in the catalogue's order. Areas a person might hold through a school role are not listed (school roles have no write path). SQL keyset-paginated (FIG-1621): `{ tenantId, items, page: { limit, next_cursor } }`, fixed sort.
+         */
+        get: operations["listStaffAreas"];
         /**
          * Replace staff admin areas (audited)
          * @description A school administrator or platform super administrator may set any area. An organization administrator acting through a delegation may assign, and remove, only the `area.*` codes delegated to them (403, audited `rbac.staff_areas.denied` with reason `area_beyond_authority`, otherwise); areas the person already holds outside that authority are kept. Only the difference is applied: an area the person already holds keeps who assigned it and when, so an assignment made under a delegation stays attributable after the delegation ends (it is not revoked with it). Targets are teacher or staff members of the active school only; you cannot change your own areas.
@@ -5024,6 +5028,16 @@ export interface components {
             /** Format: uuid */
             delegateUserId?: string;
             revoked?: string[];
+        };
+        StaffAreasList: {
+            /** Format: uuid */
+            tenantId: string;
+            items: {
+                /** Format: uuid */
+                userId: string;
+                areas: string[];
+            }[];
+            page: components["schemas"]["PageInfo"];
         };
         StaffAreasResult: {
             ok?: boolean;
@@ -9729,6 +9743,39 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listStaffAreas: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffAreasList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     setStaffAreas: {
