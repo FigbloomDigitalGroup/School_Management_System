@@ -1,5 +1,6 @@
 import type { Role } from "../types";
 import { apiLogout, apiMe, apiMfaStatus, type MfaStatus } from "./authApi";
+import { apiFetchMyOrganizations, orgHomePath } from "./orgApi";
 import { apiHomeDestination, apiSignInProfile, forgetApiSchools, viewOfMe } from "./sessionApi";
 
 /**
@@ -19,9 +20,9 @@ export function stepAfterSignIn(input: { mustChangePassword: boolean; mfa: Pick<
   return "done";
 }
 
-/** Whether a role's console exists on the API build yet. The organization and platform consoles are not moved over. */
+/** Whether a role's console exists on the API build yet. The platform console is not moved over (S12). */
 export function consoleOnApi(role: Role): boolean {
-  return role !== "org_admin" && role !== "super_admin";
+  return role !== "super_admin";
 }
 
 export type SignInOutcome =
@@ -50,10 +51,11 @@ export async function continueSignIn(): Promise<SignInOutcome> {
 
   const profile = await apiSignInProfile();
   if (!profile) return refuse("Your account isn't fully set up yet. Contact the school office.");
-  if (!consoleOnApi(profile.role)) {
-    return refuse(profile.role === "org_admin"
-      ? "Organization consoles are not on the new system yet."
-      : "The platform console is not on the new system yet.");
+  if (!consoleOnApi(profile.role)) return refuse("The platform console is not on the new system yet.");
+  if (profile.role === "org_admin") {
+    // One organisation: its dashboard. Several: the picker. None (a membership with no organisation left): nothing to open.
+    const path = orgHomePath(await apiFetchMyOrganizations());
+    return path ? { kind: "open", path } : refuse("Your account is not linked to an organization any more. Contact Figbloom support.");
   }
   if (!profile.tenant_id) return refuse("Could not find your school. Contact Figbloom support.");
   const home = await apiHomeDestination(profile.tenant_id);

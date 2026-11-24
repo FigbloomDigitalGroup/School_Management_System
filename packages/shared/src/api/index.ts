@@ -32,3 +32,4 @@ export {
   apiRevokeOrgDelegations, describeDelegatedCode, GUARDIAN_READ, GUARDIAN_WRITE, type AccessPerson, type GuardianAccess, type OrgDelegation,
 } from "./accessApi";
 export { apiFetchMyProfile, apiFetchNotificationPreferences, apiSetNotificationPreferences, notificationPreferencesFromApi } from "./accountApi";
+export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";

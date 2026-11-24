@@ -1,17 +1,20 @@
-import type { Organization, OrganizationAccessLog, OrganizationTenantSummary, TenantStatus } from "../types";
+import type { Organization, OrganizationAccessLog, OrganizationTenantSummary, Profile, TenantStatus } from "../types";
+import { apiMe } from "./authApi";
 import { apiClient } from "./client";
+import { isApiError } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
+import { isRole, profileFromApi, roleOutsideSchools, viewOfMe, type MeView } from "./sessionApi";
 
 /**
  * The organisation console on apps/api (S11, apps/api/docs/ORG-CONSOLE.md). An org admin may read, for organisations
- * they administer: the organisations themselves, the schools in them (name, address, status), the other org admins, and
- * their OWN audit events. Inside one school they hold only what was delegated to them, and they may give or take away
- * school access for a co-admin (FIG-1609). Every call here is an identity call (no school), except the three school-access
- * calls, which name the school.
+ * they administer: the organisations themselves, the schools in them (name, address, status), the other org admins and
+ * their OWN audit events. Inside one school they hold only what was delegated to them, and they may give or take away a
+ * co-admin's access there (FIG-1609). Every call is an identity call (no school), except the three school-access calls,
+ * which name the school.
  *
  * What the API does not give an org admin (per-school learner, attendance and fee figures; the school's kind; the school's
  * own admins) is not filled in with made-up values: `orgCapabilities()` hides it on the screens. The numeric fields of an
- * OrganizationTenantSummary are 0 on this backend and must not be shown.
+ * OrganizationTenantSummary are 0 on this backend and are never shown.
  */
 
 const EPOCH = "1970-01-01T00:00:00.000Z";
@@ -81,7 +84,7 @@ export interface OrgAdminView {
   email: string | null;
   status: string;
   since: string;
-  isYou: boolean;
+  is_you: boolean;
 }
 
 export interface ApiOrgAuditEvent {
@@ -90,7 +93,6 @@ export interface ApiOrgAuditEvent {
   eventType: string;
   schoolId: string | null;
   schoolName: string | null;
-  detail: Record<string, unknown>;
 }
 
 /** One of the caller's own audit events, in the shape the Audit log page lists (`action` is the event type). */
@@ -117,7 +119,7 @@ export async function apiFetchMyOrganizations(): Promise<Organization[]> {
   return rows.map(organizationFromApi);
 }
 
-/** Every school in the signed-in person's active organisations (GET /v1/org/schools), optionally of one organisation. */
+/** Every school in the signed-in person's active organisations (GET /v1/org/schools), or in one of them. */
 export async function apiFetchOrgSchools(organizationId?: string): Promise<OrganizationTenantSummary[]> {
   const rows = await listAllPages(async (cursor) => {
     const res = await apiClient().get("/v1/org/schools", { query: { limit: API_PAGE_LIMIT, cursor }, tenantId: null });
@@ -134,45 +136,79 @@ export async function apiFetchOrgAdmins(organizationId: string): Promise<OrgAdmi
     });
     return { items: res.items, page: res.page };
   });
-  return rows.map((a) => ({ id: a.userId, full_name: a.fullName, email: a.email ?? null, status: a.status, since: a.since, isYou: a.isYou }));
+  return rows.map((a) => ({ id: a.userId, full_name: a.fullName, email: a.email ?? null, status: a.status, since: a.since, is_you: a.isYou }));
 }
 
 /** The signed-in person's own audit events about one organisation, newest first: the latest 200, as the page shows. */
-export async function apiFetchMyOrgAuditLog(organizationId: string, userId: string): Promise<OrganizationAccessLog[]> {
+export async function apiFetchMyOrgAuditLog(organizationId: string): Promise<OrganizationAccessLog[]> {
+  const userId = apiClient().session()?.userId ?? "";
   const res = await apiClient().get("/v1/org/organizations/{organizationId}/audit-events", {
     path: { organizationId }, query: { limit: API_PAGE_LIMIT }, tenantId: null,
   });
-  return res.items.map((e) => auditEntryFromApi({ ...e, detail: (e.detail ?? {}) as Record<string, unknown> }, organizationId, userId));
+  return res.items.map((e) => auditEntryFromApi(e, organizationId, userId));
+}
+
+// ---------------------------------------------------------------- the console's session
+
+async function meOrNull(): Promise<MeView | null> {
+  if (!apiClient().session()) return null;
+  try {
+    return viewOfMe(await apiMe());
+  } catch (err) {
+    if (isApiError(err) && err.code === "unauthorized") return null;
+    throw err;
+  }
+}
+
+/** The signed-in person as the org console sees them: an org_admin, or (for the console to send away) their school role. */
+function orgProfile(me: MeView): Profile | null {
+  const outside = roleOutsideSchools(me);
+  if (outside) return profileFromApi(me, null, outside);
+  const first = me.memberships[0];
+  return first && isRole(first.role) ? profileFromApi(me, first, first.role) : null;
+}
+
+/**
+ * Who is signed in and the organisation at `orgSlug` (the API side of session.ts `loadOrgSession`). Null when nobody is
+ * signed in. The organisation is found among the person's own; any other address, or a person who is not an org admin,
+ * gets a null organisation, which the console treats as "not yours".
+ */
+export async function apiLoadOrgSession(orgSlug: string | null): Promise<{ profile: Profile | null; organization: Organization | null } | null> {
+  const me = await meOrNull();
+  if (!me) return null;
+  const profile = orgProfile(me);
+  if (profile?.role !== "org_admin" || !orgSlug) return { profile, organization: null };
+  const orgs = await apiFetchMyOrganizations();
+  return { profile, organization: orgs.find((o) => o.slug === orgSlug) ?? null };
+}
+
+/** The workspace picker's data (the API side of session.ts `loadMyWorkspaces`). Null for anyone who is not an org admin. */
+export async function apiLoadMyWorkspaces(): Promise<{ name: string; orgs: Organization[]; schools: OrganizationTenantSummary[] } | null> {
+  const me = await meOrNull();
+  if (!me || roleOutsideSchools(me) !== "org_admin") return null;
+  const [orgs, schools] = await Promise.all([apiFetchMyOrganizations(), apiFetchOrgSchools()]);
+  return { name: me.user.full_name, orgs, schools };
+}
+
+/** Where an org admin goes after signing in: their organisation's dashboard, the picker when they run several, else nowhere. */
+export function orgHomePath(orgs: readonly Organization[]): string | null {
+  if (orgs.length === 0) return null;
+  if (orgs.length === 1) return `/org/${encodeURIComponent(orgs[0]!.slug)}/dashboard`;
+  return "/org-picker";
 }
 
 // ---------------------------------------------------------------- school access (delegations, FIG-1609)
 
 /**
- * The school-level permissions an org admin may be given (the API's allowlist, `DELEGABLE_PERMISSIONS`), with plain
- * names. `rbac.school_roles.manage` is left out: it is on the allowlist but no API route uses it yet, so it would give
- * nothing. `area.people` is not delegable (owner decision, 2026-11-17).
+ * The school-level permissions an org admin may be given (the API's allowlist, `DELEGABLE_PERMISSIONS`); their names come
+ * from `describeDelegatedCode`. `rbac.school_roles.manage` is left out: it is on the allowlist but no API route uses it
+ * yet, so it would give nothing. `area.people` is not delegable (owner decision, 2026-11-17).
  */
-export const SCHOOL_ACCESS_OPTIONS: readonly { code: string; label: string }[] = [
-  { code: "tenant.read", label: "See the school's details" },
-  { code: "resource.learner.read", label: "See learners" },
-  { code: "rbac.staff_areas.manage", label: "Give staff admin areas (only the areas given here)" },
-  { code: "area.fees", label: "Fees" },
-  { code: "area.academics", label: "Academics" },
-  { code: "area.attendance", label: "Attendance" },
-  { code: "area.transport", label: "Transport" },
-  { code: "area.communication", label: "Communication" },
-  { code: "area.inventory", label: "Inventory" },
-  { code: "area.activities", label: "Activities" },
-  { code: "area.visitors", label: "Visitors" },
-  { code: "area.medical", label: "Medical" },
-  { code: "area.leave", label: "Leave" },
-  { code: "area.audit", label: "Audit log" },
+export const SCHOOL_ACCESS_CODES: readonly string[] = [
+  "tenant.read", "resource.learner.read", "rbac.staff_areas.manage",
+  "area.fees", "area.academics", "area.attendance", "area.transport", "area.communication", "area.inventory",
+  "area.activities", "area.visitors", "area.medical", "area.leave", "area.audit",
 ];
-
-/** A plain name for a delegated permission code; the code itself when it has none. */
-export function schoolAccessLabel(code: string): string {
-  return SCHOOL_ACCESS_OPTIONS.find((o) => o.code === code)?.label ?? code;
-}
 
 /** What the signed-in org admin was given in this school (`delegatedPermissions` of GET /v1/rbac/permissions there). */
 export async function apiFetchMySchoolAccess(tenantId: string): Promise<string[]> {
@@ -186,7 +222,7 @@ export async function apiGrantSchoolAccess(tenantId: string, delegateUserId: str
   return res.granted ?? [];
 }
 
-/** Takes away everything a co-admin was given in this school. Needs the password confirmed recently. */
+/** Takes away everything a co-admin was given in this school. Needs the password confirmed recently. Says how many went. */
 export async function apiRemoveSchoolAccess(tenantId: string, delegateUserId: string): Promise<number> {
   const res = await apiClient().delete("/v1/rbac/org-delegations", { body: { delegateUserId }, tenantId });
   return Array.isArray(res.revoked) ? res.revoked.length : 0;
