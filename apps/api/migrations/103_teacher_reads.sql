@@ -1,4 +1,5 @@
--- 101: teacher reads. Forward-only; 001-100 untouched. Design: docs/TEACHER-READS.md.
+-- 103: teacher reads. Forward-only; 001-102 untouched (101 and 102 are held by other open slices). Design:
+-- docs/TEACHER-READS.md.
 --
 -- A plain teacher reads the names of the learners in the classes they teach, the staff who teach those classes, and the
 -- academic years and terms of those classes. "A class I teach" is decided in application code

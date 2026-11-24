@@ -19,7 +19,7 @@ request (nothing is cached in the token):
 
 | Check | Where it is stored | What breaks it |
 |---|---|---|
-| The caller holds `resource.teaching.read` | `role_permissions` (migration 101) | the caller is a parent, a student, a driver or an org admin |
+| The caller holds `resource.teaching.read` | `role_permissions` (migration 103) | the caller is a parent, a student, a driver or an org admin |
 | The caller is an active member of this school, which is not suspended | `school_memberships`, `tenants` (checked for every request) | the membership is archived; the school is suspended |
 | A staff record in this school is linked to the caller's account, and is active | `staff_members.user_id`, `active AND archived_at IS NULL` | the record is not linked, or is archived |
 | The staff record is the class teacher, or has an active teaching assignment for the class | `classes.class_teacher_staff_id`, `teaching_assignments.active` | the assignment ends; another class teacher is set |
@@ -55,8 +55,8 @@ the usual audited 403 from the calendar reads (as from `/classes` today).
 
 ## Database
 
-No table, grant, policy or definer function is added or widened. Migration 101 only adds the permission and its role
-rows. Every read uses tables the runtime role already `SELECT`s under the forced tenant policy
+No table, grant, policy or definer function is added or widened. Migration 103 only adds the permission and its role
+rows (101 and 102 are held by other open API slices). Every read uses tables the runtime role already `SELECT`s under the forced tenant policy
 (`tenant_id = app_current_tenant_id()`): `classes`, `class_memberships`, `learners`, `staff_members`,
 `teaching_assignments`, `academic_years`, `academic_terms`, `school_memberships` (active rows of this school), and the
 `full_name` and `status` columns of `users` (column grant, migration 011). RLS keeps each statement in the school of the
@@ -73,6 +73,9 @@ request; the per-class filter is application code, as for every other read.
   but listing them would show guardian identities, which only an administrator or a per-person grant may read
   (FIG-1614). A parent who writes first is named in the conversation list.
 - **Any write.** Publishing marks and class announcements are owner decisions (below).
+- **Linking a staff record when a staff invitation is accepted** (found by the account slice: a teacher invited on the
+  API "teaches nothing" until someone sets `userId` on their staff record). Not part of this change: it touches the
+  `account_accept_invitation` definer function, so it belongs in its own small PR.
 
 ## Tests (negative first)
 
