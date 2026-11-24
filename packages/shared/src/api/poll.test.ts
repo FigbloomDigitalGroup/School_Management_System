@@ -512,6 +512,23 @@ describe("pollChanges", () => {
     stop();
   });
 
+  it("does not report after it is stopped, even for an answer that was on its way", async () => {
+    const page = fakePage();
+    const got: number[] = [];
+    let release: (v: number) => void = () => {};
+    let n = 0;
+    const stop = pollChanges(
+      () => (n++ === 0 ? Promise.resolve(1) : new Promise<number>((resolve) => { release = resolve; })),
+      (v) => got.push(v), { intervalMs: 1000, env: page.env },
+    );
+    await page.advance(1000);
+    await page.advance(1000);
+    stop();
+    release(2);
+    await page.advance(5000);
+    expect(got).toEqual([]);
+  });
+
   it("a failed read is not a change", async () => {
     const page = fakePage();
     const got: number[] = [];
