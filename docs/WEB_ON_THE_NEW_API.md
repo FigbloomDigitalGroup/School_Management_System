@@ -45,6 +45,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Fees** (office side): view term collection stats, largest outstanding balances and overpayments; create, edit and archive
   term fee items; run term billing; search payable invoices and record payments (cash, M-Pesa, bank, cheque); review, confirm
   or reject submitted payment proofs.
+- **Leave** (`admin/leave` and `teacher/leave`): teachers submit leave requests (dates and reason), view their history, and
+  withdraw pending requests; school admins and Leave-area holders review pending requests, approve or reject them with a note
+  (sending an in-app notice to the teacher), and view past requests.
 - **Inventory** (`admin/inventory`): view the register of active items with out/available counts, add stock or tracked-asset
   items, issue copies to learners, user-linked staff, or a whole class, view Out now and Overdue issues, record returns
   (returned, damaged, or lost), write off items with nothing out, and export CSV.
@@ -89,6 +92,26 @@ Each flag is one missing endpoint; when the API gains it, the flag turns on and 
 | AI writing helper | calls a Supabase edge function |
 | SMS and email channel checkboxes | SMS/email delivery waits on B8 (`FIG-1876`); `in_app` and `push` work (`publish` enqueues `announcement.push` on the server) |
 
+### Leave screens: what the API cannot do yet
+
+`leaveCapabilities()` in `packages/shared/src/capabilities.ts` handles the differences between Supabase and `apps/api`:
+
+| Hidden or different on the API build | Missing or different in the API |
+|---|---|
+| Figbloom HR leave handoff (`admin/leave-to-approve` and HR-backed applications) | HR handoff is not on the API yet (C13); `teacher/leave` uses the school's own leave form |
+| Submitting a leave request with no reason | `POST /v1/tenants/{tenantId}/leave-requests` requires a reason of at least 3 characters |
+
+How the model is mapped (`packages/shared/src/api/leaveApi.ts`):
+
+- The API calls a rejected request `declined` and names the dates `start_on`/`end_on`; the client maps them to `rejected` and
+  `starts_on`/`ends_on`.
+- `GET /v1/tenants/{tenantId}/leave-requests` returns every request in the school when the caller holds `resource.leave.read`,
+  so `fetchMyLeaveRequests` filters by `staff_user_id` so teachers who also hold the Leave area see only their own requests.
+- `fetchAllLeaveRequests` resolves teacher names from `GET /v1/tenants/{tenantId}/staff` (all staff, active or archived) and
+  falls back to `"Unknown teacher"` on 403 or when a user has no linked staff record.
+- `decideLeaveRequest` posts the review and then creates and publishes an in-app `user`-audience announcement; if only the
+  announcement fails (for example, a Leave-only reviewer without `resource.announcement.write`), the decision stands and the
+  screen shows the notice error.
 ### Inventory screen: what the API cannot do yet
 
 `inventoryCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet:
@@ -159,6 +182,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
   `learners.ts` and the guardian list in `learnerBio.ts`. `pool.ts` runs writes a few at a time.
 - `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
+- `packages/shared/src/api/leaveApi.ts`: the API side of `leave.ts` (`admin/leave` and `teacher/leave`), plus the API short-circuit in `hrLeave.ts`.
 - `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
@@ -221,6 +245,10 @@ inside the same 30 seconds needs the next code.
 11. **Validation answers** put the real problem in `details`; the message is a generic list of the required fields
     ("admission_no, full_name and gender (male|female) are required; ..."). The web turns `details` into words ("Phone is
     not in the right format."). The import's own errors use the column names ("date_of_birth is not a valid date").
-12. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
+12. **Leave requests carry no staff name.** `GET /v1/tenants/{tenantId}/leave-requests` returns `staff_user_id` without the
+    requester's name. The web resolves names from `GET /v1/tenants/{tenantId}/staff`, which fails with 403 for a teacher holding
+    only the Leave area (not People) and misses any user without a linked staff record (falling back to `"Unknown teacher"`).
+    Including `staff_name` on `LeaveRequest` would remove the extra call and fix Leave-only reviewers.
+13. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
     only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
     issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.

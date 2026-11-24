@@ -167,6 +167,21 @@ export function feesCapabilities(): FeesCapabilities {
   return onApi() ? FEES_ON_API : FEES_ON_SUPABASE;
 }
 
+/** The Leave screens (admin/leave, teacher/leave). */
+export interface LeaveCapabilities {
+  /** Figbloom HR leave handoff ("Leave to approve" and HR-backed applications; blocked on C13). */
+  hrLeave: boolean;
+  /** Submitting a leave request without a reason (the API requires at least 3 characters). */
+  optionalReason: boolean;
+}
+
+const LEAVE_ON_SUPABASE: LeaveCapabilities = { hrLeave: true, optionalReason: true };
+const LEAVE_ON_API: LeaveCapabilities = { hrLeave: false, optionalReason: false };
+
+export function leaveCapabilities(): LeaveCapabilities {
+  return onApi() ? LEAVE_ON_API : LEAVE_ON_SUPABASE;
+}
+
 /** The admin Inventory screen (admin/inventory). */
 export interface InventoryCapabilities {
   /** Editing an existing inventory item (no PATCH /inventory/items/{itemId} endpoint on API). */

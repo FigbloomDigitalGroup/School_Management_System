@@ -1,3 +1,4 @@
+import { onApi } from "./backend";
 import { EdgeError, invokeEdge } from "./edge";
 import { formatShortDate } from "./parentData";
 import { supabase } from "./supabase";
@@ -36,6 +37,8 @@ const NO_ACCESS: HrLeaveAccess = { status: "off", approver: false };
 
 /** hr_leave_access() for the signed-in person; "off" for an answer it doesn't know (the old form stays). */
 export async function fetchHrLeaveAccess(): Promise<HrLeaveAccess> {
+  // The Figbloom HR handoff is not on the new API yet (C13): stay on the school's own leave form.
+  if (onApi()) return NO_ACCESS;
   const { data, error } = await supabase().rpc("hr_leave_access");
   if (error) throw new Error(error.message);
   return readAccess(data);

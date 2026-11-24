@@ -6,6 +6,7 @@
 import { App, Tags } from "aws-cdk-lib";
 import { fileURLToPath } from "node:url";
 import { DataStack } from "../lib/data-stack.js";
+import { opsRunFromContext } from "../lib/ops-run.js";
 import { ServiceStack } from "../lib/service-stack.js";
 import { settings } from "../lib/settings.js";
 
@@ -29,6 +30,8 @@ const service = new ServiceStack(app, settings.stacks.service, {
   data,
   certificateArn,
   repoRoot: fileURLToPath(new URL("../../", import.meta.url)),
+  // -c opsRun=<command>: run one operator command during this deploy (lib/ops-run.ts).
+  opsRun: opsRunFromContext(app.node.tryGetContext("opsRun"), process.env),
   description: "Figbloom Schools API (prod): image, ECS Fargate API and worker, operator task, host rule on the shared load balancer",
 });
 
