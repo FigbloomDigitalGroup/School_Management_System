@@ -1,3 +1,9 @@
+import {
+  apiCreateCourse, apiCreateCourseSection, apiCreateSemester, apiEnrollStudents, apiFetchCourseSections, apiFetchCourses,
+  apiFetchEnrollmentsForSection, apiFetchSemesters, apiSetCurrentSemester,
+} from "./api/coursesApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { WEEKDAYS, type TimetableRow } from "./timetable";
 import type { Course, CourseSection, EnrollmentStatus, Semester, Weekday } from "./types";
@@ -10,6 +16,7 @@ import type { Course, CourseSection, EnrollmentStatus, Semester, Weekday } from 
  */
 
 export async function fetchSemesters(tenantId: string): Promise<Semester[]> {
+  if (onApi()) return apiFetchSemesters(tenantId);
   const { data, error } = await supabase()
     .from("semesters").select("*").eq("tenant_id", tenantId)
     .order("year", { ascending: false }).order("index", { ascending: false })
@@ -19,6 +26,7 @@ export async function fetchSemesters(tenantId: string): Promise<Semester[]> {
 }
 
 export async function createSemester(input: Omit<Semester, "id">): Promise<Semester> {
+  if (onApi()) return apiCreateSemester(input);
   const { data, error } = await supabase().from("semesters").insert(input).select("*").single<Semester>();
   if (error) throw error;
   return data;
@@ -26,6 +34,7 @@ export async function createSemester(input: Omit<Semester, "id">): Promise<Semes
 
 /** Only one semester may be current at a time — same pattern as terms. */
 export async function setCurrentSemester(tenantId: string, semesterId: string): Promise<void> {
+  if (onApi()) return apiSetCurrentSemester(tenantId, semesterId);
   const { error: clearErr } = await supabase().from("semesters").update({ is_current: false }).eq("tenant_id", tenantId);
   if (clearErr) throw clearErr;
   const { error } = await supabase().from("semesters").update({ is_current: true }).eq("id", semesterId);
@@ -33,6 +42,7 @@ export async function setCurrentSemester(tenantId: string, semesterId: string): 
 }
 
 export async function fetchCourses(tenantId: string): Promise<Course[]> {
+  if (onApi()) return apiFetchCourses(tenantId);
   const { data, error } = await supabase()
     .from("courses").select("*").eq("tenant_id", tenantId).order("code").returns<Course[]>();
   if (error) throw error;
@@ -40,6 +50,7 @@ export async function fetchCourses(tenantId: string): Promise<Course[]> {
 }
 
 export async function createCourse(input: Omit<Course, "id">): Promise<Course> {
+  if (onApi()) return apiCreateCourse(input);
   const { data, error } = await supabase().from("courses").insert(input).select("*").single<Course>();
   if (error) throw error;
   return data;
@@ -53,6 +64,7 @@ export interface CourseSectionRow extends CourseSection {
 }
 
 export async function fetchCourseSections(tenantId: string, semesterId: string): Promise<CourseSectionRow[]> {
+  if (onApi()) return apiFetchCourseSections(tenantId, semesterId);
   const { data, error } = await supabase()
     .from("course_sections")
     .select("*, courses(code, name), profiles(full_name), enrollments(count)")
@@ -84,6 +96,8 @@ export interface InstructorSectionRow extends CourseSection {
  * class_teacher_id-style homeroom-owner concept, since higher-ed has none.
  */
 export async function fetchInstructorSections(tenantId: string, instructorId: string): Promise<InstructorSectionRow[]> {
+  // A section has no instructor on the API, so "my sections" cannot be answered there (see coursesCapabilities().mySections).
+  if (onApi()) throw new NotOnApiError("My sections");
   const { data, error } = await supabase()
     .from("course_sections")
     .select("*, courses(code, name), semesters(name), enrollments(count)")
@@ -102,12 +116,14 @@ export async function fetchInstructorSections(tenantId: string, instructorId: st
 }
 
 export async function createCourseSection(input: Omit<CourseSection, "id">): Promise<CourseSection> {
+  if (onApi()) return apiCreateCourseSection(input);
   const { data, error } = await supabase().from("course_sections").insert(input).select("*").single<CourseSection>();
   if (error) throw error;
   return data;
 }
 
 export async function assignSectionInstructor(sectionId: string, instructorId: string | null): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Naming a section's instructor");
   const { error } = await supabase().from("course_sections").update({ instructor_id: instructorId }).eq("id", sectionId);
   if (error) throw error;
 }
@@ -121,6 +137,7 @@ export interface EnrolledStudentRow {
 }
 
 export async function fetchEnrollmentsForSection(sectionId: string): Promise<EnrolledStudentRow[]> {
+  if (onApi()) return apiFetchEnrollmentsForSection(sectionId);
   const { data, error } = await supabase()
     .from("enrollments")
     .select("id, student_id, status, students(full_name, admission_no)")
@@ -140,6 +157,7 @@ export async function fetchEnrollmentsForSection(sectionId: string): Promise<Enr
 /** Enroll several students into one section in one call — the admin bulk-enroll flow. */
 export async function enrollStudents(tenantId: string, courseSectionId: string, studentIds: string[]): Promise<void> {
   if (!studentIds.length) return;
+  if (onApi()) return apiEnrollStudents(tenantId, courseSectionId, studentIds);
   const { error } = await supabase().from("enrollments").upsert(
     studentIds.map((student_id) => ({ tenant_id: tenantId, course_section_id: courseSectionId, student_id, status: "enrolled" as const })),
     { onConflict: "student_id,course_section_id", ignoreDuplicates: true },
@@ -148,6 +166,7 @@ export async function enrollStudents(tenantId: string, courseSectionId: string, 
 }
 
 export async function setEnrollmentStatus(enrollmentId: string, status: EnrollmentStatus): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Dropping a student from a section");
   const { error } = await supabase().from("enrollments").update({ status }).eq("id", enrollmentId);
   if (error) throw error;
 }
@@ -155,6 +174,7 @@ export async function setEnrollmentStatus(enrollmentId: string, status: Enrollme
 // ---------------------------------------------------------------- schedule
 
 export async function fetchSectionTimetableSlots(sectionId: string): Promise<{ day: Weekday; start_time: string; label: string; room: string | null }[]> {
+  if (onApi()) throw new NotOnApiError("A section's schedule");
   const { data, error } = await supabase()
     .from("course_section_timetable_slots").select("day, start_time, label, room").eq("course_section_id", sectionId)
     .order("day").order("start_time")
@@ -168,6 +188,7 @@ export async function saveSectionTimetable(
   sectionId: string,
   slots: { day: Weekday; start_time: string; label: string; room: string | null }[],
 ): Promise<void> {
+  if (onApi()) throw new NotOnApiError("A section's schedule");
   const { error: delErr } = await supabase().from("course_section_timetable_slots").delete().eq("course_section_id", sectionId);
   if (delErr) throw delErr;
   const rows = slots.filter((s) => s.label.trim().length > 0);

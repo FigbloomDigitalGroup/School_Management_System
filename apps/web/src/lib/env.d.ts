@@ -16,7 +16,11 @@ interface ImportMetaEnv {
   /** Set by Vite: true under `vite` dev, false in `vite build`. */
   readonly DEV: boolean;
 }
-interface ImportMeta { readonly env: ImportMetaEnv }
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+  /** Vite's file glob import, eager form only (used by src/api/pages/index.ts to pick up each area's page file). */
+  glob<T = unknown>(pattern: string | string[], options: { eager: true }): Record<string, T>;
+}
 
 /** A file Vite copies into the build, imported as its URL (`import url from "./font.ttf?url"`). */
 declare module "*?url" {
