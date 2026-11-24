@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
-  ACTIVITY_CATEGORY_LABEL, AWARD_LABEL, EVENT_KIND_LABEL, EVENT_LEVEL_LABEL, EVENT_STATUS_LABEL, OUTCOME_LABEL,
+  activitiesCapabilities, ACTIVITY_CATEGORY_LABEL, AWARD_LABEL, EVENT_KIND_LABEL, EVENT_LEVEL_LABEL, EVENT_STATUS_LABEL,
+  isApiError, OUTCOME_LABEL,
   addActivityMembers, createActivity, deleteActivity, deleteActivityEvent, eventResultLabel, eventToForm,
   fetchActiveLearners, fetchActivities, fetchActivityEvents, fetchActivityMembers, fetchEventParticipants, fetchMemberCounts,
   fetchMyPatronActivityIds, fetchTeachers, formatEventWhen, notifyEventFamilies, removeActivityMember, saveActivityEvent,
@@ -31,6 +32,7 @@ const options = <K extends string>(labels: Record<K, string>) =>
  * and the results. Learners and parents see theirs under Sports & activities.
  */
 export function Activities({ admin = false }: { admin?: boolean }) {
+  const caps = activitiesCapabilities();
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
@@ -40,17 +42,21 @@ export function Activities({ admin = false }: { admin?: boolean }) {
   const [results, setResults] = useState<ActivityEventRow | null>(null);
   const [filter, setFilter] = useState("");
 
+  // A patron sees only the activities they run. Where the new system cannot say who the patrons are, the people who can open this page
+  // at all (school administrators and holders of the Activities area) may change every activity, so every activity is shown.
+  const patronScope = !admin && caps.listPatrons;
+
   const { data, loading, error } = useAsync(async () => {
     const [activities, events, counts, mine] = await Promise.all([
       fetchActivities(tenant.id),
-      fetchActivityEvents(tenant.id),
+      caps.events ? fetchActivityEvents(tenant.id) : Promise.resolve([]),
       fetchMemberCounts(tenant.id),
-      admin ? Promise.resolve(null) : fetchMyPatronActivityIds(profile.id),
+      patronScope ? fetchMyPatronActivityIds(profile.id) : Promise.resolve(null),
     ]);
     const visible = mine ? activities.filter((a) => mine.has(a.id)) : activities;
     const ids = new Set(visible.map((a) => a.id));
     return { activities: visible, events: events.filter((e) => ids.has(e.activityId)), counts };
-  }, [tenant.id, profile.id, admin, reloadKey]);
+  }, [tenant.id, profile.id, patronScope, caps.events, reloadKey]);
 
   const activities = useMemo(() => data?.activities ?? [], [data]);
   const byId = useMemo(() => new Map(activities.map((a) => [a.id, a])), [activities]);
@@ -117,18 +123,29 @@ export function Activities({ admin = false }: { admin?: boolean }) {
         eyebrow="Sports & activities"
         title="Sports & activities"
         blurb={admin
-          ? "Clubs, teams, societies, music and drama: who runs them, who's in them, their fixtures and competitions, and what they won."
-          : "The activities you're patron of: members, fixtures and competitions, and results. The office adds activities and patrons."}
+          ? (caps.events
+            ? "Clubs, teams, societies, music and drama: who runs them, who's in them, their fixtures and competitions, and what they won."
+            : "Clubs, teams, societies, music and drama: who runs them and who's in them.")
+          : (patronScope
+            ? "The activities you're patron of: members, fixtures and competitions, and results. The office adds activities and patrons."
+            : "The school's clubs, teams and societies, and who's in them. The office adds activities and patrons.")}
         actions={
           <>
             {admin && <Button onClick={() => setEditingActivity({})}>Add activity</Button>}
-            <Button variant="accent" disabled={!running.length} onClick={() => setEditingEvent({})}>Add event</Button>
+            {caps.events && <Button variant="accent" disabled={!running.length} onClick={() => setEditingEvent({})}>Add event</Button>}
           </>
         }
       />
 
       <div className="grid gap-6 px-7 py-6">
-        {error ? (
+        {error && !admin && isApiError(error) && error.code === "forbidden" ? (
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState
+              title="Activities are not open to teachers yet"
+              body="The new system does not let you read this school's activities with the access you have. Ask the school office to give you the Activities area."
+            />
+          </div>
+        ) : error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the activities: {error.message}
           </p>
@@ -140,19 +157,21 @@ export function Activities({ admin = false }: { admin?: boolean }) {
               title="No activities yet"
               body={admin
                 ? "Add the school's clubs, teams and societies, and pick a patron for each. Patrons can then run them from their own console."
-                : "You aren't the patron of any activity yet. The school office adds activities and their patrons."}
+                : patronScope
+                  ? "You aren't the patron of any activity yet. The school office adds activities and their patrons."
+                  : "The school office adds activities."}
               action={admin ? <Button variant="accent" onClick={() => setEditingActivity({})}>Add activity</Button> : undefined}
             />
           </div>
         ) : (
           <>
             <DataTable
-              title={admin ? "Activities" : "My activities"}
+              title={admin || !patronScope ? "Activities" : "My activities"}
               columns={[
                 { key: "name", header: "Activity", width: "1.6fr", render: (a: ActivityRow) => <Cell sub={ACTIVITY_CATEGORY_LABEL[a.category]}>{a.name}</Cell> },
-                { key: "patrons", header: "Patrons", width: "1.4fr", render: (a: ActivityRow) => (
+                ...(caps.listPatrons ? [{ key: "patrons", header: "Patrons", width: "1.4fr", render: (a: ActivityRow) => (
                   <span className="text-[13px]">{a.patrons.map((p) => p.name).join(", ") || <span className="text-ink-faint">None yet</span>}</span>
-                ) },
+                ) }] : []),
                 { key: "members", header: "Members", width: "0.7fr", render: (a: ActivityRow) => <Mono>{data?.counts.get(a.id) ?? 0}</Mono> },
                 { key: "meets", header: "Meets", width: "1.4fr", render: (a: ActivityRow) => <span className="text-[12.5px] text-ink-muted">{a.meetingSchedule || "Not set"}</span> },
                 { key: "state", header: "", width: "0.7fr", render: (a: ActivityRow) => (a.active ? <Badge tone="ok">Running</Badge> : <Badge tone="muted">Closed</Badge>) },
@@ -164,29 +183,33 @@ export function Activities({ admin = false }: { admin?: boolean }) {
               empty={{ title: "No activities yet", body: "Add the first one." }}
             />
 
-            <DataTable
-              title="Coming up"
-              filters={activities.length > 1 ? (
-                <select aria-label="Show events for" value={filter} onChange={(e) => setFilter(e.target.value)} className="rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[12.5px]">
-                  <option value="">All activities</option>
-                  {activities.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              ) : undefined}
-              columns={eventColumns(false)}
-              rows={upcoming}
-              rowKey={(e) => e.id}
-              minWidth="980px"
-              empty={{ title: "Nothing coming up", body: "Add a fixture, competition, trip or performance, then tell the families of the learners taking part." }}
-            />
+            {caps.events && (
+              <>
+                <DataTable
+                  title="Coming up"
+                  filters={activities.length > 1 ? (
+                    <select aria-label="Show events for" value={filter} onChange={(e) => setFilter(e.target.value)} className="rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[12.5px]">
+                      <option value="">All activities</option>
+                      {activities.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  ) : undefined}
+                  columns={eventColumns(false)}
+                  rows={upcoming}
+                  rowKey={(e) => e.id}
+                  minWidth="980px"
+                  empty={{ title: "Nothing coming up", body: "Add a fixture, competition, trip or performance, then tell the families of the learners taking part." }}
+                />
 
-            <DataTable
-              title="Results and past events"
-              columns={eventColumns(true)}
-              rows={past}
-              rowKey={(e) => e.id}
-              minWidth="980px"
-              empty={{ title: "No past events", body: "Once an event has happened, record the result and what each learner won here." }}
-            />
+                <DataTable
+                  title="Results and past events"
+                  columns={eventColumns(true)}
+                  rows={past}
+                  rowKey={(e) => e.id}
+                  minWidth="980px"
+                  empty={{ title: "No past events", body: "Once an event has happened, record the result and what each learner won here." }}
+                />
+              </>
+            )}
           </>
         )}
       </div>
@@ -232,6 +255,9 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
+  const caps = activitiesCapabilities();
+  const canEditDetails = !activity || caps.editActivity;
+  const showPatrons = admin && (!activity || caps.listPatrons);
   const toast = useToast();
   const { tenant } = useTenantSession();
   const [name, setName] = useState(activity?.name ?? "");
@@ -243,7 +269,7 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
   const [savedPatronIds, setSavedPatronIds] = useState<string[]>(activity?.patrons.map((p) => p.id) ?? []);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const { data: teachers } = useAsync(() => (admin ? fetchTeachers(tenant.id) : Promise.resolve([])), [admin, tenant.id]);
+  const { data: teachers } = useAsync(() => (showPatrons ? fetchTeachers(tenant.id) : Promise.resolve([])), [showPatrons, tenant.id]);
 
   async function save() {
     const checked = validateActivity({ name, category, description, meetingSchedule });
@@ -261,7 +287,15 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
         onSaved("Activity saved");
       } else {
         const id = await createActivity(tenant.id, checked.value);
-        await setActivityPatrons(tenant.id, id, [], patronIds);
+        try {
+          await setActivityPatrons(tenant.id, id, [], patronIds);
+        } catch (err) {
+          // The activity exists now: say so, so that a second try does not meet "already an activity with that name".
+          onSaved(`${checked.value.name} added`);
+          toast(`${checked.value.name} was added, but not every patron was saved: ${err instanceof Error ? err.message : "something went wrong"}`, "error");
+          onClose();
+          return;
+        }
         onSaved(`${checked.value.name} added`);
         onClose();
       }
@@ -306,22 +340,28 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
       width={720}
       actions={
         <>
-          {activity && admin && <Button onClick={() => void remove()}>Delete</Button>}
-          {activity && admin && <Button onClick={() => void toggleActive()}>{activity.active ? "Close activity" : "Reopen"}</Button>}
+          {activity && admin && caps.deleteActivity && <Button onClick={() => void remove()}>Delete</Button>}
+          {activity && admin && caps.editActivity && <Button onClick={() => void toggleActive()}>{activity.active ? "Close activity" : "Reopen"}</Button>}
           <Button onClick={onClose}>{activity ? "Done" : "Cancel"}</Button>
-          <Button variant="accent" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : activity ? "Save details" : "Add activity"}</Button>
+          {canEditDetails && <Button variant="accent" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : activity ? "Save details" : "Add activity"}</Button>}
         </>
       }
     >
       <div className="grid gap-3.5">
         <div className="grid gap-3.5" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
-          <TextField id="act-name" label="Name" placeholder="e.g. Football (boys), Drama club, Choir" value={name} disabled={saving || !admin} onChange={(e) => setName(e.target.value)} />
-          <SelectField id="act-category" label="Kind" value={category} disabled={saving || !admin} onChange={(e) => setCategory(e.target.value as ActivityCategory)} options={options(ACTIVITY_CATEGORY_LABEL)} />
+          <TextField id="act-name" label="Name" placeholder="e.g. Football (boys), Drama club, Choir" value={name} disabled={saving || !admin || !canEditDetails} onChange={(e) => setName(e.target.value)} />
+          <SelectField id="act-category" label="Kind" value={category} disabled={saving || !admin || !canEditDetails} onChange={(e) => setCategory(e.target.value as ActivityCategory)} options={options(ACTIVITY_CATEGORY_LABEL)} />
         </div>
-        <TextField id="act-meets" label="When it meets (optional)" placeholder="e.g. Tuesdays and Thursdays, 4:10 to 5:30 pm, main field" value={meetingSchedule} disabled={saving} onChange={(e) => setMeetingSchedule(e.target.value)} />
-        <TextArea id="act-description" label="About (optional)" placeholder="e.g. Open to Grades 7 to 9. Training kit provided." value={description} disabled={saving} onChange={(e) => setDescription(e.target.value)} />
+        <TextField id="act-meets" label="When it meets (optional)" placeholder="e.g. Tuesdays and Thursdays, 4:10 to 5:30 pm, main field" value={meetingSchedule} disabled={saving || !canEditDetails} onChange={(e) => setMeetingSchedule(e.target.value)} />
+        <TextArea id="act-description" label="About (optional)" placeholder="e.g. Open to Grades 7 to 9. Training kit provided." value={description} disabled={saving || !canEditDetails} onChange={(e) => setDescription(e.target.value)} />
 
-        {admin && (
+        {activity && !caps.editActivity && (
+          <p className="text-[11.5px] text-ink-faint">
+            The new system cannot change an activity's details yet, or close or delete it, and does not show its patrons. Members can be added below, but not removed or given a role afterwards.
+          </p>
+        )}
+
+        {showPatrons && (
           <fieldset>
             <legend className="mb-1.5 block text-small font-semibold">Patrons</legend>
             {!teachers ? (
@@ -351,11 +391,12 @@ function ActivityEditor({ admin, activity, onClose, onSaved }: {
 }
 
 function MembersEditor({ activity }: { activity: ActivityRow }) {
+  const caps = activitiesCapabilities();
   const toast = useToast();
   const { tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
   const [adding, setAdding] = useState(false);
-  const { data: members, loading } = useAsync(() => fetchActivityMembers(activity.id), [activity.id, reloadKey]);
+  const { data: members, loading, error: membersError } = useAsync(() => fetchActivityMembers(activity.id), [activity.id, reloadKey]);
   const reload = () => setReloadKey((k) => k + 1);
 
   async function add(ids: string[]) {
@@ -402,7 +443,9 @@ function MembersEditor({ activity }: { activity: ActivityRow }) {
           onConfirm={(ids) => void add(ids)}
         />
       )}
-      {loading && !members ? (
+      {membersError ? (
+        <p className="text-[12.5px] text-warn-ink">Could not load the members: {membersError.message}</p>
+      ) : loading && !members ? (
         <p className="text-[12px] text-ink-faint">Loading members…</p>
       ) : !members?.length ? (
         <p className="text-[12.5px] text-ink-muted">No members yet.</p>
@@ -414,15 +457,19 @@ function MembersEditor({ activity }: { activity: ActivityRow }) {
                 <span className="block truncate text-[13px] font-semibold">{m.name}</span>
                 <span className="block text-[11.5px] text-ink-faint">{m.className}</span>
               </span>
-              <input
-                aria-label={`${m.name}'s role`}
-                defaultValue={m.role ?? ""}
-                placeholder="Role, e.g. Captain"
-                maxLength={60}
-                onBlur={(e) => void changeRole(m.studentId, e.target.value, m.role)}
-                className="w-[150px] rounded-md border border-[#D3DAD5] px-2 py-1 text-[12.5px]"
-              />
-              <Button onClick={() => void remove(m)}>Remove</Button>
+              {caps.editMemberRole ? (
+                <input
+                  aria-label={`${m.name}'s role`}
+                  defaultValue={m.role ?? ""}
+                  placeholder="Role, e.g. Captain"
+                  maxLength={60}
+                  onBlur={(e) => void changeRole(m.studentId, e.target.value, m.role)}
+                  className="w-[150px] rounded-md border border-[#D3DAD5] px-2 py-1 text-[12.5px]"
+                />
+              ) : m.role ? (
+                <Badge tone="muted">{m.role}</Badge>
+              ) : null}
+              {caps.removeMember && <Button onClick={() => void remove(m)}>Remove</Button>}
             </li>
           ))}
         </ul>
@@ -440,7 +487,7 @@ function LearnerPicker({ exclude, confirmLabel, onConfirm, suggest }: {
   suggest?: { label: string; ids: string[] };
 }) {
   const { tenant } = useTenantSession();
-  const { data: learners } = useAsync(() => fetchActiveLearners(tenant.id), [tenant.id]);
+  const { data: learners, error: learnersError } = useAsync(() => fetchActiveLearners(tenant.id), [tenant.id]);
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
@@ -466,7 +513,11 @@ function LearnerPicker({ exclude, confirmLabel, onConfirm, suggest }: {
           {suggest.label} ({suggested.length})
         </button>
       )}
-      {!learners ? (
+      {learnersError ? (
+        <p className="text-[12px] text-warn-ink">
+          Could not load the learners: {learnersError.message}{isApiError(learnersError) && learnersError.code === "forbidden" ? " Adding members needs the People area as well as the Activities area." : ""}
+        </p>
+      ) : !learners ? (
         <p className="text-[12px] text-ink-faint">Loading learners…</p>
       ) : (
         <div className="grid max-h-[200px] gap-1 overflow-y-auto">

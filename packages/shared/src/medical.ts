@@ -1,4 +1,6 @@
 import { onApi } from "./backend";
+import { FULL_MEDICAL_ACCESS, NotOnApiError, type MedicalAccess } from "./capabilities";
+import * as medicalApi from "./api/medicalApi";
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
 import { toCsv } from "./csv";
@@ -480,6 +482,7 @@ export interface LearnerHit { id: string; full_name: string; admission_no: strin
 
 /** Learners by name or admission number, for the nurse's "who is it" box. */
 export async function findMedicalLearners(tenantId: string, query: string): Promise<LearnerHit[]> {
+  if (onApi()) return medicalApi.apiFindMedicalLearners(tenantId, query);
   const q = query.trim().replace(/[%,()]/g, " ");
   if (q.length < 2) return [];
   const { data, error } = await supabase().from("students").select("id, full_name, admission_no, classes(name)")
@@ -492,6 +495,7 @@ export async function findMedicalLearners(tenantId: string, query: string): Prom
 
 /** Everyone still in the sick bay, whatever day they came in. */
 export async function fetchOpenVisits(tenantId: string): Promise<SickBayVisit[]> {
+  if (onApi()) return medicalApi.apiFetchOpenVisits(tenantId);
   const { data, error } = await supabase().from("sick_bay_visits").select(VISIT_SELECT)
     .eq("tenant_id", tenantId).is("time_out", null).order("time_in");
   if (error) throw new Error(error.message);
@@ -500,6 +504,7 @@ export async function fetchOpenVisits(tenantId: string): Promise<SickBayVisit[]>
 
 /** Visits that came in between these instants, newest first. */
 export async function fetchVisits(tenantId: string, since: Date, until: Date): Promise<SickBayVisit[]> {
+  if (onApi()) throw new NotOnApiError("Sick bay visit history");
   const { data, error } = await supabase().from("sick_bay_visits").select(VISIT_SELECT)
     .eq("tenant_id", tenantId).gte("time_in", since.toISOString()).lt("time_in", until.toISOString())
     .order("time_in", { ascending: false }).limit(2000);
@@ -517,6 +522,7 @@ function draftRow(d: SickBayVisitDraft) {
 }
 
 export async function logVisit(tenantId: string, draft: SickBayVisitDraft): Promise<SickBayVisit> {
+  if (onApi()) return medicalApi.apiLogVisit(tenantId, draft);
   const { data, error } = await supabase().from("sick_bay_visits").insert({ tenant_id: tenantId, ...draftRow(draft) })
     .select(VISIT_SELECT).single<SickBayVisit>();
   if (error) throw new Error(error.message);
@@ -524,6 +530,7 @@ export async function logVisit(tenantId: string, draft: SickBayVisitDraft): Prom
 }
 
 export async function updateVisit(id: string, draft: SickBayVisitDraft): Promise<SickBayVisit> {
+  if (onApi()) return medicalApi.apiUpdateVisit(id, draft);
   // the learner is fixed once logged (the database refuses a move too)
   const row: Partial<ReturnType<typeof draftRow>> = draftRow(draft);
   delete row.student_id;
@@ -537,6 +544,7 @@ export async function updateVisit(id: string, draft: SickBayVisitDraft): Promise
 export async function addVisitMedication(tenantId: string, visitId: string, med: {
   drug: string; dose: string; given_at: string; inventory_item_id: string | null; stock_quantity: number | null;
 }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Logging medicine given at a visit");
   const { error } = await supabase().from("visit_medications").insert({ tenant_id: tenantId, visit_id: visitId, ...med });
   if (error) throw new Error(error.message);
 }
@@ -544,6 +552,7 @@ export async function addVisitMedication(tenantId: string, visitId: string, med:
 export interface MedicalStockLine { id: string; name: string; quantity: number }
 
 export async function fetchMedicalStock(tenantId: string): Promise<MedicalStockLine[]> {
+  if (onApi()) throw new NotOnApiError("Medical stock");
   const { data, error } = await supabase().rpc("medical_stock", { p_tenant_id: tenantId });
   if (error) throw new Error(error.message);
   return (data ?? []) as MedicalStockLine[];
@@ -551,12 +560,14 @@ export async function fetchMedicalStock(tenantId: string): Promise<MedicalStockL
 
 /** Marks a learner sent home, referred or admitted as excused (or absent) in that day's register. */
 export async function markVisitAttendance(visitId: string, mark: "excused" | "absent"): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Marking attendance from the sick bay");
   const { error } = await supabase().rpc("medical_mark_attendance", { p_visit_id: visitId, p_mark: mark });
   if (error) throw new Error(error.message);
 }
 
 /** Asks medical-notify to push the visit's notices to guardians' phones. Fire and forget: they're in the app either way. */
 export async function pushMedicalNotices(visitId: string): Promise<void> {
+  if (onApi()) return;
   await invokeEdge("medical-notify", { visit_id: visitId }, { timeoutMs: 15_000 }).catch(() => {});
 }
 
@@ -566,10 +577,18 @@ export interface MedicalRecord {
   schedules: MedicationSchedule[];
   doses: MedicationDose[];
   requests: MedicationRequest[];
+  /** Doses of the last 60 days that were held back or noted as an exception (the API has these outcomes; Supabase does not). */
+  otherDoses?: number;
+}
+
+/** What the signed-in person may read on the sick bay screen (see MedicalAccess). Everyone with the page may read it all on Supabase. */
+export async function fetchMedicalAccess(): Promise<MedicalAccess> {
+  return onApi() ? medicalApi.apiFetchMedicalAccess() : FULL_MEDICAL_ACCESS;
 }
 
 /** One learner's whole record for the nurse. The database writes who opened it to the audit trail. */
 export async function openMedicalRecord(studentId: string): Promise<MedicalRecord> {
+  if (onApi()) return medicalApi.apiOpenMedicalRecord(studentId);
   const { data, error } = await supabase().rpc("medical_record", { p_student_id: studentId });
   if (error) throw new Error(error.message);
   const r = data as { health: StudentHealth | null; visits: (SickBayVisit & { medications: VisitMedication[] })[]; schedules: MedicationSchedule[]; doses: MedicationDose[]; requests: MedicationRequest[] };
@@ -578,6 +597,7 @@ export async function openMedicalRecord(studentId: string): Promise<MedicalRecor
 
 /** Schedules running on any day in the range (stopped ones included, for their history). */
 export async function fetchSchedules(tenantId: string, from: string, to: string): Promise<MedicationSchedule[]> {
+  if (onApi()) throw new NotOnApiError("Medication schedules");
   const { data, error } = await supabase().from("medication_schedules").select(SCHEDULE_SELECT)
     .eq("tenant_id", tenantId).lte("starts_on", to).or(`ends_on.is.null,ends_on.gte.${from}`).order("starts_on");
   if (error) throw new Error(error.message);
@@ -585,6 +605,7 @@ export async function fetchSchedules(tenantId: string, from: string, to: string)
 }
 
 export async function fetchDoses(tenantId: string, from: string, to: string): Promise<MedicationDose[]> {
+  if (onApi()) throw new NotOnApiError("Medication doses");
   const { data, error } = await supabase().from("medication_doses").select("*")
     .eq("tenant_id", tenantId).gte("due_on", from).lte("due_on", to);
   if (error) throw new Error(error.message);
@@ -614,17 +635,20 @@ export function scheduleDraftProblem(d: Partial<ScheduleDraft>): string | null {
 }
 
 export async function saveSchedule(tenantId: string, d: ScheduleDraft): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saving a medication schedule");
   const { error } = await supabase().from("medication_schedules").insert({ tenant_id: tenantId, ...d });
   if (error) throw new Error(error.message);
 }
 
 export async function stopSchedule(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Stopping a medication schedule");
   const { error } = await supabase().from("medication_schedules").update({ stopped_at: new Date().toISOString() }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 /** Records (or corrects) one dose on the round. */
 export async function recordDose(tenantId: string, slot: Pick<DoseSlot, "schedule" | "day" | "time">, status: DoseStatus, note?: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Recording a medication dose");
   const { error } = await supabase().from("medication_doses").upsert({
     tenant_id: tenantId, schedule_id: slot.schedule.id, student_id: slot.schedule.student_id,
     due_on: slot.day, due_time: slot.time, status, note: note ?? null,
@@ -633,6 +657,7 @@ export async function recordDose(tenantId: string, slot: Pick<DoseSlot, "schedul
 }
 
 export async function fetchPendingRequests(tenantId: string): Promise<MedicationRequest[]> {
+  if (onApi()) throw new NotOnApiError("Pending medication requests");
   const { data, error } = await supabase().from("medication_requests").select("*, students(full_name, admission_no, classes(name))")
     .eq("tenant_id", tenantId).eq("status", "pending").order("created_at");
   if (error) throw new Error(error.message);
@@ -640,6 +665,7 @@ export async function fetchPendingRequests(tenantId: string): Promise<Medication
 }
 
 export async function approveRequest(id: string, s: { drug: string; dose: string; times: string[]; starts_on: string; ends_on: string | null; notes: string }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Approving a medication request");
   const { error } = await supabase().rpc("approve_medication_request", {
     p_request_id: id, p_drug: s.drug, p_dose: s.dose, p_times: s.times, p_starts_on: s.starts_on, p_ends_on: s.ends_on, p_notes: s.notes,
   });
@@ -647,11 +673,13 @@ export async function approveRequest(id: string, s: { drug: string; dose: string
 }
 
 export async function declineRequest(id: string, note: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Declining a medication request");
   const { error } = await supabase().rpc("decline_medication_request", { p_request_id: id, p_note: note });
   if (error) throw new Error(error.message);
 }
 
 export async function fetchNotifyPolicy(tenantId: string): Promise<NotifyPolicy> {
+  if (onApi()) return medicalApi.apiFetchNotifyPolicy(tenantId);
   const { data, error } = await supabase().from("medical_settings").select("notify_guardians").eq("tenant_id", tenantId)
     .maybeSingle<{ notify_guardians: NotifyPolicy }>();
   if (error) throw new Error(error.message);
@@ -659,6 +687,7 @@ export async function fetchNotifyPolicy(tenantId: string): Promise<NotifyPolicy>
 }
 
 export async function saveNotifyPolicy(tenantId: string, policy: NotifyPolicy): Promise<void> {
+  if (onApi()) return medicalApi.apiSaveNotifyPolicy(tenantId, policy);
   const { error } = await supabase().from("medical_settings")
     .upsert({ tenant_id: tenantId, notify_guardians: policy, updated_at: new Date().toISOString() }, { onConflict: "tenant_id" });
   if (error) throw new Error(error.message);
@@ -684,6 +713,7 @@ export interface ChildMedical {
 
 /** A guardian's view of their own child: visits, medication and its record, requests, and what they were told. */
 export async function fetchChildMedical(studentId: string): Promise<ChildMedical> {
+  if (onApi()) throw new NotOnApiError("Child medical history");
   const sb = supabase();
   const since = addDays(localDay(new Date()), -60);
   const [visits, schedules, doses, requests, notices] = await Promise.all([
@@ -706,6 +736,7 @@ export async function fetchChildMedical(studentId: string): Promise<ChildMedical
 
 /** Unread sick bay notices for this guardian, across their children: the badge. */
 export async function fetchUnreadMedicalNotices(profileId: string): Promise<number> {
+  if (onApi()) throw new NotOnApiError("Unread medical notices");
   const { count, error } = await supabase().from("medical_notices").select("id", { count: "exact", head: true })
     .eq("profile_id", profileId).is("read_at", null);
   if (error) throw new Error(error.message);
@@ -713,12 +744,14 @@ export async function fetchUnreadMedicalNotices(profileId: string): Promise<numb
 }
 
 export async function markMedicalNoticesRead(studentId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Marking medical notices read");
   const { error } = await supabase().rpc("mark_medical_notices_read", { p_student_id: studentId });
   if (error) throw new Error(error.message);
 }
 
 /** A guardian asks the nurse to give a prescribed medicine. The photo, if any, is already uploaded (prescriptionPath). */
 export async function requestMedication(tenantId: string, studentId: string, d: MedicationRequestDraft, prescriptionPath: string | null): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Medication requests");
   const { error } = await supabase().from("medication_requests").insert({
     tenant_id: tenantId, student_id: studentId, drug: d.drug.trim(), dose: d.dose.trim(), times_per_day: d.times_per_day,
     starts_on: d.starts_on, ends_on: d.ends_on || null, instructions: d.instructions.trim() || null,
@@ -728,6 +761,7 @@ export async function requestMedication(tenantId: string, studentId: string, d: 
 }
 
 export async function withdrawMedicationRequest(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Withdrawing a medication request");
   const { error } = await supabase().from("medication_requests").update({ status: "withdrawn" }).eq("id", id);
   if (error) throw new Error(error.message);
 }

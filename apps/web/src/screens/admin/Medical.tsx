@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  fetchNotifyPolicy, fetchOpenVisits, fetchVisits, localDay, NOTIFY_POLICY_LABEL, saveNotifyPolicy, sickBayBoard,
+  fetchMedicalAccess, fetchNotifyPolicy, fetchOpenVisits, fetchVisits, localDay, medicalAccessNotes, medicalCapabilities, NOTIFY_POLICY_LABEL,
+  saveNotifyPolicy, sickBayBoard,
   type NotifyPolicy, type SickBayVisit,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -37,14 +38,25 @@ const REFRESH_MS = 60_000;
  * learner's record is noted in the audit trail.
  */
 export function AdminMedical() {
+  const caps = medicalCapabilities();
+  const visibleTabs = TABS.filter((t) => (
+    t.key === "bay" ? true
+      : t.key === "round" ? caps.medicationRound
+      : t.key === "requests" ? caps.medicationRequests
+      : caps.reports
+  ));
   const { tenant } = useTenantSession();
   const [params, setParams] = useSearchParams();
-  const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "bay") as Tab;
+  const tab = (visibleTabs.find((t) => t.key === params.get("tab"))?.key ?? "bay") as Tab;
   const setTab = (t: Tab) => { const next = new URLSearchParams(params); next.set("tab", t); setParams(next, { replace: true }); };
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((k) => k + 1);
   const [editing, setEditing] = useState<SickBayVisit | "new" | null>(null);
   const [record, setRecord] = useState<{ id: string; name: string } | null>(null);
+  // On the new system the Medical area alone does not let a person read learners or health records: say so, so that an empty
+  // board or a missing allergy line never reads as "nobody" or "no allergies".
+  const { data: access } = useAsync(() => fetchMedicalAccess(), []);
+  const accessNotes = access ? medicalAccessNotes(access) : [];
 
   useEffect(() => {
     const id = window.setInterval(reload, REFRESH_MS);
@@ -56,24 +68,31 @@ export function AdminMedical() {
       <PageHead
         eyebrow="Medical"
         title="Sick bay"
-        blurb="Log visits, give the medication round, and approve families' medication requests. Allergies and conditions show on every learner you open."
+        blurb={caps.medicationRound
+          ? "Log visits, give the medication round, and approve families' medication requests. Allergies and conditions show on every learner you open."
+          : "Log and update sick bay visits. Allergies and conditions show on every learner you open."}
         actions={<Button variant="accent" onClick={() => setEditing("new")}>New visit</Button>}
       />
       <div className="grid gap-5 px-7 py-6">
-        <OverdueMedication key={reloadKey} tenantId={tenant.id} slug={tenant.slug} />
-        <div role="group" aria-label="Show" className="flex w-fit flex-wrap rounded-md border border-[#D3DAD5] bg-white p-0.5">
-          {TABS.map((t) => (
-            <button key={t.key} type="button" aria-pressed={tab === t.key} onClick={() => setTab(t.key)} className="rounded px-3 py-1.5 text-small"
-              style={tab === t.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {accessNotes.map((note) => (
+          <p key={note} role="note" className="rounded-lg border border-line bg-page px-3 py-2.5 text-[12.5px] text-ink-muted">{note}</p>
+        ))}
+        {caps.medicationRound && <OverdueMedication key={reloadKey} tenantId={tenant.id} slug={tenant.slug} />}
+        {visibleTabs.length > 1 && (
+          <div role="group" aria-label="Show" className="flex w-fit flex-wrap rounded-md border border-[#D3DAD5] bg-white p-0.5">
+            {visibleTabs.map((t) => (
+              <button key={t.key} type="button" aria-pressed={tab === t.key} onClick={() => setTab(t.key)} className="rounded px-3 py-1.5 text-small"
+                style={tab === t.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {tab === "bay" && <Board reloadKey={reloadKey} onEdit={setEditing} onOpen={(id, name) => setRecord({ id, name })} />}
-        {tab === "round" && <MedicationRound onOpenLearner={(id, name) => setRecord({ id, name })} />}
-        {tab === "requests" && <MedicationRequests onChanged={reload} />}
-        {tab === "reports" && <MedicalReports />}
+        {tab === "round" && caps.medicationRound && <MedicationRound onOpenLearner={(id, name) => setRecord({ id, name })} />}
+        {tab === "requests" && caps.medicationRequests && <MedicationRequests onChanged={reload} />}
+        {tab === "reports" && caps.reports && <MedicalReports />}
         {tab === "bay" && <GuardianPolicy tenantId={tenant.id} />}
       </div>
 
@@ -84,16 +103,17 @@ export function AdminMedical() {
 }
 
 function Board({ reloadKey, onEdit, onOpen }: { reloadKey: number; onEdit: (v: SickBayVisit) => void; onOpen: (id: string, name: string) => void }) {
+  const caps = medicalCapabilities();
   const { tenant } = useTenantSession();
   const today = localDay(new Date());
   const { data, loading, error } = useAsync(async () => {
     const start = new Date(`${today}T00:00:00`);
     const [open, todays] = await Promise.all([
       fetchOpenVisits(tenant.id),
-      fetchVisits(tenant.id, start, new Date(start.getTime() + 86_400_000)),
+      caps.visitHistory ? fetchVisits(tenant.id, start, new Date(start.getTime() + 86_400_000)) : Promise.resolve([]),
     ]);
     return { open: sickBayBoard(open), todays };
-  }, [tenant.id, today, reloadKey]);
+  }, [tenant.id, today, caps.visitHistory, reloadKey]);
 
   if (error) return <ErrorLine what="the sick bay" error={error} />;
   if (loading && !data) return <TableSkeleton rows={5} />;
@@ -126,27 +146,30 @@ function Board({ reloadKey, onEdit, onOpen }: { reloadKey: number; onEdit: (v: S
           { key: "status", header: "Status", width: "1fr", render: (v) => <OutcomeBadge outcome={v.outcome} /> },
         ]}
       />
-      <DataTable
-        title={`Today's visits · ${data?.todays.length ?? 0}`}
-        rows={data?.todays ?? []}
-        rowKey={(v) => v.id}
-        onRowClick={onEdit}
-        minWidth="680px"
-        empty={{ title: "No visits yet today", body: "Every visit logged today is listed here, with where the learner went." }}
-        columns={[
-          { key: "in", header: "In", width: "0.6fr", render: (v) => <Mono>{hm(v.time_in)}</Mono> },
-          learner,
-          { key: "complaint", header: "Complaint", width: "1.4fr", render: (v) => <span className="text-[13px]">{v.complaint}</span> },
-          { key: "outcome", header: "Outcome", width: "1.1fr", render: (v) => <OutcomeBadge outcome={v.outcome} /> },
-          { key: "out", header: "Out", width: "0.6fr", render: (v) => <Mono>{v.time_out ? hm(v.time_out) : "–"}</Mono> },
-        ]}
-      />
+      {caps.visitHistory && (
+        <DataTable
+          title={`Today's visits · ${data?.todays.length ?? 0}`}
+          rows={data?.todays ?? []}
+          rowKey={(v) => v.id}
+          onRowClick={onEdit}
+          minWidth="680px"
+          empty={{ title: "No visits yet today", body: "Every visit logged today is listed here, with where the learner went." }}
+          columns={[
+            { key: "in", header: "In", width: "0.6fr", render: (v) => <Mono>{hm(v.time_in)}</Mono> },
+            learner,
+            { key: "complaint", header: "Complaint", width: "1.4fr", render: (v) => <span className="text-[13px]">{v.complaint}</span> },
+            { key: "outcome", header: "Outcome", width: "1.1fr", render: (v) => <OutcomeBadge outcome={v.outcome} /> },
+            { key: "out", header: "Out", width: "0.6fr", render: (v) => <Mono>{v.time_out ? hm(v.time_out) : "–"}</Mono> },
+          ]}
+        />
+      )}
     </>
   );
 }
 
 /** Whether families hear about every visit or only serious outcomes. */
 function GuardianPolicy({ tenantId }: { tenantId: string }) {
+  const caps = medicalCapabilities();
   const toast = useToast();
   const { data, loading } = useAsync(() => fetchNotifyPolicy(tenantId), [tenantId]);
   const [policy, setPolicy] = useState<NotifyPolicy | null>(null);
@@ -173,6 +196,9 @@ function GuardianPolicy({ tenantId }: { tenantId: string }) {
         className="mt-2 rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-[13px] outline-none">
         {(Object.keys(NOTIFY_POLICY_LABEL) as NotifyPolicy[]).map((p) => <option key={p} value={p}>{NOTIFY_POLICY_LABEL[p]}</option>)}
       </select>
+      {!caps.guardianNoticesEmitted && (
+        <p className="mt-1.5 text-[11.5px] text-ink-faint">Your preference is saved, though sick-bay notices to guardians are not sent by the new system yet.</p>
+      )}
     </section>
   );
 }
