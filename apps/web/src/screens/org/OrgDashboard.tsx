@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, type OrganizationTenantSummary } from "@figbloom/shared";
+import { useNavigate } from "react-router-dom";
+import { fetchOrganizationTenantSummaries, logOrganizationAccess, formatMoney, orgCapabilities, type OrganizationTenantSummary } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
-import { HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
+import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
@@ -22,10 +23,13 @@ export function OrgDashboard() {
   const [reloadKey, setReloadKey] = useState(0);
   const [adding, setAdding] = useState(false);
   const toast = useToast();
+  const nav = useNavigate();
+  // On the new API: no per-school figures or kinds, no adding a school, no page-view log (orgCapabilities, S11).
+  const caps = orgCapabilities();
   const { data, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
 
   useEffect(() => {
-    void logOrganizationAccess(organization.id, profile.id, "viewed_dashboard");
+    if (orgCapabilities().pageViewLog) void logOrganizationAccess(organization.id, profile.id, "viewed_dashboard");
   }, [organization.id, profile.id]);
 
   if (error) {
@@ -65,6 +69,21 @@ export function OrgDashboard() {
   );
 
   // A brand-new organization: one obvious next step instead of a page of zeros.
+  if (data.length === 0 && !caps.addSchool) {
+    return (
+      <>
+        <PageHead eyebrow={organization.name} title="Dashboard" />
+        <div className="px-7 py-10">
+          <section className="mx-auto max-w-[560px] rounded-xl border border-line bg-white px-8 py-10 text-center">
+            <h2 className="text-[19px] font-semibold tracking-tight">No schools yet</h2>
+            <p className="mx-auto mt-2 max-w-[420px] text-[13px] leading-relaxed text-ink-muted">
+              On the new system Figbloom adds a school to your organization. Once one is added, it appears here.
+            </p>
+          </section>
+        </div>
+      </>
+    );
+  }
   if (data.length === 0) {
     return (
       <>
@@ -92,6 +111,39 @@ export function OrgDashboard() {
   const totalStudents = data.reduce((a, s) => a + s.active_students, 0);
   const totalPresentToday = data.reduce((a, s) => a + s.present_today, 0);
   const totalPresentPm = data.reduce((a, s) => a + (s.present_today_pm ?? 0), 0);
+  const needsAttention = { label: "Needs attention", value: String(data.filter((s) => s.status !== "active").length), sub: "not active", alarming: data.some((s) => s.status !== "active") };
+
+  if (!caps.schoolFigures) {
+    // What the API gives an org admin: each school's name and status. Figures wait on an owner decision (docs/web-on-api/org-console.md).
+    return (
+      <>
+        <PageHead eyebrow={organization.name} title="Dashboard" blurb={`${data.length} school${data.length === 1 ? "" : "s"} in this organization.`} />
+        <div className="px-7 py-6">
+          <StatRow stats={[{ label: "Schools", value: String(data.length) }, needsAttention]} />
+          <section className="mt-5 max-w-[760px] overflow-hidden rounded-lg border border-line bg-white">
+            <header className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h2 className="text-body font-semibold">Schools</h2>
+              <span className="font-mono text-[11px] text-ink-faint">{data.length}</span>
+            </header>
+            <ul className="divide-y divide-line-soft">
+              {data.map((s) => (
+                <li key={s.tenant_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <span className="min-w-0 truncate text-[13px] font-medium">{s.name}</span>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <Badge tone={s.status === "active" ? "ok" : "warn"}>{s.status}</Badge>
+                    <button type="button" onClick={() => nav(`../schools/${s.tenant_id}`)} className="text-[12px] font-semibold text-leaf hover:underline">View</button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <p className="mt-4 max-w-[560px] text-[12px] leading-relaxed text-ink-faint">
+            Learner numbers, attendance and fees for each school are not on the new system yet.
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -113,7 +165,7 @@ export function OrgDashboard() {
               label: "Fees collected", value: formatMoney(totalCollected, "KE"),
               sub: totalBilled > 0 ? `${Math.round((totalCollected / totalBilled) * 100)}% of ${formatMoney(totalBilled, "KE")} billed` : "nothing billed yet",
             },
-            { label: "Needs attention", value: String(data.filter((s) => s.status !== "active").length), sub: "not active", alarming: data.some((s) => s.status !== "active") },
+            needsAttention,
           ]}
         />
 

@@ -104,6 +104,8 @@ export interface OrganizationTenantSummary {
   fees_billed_cents: number;
   fees_collected_cents: number;
   updated_at: string;
+  /** The school's web address. Only the new API gives it here (S11); on the API the figures above are 0 and hidden. */
+  slug?: string;
 }
 
 export interface OrganizationAccessLog {
@@ -113,6 +115,8 @@ export interface OrganizationAccessLog {
   tenant_id: string | null; // null = an org-wide view, not one school
   action: string;
   accessed_at: string;
+  /** The school's name, when the new API gives it (S11: there `action` is an audit event type). */
+  school_name?: string | null;
 }
 
 export type IncidentSeverity = "SEV-1" | "SEV-2" | "SEV-3";

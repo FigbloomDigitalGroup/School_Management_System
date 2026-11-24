@@ -1,3 +1,6 @@
+import { apiFetchMyOrganizations, apiFetchMyOrgAuditLog, apiFetchOrgAdmins, apiFetchOrgSchools } from "./api/orgApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import type { Organization, OrganizationAccessLog, OrganizationTenantSummary } from "./types";
 
@@ -16,6 +19,8 @@ import type { Organization, OrganizationAccessLog, OrganizationTenantSummary } f
  * more than one to choose from.
  */
 export async function fetchMyOrganizations(profileId: string): Promise<Organization[]> {
+  // On the API the signed-in person's own organisations; there is no asking about someone else's.
+  if (onApi()) return apiFetchMyOrganizations();
   const { data, error } = await supabase()
     .from("organization_admins").select("organizations(*)").eq("profile_id", profileId)
     .returns<{ organizations: Organization | null }[]>();
@@ -27,6 +32,8 @@ export interface OrgAdminSummary {
   id: string;
   full_name: string;
   email: string | null;
+  /** The new API says which row is the signed-in person (S11). */
+  is_you?: boolean;
 }
 
 /**
@@ -36,6 +43,7 @@ export interface OrgAdminSummary {
  * silently returns only the caller themselves.
  */
 export async function fetchOrgAdminsForOwnOrg(organizationId: string): Promise<OrgAdminSummary[]> {
+  if (onApi()) return apiFetchOrgAdmins(organizationId);
   // organization_admins has two FKs into profiles (profile_id, added_by), so
   // the embed is ambiguous without a hint — PostgREST rejects it (PGRST201)
   // rather than guessing.
@@ -46,7 +54,9 @@ export async function fetchOrgAdminsForOwnOrg(organizationId: string): Promise<O
   return (data ?? []).map((r) => r.profiles).filter((p): p is OrgAdminSummary => p !== null);
 }
 
+/** On the API: name, address and status only (the figures are 0 there and hidden, see orgCapabilities). */
 export async function fetchOrganizationTenantSummaries(organizationId: string): Promise<OrganizationTenantSummary[]> {
+  if (onApi()) return apiFetchOrgSchools(organizationId);
   const { data, error } = await supabase()
     .from("organization_tenant_summary").select("*").eq("organization_id", organizationId)
     .order("name").returns<OrganizationTenantSummary[]>();
@@ -61,6 +71,7 @@ export async function fetchOrganizationTenantSummaries(organizationId: string): 
  * already unions across every org membership, so this is otherwise identical.
  */
 export async function fetchAllMyOrganizationTenantSummaries(): Promise<OrganizationTenantSummary[]> {
+  if (onApi()) return apiFetchOrgSchools();
   const { data, error } = await supabase()
     .from("organization_tenant_summary").select("*")
     .order("name").returns<OrganizationTenantSummary[]>();
@@ -70,14 +81,17 @@ export async function fetchAllMyOrganizationTenantSummaries(): Promise<Organizat
 
 /** Every /org/* page view logs itself — the same trust-but-verify pattern impersonation_sessions already gives Figbloom staff, extended to an owning organization. */
 export async function logOrganizationAccess(organizationId: string, profileId: string, action: string, tenantId: string | null = null): Promise<void> {
+  // The API records what a person does, not which pages they open (orgCapabilities().pageViewLog).
+  if (onApi()) throw new NotOnApiError("Logging each page view");
   const { error } = await supabase().from("organization_access_log").insert({
     organization_id: organizationId, profile_id: profileId, tenant_id: tenantId, action,
   });
   if (error) throw error;
 }
 
-/** An org-admin's own view of their access history. */
+/** An org-admin's own view of their access history. On the API: their own recorded actions in the organisation (S11). */
 export async function fetchOrganizationAccessLog(organizationId: string): Promise<OrganizationAccessLog[]> {
+  if (onApi()) return apiFetchMyOrgAuditLog(organizationId);
   const { data, error } = await supabase()
     .from("organization_access_log").select("*").eq("organization_id", organizationId)
     .order("accessed_at", { ascending: false }).limit(200).returns<OrganizationAccessLog[]>();
@@ -87,6 +101,7 @@ export async function fetchOrganizationAccessLog(organizationId: string): Promis
 
 /** A school's own view of who from its owning organization looked at it — the same idea as the platform's impersonation log, one layer up. */
 export async function fetchTenantOrgAccessLog(tenantId: string): Promise<OrganizationAccessLog[]> {
+  if (onApi()) throw new NotOnApiError("A school's view of its organisation's visits");
   const { data, error } = await supabase()
     .from("organization_access_log").select("*").eq("tenant_id", tenantId)
     .order("accessed_at", { ascending: false }).limit(200).returns<OrganizationAccessLog[]>();

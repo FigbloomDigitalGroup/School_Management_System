@@ -23,6 +23,11 @@ import { Modal } from "../components/ui/Modal";
  * - Signs out after 15 minutes of inactivity without clearing form drafts, redirecting to
  *   `/signin?reason=idle&next=...` so signing back in returns to the exact page.
  */
+/** A signed-in console page: a school's (`/s/...`) or an organisation's (`/org/...`, `/org-picker`, S11). */
+function inConsole(path: string): boolean {
+  return path.startsWith("/s/") || path.startsWith("/org/") || path.startsWith("/org-picker");
+}
+
 export function ApiSessionGuard({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   const loc = useLocation();
@@ -45,7 +50,7 @@ export function ApiSessionGuard({ children }: { children: ReactNode }) {
     client.setAuthHandlers({
       onSignedOut(reason) {
         const currentPath = `${locRef.current.pathname}${locRef.current.search}`;
-        if (currentPath.startsWith("/s/")) {
+        if (inConsole(currentPath)) {
           nav(buildSignInRedirect({ reason, next: currentPath }), { replace: true });
         }
       },
@@ -95,7 +100,7 @@ export function ApiSessionGuard({ children }: { children: ReactNode }) {
       setWarnMinutes(sessionExpiryWarningMinutes(session.expiresAt));
 
       const currentPath = `${locRef.current.pathname}${locRef.current.search}`;
-      if (currentPath.startsWith("/s/") && !idleSigningOutRef.current && Date.now() - lastActiveRef.current >= IDLE_TIMEOUT_MS) {
+      if (inConsole(currentPath) && !idleSigningOutRef.current && Date.now() - lastActiveRef.current >= IDLE_TIMEOUT_MS) {
         idleSigningOutRef.current = true;
         void apiLogout().finally(() => {
           idleSigningOutRef.current = false;
@@ -134,7 +139,7 @@ export function ApiSessionGuard({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {warnMinutes !== null && loc.pathname.startsWith("/s/") && (
+      {warnMinutes !== null && inConsole(loc.pathname) && (
         <div
           role="status"
           data-testid="session-expiry-banner"
