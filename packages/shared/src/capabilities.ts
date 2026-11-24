@@ -334,6 +334,15 @@ export function inventoryCapabilities(): InventoryCapabilities {
   return onApi() ? INVENTORY_ON_API : INVENTORY_ON_SUPABASE;
 }
 
+/**
+ * Whether the signed-in person may read their own issued items (`teacher/items`, `staff/items`).
+ * On `apps/api`, `GET /inventory/issues` requires `resource.inventory.read`, held by school admins
+ * and holders of the Inventory area (finding 13 / `staff-1`).
+ */
+export function canReadMyItems(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("inventory");
+}
+
 /** The chat screens (admin/chats, teacher/chats, staff/chats and the parent and learner ones that share them). */
 export interface ChatCapabilities {
   /** Sending and opening files in a chat (waits on API file storage, A5 / FIG-1873; chat messages are text only). */

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initBackend } from "../backend";
-import { inventoryCapabilities, NotOnApiError } from "../capabilities";
+import { canReadMyItems, inventoryCapabilities, NotOnApiError } from "../capabilities";
 import { chargeLearner, fetchIssueCharges, voidFeeCharge } from "../feeCharges";
 import {
   closeInventoryIssue, fetchInventory, fetchInventoryIssues, fetchInventoryPeople, fetchMyInventory,
@@ -344,5 +344,14 @@ describe("issueInventoryToClass and fetchInventoryPeople on API", () => {
     expect(people.learners).toEqual([{ id: S1, full_name: "Amina Ochieng", admission_no: "ADM-1001", class_id: C1 }]);
     expect(people.staff).toEqual([{ id: U_STAFF, full_name: "David Kamau", role: "teacher", staff_title: "Senior Mathematics Teacher" }]);
     expect(people.classes).toEqual([{ id: C1, name: "Form 1 East" }]);
+  });
+
+  it("checks canReadMyItems on Supabase vs API", () => {
+    expect(canReadMyItems([], "teacher")).toBe(true);
+
+    initBackend({ kind: "api", apiUrl: BASE });
+    expect(canReadMyItems([], "teacher")).toBe(false);
+    expect(canReadMyItems(["inventory"], "teacher")).toBe(true);
+    expect(canReadMyItems([], "school_admin")).toBe(true);
   });
 });
