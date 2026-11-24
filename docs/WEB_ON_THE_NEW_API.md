@@ -446,19 +446,19 @@ On the API a sign-in is made by an **invitation**, not by the school choosing a 
 
 | Hidden or missing on the API build | Why |
 |---|---|
-| A list of open staff invitations (the staff card shows only the one sent in this visit, which can be cancelled) | no endpoint lists them (finding 29) |
-| Joining the new sign-in to the staff record by itself | nothing tells the web which sign-in accepted: the record's `userId` can only be set with a user id the web cannot find (finding 30) |
+| A list of open staff invitations (the staff card shows only the one sent in this visit, which can be cancelled) | no endpoint lists them (finding 35) |
+| Joining the new sign-in to the staff record by itself | nothing tells the web which sign-in accepted: the record's `userId` can only be set with a user id the web cannot find (finding 36) |
 | A page where a guardian accepts the code | the guardian accept endpoints exist (`/v1/guardian-invitations/preview` and `/accept`) but the web has no page for them, and families can read nothing yet (FIG-1869) |
 | Guardian invitations by e-mail text | the server sends no e-mail for guardian invitations (they are "handed over as a code or QR by the school"), so a guardian invitation always shows the code |
 | Making a reset link for yourself or for an administrator | the server refuses both |
 
 ### API findings (continued)
 
-29. **No list of open staff invitations.** `POST /v1/tenants/{id}/invitations` and its `revoke` exist; nothing lists them, so a page cannot show who
+35. **No list of open staff invitations.** `POST /v1/tenants/{id}/invitations` and its `revoke` exist; nothing lists them, so a page cannot show who
     was invited and is still waiting. Guardian invitations have a list.
-30. **Accepting a staff invitation does not link the staff record.** The invitation takes an e-mail, a role and a name, and accepting makes a user and a
+36. **Accepting a staff invitation does not link the staff record.** The invitation takes an e-mail, a role and a name, and accepting makes a user and a
     membership; the staff record keeps `userId: null`. `PATCH .../staff/{id}` can set `userId`, but nothing returns a user's id (no members list, no
     lookup by e-mail). Linking by e-mail inside `account_accept_invitation` (a staff record of the school with the same e-mail and no `userId`), or a
     `staff_id` on the invitation, would fix it. Until then an invited teacher has a sign-in but is not "their" staff record (their classes, leave).
-31. **Guardian invitations carry no e-mail and no accept page.** `guardian_invitation` messages are never sent (the e-mail notifier returns
+37. **Guardian invitations carry no e-mail and no accept page.** `guardian_invitation` messages are never sent (the e-mail notifier returns
     `not_configured` for them), so the school hands over the code, and the web has no page that takes it.
