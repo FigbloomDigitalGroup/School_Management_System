@@ -9,6 +9,7 @@ import { Fees } from "../screens/admin/Fees";
 import { AdminSubjects } from "../screens/admin/Subjects";
 import { BankReconciliation } from "../screens/admin/BankReconciliation";
 import { TermSetup } from "../screens/admin/TermSetup";
+import { Attendance as TeacherAttendance } from "../screens/teacher/Attendance";
 import { TeacherReports } from "../screens/teacher/TeacherReports";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
 
@@ -21,6 +22,9 @@ const People = lazy(() => import("../screens/admin/People").then((m) => ({ defau
  * hidden, and its address sends the person back to the Dashboard.
  */
 export const API_ADMIN_PAGES = ["admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements"] as const;
+
+/** Teacher pages available on the API build (FIG-1891). */
+export const API_TEACHER_PAGES = ["teacher", "teacher/attendance"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -42,10 +46,34 @@ function AdminPage({ page, session, children }: { page: string; session: SchoolS
   );
 }
 
+function TeacherPage({ session, children }: { session: SchoolSession; children: ReactNode }) {
+  return (
+    <ConsoleShell
+      role="teacher"
+      user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Teacher" }}
+      hiddenNav={NAV.teacher.map((i) => i.to).filter((to) => !(API_TEACHER_PAGES as readonly string[]).includes(to))}
+    >
+      {children}
+    </ConsoleShell>
+  );
+}
+
 export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onSignOut: () => Promise<void> }) {
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
-  // No admin console (a parent, a learner, a teacher with no admin areas): the page that says who they are and nothing else yet.
-  if (!hasAdminConsole(access)) return <ApiOverview session={session} onSignOut={onSignOut} inShell={false} />;
+  if (!hasAdminConsole(access)) {
+    if (session.profile.role === "teacher") {
+      const teacherHome = `/s/${session.tenant.slug}/teacher`;
+      const tPage = (element: ReactNode) => <TeacherPage session={session}>{element}</TeacherPage>;
+      return (
+        <Routes>
+          <Route path="teacher" element={tPage(<ApiOverview session={session} onSignOut={onSignOut} inShell />)} />
+          <Route path="teacher/attendance" element={tPage(<TeacherAttendance />)} />
+          <Route path="*" element={<Navigate to={teacherHome} replace />} />
+        </Routes>
+      );
+    }
+    return <ApiOverview session={session} onSignOut={onSignOut} inShell={false} />;
+  }
 
   const home = `/s/${session.tenant.slug}/admin`;
   const page = (to: string, element: ReactNode) => <AdminPage page={to} session={session}>{element}</AdminPage>;
@@ -59,6 +87,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
       <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
+      <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
       <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>

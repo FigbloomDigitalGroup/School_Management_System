@@ -1,4 +1,7 @@
-import { apiFetchCurrentTerm, apiFetchTodayAttendanceMarks, apiWriteAttendance } from "./api/attendanceApi";
+import {
+  apiFetchClassRoster, apiFetchCurrentTerm, apiFetchTeacherClasses, apiFetchTeacherClassProgress,
+  apiFetchTodayAttendanceMarks, apiWriteAttendance,
+} from "./api/attendanceApi";
 import { onApi } from "./backend";
 import { fetchClassTimetableSlots } from "./timetable";
 import { formatWhen } from "./parentData";
@@ -18,6 +21,7 @@ import type { Announcement, Audience, AttendanceMark, ClassGroup, Exam, Student,
 
 /** Classes this teacher may act on: assigned via teaching_assignments, or class-teacher of. */
 export async function fetchTeacherClasses(teacherId: string): Promise<ClassGroup[]> {
+  if (onApi()) return apiFetchTeacherClasses(teacherId);
   const [{ data: assigned, error: e1 }, { data: owned, error: e2 }] = await Promise.all([
     supabase().from("teaching_assignments").select("class_id").eq("teacher_id", teacherId),
     supabase().from("classes").select("*").eq("class_teacher_id", teacherId),
@@ -163,6 +167,7 @@ export async function fetchTeacherClassTimetable(classId: string, teacherId: str
 
 /** Everyone active in a class, for the attendance roster — same query web and mobile both need. */
 export async function fetchClassRoster(classId: string): Promise<Student[]> {
+  if (onApi()) return apiFetchClassRoster(classId);
   const { data, error } = await supabase()
     .from("students").select("*").eq("class_id", classId).eq("active", true).order("full_name");
   if (error) throw new Error(error.message);
@@ -370,6 +375,7 @@ export async function fetchTeacherClassProgress(
   session: AttendanceSession,
   timeZone?: string,
 ): Promise<Map<string, ClassProgress>> {
+  if (onApi()) return apiFetchTeacherClassProgress(classes, session, timeZone);
   const classIds = classes.map((c) => c.id);
   const out = new Map<string, ClassProgress>();
   if (classIds.length === 0) return out;

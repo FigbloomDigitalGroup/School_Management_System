@@ -7,8 +7,12 @@ import { initBackend } from "../backend";
 import {
   fetchCollectorDetails, fetchEarlySignOuts, fetchEarlySignOutsForStudents, fetchStudentEarlySignOuts, pushEarlySignOut, recordEarlySignOut, voidEarlySignOut,
 } from "../earlySignOut";
+import { fetchClassSickBay } from "../medical";
 import { isRetryable } from "../queue";
-import { fetchCurrentTerm, fetchTodayAttendanceMarks, writeAttendance } from "../teacherData";
+import { fetchHealthFlagsForStudents } from "../studentHealth";
+import {
+  fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTeacherClassProgress, fetchTodayAttendanceMarks, writeAttendance,
+} from "../teacherData";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
 import { createMemoryTokenStore } from "./tokenStore";
@@ -179,5 +183,72 @@ describe("early sign-outs on API", () => {
 
     await voidEarlySignOut(SO1, "Entered wrong learner");
     await pushEarlySignOut(SO1);
+  });
+});
+
+describe("teacher attendance console helpers on API", () => {
+  const C2 = "c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2";
+  const U1 = "20000001-1111-4111-8111-111111111111";
+  const S1 = "30000001-1111-4111-8111-111111111111";
+  const clsRow = (id: string, name: string, teacherStaffId: string | null = null) => ({
+    id, tenantId: T, academic_year_id: YEAR, name, education_level: "secondary", form_level: 1,
+    pathway: null, stream: null, class_teacher_staff_id: teacherStaffId, active: true, archived_at: null, ...stamp,
+  });
+  const learnerRow = (id: string, full_name: string, admission_no: string) => ({
+    id, tenantId: T, admission_no, full_name, gender: "female", boarding: false,
+    date_of_birth: "2011-01-01", active: true, archived_at: null, ...stamp,
+  });
+
+  it("filters teacher classes by class_teacher_staff_id and teaching-assignments, falling back to all when unlinked", async () => {
+    boot({
+      [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+      [`GET ${P}/classes`]: list("classes", [clsRow(C1, "Form 1 East", S1), clsRow(C2, "Form 2 West", null)]),
+      [`GET ${P}/staff`]: list("staff", [{
+        id: S1, tenantId: T, full_name: "David Kamau", staff_title: "Teacher", classification: "teacher",
+        phone: null, email: "teacher@alliance.sc.ke", userId: U1, active: true, archived_at: null, ...stamp,
+      }]),
+      [`GET ${P}/teaching-assignments`]: list("assignments", []),
+    });
+
+    const mine = await fetchTeacherClasses(U1);
+    expect(mine.map((c) => c.name)).toEqual(["Form 1 East"]);
+
+    // Unlinked admin/user falls back to all current-year classes.
+    const all = await fetchTeacherClasses("99999999-1111-4111-8111-111111111111");
+    expect(all.map((c) => c.name)).toEqual(["Form 1 East", "Form 2 West"]);
+  });
+
+  it("builds class roster and today's class progress, and degrades health/sick-bay to empty maps", async () => {
+    boot({
+      [`GET ${P}/class-memberships`]: list("memberships", [
+        { id: "m1", tenantId: T, learner_id: L2, class_id: C1, academic_year_id: YEAR, active: true, archived_at: null, ...stamp },
+        { id: "m2", tenantId: T, learner_id: L1, class_id: C1, academic_year_id: YEAR, active: true, archived_at: null, ...stamp },
+      ]),
+      [`GET ${P}/learners`]: list("learners", [
+        learnerRow(L2, "Zara Mwangi", "ADM-2"),
+        learnerRow(L1, "Amina Ochieng", "ADM-1"),
+      ]),
+      [`GET ${P}/attendance-registers`]: list("registers", [
+        regRow({ id: "r1", learner_id: L1, mark: "present", taken_on: today("Africa/Nairobi"), marked_at: "2026-05-10T08:05:00Z" }),
+        regRow({ id: "r2", learner_id: L2, mark: "absent", note: "Sick", taken_on: today("Africa/Nairobi"), marked_at: "2026-05-10T08:01:00Z" }),
+      ]),
+    });
+
+    const roster = await fetchClassRoster(C1);
+    expect(roster.map((s) => s.full_name)).toEqual(["Amina Ochieng", "Zara Mwangi"]);
+
+    const progress = await fetchTeacherClassProgress([{ id: C1, name: "Form 1 East" }], "morning", "Africa/Nairobi");
+    expect(progress.get(C1)).toEqual({
+      present: 1,
+      absent: 1,
+      late: 0,
+      total: 2,
+      submitted: true,
+      submittedAt: "2026-05-10T08:01:00Z",
+      away: [{ name: "Zara Mwangi", mark: "absent", note: "Sick" }],
+    });
+
+    expect((await fetchHealthFlagsForStudents([L1])).size).toBe(0);
+    expect((await fetchClassSickBay(C1)).size).toBe(0);
   });
 });
