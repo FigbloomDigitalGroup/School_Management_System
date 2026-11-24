@@ -44,7 +44,8 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
 
     // Admin accounts require TOTP challenge under MFA_ENFORCEMENT=enforce. Because TOTP steps are single-use
     // and an earlier spec (e.g. leave.spec.ts) may have spent stepOffset 0 inside the same 30-second window,
-    // wait for the next 30-second window on replay instead of spending +1 (which the idempotent seed re-run uses).
+    // wait for the next 30-second window on replay instead of spending +1 (the API only accepts a step later than
+    // the last one it accepted, so +1 would also refuse the seed re-run that follows, at offset 0, for two steps).
     const mfaInput = page.locator("#api-mfa-answer");
     await expect(mfaInput).toBeVisible({ timeout: 15_000 });
     const adminUrl = new RegExp(`/s/${seed.slug}/admin`);
