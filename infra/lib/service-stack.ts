@@ -6,6 +6,7 @@ import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 import type { DataStack } from "./data-stack.js";
+import { addOpsRun, type OpsRun } from "./ops-run.js";
 import { edgeHttpsListener, edgeSecurityGroup, sharedVpc } from "./platform.js";
 import { settings } from "./settings.js";
 
@@ -15,13 +16,16 @@ export interface ServiceStackProps extends StackProps {
   certificateArn: string;
   /** The repository root (the image's build context). */
   repoRoot: string;
+  /** One operator command to run during this deploy (`-c opsRun=...`, lib/ops-run.ts). */
+  opsRun?: OpsRun;
 }
 
 /**
  * The running parts: one image, three uses.
  *   API service      in the shared private subnets, reached through the shared load balancer by host name
  *   worker service   no inbound traffic
- *   ops task         run by hand (infra/scripts/ops.sh) for bootstrap-admin and session-hmac
+ *   ops task         for bootstrap-admin and session-hmac: by hand (infra/scripts/ops.sh, needs iam:PassRole)
+ *                    or during a deploy (-c opsRun=..., lib/ops-run.ts)
  * Every API and worker task first runs the image's `release` command as an init container (migrate, role
  * passwords, session-mint key). The serving container starts only if that succeeded, and it never receives
  * the owner's credentials (apps/api: the serving process must not hold them).
@@ -251,6 +255,16 @@ export class ServiceStack extends Stack {
       linuxParameters: linuxParameters("OpsLinux"),
       logging: ecs.LogDrivers.awsLogs({ logGroup: opsLogs, streamPrefix: "ops" }),
     });
+    if (props.opsRun) {
+      addOpsRun(this, {
+        run: props.opsRun,
+        cluster,
+        taskDefinition: opsTd,
+        containerName: "ops",
+        subnets: vpc.privateSubnets,
+        securityGroupId: data.opsSg.securityGroupId,
+      });
+    }
 
     new CfnOutput(this, "ApiUrl", { value: `https://${settings.apiDomain}` });
     new CfnOutput(this, "DnsNote", {
