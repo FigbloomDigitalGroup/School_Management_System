@@ -2,13 +2,14 @@ import { today, type Register } from "../attendance";
 import { DEFAULT_ATTENDANCE_SETTINGS, type AttendanceSession, type AttendanceSettings, type EntryFilter, type SessionEntry, type SignOutDay } from "../attendanceSession";
 import type { EarlySignOut, EarlySignOutCollector, EarlySignOutDraft } from "../earlySignOut";
 import { WriteError } from "../queue";
-import type { AttendanceMark, Term } from "../types";
+import type { ClassProgress } from "../teacherData";
+import type { AttendanceMark, ClassGroup, Student, Term } from "../types";
 import { apiClient } from "./client";
 import { isApiError } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import { settlePool } from "./pool";
 import type { components } from "./schema";
-import { listAcademicTerms, listAcademicYears, termFromApi } from "./setupApi";
+import { classGroupFromApi, currentAcademicYear, listAcademicTerms, listAcademicYears, listClasses, termFromApi } from "./setupApi";
 
 /**
  * Attendance on apps/api (FIG-1891): the API side of attendanceSession.ts, earlySignOut.ts, and the attendance
@@ -292,5 +293,156 @@ export async function apiFetchCollectorDetails(signOutIds: string[], tenantId?: 
       out.set(s.value.signOutId, { sign_out_id: s.value.signOutId, ...s.value.collector });
     }
   }
+  return out;
+}
+
+// ---------------------------------------------------------------- teacher attendance console helpers
+
+type ApiLearner = components["schemas"]["Learner"];
+
+export function studentFromApiLearner(l: ApiLearner, classId: string | null): Student {
+  return {
+    id: l.id,
+    tenant_id: l.tenantId,
+    admission_no: l.admission_no,
+    full_name: l.full_name,
+    class_id: classId,
+    date_of_birth: l.date_of_birth,
+    gender: l.gender,
+    boarding: l.boarding,
+    active: l.active,
+  };
+}
+
+/**
+ * Classes a teacher may mark attendance for on the API: classes where their linked staff record
+ * is the class teacher or holds an active teaching assignment. Falls back to all current-year
+ * active classes when the user has no linked staff record (e.g. a school admin or a newly invited teacher).
+ */
+export async function apiFetchTeacherClasses(teacherUserId: string, tenantId?: string): Promise<ClassGroup[]> {
+  const tid = tenantIdOrThrow(tenantId);
+  const year = await currentAcademicYear(tid).catch(() => null);
+  const [classes, staff, assignments] = await Promise.all([
+    listClasses(tid, year?.id),
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/staff", {
+        path: { tenantId: tid },
+        query: { active: true, limit: API_PAGE_LIMIT, cursor },
+        tenantId: tid,
+      });
+      return { items: r.staff, page: r.page };
+    }).catch((err) => {
+      if (isApiError(err) && err.code === "forbidden") return [];
+      throw err;
+    }),
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/teaching-assignments", {
+        path: { tenantId: tid },
+        query: { active: true, limit: API_PAGE_LIMIT, cursor },
+        tenantId: tid,
+      });
+      return { items: r.assignments, page: r.page };
+    }).catch((err) => {
+      if (isApiError(err) && err.code === "forbidden") return [];
+      throw err;
+    }),
+  ]);
+
+  const myStaff = staff.find((s) => s.userId === teacherUserId);
+  const filtered = myStaff
+    ? (() => {
+        const assignedClassIds = new Set(assignments.filter((a) => a.staff_member_id === myStaff.id).map((a) => a.class_id));
+        const mine = classes.filter((c) => c.class_teacher_staff_id === myStaff.id || assignedClassIds.has(c.id));
+        return mine.length > 0 ? mine : classes;
+      })()
+    : classes;
+
+  return filtered.map((c) => classGroupFromApi(c, tid)).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Active learners currently enrolled in `classId`, sorted alphabetically by full name. */
+export async function apiFetchClassRoster(classId: string, tenantId?: string): Promise<Student[]> {
+  const tid = tenantIdOrThrow(tenantId);
+  const [memberships, learners] = await Promise.all([
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/class-memberships", {
+        path: { tenantId: tid },
+        query: { classId, active: true, limit: API_PAGE_LIMIT, cursor },
+        tenantId: tid,
+      });
+      return { items: r.memberships, page: r.page };
+    }),
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/learners", {
+        path: { tenantId: tid },
+        query: { active: true, limit: API_PAGE_LIMIT, cursor },
+        tenantId: tid,
+      });
+      return { items: r.learners, page: r.page };
+    }),
+  ]);
+  const memberIds = new Set(memberships.map((m) => m.learner_id));
+  return learners
+    .filter((l) => l.active && memberIds.has(l.id))
+    .map((l) => studentFromApiLearner(l, classId))
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
+/** Today's attendance progress across a teacher's classes on the API. */
+export async function apiFetchTeacherClassProgress(
+  classes: Pick<ClassGroup, "id" | "name">[],
+  session: AttendanceSession,
+  timeZone?: string,
+  tenantId?: string,
+): Promise<Map<string, ClassProgress>> {
+  const out = new Map<string, ClassProgress>();
+  if (classes.length === 0) return out;
+  const tid = tenantIdOrThrow(tenantId);
+  const wantedClassIds = new Set(classes.map((c) => c.id));
+
+  const [memberships, learners, registers] = await Promise.all([
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/class-memberships", {
+        path: { tenantId: tid },
+        query: { active: true, limit: API_PAGE_LIMIT, cursor },
+        tenantId: tid,
+      });
+      return { items: r.memberships, page: r.page };
+    }),
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/learners", {
+        path: { tenantId: tid },
+        query: { active: true, limit: API_PAGE_LIMIT, cursor },
+        tenantId: tid,
+      });
+      return { items: r.learners, page: r.page };
+    }),
+    listRegisters(tid, { takenOn: today(timeZone), session }),
+  ]);
+
+  const learnerNames = new Map(learners.filter((l) => l.active).map((l) => [l.id, l.full_name]));
+  const totalByClass = new Map<string, number>();
+  for (const m of memberships) {
+    if (wantedClassIds.has(m.class_id) && learnerNames.has(m.learner_id)) {
+      totalByClass.set(m.class_id, (totalByClass.get(m.class_id) ?? 0) + 1);
+    }
+  }
+  for (const c of classes) {
+    out.set(c.id, { present: 0, absent: 0, late: 0, total: totalByClass.get(c.id) ?? 0, submitted: false, submittedAt: null, away: [] });
+  }
+
+  for (const r of registers) {
+    const row = out.get(r.class_id);
+    if (!row) continue;
+    row.submitted = true;
+    if (r.marked_at && (!row.submittedAt || r.marked_at < row.submittedAt)) row.submittedAt = r.marked_at;
+    if (r.mark === "present") row.present += 1;
+    else if (r.mark === "absent" || r.mark === "late") {
+      if (r.mark === "absent") row.absent += 1;
+      else row.late += 1;
+      row.away.push({ name: learnerNames.get(r.learner_id) ?? "Unknown", mark: r.mark, note: r.note ?? null });
+    }
+  }
+  for (const row of out.values()) row.away.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }

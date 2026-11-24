@@ -1,3 +1,4 @@
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
 import { toCsv } from "./csv";
@@ -666,6 +667,7 @@ export async function saveNotifyPolicy(tenantId: string, policy: NotifyPolicy): 
 // ---------------------------------------------------------------- database: teachers
 /** Who in a class is in the sick bay or was sent home today; nothing clinical. Learners with neither are absent. */
 export async function fetchClassSickBay(classId: string): Promise<Map<string, ClassSickBayStatus>> {
+  if (onApi()) return new Map();
   const { data, error } = await supabase().rpc("sick_bay_class_status", { p_class_id: classId });
   if (error) throw new Error(error.message);
   return new Map(((data ?? []) as { student_id: string; status: ClassSickBayStatus }[]).map((r) => [r.student_id, r.status]));
