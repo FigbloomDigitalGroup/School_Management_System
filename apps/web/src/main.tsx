@@ -21,13 +21,19 @@ if (window.location.pathname === "/") {
     );
   });
 } else {
-  void Promise.all([import("react-router-dom"), import("./App"), import("./lib/client")]).then(
-    ([{ BrowserRouter }, { App }]) => {
+  // A build talks to Supabase (the whole app) or to the new API (only what has been moved over: src/api/). VITE_BACKEND picks.
+  const loadApp = import.meta.env.VITE_BACKEND?.trim().toLowerCase() === "api"
+    ? import("./api/ApiApp").then((m) => m.ApiApp)
+    : import("./App").then((m) => m.App);
+  void Promise.all([import("react-router-dom"), loadApp, import("./lib/client"), import("./components/ErrorBoundary")]).then(
+    ([{ BrowserRouter }, App, , { ErrorBoundary }]) => {
       root.render(
         <React.StrictMode>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
+          <ErrorBoundary>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </ErrorBoundary>
         </React.StrictMode>
       );
     }

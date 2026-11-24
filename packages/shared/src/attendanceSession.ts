@@ -1,3 +1,5 @@
+import { apiFetchAttendanceSettings, apiFetchMyAttendanceSettings, apiFetchSessionEntries, apiFetchSignOutDays, apiSaveAttendanceSettings } from "./api/attendanceApi";
+import { onApi } from "./backend";
 import type { AttendanceMark } from "./types";
 import { DEFAULT_SCHOOL_TIME_ZONE } from "./attendance";
 import { supabase } from "./supabase";
@@ -69,6 +71,7 @@ export function sessionsOffered(settings: AttendanceSettings): AttendanceSession
 
 /** A school's attendance settings; the defaults when it has none or the read fails (the apps must still open a register). */
 export async function fetchAttendanceSettings(tenantId: string): Promise<AttendanceSettings> {
+  if (onApi()) return apiFetchAttendanceSettings(tenantId);
   const { data, error } = await supabase()
     .from("attendance_settings").select("afternoon_enabled, percentage_mode").eq("tenant_id", tenantId)
     .maybeSingle<AttendanceSettings>();
@@ -78,6 +81,7 @@ export async function fetchAttendanceSettings(tenantId: string): Promise<Attenda
 
 /** The signed-in person's own school's settings (a parent or learner: the read rule only shows their school's row). */
 export async function fetchMyAttendanceSettings(): Promise<AttendanceSettings> {
+  if (onApi()) return apiFetchMyAttendanceSettings();
   const { data, error } = await supabase()
     .from("attendance_settings").select("afternoon_enabled, percentage_mode").limit(1).maybeSingle<AttendanceSettings>();
   if (error || !data) return { ...DEFAULT_ATTENDANCE_SETTINGS };
@@ -90,6 +94,7 @@ export async function fetchMyAttendanceSettings(): Promise<AttendanceSettings> {
  * screen never reports "saved" for settings that are not in the database.
  */
 export async function saveAttendanceSettings(tenantId: string, settings: AttendanceSettings): Promise<AttendanceSettings> {
+  if (onApi()) return apiSaveAttendanceSettings(tenantId, settings);
   const { data, error } = await supabase()
     .from("attendance_settings")
     .upsert({ tenant_id: tenantId, afternoon_enabled: settings.afternoon_enabled, percentage_mode: settings.percentage_mode }, { onConflict: "tenant_id" })
@@ -192,6 +197,7 @@ export interface EntryFilter {
  * read that fails (say, an older database) gives none, so morning figures still show.
  */
 export async function fetchSessionEntries(f: EntryFilter): Promise<SessionEntry[]> {
+  if (onApi()) return apiFetchSessionEntries(f);
   const read = async (session: AttendanceSession): Promise<SessionEntry[]> => {
     const out: SessionEntry[] = [];
     for (let from = 0; ; from += 1000) {
@@ -217,6 +223,7 @@ export async function fetchSessionEntries(f: EntryFilter): Promise<SessionEntry[
 
 /** Early sign-outs (live and voided) for the same learners and dates, for counting. A failed read gives none. */
 export async function fetchSignOutDays(f: Pick<EntryFilter, "studentIds" | "tenantId" | "from" | "to">): Promise<SignOutDay[]> {
+  if (onApi()) return apiFetchSignOutDays(f);
   if (f.studentIds && f.studentIds.length === 0) return [];
   let q = supabase().from("early_sign_outs").select("student_id, taken_on, voided_at");
   if (f.studentIds) q = q.in("student_id", f.studentIds);
@@ -226,4 +233,33 @@ export async function fetchSignOutDays(f: Pick<EntryFilter, "studentIds" | "tena
   const { data, error } = await q.returns<SignOutDay[]>();
   if (error) return [];
   return data ?? [];
+}
+
+export interface PmMissingRow {
+  id: string;
+  name: string;
+  admissionNo: string;
+  className: string;
+}
+
+/** Looks up learner names, admission numbers and class names for learners flagged present AM / missing PM. */
+export async function fetchPmMissingLearners(tenantId: string, ids: string[]): Promise<PmMissingRow[]> {
+  if (ids.length === 0) return [];
+  const sb = supabase();
+  const { data: students, error } = await sb
+    .from("students")
+    .select("id, full_name, admission_no, class_id")
+    .in("id", ids)
+    .returns<{ id: string; full_name: string; admission_no: string; class_id: string | null }[]>();
+  if (error) throw new Error(error.message);
+  const { data: classes, error: e2 } = await sb
+    .from("classes")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .returns<{ id: string; name: string }[]>();
+  if (e2) throw new Error(e2.message);
+  const className = new Map((classes ?? []).map((c) => [c.id, c.name]));
+  return (students ?? [])
+    .map((s) => ({ id: s.id, name: s.full_name, admissionNo: s.admission_no, className: (s.class_id && className.get(s.class_id)) || "—" }))
+    .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
 }

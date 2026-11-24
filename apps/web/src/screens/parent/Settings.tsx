@@ -6,10 +6,10 @@ import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 
 const CHANNELS: { label: string; note: string; on: boolean }[] = [
-  { label: "Fee reminders", note: "SMS and in the app", on: true },
-  { label: "Absence on the day", note: "SMS at 09:00", on: true },
-  { label: "Results published", note: "In the app only", on: true },
-  { label: "General school notices", note: "In the app only", on: false },
+  { label: "Fee reminders", note: "In the app", on: true },
+  { label: "Absence on the day", note: "In the app", on: true },
+  { label: "Results published", note: "In the app", on: true },
+  { label: "General school notices", note: "In the app", on: false },
 ];
 
 /**
@@ -66,11 +66,6 @@ export function ParentSettings() {
             </div>
           </section>
         </div>
-
-        <p className="mt-4 max-w-[620px] text-[12px] leading-relaxed text-ink-faint">
-          Fee reminders and same-day absences always go by SMS as well, because they are the two things a parent
-          cannot afford to miss.
-        </p>
       </div>
     </>
   );

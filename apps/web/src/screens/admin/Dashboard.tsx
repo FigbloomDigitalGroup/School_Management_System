@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
-  fetchAllRows, formatMoney, supabase, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
+  fetchOverviewBasics, formatMoney, fetchAttendanceSettings, fetchSessionEntries, fetchSignOutDays,
   remindClassTeacher, today,
-  type ClassGroup, type Term,
+  type ClassGroup, type FeeTotals, type Term,
 } from "@figbloom/shared";
 import { classRegisterFigures, figureText, type ClassRegisterFigures } from "../../lib/classRegisters";
 import { PageHead } from "../../components/ConsoleShell";
@@ -19,18 +19,6 @@ import { AttendanceSettingsPanel } from "../../components/attendance/AttendanceS
 import { PmMissingReport } from "../../components/attendance/PmMissingReport";
 import { CoverageCard } from "./CoverageCard";
 import { PendingSignatures } from "../../components/signatures/PendingSignatures";
-
-/** What term_fee_totals() returns: the term's invoices added up in the database (the API cannot be read past 1,000 rows). */
-interface FeeTotals {
-  billed: number;
-  paid: number;
-  invoices: number;
-  nothing_paid: number;
-  part_paid: number;
-  full_paid: number;
-  owing: number;
-}
-const NO_FEES: FeeTotals = { billed: 0, paid: 0, invoices: 0, nothing_paid: 0, part_paid: 0, full_paid: 0, owing: 0 };
 
 interface DashboardData {
   term: Term | null;
@@ -49,27 +37,12 @@ interface DashboardData {
   afternoonOn: boolean;
 }
 
-async function fetchDashboard(tenantId: string): Promise<DashboardData> {
-  const sb = supabase();
-
-  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
+async function fetchDashboard(tenantId: string, timeZone?: string): Promise<DashboardData> {
+  const { term, classes, students, staffCount, fees } = await fetchOverviewBasics(tenantId);
   const termId = term?.id ?? null;
 
-  const [{ data: classRows }, { data: studentRows }, { data: staffRows }, feesRes] = await Promise.all([
-    sb.from("classes").select("id,name,class_teacher_id").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name" | "class_teacher_id">[]>(),
-    // Read a page at a time: the API stops at 1,000 rows without saying so, which made the Learners card read 1,000 (FIG-1416).
-    fetchAllRows<{ id: string; class_id: string }>((from, to) => sb
-      .from("students").select("id,class_id").eq("tenant_id", tenantId).eq("active", true)
-      .order("id").range(from, to).returns<{ id: string; class_id: string }[]>()),
-    sb.from("profiles").select("id").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).returns<{ id: string }[]>(),
-    termId
-      ? sb.rpc("term_fee_totals", { p_tenant_id: tenantId, p_term_id: termId })
-      : Promise.resolve({ data: [] as FeeTotals[], error: null }),
-  ]);
-  if (feesRes.error) throw new Error(feesRes.error.message);
-
   const studentsByClass = new Map<string, number>();
-  for (const s of studentRows ?? []) studentsByClass.set(s.class_id, (studentsByClass.get(s.class_id) ?? 0) + 1);
+  for (const s of students) studentsByClass.set(s.class_id, (studentsByClass.get(s.class_id) ?? 0) + 1);
 
   let attendanceDate: string | null = null;
   let figures = new Map<string, ClassRegisterFigures>();
@@ -79,7 +52,7 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
 
   if (termId) {
     // Attendance today is today (FIG-1401): never fall back to an earlier date when no register has been taken today.
-    attendanceDate = today();
+    attendanceDate = today(timeZone);
 
     // A late arrival still attended: only "absent"/"excused" read as not-here. Both registers count, in the school's mode.
     const [rawEntries, signOuts] = await Promise.all([
@@ -87,7 +60,7 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
       fetchSignOutDays({ tenantId, from: attendanceDate, to: attendanceDate }),
     ]);
     // Active learners only (FIG-1409): exclude archived learners from both numerator and denominator.
-    const activeStudentIds = new Set((studentRows ?? []).map((s) => s.id));
+    const activeStudentIds = new Set(students.map((s) => s.id));
     const entries = rawEntries.filter((e) => activeStudentIds.has(e.student_id));
     figures = classRegisterFigures(entries, settings.percentage_mode, signOuts);
     for (const [id, f] of figures) {
@@ -97,12 +70,12 @@ async function fetchDashboard(tenantId: string): Promise<DashboardData> {
   }
 
   return {
-    term: term ?? null,
-    classes: classRows ?? [],
+    term,
+    classes,
     studentsByClass,
-    activeStudents: studentRows?.length ?? 0,
-    staffCount: staffRows?.length ?? 0,
-    fees: ((feesRes.data ?? []) as FeeTotals[])[0] ?? NO_FEES,
+    activeStudents: students.length,
+    staffCount,
+    fees,
     attendanceDate,
     figures,
     submittedClasses,
@@ -120,7 +93,7 @@ export function AdminDashboard() {
   const toast = useToast();
   // Bumped when the attendance settings are saved, so the badges and figures follow the new setting at once.
   const [settingsVersion, setSettingsVersion] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id), [tenant.id, settingsVersion]);
+  const { data, loading, error } = useAsync(() => fetchDashboard(tenant.id, tenant.timezone), [tenant.id, tenant.timezone, settingsVersion]);
   const [remindingClassId, setRemindingClassId] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<{ id: string; name: string } | null>(null);
 
@@ -181,7 +154,6 @@ export function AdminDashboard() {
             ? `${data.submittedClasses.size} of ${data.classes.length} classes have submitted attendance and fee collection stands at ${feePct}%. ${needs.length} thing${needs.length === 1 ? "" : "s"} need${needs.length === 1 ? "s" : ""} you.`
             : "Loading the morning picture…"
         }
-        actions={<Button variant="accent" onClick={() => toast("Announcement composer")}>New announcement</Button>}
       />
 
       <div className="px-7 py-6">

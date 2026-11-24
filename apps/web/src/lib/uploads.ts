@@ -1,4 +1,8 @@
-import { deleteFiles, examPaperFilePath, paperImportPath, privateDocumentUrl, publicFileUrl, storeFile, supabase, type ParsedPaymentSms } from "@figbloom/shared";
+import {
+  deleteFiles, examPaperFilePath, insertPaymentProofRecord, insertStudentDocument, listPaymentProofs as sharedListPaymentProofs,
+  listStudentDocuments as sharedListStudentDocuments, paperImportPath, privateDocumentUrl, publicFileUrl, storeFile, upsertAssignmentSubmission,
+  type ParsedPaymentSms, type PaymentProof, type StudentDocumentRecord,
+} from "@figbloom/shared";
 
 /**
  * Two buckets (see supabase/migrations/20260903000001_uploads.sql for the
@@ -49,14 +53,7 @@ export async function uploadTenantLogo(tenantId: string, file: File): Promise<st
   return publicAssetUrl(path);
 }
 
-export interface StudentDocument {
-  id: string;
-  student_id: string;
-  doc_type: string;
-  file_path: string;
-  file_name: string;
-  uploaded_at: string;
-}
+export type StudentDocument = StudentDocumentRecord;
 
 /** A record attached to a learner — birth certificate, medical form, etc. Staff only. */
 export async function uploadStudentDocument(input: {
@@ -64,26 +61,17 @@ export async function uploadStudentDocument(input: {
 }): Promise<void> {
   const path = `${input.tenantId}/students/${input.studentId}/${Date.now()}-${input.file.name}`;
   await uploadToBucket("private-documents", path, input.file);
-  const { error } = await supabase().from("student_documents").insert({
-    tenant_id: input.tenantId,
-    student_id: input.studentId,
-    uploaded_by: input.uploadedBy,
-    doc_type: input.docType,
-    file_path: path,
-    file_name: input.file.name,
+  await insertStudentDocument({
+    tenantId: input.tenantId,
+    studentId: input.studentId,
+    uploadedBy: input.uploadedBy,
+    docType: input.docType,
+    filePath: path,
+    fileName: input.file.name,
   });
-  if (error) throw error;
 }
 
-export async function listStudentDocuments(studentId: string): Promise<StudentDocument[]> {
-  const { data, error } = await supabase()
-    .from("student_documents")
-    .select("id, student_id, doc_type, file_path, file_name, uploaded_at")
-    .eq("student_id", studentId)
-    .order("uploaded_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as StudentDocument[];
-}
+export const listStudentDocuments = sharedListStudentDocuments;
 
 /** A student's own hand-in for one assignment — separate from the local-only "mark as handed in" toggle. */
 export async function uploadAssignmentSubmission(input: {
@@ -91,28 +79,15 @@ export async function uploadAssignmentSubmission(input: {
 }): Promise<void> {
   const path = `${input.tenantId}/submissions/${input.assignmentId}/${input.studentId}/${Date.now()}-${input.file.name}`;
   await uploadToBucket("private-documents", path, input.file);
-  const { error } = await supabase()
-    .from("assignment_submissions")
-    .upsert(
-      { assignment_id: input.assignmentId, student_id: input.studentId, file_path: path, file_name: input.file.name },
-      { onConflict: "assignment_id,student_id" },
-    );
-  if (error) throw error;
+  await upsertAssignmentSubmission({
+    assignmentId: input.assignmentId,
+    studentId: input.studentId,
+    filePath: path,
+    fileName: input.file.name,
+  });
 }
 
-export interface PaymentProof {
-  id: string;
-  invoice_id: string;
-  /** Null for a proof that is only a pasted SMS. */
-  file_path: string | null;
-  file_name: string | null;
-  note: string | null;
-  status: "pending" | "confirmed" | "rejected";
-  uploaded_at: string;
-  txn_code: string | null;
-  txn_amount_cents: number | null;
-  rejection_reason: string | null;
-}
+export type { PaymentProof };
 
 /**
  * Proof against one invoice — guardians and learners send their own, staff
@@ -129,24 +104,17 @@ export async function uploadPaymentProof(input: {
     path = `${input.tenantId}/invoices/${input.invoiceId}/${Date.now()}-${input.file.name}`;
     await uploadToBucket("private-documents", path, input.file);
   }
-  const p = input.sms?.parsed;
-  const { error } = await supabase().from("payment_proofs").insert({
-    tenant_id: input.tenantId,
-    invoice_id: input.invoiceId,
-    uploaded_by: input.uploadedBy,
-    file_path: path,
-    file_name: input.file?.name ?? null,
-    note: input.note ?? null,
-    sms_text: input.sms?.text.trim() ?? null,
-    txn_source: p?.source ?? null,
-    txn_code: p?.code ?? null,
-    txn_amount_cents: p?.amountCents ?? null,
-    txn_at: p?.paidAt ?? null,
-    txn_payee: p?.payee ?? null,
-    txn_payee_number: p?.payeeNumber ?? null,
-    txn_account: p?.account ?? null,
-  });
-  if (error) {
+  try {
+    await insertPaymentProofRecord({
+      tenantId: input.tenantId,
+      invoiceId: input.invoiceId,
+      uploadedBy: input.uploadedBy,
+      filePath: path,
+      fileName: input.file?.name ?? null,
+      note: input.note,
+      sms: input.sms,
+    });
+  } catch (error) {
     // The file went up but the proof was refused (most often a reused code). Staff
     // can take the file back out; a family can't delete from the bucket, so theirs
     // stays as an unlinked private file rather than a proof row with no evidence.
@@ -167,15 +135,7 @@ export async function uploadPrescription(input: { tenantId: string; studentId: s
   return path;
 }
 
-export async function listPaymentProofs(invoiceId: string): Promise<PaymentProof[]> {
-  const { data, error } = await supabase()
-    .from("payment_proofs")
-    .select("id, invoice_id, file_path, file_name, note, status, uploaded_at, txn_code, txn_amount_cents, rejection_reason")
-    .eq("invoice_id", invoiceId)
-    .order("uploaded_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as PaymentProof[];
-}
+export const listPaymentProofs = sharedListPaymentProofs;
 
 /**
  * A paper for Bloom to import, waiting in the importer's own folder. The

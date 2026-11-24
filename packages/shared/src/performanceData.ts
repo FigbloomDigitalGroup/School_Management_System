@@ -1,9 +1,12 @@
+import { rubricFor, summariseStrands } from "./gradingSchemes";
+import { yearSortKey } from "./levels";
 import { fetchAllPages } from "./paging";
 import {
   learnerTrend, semesterGpaTrend,
   type CbeLevelRow, type ClassPerformanceRow, type LearnerHistoryRow, type LearnerMeanRow, type LearnerTrend, type SemesterGpa,
 } from "./performance";
 import { supabase } from "./supabase";
+import type { ClassGroup, ClassLevel } from "./types";
 
 /**
  * Loads what the performance charts plot. The trends themselves are computed
@@ -74,4 +77,94 @@ export async function fetchSemesterGpas(studentId: string): Promise<SemesterGpa[
     const s = r.course_sections?.semesters;
     return s ? [{ semesterId: s.id, semesterName: s.name, startsOn: s.starts_on, credits: r.course_sections?.courses?.credits ?? 0, gradePoints: Number(r.grade_points) }] : [];
   }));
+}
+
+// ---------------------------------------------------------------- what the admin's Performance and Reports screens pick from (FIG-1899)
+
+export type ClassOption = Pick<ClassGroup, "id" | "name" | "level" | "form_level">;
+
+/** Every class in the school, youngest year first, then by name. Throws the database's message. */
+export async function fetchClassOptions(tenantId: string): Promise<ClassOption[]> {
+  const { data, error } = await supabase().from("classes").select("id, name, level, form_level")
+    .eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassOption[]>();
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/** The active learners of one class, by name. Throws the database's message. */
+export async function fetchClassLearnerNames(classId: string): Promise<{ id: string; full_name: string }[]> {
+  const { data, error } = await supabase().from("students").select("id, full_name")
+    .eq("class_id", classId).eq("active", true).order("full_name").returns<{ id: string; full_name: string }[]>();
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export const CBE_BANDS = ["EE", "ME", "AE", "BE"] as const;
+export type CbeBand = (typeof CBE_BANDS)[number];
+
+/** Per class x learning area, the latest published assessment this term: how many learners sit at each rubric band overall. */
+export interface CbeBandRow {
+  key: string;
+  className: string;
+  subjectName: string;
+  assessmentTitle: string;
+  counts: Record<CbeBand, number>;
+  learners: number;
+  sort: number;
+}
+
+interface CbeReportRow {
+  student_id: string;
+  level_code: string;
+  cbe_assessments: {
+    id: string; title: string; assessed_on: string; class_id: string; subject_id: string;
+    subjects: { name: string } | null; classes: { name: string; level: ClassLevel; form_level: number } | null;
+  };
+}
+
+/**
+ * Per class x learning area, the latest published assessment of the term: how many learners sit at each rubric band overall. 8-level results fold
+ * into their band (EE1 and EE2 are both EE) so every class reads the same way. Youngest year first, then by class and learning area.
+ * Throws the database's message.
+ */
+export async function fetchCbeBandReport(tenantId: string, termId: string, country: string): Promise<CbeBandRow[]> {
+  const { data, error } = await supabase().from("cbe_results")
+    .select("student_id, level_code, cbe_assessments!inner(id, title, assessed_on, published_at, term_id, class_id, subject_id, subjects(name), classes(name, level, form_level))")
+    .eq("tenant_id", tenantId)
+    .eq("cbe_assessments.term_id", termId)
+    .not("cbe_assessments.published_at", "is", null)
+    .returns<CbeReportRow[]>();
+  if (error) throw new Error(error.message);
+
+  const latest = new Map<string, { id: string; on: string }>();
+  for (const r of data ?? []) {
+    const k = `${r.cbe_assessments.class_id}:${r.cbe_assessments.subject_id}`;
+    const cur = latest.get(k);
+    if (!cur || r.cbe_assessments.assessed_on > cur.on) latest.set(k, { id: r.cbe_assessments.id, on: r.cbe_assessments.assessed_on });
+  }
+
+  const byAssessment = new Map<string, { a: CbeReportRow["cbe_assessments"]; codes: Map<string, string[]> }>();
+  for (const r of data ?? []) {
+    const k = `${r.cbe_assessments.class_id}:${r.cbe_assessments.subject_id}`;
+    if (latest.get(k)?.id !== r.cbe_assessments.id) continue;
+    const g = byAssessment.get(k) ?? { a: r.cbe_assessments, codes: new Map() };
+    g.codes.set(r.student_id, [...(g.codes.get(r.student_id) ?? []), r.level_code]);
+    byAssessment.set(k, g);
+  }
+
+  const rows: CbeBandRow[] = [];
+  for (const [key, g] of byAssessment) {
+    const level = g.a.classes?.level ?? "primary";
+    const rubric = rubricFor(country, level) ?? [];
+    const counts: Record<CbeBand, number> = { EE: 0, ME: 0, AE: 0, BE: 0 };
+    for (const codes of g.codes.values()) {
+      const overall = summariseStrands(codes, rubric).overall;
+      if (overall) counts[overall.code.slice(0, 2) as CbeBand] += 1;
+    }
+    rows.push({
+      key, className: g.a.classes?.name ?? "Class", subjectName: g.a.subjects?.name ?? "Learning area", assessmentTitle: g.a.title,
+      counts, learners: g.codes.size, sort: yearSortKey(level, g.a.classes?.form_level ?? 0),
+    });
+  }
+  return rows.sort((a, b) => a.sort - b.sort || a.className.localeCompare(b.className) || a.subjectName.localeCompare(b.subjectName));
 }

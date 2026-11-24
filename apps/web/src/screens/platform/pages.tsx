@@ -1,10 +1,15 @@
 import { useState, type FormEvent } from "react";
-import { effectivePriceCents, isBilled, formatMoney, supabase } from "@figbloom/shared";
+import {
+  checkServices, createPlatformInvoice, declarePlatformIncident, fetchImpersonationLog, fetchPlatformAudit, fetchPlatformIncidents, fetchPlatformInvoices,
+  fetchPlatformSubscriptions, fetchPlatformUsage, fetchServiceHistory, isBilled, formatMoney, markPlatformInvoicePaid, resolvePlatformIncident,
+  today as schoolToday,
+  type ServiceStatusRow,
+} from "@figbloom/shared";
 // Every money() call in this file is Figbloom's own platform billing (MRR,
 // plan price, invoices) — always "KE", a deliberate business-currency
 // choice independent of which country a billed school operates in.
 import type {
-  IncidentSeverity, IncidentStatus, PlatformIncident, PlatformInvoice, Tenant, TenantStatus,
+  IncidentSeverity, IncidentStatus, PlatformInvoice, TenantStatus,
 } from "@figbloom/shared";
 import { Badge, Cell, Mono, RecordsPage, type RecordsSpec, type Tone } from "./RecordsPage";
 import { Button } from "../../components/ui/Button";
@@ -13,7 +18,6 @@ import { Modal } from "../../components/ui/Modal";
 import { PageHead } from "../../components/ConsoleShell";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
-import { checkServices } from "../../lib/platformAdmin";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -69,26 +73,6 @@ function fmtDate(iso: string): string {
 /** "14 Sep, 09:40" — used for anything with a time (sessions, audit events, incidents). */
 function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-}
-
-interface ServiceStatusRow {
-  id: string;
-  service: string;
-  status: "ok" | "degraded" | "down" | "not_configured";
-  latency_ms: number | null;
-  detail: string | null;
-  checked_at: string;
-}
-
-async function fetchServiceHistory(): Promise<ServiceStatusRow[]> {
-  const { data, error } = await supabase()
-    .from("service_status")
-    .select("*")
-    .order("checked_at", { ascending: false })
-    .limit(200)
-    .returns<ServiceStatusRow[]>();
-  if (error) throw error;
-  return data ?? [];
 }
 
 const SERVICE_LABEL: Record<string, string> = { supabase: "Supabase", mpesa: "M-Pesa Daraja" };
@@ -188,26 +172,8 @@ export function Health() {
   return <RecordsPage spec={spec} />;
 }
 
-interface UsageRow { tenant: Pick<Tenant, "id" | "name" | "slug" | "licensed_seats" | "status">; inUse: number }
-
-async function fetchUsage(): Promise<UsageRow[]> {
-  const sb = supabase();
-  const [{ data: tenants, error: e1 }, { data: counts, error: e2 }] = await Promise.all([
-    sb.from("tenants").select("id,name,slug,licensed_seats,status").order("name").returns<UsageRow["tenant"][]>(),
-    // Counted in the database: the API answers at most 1,000 rows and says nothing when it stops (FIG-1450).
-    sb.rpc("platform_usage_counts"),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-
-  const inUseByTenant = new Map<string, number>();
-  for (const c of (counts ?? []) as { tenant_id: string; learners: number; staff: number }[]) inUseByTenant.set(c.tenant_id, c.learners + c.staff);
-
-  return (tenants ?? []).map((tenant) => ({ tenant, inUse: inUseByTenant.get(tenant.id) ?? 0 }));
-}
-
 export function Usage() {
-  const { data, error } = useAsync(() => fetchUsage(), []);
+  const { data, error } = useAsync(() => fetchPlatformUsage(), []);
   if (error) return <RecordsError eyebrow="Platform · current term" title="Usage & capacity" message={error.message} />;
   if (!data) return <RecordsLoading eyebrow="Platform · current term" title="Usage & capacity" />;
 
@@ -257,16 +223,6 @@ export function Usage() {
   return <RecordsPage spec={spec} />;
 }
 
-async function fetchIncidents(): Promise<PlatformIncident[]> {
-  const { data, error } = await supabase()
-    .from("platform_incidents")
-    .select("*")
-    .order("opened_at", { ascending: false })
-    .returns<PlatformIncident[]>();
-  if (error) throw error;
-  return data ?? [];
-}
-
 const SEVERITY_TONE: Record<IncidentSeverity, Tone> = { "SEV-1": "warn", "SEV-2": "warn", "SEV-3": "muted" };
 const INCIDENT_STATUS: Record<IncidentStatus, { label: string; tone: Tone }> = {
   investigating: { label: "Investigating", tone: "warn" },
@@ -277,7 +233,7 @@ const INCIDENT_STATUS: Record<IncidentStatus, { label: string; tone: Tone }> = {
 export function Incidents() {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, error } = useAsync(() => fetchIncidents(), [reloadKey]);
+  const { data, error } = useAsync(() => fetchPlatformIncidents(), [reloadKey]);
   const [declaring, setDeclaring] = useState(false);
   const reload = () => setReloadKey((k) => k + 1);
 
@@ -295,9 +251,12 @@ export function Incidents() {
   const sev1Recent = data.filter((i) => i.severity === "SEV-1" && new Date(i.opened_at) >= ninetyDaysAgo).length;
 
   async function resolveIncident(id: string) {
-    const { error: err } = await supabase()
-      .from("platform_incidents").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", id);
-    if (err) { toast(`Could not resolve that incident: ${err.message}`, "error"); return; }
+    try {
+      await resolvePlatformIncident(id);
+    } catch (err) {
+      toast(`Could not resolve that incident: ${err instanceof Error ? err.message : "try again"}`, "error");
+      return;
+    }
     toast("Incident resolved.");
     reload();
   }
@@ -379,11 +338,10 @@ function DeclareIncidentModal({ onClose, onDeclared, toast }: {
     if (!title.trim() || !summary.trim()) { toast("Give the incident a title and describe what schools could not do.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("platform_incidents").insert({
+      await declarePlatformIncident({
         severity, title: title.trim(), summary: summary.trim(),
         affected_schools: Math.max(0, Number(affectedSchools) || 0),
       });
-      if (error) throw error;
       toast("Incident declared.");
       onDeclared();
     } catch (err) {
@@ -438,30 +396,6 @@ function DeclareIncidentModal({ onClose, onDeclared, toast }: {
   );
 }
 
-interface SubscriptionRow {
-  tenant: Pick<Tenant, "id" | "name" | "slug" | "plan" | "status" | "price_cents_override" | "trial_ends_at" | "renews_on">;
-  priceCents: number;
-}
-
-async function fetchSubscriptions(): Promise<SubscriptionRow[]> {
-  const sb = supabase();
-  const [{ data: tenants, error: e1 }, { data: pricing, error: e2 }] = await Promise.all([
-    sb.from("tenants")
-      .select("id,name,slug,plan,status,price_cents_override,trial_ends_at,renews_on")
-      .order("name")
-      .returns<SubscriptionRow["tenant"][]>(),
-    sb.from("plan_pricing").select("plan,price_cents").returns<{ plan: string; price_cents: number }[]>(),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-
-  const listPrice = new Map((pricing ?? []).map((p) => [p.plan, p.price_cents]));
-  return (tenants ?? []).map((tenant) => ({
-    tenant,
-    priceCents: effectivePriceCents(tenant, listPrice),
-  }));
-}
-
 const SUBSCRIPTION_STATUS: Record<TenantStatus, { label: string; tone: Tone }> = {
   active: { label: "Active", tone: "ok" },
   trial: { label: "Trial", tone: "muted" },
@@ -472,7 +406,7 @@ const SUBSCRIPTION_STATUS: Record<TenantStatus, { label: string; tone: Tone }> =
 };
 
 export function Subscriptions() {
-  const { data, error } = useAsync(() => fetchSubscriptions(), []);
+  const { data, error } = useAsync(() => fetchPlatformSubscriptions(), []);
   if (error) return <RecordsError eyebrow="Commercial · current term" title="Subscriptions" message={error.message} />;
   if (!data) return <RecordsLoading eyebrow="Commercial · current term" title="Subscriptions" />;
 
@@ -529,32 +463,12 @@ export function Subscriptions() {
   return <RecordsPage spec={spec} />;
 }
 
-interface InvoiceRow extends PlatformInvoice { tenant_name: string | null }
-interface InvoicesData { invoices: InvoiceRow[]; tenants: { id: string; name: string }[] }
-
-async function fetchInvoicesData(): Promise<InvoicesData> {
-  const sb = supabase();
-  const [{ data: invoices, error: e1 }, { data: tenants, error: e2 }] = await Promise.all([
-    sb.from("platform_invoices")
-      .select("*,tenants(name)")
-      .order("due_date")
-      .returns<(PlatformInvoice & { tenants: { name: string } | null })[]>(),
-    sb.from("tenants").select("id,name").order("name").returns<{ id: string; name: string }[]>(),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-  return {
-    invoices: (invoices ?? []).map((r) => ({ ...r, tenant_name: r.tenants?.name ?? null })),
-    tenants: tenants ?? [],
-  };
-}
-
 const isOverdue = (i: PlatformInvoice) => i.status === "due" && new Date(i.due_date) < new Date(new Date().toDateString());
 
 export function Invoices() {
   const toast = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, error } = useAsync(() => fetchInvoicesData(), [reloadKey]);
+  const { data, error } = useAsync(() => fetchPlatformInvoices(), [reloadKey]);
   const [creating, setCreating] = useState(false);
   const reload = () => setReloadKey((k) => k + 1);
 
@@ -573,9 +487,12 @@ export function Invoices() {
   const avgDaysToPay = daysToPay.length ? Math.round(daysToPay.reduce((a, b) => a + b, 0) / daysToPay.length) : null;
 
   async function markPaid(id: string) {
-    const { error: err } = await supabase()
-      .from("platform_invoices").update({ status: "paid", paid_at: new Date().toISOString() }).eq("id", id);
-    if (err) { toast(`Could not mark that invoice paid: ${err.message}`, "error"); return; }
+    try {
+      await markPlatformInvoicePaid(id);
+    } catch (err) {
+      toast(`Could not mark that invoice paid: ${err instanceof Error ? err.message : "try again"}`, "error");
+      return;
+    }
     toast("Marked as paid.");
     reload();
   }
@@ -626,7 +543,6 @@ export function Invoices() {
               <button type="button" onClick={() => void markPaid(i.id)} className="text-[11.5px] font-semibold text-leaf hover:underline">
                 Mark paid
               </button>
-              <Button onClick={() => toast(`Reminder sent to the bursar and principal at ${i.tenant_name ?? "the school"}`)}>Remind</Button>
             </div>
           ),
         ],
@@ -653,7 +569,7 @@ function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
 }) {
   const [tenantId, setTenantId] = useState(tenants[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(() => schoolToday());
   const [saving, setSaving] = useState(false);
 
   async function create() {
@@ -662,10 +578,7 @@ function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
     if (!amount || !Number.isFinite(amountCents) || amountCents <= 0) { toast("Enter an amount greater than zero.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("platform_invoices").insert({
-        tenant_id: tenantId, amount_cents: amountCents, due_date: dueDate,
-      });
-      if (error) throw error;
+      await createPlatformInvoice({ tenant_id: tenantId, amount_cents: amountCents, due_date: dueDate });
       toast("Invoice created.");
       onCreated();
     } catch (err) {
@@ -708,27 +621,8 @@ function NewInvoiceModal({ tenants, onClose, onCreated, toast }: {
   );
 }
 
-interface ImpersonationRow {
-  id: string; started_at: string; ended_at: string | null; reason: string; scope: string;
-  tenant_name: string | null; staff_name: string | null;
-}
-
-async function fetchImpersonation(): Promise<ImpersonationRow[]> {
-  const { data, error } = await supabase()
-    .from("impersonation_sessions")
-    .select("id,started_at,ended_at,reason,scope,tenants(name),profiles(full_name)")
-    .order("started_at", { ascending: false })
-    .limit(100)
-    .returns<{ id: string; started_at: string; ended_at: string | null; reason: string; scope: string; tenants: { name: string } | null; profiles: { full_name: string } | null }[]>();
-  if (error) throw error;
-  return (data ?? []).map((r) => ({
-    id: r.id, started_at: r.started_at, ended_at: r.ended_at, reason: r.reason, scope: r.scope,
-    tenant_name: r.tenants?.name ?? null, staff_name: r.profiles?.full_name ?? null,
-  }));
-}
-
 export function Impersonation() {
-  const { data, error } = useAsync(() => fetchImpersonation(), []);
+  const { data, error } = useAsync(() => fetchImpersonationLog(), []);
   if (error) return <RecordsError eyebrow="Support · immutable record" title="Impersonation log" message={error.message} />;
   if (!data) return <RecordsLoading eyebrow="Support · immutable record" title="Impersonation log" />;
 
@@ -750,7 +644,6 @@ export function Impersonation() {
       { label: "Write actions", value: String(writeCount), sub: "of " + data.length + " sessions" },
       { label: "Schools entered", value: String(schoolCount), sub: "distinct tenants" },
     ],
-    actions: [{ label: "Export for audit", onClick: () => {} }],
     columns: [
       { key: "staff", header: "Staff", width: "1fr" },
       { key: "school", header: "School", width: "1.4fr" },
@@ -776,26 +669,13 @@ export function Impersonation() {
   return <RecordsPage spec={spec} />;
 }
 
-interface AuditRow { id: string; created_at: string; actor_label: string; event: string; category: string; tenant_name: string | null }
-
-async function fetchAudit(): Promise<AuditRow[]> {
-  const { data, error } = await supabase()
-    .from("audit_events")
-    .select("id,created_at,actor_label,event,category,tenants(name)")
-    .order("created_at", { ascending: false })
-    .limit(200)
-    .returns<{ id: string; created_at: string; actor_label: string; event: string; category: string; tenants: { name: string } | null }[]>();
-  if (error) throw error;
-  return (data ?? []).map((r) => ({ id: r.id, created_at: r.created_at, actor_label: r.actor_label, event: r.event, category: r.category, tenant_name: r.tenants?.name ?? null }));
-}
-
 const CATEGORY_LABEL: Record<string, string> = {
   provisioning: "Provisioning", access: "Access", academic: "Academic", financial: "Financial",
   health: "Health", transport: "Transport", communication: "Communication", operations: "Operations",
 };
 
 export function Audit() {
-  const { data, error } = useAsync(() => fetchAudit(), []);
+  const { data, error } = useAsync(() => fetchPlatformAudit(), []);
   if (error) return <RecordsError eyebrow="Platform · all tenants" title="Audit trail" message={error.message} />;
   if (!data) return <RecordsLoading eyebrow="Platform · all tenants" title="Audit trail" />;
 
@@ -814,10 +694,6 @@ export function Audit() {
       { label: "Privileged changes", value: String(privileged.length), sub: "access or academic" },
       { label: "Financial events", value: String(financial.length), sub: "fee/payment changes" },
       { label: "Retention", value: "7 yrs", sub: "immutable, append only" },
-    ],
-    actions: [
-      { label: "Filter by school", onClick: () => {} },
-      { label: "Export range", onClick: () => {} },
     ],
     columns: [
       { key: "when", header: "Time", width: "1.1fr" },

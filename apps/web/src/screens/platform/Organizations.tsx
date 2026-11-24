@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
-  createOrganization, fetchOrganizations, inviteOrgAdmin, type NewOrganizationInput, type OrgAdminInviteResult,
-} from "../../lib/platformAdmin";
-import { platformDecisionsEnabled, supabase, type Organization, type Tenant } from "@figbloom/shared";
+  approveOrganization, createOrganization, fetchOrganizationAdminProfiles, fetchOrganizationMemberSchools, fetchOrganizations, inviteOrgAdmin,
+  platformDecisionsEnabled, type NewOrganizationInput, type Organization, type OrgAdminInviteResult, type Tenant,
+} from "@figbloom/shared";
 import { Badge } from "../../components/ui/Badge";
 import { AccessibilityButton } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -18,27 +18,6 @@ import { handOverNote } from "../../components/TempPasswordCard";
 const KIND_LABEL: Record<Organization["kind"], string> = {
   government: "Government", county: "County", constituency: "Constituency", group_owner: "Group owner",
 };
-
-interface OrgAdminRow { id: string; full_name: string; email: string | null }
-
-async function fetchMemberTenants(organizationId: string): Promise<Tenant[]> {
-  const { data, error } = await supabase().from("tenants").select("*").eq("organization_id", organizationId).order("name").returns<Tenant[]>();
-  if (error) throw error;
-  return data ?? [];
-}
-
-async function fetchOrgAdmins(organizationId: string): Promise<OrgAdminRow[]> {
-  // organization_admins has two FKs into profiles (profile_id, added_by), so
-  // the embed is ambiguous without a hint — PostgREST rejects it (PGRST201)
-  // rather than guessing, and that rejection was previously going unnoticed
-  // (useAsync's caught error left the list silently empty, read as "no admins
-  // invited yet" instead of "the query failed").
-  const { data, error } = await supabase()
-    .from("organization_admins").select("profiles!organization_admins_profile_id_fkey(id, full_name, email)").eq("organization_id", organizationId)
-    .returns<{ profiles: OrgAdminRow | null }[]>();
-  if (error) throw error;
-  return (data ?? []).map((r) => r.profiles).filter((p): p is OrgAdminRow => p !== null);
-}
 
 /**
  * Staff-facing: creating organizations, seeing which tenants and admins
@@ -141,8 +120,8 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
   const [approving, setApproving] = useState(false);
   // After switch-on the Figbloom platform decides organisation status; this screen only shows it.
   const { data: decidedOnPlatform } = useAsync(platformDecisionsEnabled, []);
-  const { data: tenants, loading: tenantsFetching } = useAsync(() => fetchMemberTenants(organization.id), [organization.id, reloadKey]);
-  const { data: admins, loading: adminsFetching, error: adminsError } = useAsync(() => fetchOrgAdmins(organization.id), [organization.id, reloadKey]);
+  const { data: tenants, loading: tenantsFetching } = useAsync(() => fetchOrganizationMemberSchools(organization.id), [organization.id, reloadKey]);
+  const { data: admins, loading: adminsFetching, error: adminsError } = useAsync(() => fetchOrganizationAdminProfiles(organization.id), [organization.id, reloadKey]);
   // First load only — inviting an admin bumps reloadKey and must not blank the lists.
   const tenantsLoading = tenantsFetching && !tenants;
   const adminsLoading = adminsFetching && !admins;
@@ -155,8 +134,7 @@ function OrganizationDetail({ organization, onChanged }: { organization: Organiz
   async function approve() {
     setApproving(true);
     try {
-      const { error } = await supabase().from("organizations").update({ status: "active" }).eq("id", organization.id);
-      if (error) throw error;
+      await approveOrganization(organization.id);
       toast(`${organization.name} approved.`);
       onChanged();
     } catch (err) {

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  fetchSentByMe, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, sendClassMessage, supabase,
+  deleteAnnouncement, fetchSentByMe, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, sendClassMessage,
   type ClassMessageRecipients,
 } from "@figbloom/shared";
 import { AiWriteHelper } from "../../components/AiWriteHelper";
@@ -79,7 +79,7 @@ export function TeacherMessages() {
       if (pendingId) {
         const id = pendingId;
         await removeAttachmentFilesFor("announcement", id).catch(() => {});
-        await supabase().from("announcements").delete().eq("id", id);
+        await deleteAnnouncement(id).catch(() => {});
       }
       if (err instanceof UploadCancelled) toast("Upload cancelled. Nothing was sent; your message is still here.", "error");
       else toast(err instanceof Error ? `Could not send: ${err.message}` : "Could not send.", "error");

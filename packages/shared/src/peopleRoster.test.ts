@@ -78,6 +78,13 @@ describe("edits from the People screen", () => {
     ]);
   });
 
+  it("leaves a learner's class alone when no class is given", async () => {
+    await updateLearnerDetails("st1", { fullName: "Ann W", admissionNo: "A9", gender: "female", boarding: false });
+    expect(db.calls.updates).toEqual([
+      { table: "students", patch: { full_name: "Ann W", admission_no: "A9", gender: "female", boarding: false }, filters: [["id", "st1"]] },
+    ]);
+  });
+
   it("keeping a changed photo clears the flag; removing it clears the photo", async () => {
     await reviewStaffPhoto("drv", false);
     await reviewStaffPhoto("drv", true);

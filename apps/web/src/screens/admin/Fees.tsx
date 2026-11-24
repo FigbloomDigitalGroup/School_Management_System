@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feeFigures, fetchFeesCollection, fetchSchoolYearGroups, fetchTenantCurrentTerm, fetchTermFeeItems, formatMoney,
+  PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feeFigures, feesCapabilities, fetchFeesCollection, fetchSchoolYearGroups, fetchTenantCurrentTerm, fetchTermFeeItems, formatMoney,
   itemsForStudent, proofFlags, proofToConfirm, rejectPaymentProof, rejectionReason, targetYearLabel, totalCents, yearLabel,
 } from "@figbloom/shared";
 import type { FeeItem, FeesCollection, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof, YearGroup } from "@figbloom/shared";
@@ -38,6 +38,7 @@ async function fetchFees(tenantId: string): Promise<FeesData> {
 }
 
 export function Fees() {
+  const caps = feesCapabilities();
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
@@ -105,11 +106,11 @@ export function Fees() {
       <PageHead
         eyebrow={data?.term ? `Fees · ${data.term.name.toLowerCase()}` : "Fees"}
         title="Fee structure and collection"
-        blurb="Published once at the start of term. Changing an amount after publication notifies every affected parent, so the composer says how many before you confirm."
+        blurb="Published once at the start of term. Changing an amount later only affects invoices created after the change."
         actions={
           <>
             <Button onClick={() => setBilling(true)} disabled={!data?.term}>Bill learners</Button>
-            {data?.term && <SignTermInvoices key={`${data.term.id}:${reloadKey}`} termId={data.term.id} />}
+            {caps.invoiceSignatures && data?.term && <SignTermInvoices key={`${data.term.id}:${reloadKey}`} termId={data.term.id} />}
             <Button variant="accent" onClick={() => setRecording({})} disabled={!data?.term}>Record a payment</Button>
           </>
         }
@@ -153,7 +154,7 @@ export function Fees() {
           </>
         )}
 
-        <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)" }}>
+        <div className="mt-5 grid grid-cols-1 gap-4 min-[1500px]:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <section className="overflow-hidden rounded-lg border border-line">
             <header className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="text-body font-semibold">{data?.term ? data.term.name : "Term"} fee items</h2>
@@ -284,7 +285,7 @@ export function Fees() {
                           {r.txn_amount_cents !== null && <span className="text-ink-faint"> · {formatMoney(r.txn_amount_cents, tenant.country)}</span>}
                         </div>
                       )}
-                      {path && (
+                      {path && caps.proofFiles ? (
                         <button
                           type="button"
                           onClick={() => openProof(path)}
@@ -292,7 +293,9 @@ export function Fees() {
                         >
                           {r.file_name}
                         </button>
-                      )}
+                      ) : r.file_name ? (
+                        <div className="truncate text-[12px] text-ink-muted">{r.file_name}</div>
+                      ) : null}
                       {flags.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {flags.map((f) => <Badge key={f} tone="warn">{PAYMENT_SMS_FLAG_LABEL[f]}</Badge>)}
@@ -320,7 +323,7 @@ export function Fees() {
           )}
         </div>
 
-        {data?.term && (
+        {caps.invoiceSignatures && data?.term && (
           <div className="mt-4">
             <TermReceipts termId={data.term.id} reloadKey={reloadKey} />
           </div>

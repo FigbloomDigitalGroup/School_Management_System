@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchSignatureStatus, signatureDate, supabase, type SignedDocKind } from "@figbloom/shared";
+import { fetchSignableAttachmentIds, fetchSignatureStatus, signatureDate, type SignedDocKind } from "@figbloom/shared";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -46,14 +46,6 @@ export function SignatureStatus({ kind, docIds, reloadKey = 0 }: { kind: SignedD
       )}
     </div>
   );
-}
-
-/** The ids of a message's files that need signing. */
-async function fetchSignableAttachmentIds(announcementId: string): Promise<string[]> {
-  const { data, error } = await supabase().from("attachments").select("id")
-    .eq("announcement_id", announcementId).eq("needs_signature", true).order("created_at");
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string }[]).map((r) => r.id);
 }
 
 /** SignatureStatus for a sent message, when its files need signing; nothing otherwise. */

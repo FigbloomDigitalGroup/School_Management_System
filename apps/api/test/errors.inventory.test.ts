@@ -23,7 +23,7 @@ import { financeHarness } from "./support/financeHarness.js";
  * | src/worker/index.ts               | 1 | worker configuration                               | startup     | n/a (not an HTTP path) |
  */
 const EXPECTED: Record<string, number> = {
-  "config.ts": 32, // +3 startup refusals (088): MFA_ENFORCEMENT off, missing MFA_ENCRYPTION_KEY, key equal to the session key
+  "config.ts": 33, // +3 startup refusals (088): MFA; +1 startup refusal (PayHero HTTPS callback URL outside local/test)
   "db/migrate.ts": 7,
   "db/pool.ts": 2,
   "db/roleAssert.ts": 14,
@@ -37,6 +37,7 @@ const EXPECTED: Record<string, number> = {
   "modules/finance/money.ts": 1,
   "modules/finance/mpesa.ts": 2,
   "modules/finance/mpesaProvider.ts": 6,
+  "modules/finance/payheroProvider.ts": 4,
   "modules/identity/password.ts": 1,
   "worker/index.ts": 1,
 };

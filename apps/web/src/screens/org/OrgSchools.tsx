@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  SCHOOL_LEVEL_OPTIONS, fetchOrganizationTenantSummaries, logOrganizationAccess, normalizeSlug, similarSchoolNames, suggestSlug, validateSlug, formatMoney,
+  SCHOOL_LEVEL_OPTIONS, activateOrgSchool, createTenantSelfService, fetchOrganizationTenantSummaries, inviteAdmin, logOrganizationAccess, normalizeSlug, similarSchoolNames, suggestSlug, validateSlug, formatMoney,
   type EmailOutcome, type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
@@ -14,8 +14,6 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { RecordsPage, type RecordsSpec } from "../platform/RecordsPage";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
-import { activateOrgSchool, createTenantSelfService } from "../../lib/orgSelfService";
-import { inviteAdmin } from "../../lib/platformAdmin";
 import { adminInviteError, schoolInsertError, useSlugAvailability } from "../../lib/slugAvailability";
 import { TempPasswordCard } from "../../components/TempPasswordCard";
 import { WebAddressField } from "../../components/WebAddressField";

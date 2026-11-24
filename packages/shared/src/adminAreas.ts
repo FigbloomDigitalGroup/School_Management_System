@@ -299,3 +299,28 @@ export async function setStaffRoles(profileId: string, roleIds: readonly string[
   if (error) throw new Error(error.message);
   return (data ?? []) as string[];
 }
+
+/** Names of teachers and other staff at a school, keyed by profile id. */
+export async function fetchSchoolStaffNames(tenantId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase()
+    .from("profiles")
+    .select("id, full_name")
+    .eq("tenant_id", tenantId)
+    .in("role", ["teacher", "staff"])
+    .returns<{ id: string; full_name: string }[]>();
+  if (error) throw new Error(error.message);
+  return new Map((data ?? []).map((p) => [p.id, p.full_name]));
+}
+
+/** Teachers at a school (`id`, `full_name`), ordered by name. */
+export async function fetchSchoolTeacherOptions(tenantId: string): Promise<{ id: string; full_name: string }[]> {
+  const { data, error } = await supabase()
+    .from("profiles")
+    .select("id, full_name")
+    .eq("tenant_id", tenantId)
+    .eq("role", "teacher")
+    .order("full_name")
+    .returns<{ id: string; full_name: string }[]>();
+  if (error) throw error;
+  return data ?? [];
+}

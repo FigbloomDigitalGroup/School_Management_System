@@ -9,7 +9,7 @@ import { TempPasswordCard } from "./TempPasswordCard";
 import { useAsync } from "../lib/useAsync";
 import { removeSchoolAdminQuestion, schoolAdminTitle } from "../lib/adminAccounts";
 import { adminInviteError } from "../lib/slugAvailability";
-import { deleteAccount, fetchSchoolAdmins, inviteAdmin, type InviteAdminResult } from "../lib/platformAdmin";
+import { deleteAccount, fetchSchoolAdmins, inviteAdmin, type InviteAdminResult } from "@figbloom/shared";
 
 /**
  * Who can sign in as an administrator of one school, with a way to add another

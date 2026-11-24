@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { setMyPassword, supabase, type Profile } from "@figbloom/shared";
+import { setMyPassword, signOutHere, type Profile } from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { TextField } from "./ui/Field";
 
@@ -28,7 +28,7 @@ export function PasswordGate({ profile, children }: { profile: Profile; children
         </p>
         <PasswordForm profileId={profile.id} submitLabel="Save and continue" onDone={() => setDone(true)} />
         <button
-          onClick={() => void supabase().auth.signOut({ scope: "local" }).then(() => navigate("/signin", { replace: true }))}
+          onClick={() => void signOutHere().then(() => navigate("/signin", { replace: true }))}
           className="hit mt-3 text-small font-semibold text-ink-muted"
         >
           Not you? Sign out

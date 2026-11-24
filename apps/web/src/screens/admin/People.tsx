@@ -20,8 +20,8 @@ import { handOverNote } from "../../components/TempPasswordCard";
 import { useAsync } from "../../lib/useAsync";
 import { LearnerDocumentSignatures } from "../../components/signatures/LearnerDocumentSignatures";
 import { listStudentDocuments, privateDocUrl, uploadStudentDocument, type StudentDocument } from "../../lib/uploads";
-import { downloadCsvTemplate, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
-import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "../../lib/platformAdmin";
+import { downloadCsvTemplate, ignoredImportColumns, importStudents, parseStudentCsv, type ImportRow } from "../../lib/studentImport";
+import { deleteAccount, inviteStaff, provisionGuardian, provisionStudent, type InviteStaffInput, type InviteStaffResult, type ProvisionGuardianResult, type ProvisionStudentResult } from "@figbloom/shared";
 import { EMPTY_HOME_BUS, HomeAndBusEditor, HomeAndBusFields, planBus, saveBus, useSchoolRoutes, type HomeBusValue } from "../../components/learners/HomeAndBus";
 import { HealthEditor, OptionalHealthSection, type PaperConsent } from "../../components/learners/Health";
 import { LearnerActivitiesView } from "../../components/learners/Activities";
@@ -32,6 +32,7 @@ import { CallButton } from "../../components/calls/CallButton";
 import { AdminAccessEditor } from "../../components/AdminAccess";
 import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, maySeeSignOutList, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
 import { confirmDialog } from "../../components/ui/Confirm";
+import { LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiFetchArchivedStaff, apiRestoreStaff, peopleCapabilities } from "@figbloom/shared";
 
 type StudentRow = RosterLearner;
 type StaffRow = RosterStaff;
@@ -55,6 +56,10 @@ export function People() {
   // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
   const myAccess = adminAccessFor(profile.role, adminAreas, actingForTenant);
   const fullAdmin = myAccess === "all";
+  // What the backend can do: on the new API there are no logins, fees, health, home or photo records yet, staff are directory records that
+  // are archived rather than removed, and only a full administrator may import (see capabilities.ts peopleCapabilities).
+  const caps = peopleCapabilities();
+  const mayImport = caps.importByAreaHolders || fullAdmin;
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
@@ -84,13 +89,19 @@ export function People() {
     [tenant.id, view, reloadKey],
   );
   const { data: access } = useAsync(
-    () => (fullAdmin
+    () => (fullAdmin && caps.staffAccounts
       ? Promise.all([fetchSchoolRoles(tenant.id), fetchSchoolAdminAreas(tenant.id)]).then(([roles, direct]) => ({ roles, direct }))
       : Promise.resolve({ roles: [] as SchoolRole[], direct: new Map<string, AdminArea[]>() })),
     [tenant.id, reloadKey, fullAdmin],
   );
   const accessOf = (id: string) => access ? effectiveAreas(access.direct.get(id) ?? [], access.roles, rolesHeldBy(access.roles, id)) : [];
   const archivedRows = useMemo<StudentRow[]>(() => (archivedData ?? []).map((a) => ({ ...a, class_id: a.class_id as string, gender: a.gender as StudentRow["gender"], login_id: null })), [archivedData]);
+  // Staff who have left (the new API archives a member of staff rather than removing their login): read only on that tab and view.
+  const { data: archivedStaffData, loading: archivedStaffLoading } = useAsync(
+    () => (caps.staffArchive && tab === "staff" && view === "archived" ? apiFetchArchivedStaff(tenant.id) : Promise.resolve([] as StaffRow[])),
+    [tenant.id, tab, view, reloadKey, caps.staffArchive],
+  );
+  const showingArchivedStaff = caps.staffArchive && tab === "staff" && view === "archived";
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
   // data must not show the previous one's meanwhile — skeleton for those only.
   const [loadedFor, setLoadedFor] = useState(tenant.id);
@@ -106,8 +117,8 @@ export function People() {
 
   const staffRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data?.staff ?? []).filter((s) => !q || s.full_name.toLowerCase().includes(q));
-  }, [data, query]);
+    return ((showingArchivedStaff ? archivedStaffData : data?.staff) ?? []).filter((s) => !q || s.full_name.toLowerCase().includes(q));
+  }, [data, archivedStaffData, showingArchivedStaff, query]);
 
   // Whichever list is on screen right now — the one the page/page-size
   // controls actually act on.
@@ -133,7 +144,7 @@ export function People() {
       return n;
     });
 
-  const switchTab = (t: "students" | "staff") => { setTab(t); setPicked(new Set()); };
+  const switchTab = (t: "students" | "staff") => { setTab(t); setPicked(new Set()); if (caps.staffArchive) setView("current"); };
   const switchView = (v: "current" | "archived") => { setView(v); setPicked(new Set()); setManage(null); };
 
   /** Runs one change to some learners, then reloads. `done` is the toast on success. */
@@ -181,11 +192,41 @@ export function People() {
     }
   }
 
+  async function archiveStaffMember(staff: Pick<StaffRow, "id" | "full_name">) {
+    if (!(await confirmDialog({ title: `Archive ${staff.full_name}?`, body: 'They leave the staff list. Nothing is deleted, and you can restore them under "Archived".', confirmLabel: "Archive" }))) return;
+    setDeletingStaff(true);
+    try {
+      await apiArchiveStaff(staff.id);
+      toast(`${staff.full_name} archived. Find them under "Archived".`);
+      setManage(null);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not archive ${staff.full_name}: ${err.message}` : `Could not archive ${staff.full_name}.`, "error");
+    } finally {
+      setDeletingStaff(false);
+    }
+  }
+
+  async function restoreStaffMember(staff: Pick<StaffRow, "id" | "full_name">) {
+    setDeletingStaff(true);
+    try {
+      await apiRestoreStaff(staff.id);
+      toast(`${staff.full_name} restored.`);
+      setManage(null);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast(err instanceof Error ? `Could not restore ${staff.full_name}: ${err.message}` : `Could not restore ${staff.full_name}.`, "error");
+    } finally {
+      setDeletingStaff(false);
+    }
+  }
+
   const openManage = (kind: "students" | "staff", row: StudentRow | StaffRow) => setManage({ kind, id: row.id });
   const manageRow: StudentRow | StaffRow | null = manage
-    ? (manage.kind === "students" ? [...(data?.students ?? []), ...archivedRows].find((s) => s.id === manage.id) : data?.staff.find((s) => s.id === manage.id)) ?? null
+    ? (manage.kind === "students" ? [...(data?.students ?? []), ...archivedRows].find((s) => s.id === manage.id) : [...(data?.staff ?? []), ...(archivedStaffData ?? [])].find((s) => s.id === manage.id)) ?? null
     : null;
   const manageArchived = manage?.kind === "students" && archivedRows.some((s) => s.id === manage.id);
+  const manageStaffArchived = manage?.kind === "staff" && (archivedStaffData ?? []).some((s) => s.id === manage.id);
 
   return (
     <>
@@ -200,7 +241,7 @@ export function People() {
         actions={
           tab === "students" ? (
             <>
-              <Button onClick={() => setImportOpen(true)}>Import from CSV</Button>
+              {mayImport && <Button onClick={() => setImportOpen(true)}>Import from CSV</Button>}
               <Button variant="accent" onClick={() => setAddOpen(true)}>Add a learner</Button>
             </>
           ) : (
@@ -209,7 +250,7 @@ export function People() {
         }
       />
 
-      <PasswordResetRequests tenantId={tenant.id} schoolName={tenant.name} />
+      {caps.passwordResets && <PasswordResetRequests tenantId={tenant.id} schoolName={tenant.name} />}
 
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-page px-7 py-3">
         <div className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
@@ -220,8 +261,8 @@ export function People() {
             </button>
           ))}
         </div>
-        {tab === "students" && (
-          <div role="group" aria-label="Which learners" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
+        {(tab === "students" || (tab === "staff" && caps.staffArchive)) && (
+          <div role="group" aria-label={tab === "students" ? "Which learners" : "Which staff"} className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
             {(["current", "archived"] as const).map((v) => (
               <button key={v} type="button" aria-pressed={view === v} onClick={() => switchView(v)} className="rounded px-3 py-1.5 text-small capitalize"
                 style={view === v ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
@@ -265,31 +306,29 @@ export function People() {
           <span className="text-small font-semibold">{picked.size} selected</span>
           {view === "current" ? (
             <>
-              <Button onClick={() => toast(`Moved ${picked.size} learners to another class`)}>Change class</Button>
-              <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>
-              {(data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
+              {caps.inviteGuardians && <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>}
+              {caps.learnerLogins && (data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
                 <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
               )}
-              <Button onClick={() => toast(`Exported ${picked.size} records`)}>Export</Button>
               <Button disabled={working} onClick={() => void archiveStudents([...picked], learnerCount(picked.size))}>Archive</Button>
             </>
           ) : (
             <Button disabled={working} onClick={() => void restoreStudents([...picked], learnerCount(picked.size))}>Restore</Button>
           )}
-          <Button variant="danger" disabled={working} onClick={() => void deleteStudents([...picked], learnerCount(picked.size))}>Delete…</Button>
+          {caps.deleteLearner && <Button variant="danger" disabled={working} onClick={() => void deleteStudents([...picked], learnerCount(picked.size))}>Delete…</Button>}
           <button onClick={() => setPicked(new Set())} className="text-small font-semibold text-leaf">Clear</button>
         </div>
       )}
 
       <div className="px-7 py-6">
-        {tab === "students" && (
+        {tab === "students" && caps.bioData && (
           <BioRequestsPanel tenantId={tenant.id} toast={toast} reloadKey={reloadKey} onOpenLearner={(id) => setManage({ kind: "students", id })} />
         )}
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load people: {error.message}
           </p>
-        ) : pending || !data || (tab === "students" && view === "archived" && archivedLoading && !archivedData) ? (
+        ) : pending || !data || (tab === "students" && view === "archived" && archivedLoading && !archivedData) || (showingArchivedStaff && archivedStaffLoading && !archivedStaffData) ? (
           <TableSkeleton rows={8} />
         ) : tab === "students" ? (
           <DataTable
@@ -311,15 +350,15 @@ export function People() {
               { key: "class", header: "Class", render: (s) => <span className="text-[13px]">{s.class_id ? classesById.get(s.class_id) : "—"}</span> },
               { key: "gender", header: "Gender", render: (s) => s.gender ? <span className="text-[13px] capitalize">{s.gender}</span> : <Badge tone="warn">Not set</Badge> },
               { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
-              { key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> },
-              { key: "login", header: "Login", render: (s) => s.login_id ? <Mono>{s.login_id}</Mono> : <Badge tone="muted">No login</Badge> },
-              { key: "fees", header: view === "archived" ? "Archived" : "Fees", align: "right", render: (s) => {
+              ...(caps.guardianColumn ? [{ key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> }] : []),
+              ...(caps.learnerLogins ? [{ key: "login", header: "Login", render: (s: StudentRow) => s.login_id ? <Mono>{s.login_id}</Mono> : <Badge tone="muted">No login</Badge> }] : []),
+              ...(caps.learnerFees || view === "archived" ? [{ key: "fees", header: view === "archived" ? "Archived" : "Fees", align: "right" as const, render: (s: StudentRow) => {
                 if (view === "archived") return <span className="text-[12.5px] text-ink-muted">{s.archived_at ? new Date(s.archived_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>;
                 const inv = data.feeByStudent.get(s.id);
                 if (!inv) return <Badge tone="muted">No invoice</Badge>;
                 const owes = inv.paid < inv.total;
                 return <Badge tone={owes ? "warn" : "ok"}>{owes ? "Balance due" : "Cleared"}</Badge>;
-              } },
+              } }] : []),
             ]}
             rows={pagedRows}
             rowKey={(s) => s.id}
@@ -344,11 +383,11 @@ export function People() {
                   {s.photo_changed_at && (
                     <span className="shrink-0 rounded-full bg-warn-bg px-2 py-0.5 text-[11px] font-semibold text-warn-ink">New photo</span>
                   )}
-                  {s.id !== profile.id && <CallButton profileId={s.id} name={s.full_name} className="ml-auto" />}
+                  {caps.staffCalls && s.id !== profile.id && <CallButton profileId={s.id} name={s.full_name} className="ml-auto" />}
                 </div>
               ) },
               { key: "role", header: "Role", render: (s: StaffRow) => <RoleBadge role={s.role} tenant={tenant} /> },
-              {
+              ...(caps.staffSubjects ? [{
                 key: "subjects", header: "Subjects", width: "1.4fr",
                 render: (s: StaffRow) => {
                   if (s.role !== "teacher") return <span className="text-[12.5px] text-ink-faint">—</span>;
@@ -359,17 +398,22 @@ export function People() {
                     ? <span className="text-[13px]">{names.join(", ")}</span>
                     : <span className="text-[12.5px] text-ink-faint">None set</span>;
                 },
-              },
-              { key: "login", header: "Login", width: "1.2fr", render: (s: StaffRow) => <Mono>{s.login_id ?? s.email ?? "—"}</Mono> },
+              }] : []),
+              caps.staffAccounts
+                ? { key: "login", header: "Login", width: "1.2fr", render: (s: StaffRow) => <Mono>{s.login_id ?? s.email ?? "—"}</Mono> }
+                : { key: "email", header: "Email", width: "1.2fr", render: (s: StaffRow) => <Mono>{s.email ?? "—"}</Mono> },
               { key: "phone", header: "Phone", render: (s: StaffRow) => <Mono>{s.phone ?? "—"}</Mono> },
             ]}
             rows={pagedStaffRows}
             rowKey={(s) => s.id}
             onRowClick={(s) => openManage("staff", s)}
             minWidth="920px"
-            empty={{
+            empty={showingArchivedStaff ? {
+              title: "No archived staff",
+              body: "Staff you archive when they leave appear here. Nothing is deleted: you can restore them at any time.",
+            } : {
               title: "No staff match that",
-              body: "Admins and teachers appear here once their accounts are created.",
+              body: caps.staffAccounts ? "Admins and teachers appear here once their accounts are created." : "Add the school's teachers, drivers and other staff with Add staff.",
             }}
           />
         )}
@@ -385,12 +429,12 @@ export function People() {
           onClose={() => setManage(null)}
           eyebrow={manage.kind === "students" ? "Learner" : "Staff"}
           title={`Manage ${manageRow.full_name}`}
-          blurb={manage.kind === "students" ? "Details, photo, and records for this learner." : "Details and photo for this staff member."}
+          blurb={manage.kind === "students" ? (caps.photos ? "Details, photo, and records for this learner." : "Details and guardians for this learner.") : (caps.photos ? "Details and photo for this staff member." : "Details for this staff member.")}
           actions={
             <>
               {manage.kind === "students" && (
                 <>
-                  <Button variant="danger" disabled={working} onClick={() => void deleteStudents([manageRow.id], manageRow.full_name)}>Delete…</Button>
+                  {caps.deleteLearner && <Button variant="danger" disabled={working} onClick={() => void deleteStudents([manageRow.id], manageRow.full_name)}>Delete…</Button>}
                   {manageArchived ? (
                     <Button disabled={working} onClick={() => void restoreStudents([manageRow.id], manageRow.full_name)}>Restore learner</Button>
                   ) : (
@@ -398,10 +442,17 @@ export function People() {
                   )}
                 </>
               )}
-              {manage.kind === "staff" && manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") && (
+              {manage.kind === "staff" && caps.staffAccounts && manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") && (
                 <Button variant="danger" disabled={deletingStaff} onClick={() => void deleteStaff(manageRow)}>
                   {deletingStaff ? "Removing…" : "Remove staff"}
                 </Button>
+              )}
+              {manage.kind === "staff" && caps.staffArchive && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") && (
+                manageStaffArchived ? (
+                  <Button disabled={deletingStaff} onClick={() => void restoreStaffMember(manageRow)}>{deletingStaff ? "Restoring…" : "Restore staff"}</Button>
+                ) : (
+                  <Button disabled={deletingStaff} onClick={() => void archiveStaffMember(manageRow)}>{deletingStaff ? "Archiving…" : "Archive staff"}</Button>
+                )
               )}
               <Button variant="primary" onClick={() => setManage(null)}>Done</Button>
             </>
@@ -423,7 +474,7 @@ export function People() {
               toast={toast}
             />
           )}
-          {manage.kind === "staff" && fullAdmin && access && manageRow.id !== profile.id && mayHoldAdminAreas((manageRow as StaffRow).role) && (
+          {manage.kind === "staff" && caps.staffAccounts && fullAdmin && access && manageRow.id !== profile.id && mayHoldAdminAreas((manageRow as StaffRow).role) && (
             <AdminAccessEditor
               key={`${manageRow.id}:${(access.direct.get(manageRow.id) ?? []).join()}:${rolesHeldBy(access.roles, manageRow.id).join()}`}
               profileId={manageRow.id}
@@ -435,16 +486,18 @@ export function People() {
               toast={toast}
             />
           )}
-          <AvatarEditor
-            id={manageRow.id}
-            name={manageRow.full_name}
-            kind={manage.kind}
-            tenantId={tenant.id}
-            url={avatarOverrides[manageRow.id] ?? manageRow.avatar_url}
-            onUploaded={(url) => setAvatarOverrides((m) => ({ ...m, [manageRow.id]: url }))}
-            toast={toast}
-          />
-          {manage.kind === "staff" && (manageRow as StaffRow).photo_changed_at && (
+          {caps.photos && (
+            <AvatarEditor
+              id={manageRow.id}
+              name={manageRow.full_name}
+              kind={manage.kind}
+              tenantId={tenant.id}
+              url={avatarOverrides[manageRow.id] ?? manageRow.avatar_url}
+              onUploaded={(url) => setAvatarOverrides((m) => ({ ...m, [manageRow.id]: url }))}
+              toast={toast}
+            />
+          )}
+          {manage.kind === "staff" && caps.photos && (manageRow as StaffRow).photo_changed_at && (
             <PhotoReview
               staff={manageRow as StaffRow}
               onDone={(removed) => {
@@ -456,23 +509,23 @@ export function People() {
           )}
           {manage.kind === "students" && (
             <div className="mt-5">
-              <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />
-              <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />
+              {caps.learnerHome && <HomeAndBusEditor tenantId={tenant.id} studentId={manageRow.id} childName={manageRow.full_name} toast={toast} />}
+              {caps.bioData && <BioDataEditor studentId={manageRow.id} toast={toast} mode="admin" onRequestDecided={() => setReloadKey((k) => k + 1)} />}
               <GuardianContacts studentId={manageRow.id} schoolName={tenant.name} />
-              <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />
+              {caps.learnerHealth && <HealthEditor tenantId={tenant.id} studentId={manageRow.id} toast={toast} />}
             </div>
           )}
-          {manage.kind === "students" && (
+          {manage.kind === "students" && caps.learnerDocuments && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
           )}
-          {manage.kind === "students" && maySeeSignOutList(myAccess) && <StudentEarlySignOuts studentId={manageRow.id} />}
-          {manage.kind === "students" && (
+          {manage.kind === "students" && caps.learnerEarlySignOuts && maySeeSignOutList(myAccess) && <StudentEarlySignOuts studentId={manageRow.id} />}
+          {manage.kind === "students" && caps.learnerActivities && (
             <section className="mt-5">
               <h3 className="mb-2 text-small font-semibold">Sports & activities</h3>
               <LearnerActivitiesView tenantId={tenant.id} studentId={manageRow.id} first={manageRow.full_name.split(" ")[0] ?? null} compact />
             </section>
           )}
-          {manage.kind === "staff" && (manageRow as StaffRow).role === "teacher" && data && (
+          {manage.kind === "staff" && caps.staffSubjects && (manageRow as StaffRow).role === "teacher" && data && (
             <TeacherSubjectsEditor
               teacherId={manageRow.id}
               tenantId={tenant.id}
@@ -483,7 +536,7 @@ export function People() {
             />
           )}
           {/* forgotten passwords: learners with a login, and every staff member but yourself */}
-          {(manage.kind === "students" ? (manageRow as StudentRow).profile_id
+          {caps.passwordResets && (manage.kind === "students" ? (manageRow as StudentRow).profile_id
             : manageRow.id !== profile.id && (fullAdmin || (manageRow as StaffRow).role !== "school_admin") ? manageRow.id : null) && (
             <ResetPasswordSection
               profileId={manage.kind === "students" ? (manageRow as StudentRow).profile_id! : manageRow.id}
@@ -501,10 +554,11 @@ export function People() {
           classes={data.classes}
           existingAdmissionNos={new Set(data.students.map((s) => s.admission_no))}
           onClose={() => setAddOpen(false)}
-          onAdded={(name) => {
+          onAdded={(name, warning) => {
             setAddOpen(false);
             setReloadKey((k) => k + 1);
-            toast(`${name} added.`);
+            // A learner who was made but whose class or bus did not save: the warning is the message, not the success line over it.
+            if (warning) toast(warning, "error"); else toast(`${name} added.`);
           }}
           toast={toast}
         />
@@ -516,10 +570,10 @@ export function People() {
           classes={data.classes}
           existingAdmissionNos={new Set(data.students.map((s) => s.admission_no))}
           onClose={() => setImportOpen(false)}
-          onImported={(count) => {
+          onImported={(count, warning) => {
             setImportOpen(false);
             setReloadKey((k) => k + 1);
-            toast(`Imported ${count} learner${count === 1 ? "" : "s"}.`);
+            if (warning) toast(warning, "error"); else toast(`Imported ${count} learner${count === 1 ? "" : "s"}.`);
           }}
           toast={toast}
         />
@@ -562,9 +616,10 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
   classes: Pick<ClassGroup, "id" | "name">[];
   existingAdmissionNos: Set<string>;
   onClose: () => void;
-  onAdded: (name: string) => void;
+  onAdded: (name: string, warning?: string) => void;
   toast: ToastFn;
 }) {
+  const caps = peopleCapabilities();
   const [admissionNo, setAdmissionNo] = useState("");
   const [fullName, setFullName] = useState("");
   const [gender, setGender] = useState<"male" | "female" | "">("");
@@ -574,12 +629,13 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
   const [homeBus, setHomeBus] = useState<HomeBusValue>(EMPTY_HOME_BUS);
   const [health, setHealth] = useState<StudentHealthInput>(emptyHealth);
   const [paperConsent, setPaperConsent] = useState<PaperConsent | null>(null);
-  const { data: routes } = useSchoolRoutes(tenantId);
+  const { data: routes } = useSchoolRoutes(caps.learnerHome ? tenantId : null);
   const [saving, setSaving] = useState(false);
 
   async function handleAdd() {
-    if (!admissionNo.trim() || !fullName.trim() || !classId || !gender) {
-      toast("Admission number, name, gender and class are all required.", "error");
+    // On the new API a learner can be admitted first and placed later (placing needs the Academics area, which People alone does not give).
+    if (!admissionNo.trim() || !fullName.trim() || (!classId && !caps.learnerWithoutClass) || !gender) {
+      toast(caps.learnerWithoutClass ? "Admission number, name and gender are required." : "Admission number, name, gender and class are all required.", "error");
       return;
     }
     if (paperConsent && (!paperConsent.signedBy.trim() || !paperConsent.formDate)) {
@@ -622,9 +678,13 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
           : saveStudentHealth(tenantId, created.id, health);
         await saved.catch(() => later.push("health details"));
       }
-      if (later.length) toast(`${fullName.trim()} was added, but the ${later.join(" and ")} didn't save. Open Manage to try again.`, "error");
-      onAdded(fullName.trim());
+      onAdded(fullName.trim(), later.length ? `${fullName.trim()} was added, but the ${later.join(" and ")} didn't save. Open Manage to try again.` : undefined);
     } catch (err) {
+      // On the new API the learner is made first and placed in the class second: a refusal of the second leaves them on the roster.
+      if (err instanceof LearnerPlacementError) {
+        onAdded(fullName.trim(), `${fullName.trim()} was added, but could not be placed in the class: ${err.message}. Open Manage to set the class.`);
+        return;
+      }
       toast(err instanceof Error ? `Could not add the learner: ${err.message}` : "Could not add the learner.", "error");
     } finally {
       setSaving(false);
@@ -667,6 +727,7 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
               className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]"
             >
               {classes.length === 0 && <option value="">No classes yet</option>}
+              {caps.learnerWithoutClass && classes.length > 0 && <option value="">No class yet</option>}
               {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
@@ -709,11 +770,13 @@ function AddStudentModal({ tenantId, classes, existingAdmissionNos, onClose, onA
             <span className="text-[13px]">Boarder</span>
           </label>
         </div>
-        <div className="border-t border-line-soft pt-3">
-          <h3 className="mb-2 text-[13px] font-semibold">Home and bus</h3>
-          <HomeAndBusFields value={homeBus} onChange={setHomeBus} routes={routes ?? []} boarding={boarding} childName={fullName} />
-        </div>
-        <OptionalHealthSection value={health} onChange={setHealth} paper={paperConsent} onPaper={setPaperConsent} />
+        {caps.learnerHome && (
+          <div className="border-t border-line-soft pt-3">
+            <h3 className="mb-2 text-[13px] font-semibold">Home and bus</h3>
+            <HomeAndBusFields value={homeBus} onChange={setHomeBus} routes={routes ?? []} boarding={boarding} childName={fullName} />
+          </div>
+        )}
+        {caps.learnerHealth && <OptionalHealthSection value={health} onChange={setHealth} paper={paperConsent} onPaper={setPaperConsent} />}
       </div>
     </Modal>
   );
@@ -724,11 +787,14 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
   classes: Pick<ClassGroup, "id" | "name">[];
   existingAdmissionNos: Set<string>;
   onClose: () => void;
-  onImported: (count: number) => void;
+  onImported: (count: number, warning?: string) => void;
   toast: ToastFn;
 }) {
+  // The new API keeps no home or health records: those columns are left alone, and a file that has them says so.
+  const caps = peopleCapabilities();
   const [rows, setRows] = useState<ImportRow[] | null>(null);
   const [fileName, setFileName] = useState("");
+  const [ignored, setIgnored] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
 
   const classIdByName = useMemo(
@@ -743,7 +809,8 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? "");
-      setRows(parseStudentCsv(text, { classIdByName, existingAdmissionNos }));
+      setRows(parseStudentCsv(text, { classIdByName, existingAdmissionNos, skipExtras: !caps.learnerHome }));
+      setIgnored(caps.learnerHome ? [] : ignoredImportColumns(text));
     };
     reader.readAsText(file);
   }
@@ -759,8 +826,9 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
     if (!rows) return;
     setImporting(true);
     try {
-      const count = await importStudents(tenantId, classIdByName, rows);
-      onImported(count);
+      let warning: string | undefined;
+      const count = await importStudents(tenantId, classIdByName, rows, (m) => { warning = m; });
+      onImported(count, warning);
     } catch (err) {
       toast(err instanceof Error ? `Import failed: ${err.message}` : "Import failed.", "error");
     } finally {
@@ -774,7 +842,9 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
       onClose={onClose}
       eyebrow="Students"
       title="Import from CSV"
-      blurb="Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Allergies and conditions need the family's signed consent form: add health_consent_signed_by and health_consent_date. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
+      blurb={caps.learnerHome
+        ? "Columns: admission_no, full_name, gender, class, boarding, date_of_birth, and optionally home_address, home_landmark, allergies, medical_conditions. Allergies and conditions need the family's signed consent form: add health_consent_signed_by and health_consent_date. Class must match one of this school's existing classes. Homes come in as text: pin each one on the map from Manage before the bus can be planned."
+        : "Columns: admission_no, full_name, gender, class, boarding, date_of_birth. Class must match one of this school's existing classes. Rows that need fixing are left out. If a problem turns up in any other row when you import, nothing is imported and you are told which line to fix."}
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -794,6 +864,12 @@ function ImportStudentsModal({ tenantId, classes, existingAdmissionNos, onClose,
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} aria-label="CSV file" />
           </label>
         </div>
+
+        {rows && ignored.length > 0 && (
+          <p role="note" className="rounded-md bg-sunken px-3 py-2 text-[12px] text-ink-muted">
+            These columns are not imported yet and will be left out: {ignored.join(", ")}.
+          </p>
+        )}
 
         {rows && (
           <>
@@ -892,6 +968,8 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<InviteStaffResult | null>(null);
   const other = role === "staff";
+  // On the new API a member of staff is a directory record, not a sign-in account: nothing to hand over, no login or email sent.
+  const accounts = peopleCapabilities().staffAccounts;
 
   async function add() {
     if (!fullName.trim()) { toast("A name is required.", "error"); return; }
@@ -899,6 +977,16 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
     if (other && !staffTitle.trim()) { toast("Give them a title, e.g. Librarian.", "error"); return; }
     setSaving(true);
     try {
+      if (!accounts) {
+        await apiAddStaff({
+          tenantId, fullName: fullName.trim(), role, staffTitle: staffTitle.trim() || null,
+          phone: phone.trim() || null, email: email.trim() || null,
+        });
+        toast(`${fullName.trim()} added.`);
+        onAdded();
+        onClose();
+        return;
+      }
       const r = await inviteStaff({
         tenant_id: tenantId, full_name: fullName.trim(), role, staff_title: staffTitle.trim() || undefined, phone: phone.trim() || undefined,
         email: email.trim() || undefined,
@@ -948,8 +1036,8 @@ function AddStaffModal({ tenantId, onClose, onAdded, toast }: {
             <TextField id="staff-title" label="Title (optional)" placeholder="e.g. Class teacher" value={staffTitle} onChange={(e) => setStaffTitle(e.target.value)} />
           )}
           <TextField id="staff-phone" label="Phone (optional)" placeholder="e.g. 0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <TextField id="staff-email" type="email" label="Email (optional)" placeholder="e.g. otieno@gmail.com" hint="We'll email their sign-in details. They still sign in with their login ID." value={email} onChange={(e) => setEmail(e.target.value)} />
-          {role !== "driver" && (
+          <TextField id="staff-email" type="email" label="Email (optional)" placeholder="e.g. otieno@gmail.com" hint={accounts ? "We'll email their sign-in details. They still sign in with their login ID." : "Kept with their record. No sign-in details are sent yet."} value={email} onChange={(e) => setEmail(e.target.value)} />
+          {accounts && role !== "driver" && (
             <p className="text-[12px] leading-relaxed text-ink-faint">
               A deputy, bursar, secretary or receptionist? Once they're added, open their card and give them admin access there.
             </p>
@@ -1119,6 +1207,8 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
   const [classId, setClassId] = useState(student.class_id ?? "");
   const [boarding, setBoarding] = useState(student.boarding);
   const [saving, setSaving] = useState(false);
+  // On the new API a class a learner leaves cannot be given back that year, so "Unassigned" is offered only to a learner with no class.
+  const mayUnassign = peopleCapabilities().unassignClass || !student.class_id;
 
   async function save() {
     if (!fullName.trim() || !admissionNo.trim()) { toast("Name and admission number are required.", "error"); return; }
@@ -1128,7 +1218,8 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
         fullName: fullName.trim(),
         admissionNo: admissionNo.trim(),
         gender: gender || null,
-        classId: classId || null,
+        // left out when it is unchanged: the class is then neither read nor written (a People-only teacher cannot read classes)
+        ...(classId !== (student.class_id ?? "") ? { classId: classId || null } : {}),
         boarding,
       });
       toast("Details saved.");
@@ -1167,7 +1258,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
           <span className="mb-1 block text-[11.5px] font-semibold">Class</span>
           <select value={classId} onChange={(e) => setClassId(e.target.value)}
             className="w-full rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-[13px]">
-            <option value="">Unassigned</option>
+            {mayUnassign && <option value="">Unassigned</option>}
             {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>

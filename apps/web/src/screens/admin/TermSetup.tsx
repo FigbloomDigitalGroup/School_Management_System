@@ -1,7 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { accentFor, gradingSchemeFor, schoolAccents, supabase, yearGroupsOf, yearLabel } from "@figbloom/shared";
-import type { ClassGroup, Profile, Term } from "@figbloom/shared";
+import {
+  accentFor, fetchTermSetup, gradingSchemeFor, saveSchoolAccent, saveSchoolDetails, saveSchoolLogo, saveSchoolPaymentMethods, schoolAccents, setClassTeacher,
+  setupCapabilities, startTerm, yearGroupsOf, yearLabel,
+} from "@figbloom/shared";
+import type { Profile } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { AiSettings } from "../../components/AiSettings";
 import { applyAccent } from "../../components/TenantTheme";
@@ -11,42 +14,6 @@ import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadTenantLogo } from "../../lib/uploads";
-
-type ClassRow = Pick<ClassGroup, "id" | "name" | "level" | "form_level" | "class_teacher_id">;
-
-interface TermSetupData {
-  term: Term | null;
-  classes: ClassRow[];
-  subjectsCount: number;
-  feeItemsCount: number;
-  teacherOptions: Pick<Profile, "id" | "full_name">[];
-  activeStudents: number;
-}
-
-async function fetchTermSetup(tenantId: string): Promise<TermSetupData> {
-  const sb = supabase();
-  const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
-  const termId = term?.id ?? null;
-
-  const [{ data: classRows }, { count: subjectsCount }, feeItemsRes, { data: teacherRows }, { count: studentsCount }] = await Promise.all([
-    sb.from("classes").select("id,name,level,form_level,class_teacher_id").eq("tenant_id", tenantId).order("form_level").order("name").returns<ClassRow[]>(),
-    sb.from("subjects").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-    termId
-      ? sb.from("fee_items").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("term_id", termId)
-      : Promise.resolve({ count: 0 }),
-    sb.from("profiles").select("id,full_name").eq("tenant_id", tenantId).eq("role", "teacher").order("full_name").returns<Pick<Profile, "id" | "full_name">[]>(),
-    sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
-  ]);
-
-  return {
-    term: term ?? null,
-    classes: classRows ?? [],
-    subjectsCount: subjectsCount ?? 0,
-    feeItemsCount: feeItemsRes.count ?? 0,
-    teacherOptions: teacherRows ?? [],
-    activeStudents: studentsCount ?? 0,
-  };
-}
 
 const fmtDay = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
@@ -59,7 +26,9 @@ export function TermSetup() {
   const toast = useToast();
   const navigate = useNavigate();
   const { tenant } = useTenantSession();
-  const [open, setOpen] = useState<string | null>("teachers");
+  // What the backend can do: on the new API there are no fees, payment methods or crest yet, and a class teacher is chosen when the class is made.
+  const caps = setupCapabilities();
+  const [open, setOpen] = useState<string | null>(caps.changeClassTeacher ? "teachers" : "term");
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchTermSetup(tenant.id), [tenant.id, reloadKey]);
   // A reloadKey refetch keeps what's already on screen; switching to a different school's
@@ -83,10 +52,7 @@ export function TermSetup() {
     try {
       // One database call: it switches the current term off and starts this one together, so a term the database refuses leaves the
       // school with the term it had (FIG-1427).
-      const { error } = await supabase().rpc("start_term", {
-        p_tenant_id: tenant.id, p_year: termYear, p_index: termIndex, p_starts_on: termStartsOn, p_ends_on: termEndsOn,
-      });
-      if (error) throw error;
+      await startTerm({ tenantId: tenant.id, year: termYear, index: termIndex, startsOn: termStartsOn, endsOn: termEndsOn });
       toast(`Term ${termIndex}, ${termYear} started.`);
       setTermStartsOn("");
       setTermEndsOn("");
@@ -121,13 +87,7 @@ export function TermSetup() {
     if (!schoolName.trim()) { toast("The school needs a name.", "error"); return; }
     setSavingDetails(true);
     try {
-      const { error: rpcError } = await supabase().rpc("set_school_details", {
-        p_tenant_id: tenant.id,
-        p_name: schoolName,
-        p_county: schoolCounty,
-        p_moe_registration: schoolMoe,
-      });
-      if (rpcError) throw rpcError;
+      await saveSchoolDetails(tenant.id, { name: schoolName, county: schoolCounty, moeRegistration: schoolMoe });
       toast("School details saved — this page picks it up immediately; the sidebar and other screens pick it up next time they load.");
     } catch (err) {
       toast(err instanceof Error ? `Could not save school details: ${err.message}` : "Could not save school details.", "error");
@@ -164,14 +124,7 @@ export function TermSetup() {
     e.preventDefault();
     setSavingPayment(true);
     try {
-      const { error: rpcError } = await supabase().rpc("set_school_payment_methods", {
-        p_tenant_id: tenant.id,
-        p_paybill: paybill,
-        p_till: till,
-        p_bank_details: bankDetails,
-        p_notes: paymentNotes,
-      });
-      if (rpcError) throw rpcError;
+      await saveSchoolPaymentMethods(tenant.id, { paybill, till, bankDetails, notes: paymentNotes });
       setPaymentSet(Boolean(paybill.trim() || till.trim() || bankDetails.trim()));
       toast("Payment methods saved — parents will see these on the Fees screen.");
     } catch (err) {
@@ -190,8 +143,7 @@ export function TermSetup() {
     setSavingCrest(true);
     try {
       const url = await uploadTenantLogo(tenant.id, crestFile);
-      const { error: rpcError } = await supabase().rpc("set_school_logo", { p_tenant_id: tenant.id, p_logo_url: url });
-      if (rpcError) throw rpcError;
+      await saveSchoolLogo(tenant.id, url);
       // Cache-bust: the path is stable (logo.<ext>), so a browser that already fetched it
       // needs a new URL to notice the replacement.
       setLogoUrl(`${url}?v=${Date.now()}`);
@@ -209,8 +161,7 @@ export function TermSetup() {
   async function handleSaveAccent() {
     setSavingAccent(true);
     try {
-      const { error: rpcError } = await supabase().rpc("set_school_accent", { p_tenant_id: tenant.id, p_accent: accent });
-      if (rpcError) throw rpcError;
+      await saveSchoolAccent(tenant.id, accent);
       setSavedAccent(accent);
       applyAccent(accent);
       toast(`Accent set to ${accentFor(accent).name}. Everyone at the school sees it next time they load the app.`);
@@ -234,7 +185,7 @@ export function TermSetup() {
   const schemes = new Set(yearGroups.map((g) => gradingSchemeFor(tenant.country, g.level)));
   const gradingNote = [schemes.has("cbc") && "CBC rubric (EE–BE)", schemes.has("kcse") && "12-point KCSE scale"].filter(Boolean).join(" and ");
 
-  const steps = data
+  const allSteps = data
     ? [
         {
           id: "term", label: "Term dates", done: !!data.term,
@@ -263,10 +214,12 @@ export function TermSetup() {
             : "No fee items have been set up for this term yet.",
         },
         {
-          id: "branding", label: "School crest and accent", done: Boolean(logoUrl),
-          note: logoUrl
-            ? `A crest is set and the accent is ${accentFor(savedAccent).name}. Change either any time.`
-            : "No crest uploaded yet — the school's initials are shown instead.",
+          id: "branding", label: caps.schoolCrest ? "School crest and accent" : "School accent", done: caps.schoolCrest ? Boolean(logoUrl) : true,
+          note: !caps.schoolCrest
+            ? `The accent is ${accentFor(savedAccent).name}. Change it any time.`
+            : logoUrl
+              ? `A crest is set and the accent is ${accentFor(savedAccent).name}. Change either any time.`
+              : "No crest uploaded yet — the school's initials are shown instead.",
         },
         {
           id: "payment", label: "Payment methods", done: paymentSet,
@@ -280,6 +233,13 @@ export function TermSetup() {
         },
       ]
     : [];
+  // A step is shown only where the backend can do it.
+  const hidden = new Set<string>([
+    ...(caps.feeSetup ? [] : ["fees", "payment"]),
+    ...(caps.changeClassTeacher ? [] : ["teachers"]),
+    ...(caps.promoteClass ? [] : ["roll"]),
+  ]);
+  const steps = allSteps.filter((s) => !hidden.has(s.id));
   const done = steps.filter((s) => s.done).length;
 
   return (
@@ -287,7 +247,7 @@ export function TermSetup() {
       <PageHead
         eyebrow="School settings"
         title={data?.term ? `Set up ${data.term.name}` : "Set up this term"}
-        blurb="Do these in any order and come back as often as you need. Nothing here is visible to parents until the fee structure is published."
+        blurb={`Do these in any order and come back as often as you need.${caps.feeSetup ? " Nothing here is visible to parents until the fee structure is published." : ""}`}
       />
 
       <div className="max-w-[720px] px-7 py-6">
@@ -453,6 +413,7 @@ export function TermSetup() {
                           </div>
                         ) : s.id === "branding" ? (
                           <div className="grid gap-5">
+                          {caps.schoolCrest && (
                           <form onSubmit={handleSaveCrest} className="flex flex-wrap items-end gap-3">
                             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-white">
                               {logoUrl ? (
@@ -475,6 +436,7 @@ export function TermSetup() {
                               {savingCrest ? "Uploading…" : "Save crest"}
                             </Button>
                           </form>
+                          )}
                           <div className="flex flex-wrap items-end gap-3">
                             <div className="min-w-[200px] flex-1">
                               <span className="mb-1.5 block text-[12px] font-semibold">Accent colour</span>
@@ -603,15 +565,17 @@ export function TermSetup() {
           </>
         )}
 
-        <div className="mt-5 rounded-xl bg-sunken p-4">
-          <h2 className="text-[13px] font-semibold">When you publish the fee structure</h2>
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
-            Every parent gets an invoice in the app and an SMS with the balance. It cannot be unsent, so the composer
-            shows the total billed and the number of parents before it goes.
-          </p>
-        </div>
+        {caps.feeSetup && (
+          <div className="mt-5 rounded-xl bg-sunken p-4">
+            <h2 className="text-[13px] font-semibold">When you publish the fee structure</h2>
+            <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
+              Every parent sees the invoice in the app once learners are billed. Changing a fee item later only affects
+              invoices created after the change.
+            </p>
+          </div>
+        )}
 
-        <AiSettings tenantId={tenant.id} />
+        {caps.aiSettings && <AiSettings tenantId={tenant.id} />}
       </div>
     </>
   );
@@ -630,8 +594,7 @@ function ClassTeacherRow({ classId, className, teachers, toast, onAssigned }: {
     if (!teacherId) { toast("Choose a teacher first.", "error"); return; }
     setSaving(true);
     try {
-      const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
-      if (error) throw error;
+      await setClassTeacher(classId, teacherId);
       toast(`Class teacher assigned for ${className}.`);
       onAssigned();
     } catch (err) {

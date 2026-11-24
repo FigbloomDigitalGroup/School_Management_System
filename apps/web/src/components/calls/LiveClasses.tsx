@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchRunningLiveClasses, fetchTeacherClasses, liveClassTitle, subscribeLiveClasses, supabase, type LiveClass,
+  fetchRunningLiveClasses, fetchTeacherClasses, fetchTeacherSubjectAssignments, liveClassTitle, subscribeLiveClasses, type LiveClass,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import { SelectField } from "../ui/Field";
@@ -59,13 +59,7 @@ export function LiveClassPanel() {
   const { profile } = useTenantSession();
   const { goLive, joinClass, busy } = useCalls();
   const { data: classes } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
-  const { data: assignments } = useAsync(async () => {
-    const { data, error } = await supabase()
-      .from("teaching_assignments").select("class_id, subject_id, subjects(name)").eq("teacher_id", profile.id)
-      .returns<{ class_id: string; subject_id: string; subjects: { name: string } | null }[]>();
-    if (error) throw new Error(error.message);
-    return data ?? [];
-  }, [profile.id]);
+  const { data: assignments } = useAsync(() => fetchTeacherSubjectAssignments(profile.id), [profile.id]);
 
   const classIds = useMemo(() => (classes ?? []).map((c) => c.id), [classes]);
   const running = useRunningLiveClasses(classIds);

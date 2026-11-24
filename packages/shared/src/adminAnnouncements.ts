@@ -1,3 +1,5 @@
+import { apiFetchAnnouncementsData, apiInsertAnnouncement } from "./api/announcementsApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 import { STAFF_ROLES, type AudienceRecipients } from "./audience";
@@ -86,6 +88,7 @@ function reachOf(students: { id: string; profile_id: string | null }[], parentsO
 
 /** What the composer needs before it can say who a notice reaches: the classes, the headcounts, and what was sent lately. */
 export async function fetchAnnouncementsData(tenantId: string): Promise<AnnouncementsData> {
+  if (onApi()) return apiFetchAnnouncementsData(tenantId);
   const sb = supabase();
   const count = (roles: string[]) =>
     sb.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("role", roles);
@@ -173,6 +176,7 @@ export interface AnnouncementDraft {
  * while a notice's files go up, and publishes it after). Answers its id.
  */
 export async function insertAnnouncement(tenantId: string, authorId: string, draft: AnnouncementDraft, publishNow: boolean): Promise<string> {
+  if (onApi()) return apiInsertAnnouncement(tenantId, draft, publishNow);
   const { data, error } = await supabase().from("announcements").insert({
     tenant_id: tenantId,
     author_id: authorId,
@@ -188,6 +192,14 @@ export async function insertAnnouncement(tenantId: string, authorId: string, dra
 
 /** Asks the push service to notify the announcement's audience. The announcement is already sent; a failure here is only the push. */
 export async function sendAnnouncementPush(announcementId: string): Promise<void> {
+  // On apps/api, POST .../announcements/{id}/publish already enqueues the push job on the server.
+  if (onApi()) return;
   const { error } = await supabase().functions.invoke("send-push", { body: { announcement_id: announcementId } });
+  if (error) throw new Error(error.message);
+}
+
+/** Removes an unpublished announcement draft (e.g. when its attachment upload fails or is cancelled). */
+export async function deleteAnnouncement(announcementId: string): Promise<void> {
+  const { error } = await supabase().from("announcements").delete().eq("id", announcementId);
   if (error) throw new Error(error.message);
 }

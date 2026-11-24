@@ -1,3 +1,6 @@
+import { apiFetchLearnerGuardians } from "./api/peopleApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /**
@@ -127,6 +130,7 @@ export function bioToInput(b: LearnerBio): LearnerBioInput {
 const BIO_COLUMNS = "full_name, date_of_birth, gender, birth_cert_no, upi_no, nationality, religion, previous_school, bio_updated_at, bio_updated_by";
 
 export async function fetchLearnerBio(studentId: string): Promise<LearnerBio> {
+  if (onApi()) throw new NotOnApiError("A learner's bio data");
   const { data, error } = await supabase().from("students").select(BIO_COLUMNS).eq("id", studentId).single<LearnerBio>();
   if (error) throw new Error(error.message);
   return data;
@@ -134,6 +138,7 @@ export async function fetchLearnerBio(studentId: string): Promise<LearnerBio> {
 
 /** Save the changed fields. Returns which were applied and which went to the office. */
 export async function saveLearnerBio(studentId: string, changes: Partial<LearnerBioInput>): Promise<{ saved: string[]; pending: string[] }> {
+  if (onApi()) throw new NotOnApiError("A learner's bio data");
   const { data, error } = await supabase().rpc("set_child_bio", { p_student_id: studentId, p_bio: changes });
   if (error) throw new Error(error.message);
   return data as { saved: string[]; pending: string[] };
@@ -141,6 +146,7 @@ export async function saveLearnerBio(studentId: string, changes: Partial<Learner
 
 /** The learner's open request, if any. */
 export async function fetchPendingBioRequest(studentId: string): Promise<BioRequest | null> {
+  if (onApi()) throw new NotOnApiError("Bio data requests");
   const { data, error } = await supabase().from("student_bio_requests").select("*")
     .eq("student_id", studentId).eq("status", "pending").maybeSingle<BioRequest>();
   if (error) throw new Error(error.message);
@@ -154,6 +160,7 @@ export interface PendingBioRequest extends BioRequest {
 
 /** Every open request at a school, oldest first, with who it's for and who asked. */
 export async function fetchPendingBioRequests(tenantId: string): Promise<PendingBioRequest[]> {
+  if (onApi()) throw new NotOnApiError("Bio data requests");
   const sb = supabase();
   const { data, error } = await sb.from("student_bio_requests").select("*")
     .eq("tenant_id", tenantId).eq("status", "pending").order("created_at").returns<BioRequest[]>();
@@ -181,6 +188,7 @@ export async function fetchPendingBioRequests(tenantId: string): Promise<Pending
 
 /** The office approves or rejects; the guardian who asked can withdraw (approve false). */
 export async function decideBioRequest(requestId: string, approve: boolean, note?: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Bio data requests");
   const { error } = await supabase().rpc("decide_bio_request", { p_request_id: requestId, p_approve: approve, p_note: note ?? null });
   if (error) throw new Error(error.message);
 }
@@ -197,6 +205,7 @@ export interface LearnerGuardianContact {
 
 /** The learner's guardians and how to reach them, for the office. */
 export async function fetchLearnerGuardians(studentId: string): Promise<LearnerGuardianContact[]> {
+  if (onApi()) return apiFetchLearnerGuardians(studentId);
   const { data, error } = await supabase().from("guardians")
     .select("profile_id, relationship, profiles(full_name, phone, alt_phone, email)").eq("student_id", studentId)
     .returns<{ profile_id: string; relationship: LearnerGuardianContact["relationship"]; profiles: { full_name: string; phone: string | null; alt_phone: string | null; email: string | null } | null }[]>();

@@ -1,3 +1,4 @@
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 
 /**
@@ -138,6 +139,7 @@ export type HealthFlagSource = Pick<StudentHealth, "allergies" | "medical_condit
  * the blood group, notes, doctor or emergency contacts (FIG-1303). Learners with nothing recorded are absent.
  */
 export async function fetchHealthFlagsForStudents(studentIds: string[]): Promise<Map<string, HealthFlagSource>> {
+  if (onApi()) return new Map();
   const ids = [...new Set(studentIds)];
   const out = new Map<string, HealthFlagSource>();
   // chunked: a long id list in one request runs past what the API gateway accepts

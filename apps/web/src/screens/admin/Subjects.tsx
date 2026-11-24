@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
-  LEVELS, PATHWAY_LABEL, fetchLearningAreas, isValidYear, levelsForTenant, supabase, yearLabel, yearRangeLabel, yearsBackwards,
+  LEVELS, PATHWAY_LABEL, createSubject, createSubjects, fetchLearningAreas, fetchSubjects, isValidYear, levelsForTenant, setupCapabilities, updateSubject, yearLabel,
+  yearRangeLabel, yearsBackwards,
   type ClassLevel, type LearningArea, type Pathway, type Subject,
 } from "@figbloom/shared";
 import { Modal } from "../../components/ui/Modal";
@@ -10,12 +11,6 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useToast, type ToastFn } from "../../components/ui/Toast";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-
-async function fetchSubjects(tenantId: string): Promise<Subject[]> {
-  const { data, error } = await supabase().from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>();
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
 
 /** Quotes a field only if it needs it — a plain "History" or "CRE" stays bare. */
 function csvField(value: string): string {
@@ -74,6 +69,8 @@ function rangeLabel(s: Subject, unit: string): string {
 export function AdminSubjects() {
   const toast = useToast();
   const { tenant } = useTenantSession();
+  // On the new API a subject is a code and a name: no level or year range, no KICD catalogue, and no editing yet.
+  const caps = setupCapabilities();
   const unit = tenant.level === "primary" ? "Grade" : "Form";
   const [reloadKey, setReloadKey] = useState(0);
   const { data: subjects, loading, error } = useAsync(() => fetchSubjects(tenant.id), [tenant.id, reloadKey]);
@@ -101,7 +98,7 @@ export function AdminSubjects() {
     return Number.isFinite(n) ? n : null;
   }
 
-  async function createSubject() {
+  async function addSubject() {
     if (!name.trim() || !code.trim()) { toast("Give the subject a name and a short code.", "error"); return; }
     const lo = parseFormBound(minForm), hi = parseFormBound(maxForm);
     if (level && [lo, hi].some((n) => n != null && !isValidYear(level, n))) {
@@ -116,11 +113,10 @@ export function AdminSubjects() {
     }
     setCreating(true);
     try {
-      const { error: err } = await supabase().from("subjects").insert({
-        tenant_id: tenant.id, name: name.trim(), code: code.trim().toUpperCase(), is_core: true,
-        level: level || null, min_form_level: lo, max_form_level: hi,
+      await createSubject(tenant.id, {
+        name: name.trim(), code: code.trim().toUpperCase(), isCore: true,
+        level: level || null, minFormLevel: lo, maxFormLevel: hi,
       });
-      if (err) throw err;
       toast(`${name.trim()} added.`);
       setName(""); setCode(""); setMinForm(""); setMaxForm(""); setLevel("");
       reload();
@@ -172,10 +168,10 @@ export function AdminSubjects() {
 
     setBulkCreating(true);
     try {
-      const { error: err } = await supabase().from("subjects").insert(
-        toCreate.map((s) => ({ tenant_id: tenant.id, name: s.name, code: s.code, is_core: true, min_form_level: s.min, max_form_level: s.max })),
+      await createSubjects(
+        tenant.id,
+        toCreate.map((s) => ({ name: s.name, code: s.code, isCore: true, minFormLevel: s.min, maxFormLevel: s.max })),
       );
-      if (err) throw err;
       toast(`${toCreate.length} subject${toCreate.length === 1 ? "" : "s"} added.`);
       setBulkText("");
       setBulkOpen(false);
@@ -200,7 +196,7 @@ export function AdminSubjects() {
         actions={
           <>
             {subjects && subjects.length > 0 && <Button onClick={() => downloadSubjectsCsv(subjects, unit)}>Export CSV</Button>}
-            <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>
+            {caps.subjectDetails && <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>}
           </>
         }
       />
@@ -217,15 +213,20 @@ export function AdminSubjects() {
               <p className="text-[12.5px] text-ink-muted">No subjects yet — add the school's first one below.</p>
             ) : (
               <ul className="grid gap-1.5">
-                {subjects.map((s) => (
+                {subjects.map((s) => caps.editSubject ? (
                   <SubjectRow key={s.id} subject={s} unit={unit} onSaved={reload} toast={toast} />
+                ) : (
+                  <li key={s.id} className="flex items-center gap-2.5 rounded-lg border border-line-soft px-3 py-2">
+                    <span className="min-w-0 flex-1 text-[13px] font-medium">{s.name}</span>
+                    <span className="font-mono text-[11px] text-ink-faint">{s.code}</span>
+                  </li>
                 ))}
               </ul>
             )}
 
             <div className="grid gap-2.5 rounded-lg border border-line-soft bg-white p-3.5">
               <h2 className="text-[13px] font-semibold">New subject</h2>
-              <div className="grid gap-2.5" style={{ gridTemplateColumns: "1.6fr 0.8fr 1.2fr 0.8fr 0.8fr" }}>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: caps.subjectDetails ? "1.6fr 0.8fr 1.2fr 0.8fr 0.8fr" : "1.6fr 0.8fr" }}>
                 <label className="block">
                   <span className="mb-1 block text-[11.5px] font-semibold">Name</span>
                   <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Computer Studies"
@@ -236,6 +237,7 @@ export function AdminSubjects() {
                   <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="COMP"
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 font-mono text-[13px] outline-none" />
                 </label>
+                {caps.subjectDetails && (<>
                 <label className="block">
                   <span className="mb-1 block text-[11.5px] font-semibold">Level</span>
                   <select value={level} onChange={(e) => setLevel(e.target.value as ClassLevel | "")}
@@ -254,13 +256,16 @@ export function AdminSubjects() {
                   <input value={maxForm} onChange={(e) => setMaxForm(e.target.value)} placeholder="Any" inputMode="numeric"
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none" />
                 </label>
+                </>)}
               </div>
+              {caps.subjectDetails && (
               <p className="text-[11px] text-ink-faint">
                 {level
                   ? `Years are numbered as ${LEVELS[level].label.toLowerCase()} numbers them (${yearLabel(level, LEVELS[level].min)} is ${LEVELS[level].min}). Leave blank for all of ${LEVELS[level].label.toLowerCase()}.`
                   : `Leave "From"/"To" blank for a subject every class offers, regardless of ${unit.toLowerCase()}.`}
               </p>
-              <Button className="justify-self-start" onClick={() => void createSubject()} disabled={creating}>
+              )}
+              <Button className="justify-self-start" onClick={() => void addSubject()} disabled={creating}>
                 {creating ? "Adding…" : "Add subject"}
               </Button>
             </div>
@@ -285,8 +290,10 @@ export function AdminSubjects() {
                     className="w-full rounded-md border border-[#D3DAD5] px-2.5 py-1.5 text-[13px] outline-none"
                   />
                   <span className="mt-1 block text-[11px] text-ink-faint">
-                    "Name", "Name,CODE", or "Name,CODE,{unit.toUpperCase()}RANGE" (e.g. "1-2", or just "3" for one {unit.toLowerCase()} only) — a code
-                    left out is generated from the name, a range left out means every {unit.toLowerCase()}.
+                    {caps.subjectDetails
+                      ? <>"Name", "Name,CODE", or "Name,CODE,{unit.toUpperCase()}RANGE" (e.g. "1-2", or just "3" for one {unit.toLowerCase()} only) — a code
+                    left out is generated from the name, a range left out means every {unit.toLowerCase()}.</>
+                      : <>"Name" or "Name,CODE" — a code left out is generated from the name.</>}
                   </span>
                 </label>
                 <Button variant="primary" className="justify-self-start" onClick={() => void createBulkSubjects()} disabled={bulkCreating || !bulkText.trim()}>
@@ -337,11 +344,10 @@ function AddFromKicdModal({ existing, onClose, onAdded, toast }: {
     const codeFor = (base: string) => { let c = base, n = 2; while (taken.has(c)) c = `${base}-${n++}`; taken.add(c); return c; };
     setSaving(true);
     try {
-      const { error: err } = await supabase().from("subjects").insert(chosen.map((a) => ({
-        tenant_id: tenant.id, name: a.name, code: codeFor(a.code), is_core: a.is_core,
-        level: a.level, min_form_level: a.min_grade, max_form_level: a.max_grade, learning_area_id: a.id,
+      await createSubjects(tenant.id, chosen.map((a) => ({
+        name: a.name, code: codeFor(a.code), isCore: a.is_core,
+        level: a.level, minFormLevel: a.min_grade, maxFormLevel: a.max_grade, learningAreaId: a.id,
       })));
-      if (err) throw err;
       onAdded(chosen.length);
     } catch (err) {
       toast(err instanceof Error ? `Could not add those learning areas: ${err.message}` : "Could not add those learning areas.", "error");
@@ -445,11 +451,7 @@ function SubjectRow({ subject, unit, onSaved, toast }: {
         toast(`It starts in ${at(lo!)} but ends in ${at(hi!)}. The first can't be after the last: swap them, or leave one blank for no limit.`, "error");
         return;
       }
-      const { error: err } = await supabase().from("subjects").update({
-        name: name.trim(), code: code.trim().toUpperCase(),
-        min_form_level: lo, max_form_level: hi,
-      }).eq("id", subject.id);
-      if (err) throw err;
+      await updateSubject(subject.id, { name: name.trim(), code: code.trim().toUpperCase(), minFormLevel: lo, maxFormLevel: hi });
       onSaved();
     } catch (err) {
       toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");

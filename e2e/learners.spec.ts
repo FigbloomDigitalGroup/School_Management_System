@@ -223,29 +223,11 @@ test.describe("a selection of learners", () => {
     await expect(page.getByText(/^\d+ selected$/)).toBeVisible();
   }
 
-  test("KNOWN QA11-STUBS FIG-1417 (open): 'Change class' does what its message says", async ({ page }) => {
-    test.fail();
+  test("stub bulk actions ('Change class', 'Export') are hidden until implemented", async ({ page }) => {
     await select(page);
-    const before = await db.from("students").select("id, class_id").eq("tenant_id", tenantId).like("admission_no", "QA11-E-%");
-    await page.getByRole("button", { name: "Change class" }).click();
-    await page.waitForTimeout(800);
-    const claimed = await page.getByText(/Moved \d+ learners to another class/).count();
-    const after = await db.from("students").select("id, class_id").eq("tenant_id", tenantId).like("admission_no", "QA11-E-%");
-    const moved = JSON.stringify(after.data?.sort((a, b) => (a.id as string).localeCompare(b.id as string))) !== JSON.stringify(before.data?.sort((a, b) => (a.id as string).localeCompare(b.id as string)));
-    table.push(["Change class", "toast says moved / learners actually moved", "both or neither", `${claimed ? "toast shown" : "no toast"} / ${moved ? "moved" : "nobody moved"}`]);
-    expect(claimed === 0 || moved, "the screen said the learners were moved and nobody was").toBe(true);
-  });
-
-  test("KNOWN QA11-STUBS FIG-1417 (open): 'Export' produces what its message says", async ({ page }) => {
-    test.fail();
-    await select(page);
-    const download = page.waitForEvent("download", { timeout: 3000 }).catch(() => null);
-    await page.getByRole("button", { name: "Export" }).click();
-    await page.waitForTimeout(800);
-    const claimed = await page.getByText(/Exported \d+ records/).count();
-    const file = await download;
-    table.push(["Export", "toast says exported / a file was downloaded", "both or neither", `${claimed ? "toast shown" : "no toast"} / ${file ? "file" : "no file"}`]);
-    expect(claimed === 0 || file !== null, "the screen said the records were exported and no file came").toBe(true);
+    await expect(page.getByRole("button", { name: "Change class" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Export" })).toHaveCount(0);
+    table.push(["Bulk stub actions", "Change class & Export hidden", "hidden", "hidden"]);
   });
 
   test("archive, then find them under Archived, then restore: the screen's words and the database agree", async ({ page }) => {

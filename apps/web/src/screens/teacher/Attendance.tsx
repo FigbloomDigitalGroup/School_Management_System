@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  fetchClassRoster, fetchCurrentTerm, fetchTeacherClasses, fetchTodayAttendanceMarks,
+  fetchClassRoster, fetchCurrentTerm, fetchTeacherClassProgress, fetchTeacherClasses, fetchTodayAttendanceMarks,
   isRetryable, MARK_LABEL, MARK_SHORT, MARK_STYLE, nextMark, newRegister, submitWarning, tally, toRecords, today, writeAttendance,
-  supabase, fetchHealthFlagsForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
+  fetchHealthFlagsForStudents, fetchClassSickBay, CLASS_SICK_BAY_LABEL,
   adminAccessFor, fetchEarlySignOutsForStudents, liveSignOutsByStudent, markWithSignOut, mayRecordEarlySignOut, mayVoidEarlySignOut,
   voidEarlySignOut, leftEarlyText,
   fetchAttendanceSettings, sessionAt, sessionsOffered, REGISTER_TABLE, SESSION_LABEL,
-  type AttendanceSession, type AttendanceMark, type ClassGroup, type ClassSickBayStatus, type EarlySignOut, type Register,
+  type AttendanceSession, type AttendanceMark, type ClassProgress, type ClassSickBayStatus, type EarlySignOut, type Register,
 } from "@figbloom/shared";
 import { EarlySignOutModal } from "../../components/attendance/EarlySignOutModal";
 import { SessionSwitch } from "../../components/attendance/SessionSwitch";
@@ -26,53 +26,7 @@ import { useTenantSession } from "../../lib/sessionContext";
 import { Avatar } from "../../components/Avatar";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 
-interface AwayStudent { name: string; mark: AttendanceMark; note: string | null }
-interface ClassProgress {
-  present: number; absent: number; late: number; total: number;
-  submitted: boolean; submittedAt: string | null;
-  away: AwayStudent[]; // everyone not marked present, for the card detail
-}
-
-/** Today's state across every class this teacher has, not just the one
- *  they're looking at — what the "your classes today" cards on the
- *  confirmation screen are built from. */
-async function fetchClassProgress(
-  classes: Pick<ClassGroup, "id" | "name">[], session: AttendanceSession, timeZone?: string,
-): Promise<Map<string, ClassProgress>> {
-  const classIds = classes.map((c) => c.id);
-  const out = new Map<string, ClassProgress>();
-  if (classIds.length === 0) return out;
-
-  const [{ data: studentRows, error: e1 }, { data: attRows, error: e2 }] = await Promise.all([
-    supabase().from("students").select("id, class_id").eq("active", true).in("class_id", classIds)
-      .returns<{ id: string; class_id: string }[]>(),
-    supabase().from(REGISTER_TABLE[session]).select("class_id, mark, note, created_at, students(full_name)")
-      .in("class_id", classIds).eq("taken_on", today(timeZone))
-      .returns<{ class_id: string; mark: AttendanceMark; note: string | null; created_at: string; students: { full_name: string } | null }[]>(),
-  ]);
-  if (e1) throw new Error(e1.message);
-  if (e2) throw new Error(e2.message);
-
-  const totalByClass = new Map<string, number>();
-  for (const s of studentRows ?? []) totalByClass.set(s.class_id, (totalByClass.get(s.class_id) ?? 0) + 1);
-  for (const c of classes) {
-    out.set(c.id, { present: 0, absent: 0, late: 0, total: totalByClass.get(c.id) ?? 0, submitted: false, submittedAt: null, away: [] });
-  }
-
-  for (const r of attRows ?? []) {
-    const row = out.get(r.class_id);
-    if (!row) continue;
-    row.submitted = true;
-    if (!row.submittedAt || r.created_at < row.submittedAt) row.submittedAt = r.created_at;
-    if (r.mark === "present") row.present += 1;
-    else if (r.mark === "absent" || r.mark === "late") {
-      if (r.mark === "absent") row.absent += 1; else row.late += 1;
-      row.away.push({ name: r.students?.full_name ?? "Unknown", mark: r.mark, note: r.note });
-    }
-  }
-  for (const row of out.values()) row.away.sort((a, b) => a.name.localeCompare(b.name));
-  return out;
-}
+const fetchClassProgress = fetchTeacherClassProgress;
 
 /**
  * The 60-second screen — the one a teacher uses every morning, often standing
@@ -345,7 +299,7 @@ export function Attendance() {
               {reg ? `${counts.present} present · ${counts.absent} absent · ${counts.late} late` : <Skeleton className="inline-block h-3 w-40 align-middle" />} —{" "}
               {held > 0
                 ? `held on this phone${held > 1 ? ` with ${held - 1} other register(s)` : ""}, sends itself once you have signal`
-                : "parents of absent learners get an SMS at 09:00, not immediately"}
+                : "saved for today"}
             </div>
           </div>
           {offered.length > 1 && <SessionSwitch value={session} options={offered} onChange={switchSession} />}

@@ -1,4 +1,4 @@
-import { localDay, setHealthConsent, splitCsvLine, splitList, supabase } from "@figbloom/shared";
+import { apiImportLearners, bulkInsertStudentsWithHealth, localDay, onApi, peopleCapabilities, splitCsvLine, splitList, type ImportLearnerRow } from "@figbloom/shared";
 
 /**
  * Bulk/CSV student import. One admission per term intake, forty-plus rows at
@@ -66,6 +66,19 @@ export interface ParseContext {
   classIdByName: Map<string, string>;
   /** Admission numbers already on the active roster — a re-import of the same file must not duplicate them. */
   existingAdmissionNos: Set<string>;
+  /**
+   * Leave the home and health columns alone: they are neither read nor checked (a backend that keeps neither, so a missing consent
+   * form is not a problem worth stopping a row for).
+   */
+  skipExtras?: boolean;
+}
+
+/** The optional columns (home, health) a file has in its header: on a backend that does not keep them, they are listed as not imported. */
+export function ignoredImportColumns(text: string): string[] {
+  const first = text.split(/\r\n|\n|\r/).find((l) => l.trim().length > 0);
+  if (!first) return [];
+  const header = new Set(splitCsvLine(first).map((h) => h.toLowerCase()));
+  return OPTIONAL_IMPORT_COLUMNS.filter((c) => header.has(c));
 }
 
 /** Parses and validates every row; nothing here talks to the network. */
@@ -119,10 +132,11 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
     const date_of_birth = parseDate(dobRaw);
     if (date_of_birth === "invalid") errors.push("Date of birth must be YYYY-MM-DD.");
 
-    const home_address = cell(cells, idx.home_address).slice(0, 300) || null;
-    const home_landmark = cell(cells, idx.home_landmark).slice(0, 200) || null;
-    const latRaw = cell(cells, idx.home_lat);
-    const lngRaw = cell(cells, idx.home_lng);
+    const extras = !ctx.skipExtras;
+    const home_address = extras ? cell(cells, idx.home_address).slice(0, 300) || null : null;
+    const home_landmark = extras ? cell(cells, idx.home_landmark).slice(0, 200) || null : null;
+    const latRaw = extras ? cell(cells, idx.home_lat) : "";
+    const lngRaw = extras ? cell(cells, idx.home_lng) : "";
     let home_lat: number | null = null;
     let home_lng: number | null = null;
     if (latRaw || lngRaw) {
@@ -136,10 +150,10 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
       }
     }
 
-    const allergies = splitList(cell(cells, idx.allergies));
-    const medical_conditions = splitList(cell(cells, idx.medical_conditions));
-    const signedBy = cell(cells, idx.health_consent_signed_by).slice(0, 120);
-    const consentDate = parseDate(cell(cells, idx.health_consent_date));
+    const allergies = extras ? splitList(cell(cells, idx.allergies)) : [];
+    const medical_conditions = extras ? splitList(cell(cells, idx.medical_conditions)) : [];
+    const signedBy = extras ? cell(cells, idx.health_consent_signed_by).slice(0, 120) : "";
+    const consentDate = extras ? parseDate(cell(cells, idx.health_consent_date)) : null;
     let health_consent: ImportRow["health_consent"] = null;
     if (allergies.length || medical_conditions.length) {
       if (!signedBy || !consentDate) errors.push("Allergies and conditions need the family's consent form: health_consent_signed_by and health_consent_date.");
@@ -173,6 +187,14 @@ export function parseStudentCsv(text: string, ctx: ParseContext): ImportRow[] {
 }
 
 export function csvTemplate(): string {
+  // Only the columns the backend keeps: on the new API, no home or health columns.
+  if (!peopleCapabilities().learnerHome) {
+    return [
+      IMPORT_COLUMNS.join(","),
+      "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14",
+      "4502,Otieno Odhiambo,male,Form 2 East,no,",
+    ].join("\n");
+  }
   return [
     [...IMPORT_COLUMNS, "home_address", "home_landmark", "allergies", "medical_conditions", "health_consent_signed_by", "health_consent_date"].join(","),
     "4501,Wanjiku Kamau,female,Form 2 East,yes,2010-03-14,,,,,,",
@@ -192,52 +214,47 @@ export function downloadCsvTemplate(): void {
   URL.revokeObjectURL(url);
 }
 
-/** Inserts every valid row in one call — a school admin can already write students in their own tenant (the students policies in supabase/migrations). */
+/**
+ * Inserts every valid row in one call — a school admin can already write students in their own tenant (the students policies in supabase/migrations).
+ * On the new API the API checks the file again and makes the learners, and each is then placed in their class (api/peopleApi.ts apiImportLearners);
+ * `notify` says so when some could not be placed.
+ */
 export async function importStudents(
   tenantId: string,
   classIdByName: Map<string, string>,
   rows: ImportRow[],
+  notify?: (message: string) => void,
 ): Promise<number> {
   const valid = rows.filter((r) => r.errors.length === 0);
   if (valid.length === 0) return 0;
-  const { data: created, error } = await supabase().from("students").insert(
+  if (onApi()) {
+    const learners: ImportLearnerRow[] = valid.map((r) => ({
+      line: r.line, admissionNo: r.admission_no, fullName: r.full_name, gender: r.gender!, dateOfBirth: r.date_of_birth, boarding: r.boarding,
+      classId: classIdByName.get(r.className.trim().toLowerCase()) ?? null,
+    }));
+    const outcome = await apiImportLearners(tenantId, learners);
+    if (outcome.unplaced.length > 0) {
+      const some = outcome.unplaced.slice(0, 3).map((u) => `${u.admissionNo} (${u.reason})`).join(", ");
+      notify?.(`${outcome.created} learner${outcome.created === 1 ? " was" : "s were"} imported, but ${outcome.unplaced.length} could not be placed in a class: ${some}${outcome.unplaced.length > 3 ? ", and more" : ""}. Place them from Manage.`);
+    }
+    return outcome.created;
+  }
+  return bulkInsertStudentsWithHealth(
+    tenantId,
     valid.map((r) => ({
-      tenant_id: tenantId,
       admission_no: r.admission_no,
       full_name: r.full_name,
       gender: r.gender,
       class_id: classIdByName.get(r.className.trim().toLowerCase())!,
       boarding: r.boarding,
       date_of_birth: r.date_of_birth,
-      active: true,
       home_address: r.home_address,
       home_landmark: r.home_landmark,
       home_lat: r.home_lat,
       home_lng: r.home_lng,
+      allergies: r.allergies,
+      medical_conditions: r.medical_conditions,
+      health_consent: r.health_consent,
     })),
-  ).select("id, admission_no").returns<{ id: string; admission_no: string }[]>();
-  if (error) throw error;
-
-  // Allergies and conditions go to student_health (one row per learner who has any),
-  // after recording each family's signed consent form: without it the database refuses them.
-  const idByAdmission = new Map((created ?? []).map((c) => [c.admission_no, c.id]));
-  const health = valid
-    .filter((r) => r.health_consent && (r.allergies.length || r.medical_conditions.length))
-    .map((r) => ({
-      consent: r.health_consent!,
-      row: { tenant_id: tenantId, student_id: idByAdmission.get(r.admission_no), allergies: r.allergies, medical_conditions: r.medical_conditions },
-    }))
-    .filter((h): h is typeof h & { row: { student_id: string } } => !!h.row.student_id);
-  if (health.length) {
-    try {
-      for (let i = 0; i < health.length; i += 8) {
-        await Promise.all(health.slice(i, i + 8).map((h) => setHealthConsent(h.row.student_id, true, h.consent)));
-      }
-    } catch (err) {
-      throw new Error(`The learners were imported, but their health consent forms didn't save: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const { error: healthErr } = await supabase().from("student_health").upsert(health.map((h) => h.row), { onConflict: "student_id" });
-    if (healthErr) throw new Error(`The learners were imported, but their allergies and conditions didn't save: ${healthErr.message}`);
-  }
-  return valid.length;
+  );
 }

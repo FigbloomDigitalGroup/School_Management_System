@@ -1,19 +1,5 @@
 import { useEffect, useState } from "react";
-import { slugAlternatives, supabase, validateSlug } from "@figbloom/shared";
-
-export type SlugKind = "school" | "organization";
-
-/**
- * Which of these addresses are already in use. Goes through the
- * tenant_slugs_taken / organization_slugs_taken functions because most people
- * filling in these forms can't read the tables themselves.
- */
-export async function fetchTakenSlugs(kind: SlugKind, slugs: string[]): Promise<Set<string>> {
-  const fn = kind === "school" ? "tenant_slugs_taken" : "organization_slugs_taken";
-  const { data, error } = await supabase().rpc(fn, { p_slugs: slugs });
-  if (error) throw error;
-  return new Set((data ?? []) as string[]);
-}
+import { fetchTakenSlugs, slugAlternatives, validateSlug, type SlugKind } from "@figbloom/shared";
 
 export interface SlugAvailability {
   /** "unknown": the check itself failed -- don't block, the insert still enforces uniqueness. */

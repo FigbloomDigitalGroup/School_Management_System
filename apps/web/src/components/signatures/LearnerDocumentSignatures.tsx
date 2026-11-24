@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  CAPACITY_LABEL, fetchDocumentSignatures, requestSignatures, signDocuments, supabase, voidSignature,
+  CAPACITY_LABEL, fetchDocumentSignatures, fetchDocumentSigners, requestSignatures, signDocuments, voidSignature,
 } from "@figbloom/shared";
 import { fileHash } from "../../lib/signing";
 import { Button } from "../ui/Button";
@@ -14,22 +14,7 @@ import { SignatureStatus } from "./SignatureStatus";
 import { SignDocumentModal } from "./SignDocumentModal";
 import { promptDialog } from "../ui/Confirm";
 
-interface Person { id: string; name: string; detail: string }
-
-async function fetchSigners(tenantId: string, studentId: string): Promise<{ guardians: Person[]; staff: Person[] }> {
-  const sb = supabase();
-  const [g, s] = await Promise.all([
-    sb.from("guardians").select("profile_id, relationship, profiles(full_name)").eq("student_id", studentId),
-    sb.from("profiles").select("id, full_name, role, staff_title").eq("tenant_id", tenantId).in("role", ["school_admin", "teacher"]).order("full_name"),
-  ]);
-  if (g.error) throw new Error(g.error.message);
-  if (s.error) throw new Error(s.error.message);
-  const guardians = ((g.data ?? []) as unknown as { profile_id: string; relationship: string | null; profiles: { full_name: string } | null }[])
-    .map((r) => ({ id: r.profile_id, name: r.profiles?.full_name ?? "Guardian", detail: r.relationship ?? "Guardian" }));
-  const staff = ((s.data ?? []) as { id: string; full_name: string; role: string; staff_title: string | null }[])
-    .map((r) => ({ id: r.id, name: r.full_name, detail: r.staff_title ?? (r.role === "school_admin" ? "Admin" : "Teacher") }));
-  return { guardians, staff };
-}
+const fetchSigners = fetchDocumentSigners;
 
 /**
  * Signatures on one file in a learner's records: who has signed, asking the

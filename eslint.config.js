@@ -15,6 +15,8 @@ export default tseslint.config(
       "supabase/.temp/**",
       "playwright-report/**",
       ".personal-ai/**",
+      // Generated from apps/api/openapi/openapi.yaml by `npm run api:types`; never edited by hand.
+      "packages/shared/src/api/schema.d.ts",
     ],
   },
   js.configs.recommended,
@@ -29,6 +31,35 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
+  {
+    // FIG-1900 (W0.5): all database/storage calls live in packages/shared, never directly in apps/web/src.
+    files: ["apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@supabase/supabase-js",
+              message: "Do not import @supabase/supabase-js in apps/web/src. Put backend calls in packages/shared.",
+            },
+            {
+              name: "@figbloom/shared",
+              importNames: ["supabase"],
+              message: "Do not call supabase() directly in apps/web/src. Move the query into packages/shared.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='supabase']",
+          message: "Do not call supabase() directly in apps/web/src. Move the query into packages/shared.",
+        },
+      ],
     },
   },
   {
@@ -55,7 +86,7 @@ export default tseslint.config(
     rules: { "no-console": "error" },
   },
   {
-    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs"],
+    files: ["apps/api/test/negative-controls/**/*.mjs", "apps/api/scripts/**/*.mjs", "scripts/supabase-to-api/**/*.mjs"],
     languageOptions: { sourceType: "module", globals: globals.node },
   },
   {

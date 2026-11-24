@@ -40,6 +40,7 @@ import { registerActivitiesRoutes } from "./http/routes/activities.js";
 import { registerTransportRoutes } from "./http/routes/transport.js";
 import { registerTransportOperationsRoutes } from "./http/routes/transportOperations.js";
 import { registerReportingRoutes } from "./http/routes/reporting.js";
+import { registerTeacherReportRoutes } from "./http/routes/teacherReports.js";
 import { registerImportRoutes } from "./http/routes/imports.js";
 import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
 import { registerUnmatchedCallbackRoutes } from "./http/routes/unmatchedCallbacks.js";
@@ -229,6 +230,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerTransportRoutes(app, pool);
   await registerTransportOperationsRoutes(app, pool);
   await registerReportingRoutes(app, pool);
+  await registerTeacherReportRoutes(app, pool);
   await registerImportRoutes(app, pool);
   await registerOpsStatusRoutes(app, pool);
   await registerUnmatchedCallbackRoutes(app, pool);
