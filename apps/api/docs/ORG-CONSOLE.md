@@ -24,8 +24,8 @@ All three run on the identity path (no tenant context) and authenticate through 
 gate, the MFA gate (org admins must use two-step) and the idle and absolute session limits apply as on every route.
 
 1. **`GET /v1/org/organizations`.** The caller's own organisation memberships (`organization_memberships`, role
-   `org_admin`), every status, so the picker can say "Suspended" instead of hiding an organisation. Id, name, slug, kind,
-   status, and the number of schools. Only the caller's own rows; another person's memberships are never read.
+   `org_admin`), every status, so the picker can say "Suspended" instead of hiding an organisation. Id, name, slug, kind
+   and status. Only the caller's own rows; another person's memberships are never read.
 2. **`GET /v1/org/organizations/{organizationId}/admins`.** The org admins of ONE organisation: user id, full name,
    e-mail, account status, since when, and `isYou`. Allowed only when the caller is an org admin of that organisation
    and the organisation is `active` (the same rule `/v1/org/schools` already uses). Another organisation, an unknown id
