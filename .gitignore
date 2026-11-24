@@ -59,3 +59,6 @@ apps/mobile/ios/*.xcodeproj/xcuserdata/
 apps/mobile/ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 apps/mobile/ios/DerivedData/
 **/.xcode.env.local
+
+# AWS CDK output (infra/)
+cdk.out/
