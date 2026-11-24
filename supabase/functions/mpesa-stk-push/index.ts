@@ -22,11 +22,17 @@
  * prompt in flight (same number, same amount) gets that one back; anything
  * else waits for it. A prompt older than any prompt lives is settled by
  * asking Daraja, as mpesa-callback would, never credited from here.
+ *
+ * DARAJA_TENANTS, when set, lists the only schools that may use M-Pesa here
+ * (e.g. a demo school on sandbox credentials); every other school gets the
+ * same 503 as when M-Pesa isn't set up, with nothing sent to Daraja.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { darajaToken, darajaUrl, queryStk as darajaQueryStk, stkPassword, type StkOutcome, timestamp, unpaidOutcome } from "../_shared/daraja.ts";
+import {
+  darajaTenants, darajaToken, darajaUrl, queryStk as darajaQueryStk, stkPassword, type StkOutcome, tenantMayUseDaraja, timestamp, unpaidOutcome,
+} from "../_shared/daraja.ts";
 import { dbLimiter, type Limiter, userKey } from "../_shared/rateLimit.ts";
 
 interface Body { invoice_id: string; amount_cents: number; msisdn: string }
@@ -36,6 +42,8 @@ const PROMPT_LIFETIME_MS = 2 * 60_000;
 /** Prompts per caller, and per phone number, in PROMPT_WINDOW. */
 const PROMPT_LIMIT = 10;
 const PROMPT_WINDOW = "1 hour";
+/** The 503 the apps read as "online M-Pesa isn't available for this school" (mpesaPay.ts). */
+const NOT_SET_UP = "M-Pesa payments aren't set up for this school yet.";
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
@@ -84,7 +92,7 @@ export async function handle(
   const callbackBase = Deno.env.get("DARAJA_CALLBACK_URL");
   if (!callbackSecret || !callbackBase) {
     console.error("mpesa-stk-push: DARAJA_CALLBACK_SECRET or DARAJA_CALLBACK_URL is not set");
-    return json({ error: "M-Pesa payments aren't set up for this school yet." }, 503);
+    return json({ error: NOT_SET_UP }, 503);
   }
   const callbackUrl = new URL(callbackBase);
   callbackUrl.searchParams.set("token", callbackSecret);
@@ -93,6 +101,11 @@ export async function handle(
   const { data: invoice, error: invErr } = await asUser
     .from("fee_invoices").select("id, tenant_id, student_id, total_cents, paid_cents").eq("id", invoice_id).single();
   if (invErr || !invoice) return json({ error: "That invoice is not yours to pay." }, 403);
+  // DARAJA_TENANTS: a school not on the list is answered exactly as when M-Pesa isn't set up,
+  // before anything reaches Daraja (not even settling an old prompt) or payments
+  if (!tenantMayUseDaraja(invoice.tenant_id, darajaTenants())) {
+    return json({ error: NOT_SET_UP }, 503);
+  }
   if (!(await paysFor(admin, user.id, invoice.student_id))) {
     return json({ error: "Only the learner's family can pay by M-Pesa here. The school office records payments it receives." }, 403);
   }
