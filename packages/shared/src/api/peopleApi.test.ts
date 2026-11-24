@@ -592,14 +592,14 @@ describe("peopleCapabilities", () => {
   it("offers on Supabase everything it had, and not the API-only extras", () => {
     initBackend({ kind: "supabase" });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, staffSignIn: false, staffAccounts: true, learnerHome: true, bulkChangeClass: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
+    expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, staffAccounts: true, learnerHome: true, bulkChangeClass: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
   });
 
   it("offers on the API only what it can do: archive, guardian contacts, sign-in invitations, and not what has no endpoint", () => {
     initBackend({ kind: "api", apiUrl: BASE });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, unassignClass: false, inviteGuardians: true, staffSignIn: true, staffAccounts: false });
-    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "inviteGuardians", "staffSignIn"];
+    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, unassignClass: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
+    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "guardianInvitations", "staffSignIn"];
     const off = Object.entries(c).filter(([k]) => !on.includes(k)).filter(([, v]) => v);
     expect(off).toEqual([]);
   });
