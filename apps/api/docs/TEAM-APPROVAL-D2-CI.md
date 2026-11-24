@@ -58,6 +58,7 @@ No new GitHub Actions secrets.
 |---|---|---|
 | `DATABASE_URL` | Job `env` → service Postgres | Not a repository secret |
 | `AUTH_RATE_CAPACITY` / `AUTH_RATE_REFILL` | Job `env` | Raised so login tests are not starved |
+| `MFA_ATTEMPT_RATE_CAPACITY` / `MFA_ATTEMPT_RATE_REFILL` | Job `env` (browser-api only) | Raised so browser tests that sign in as the same admin many times are not starved of two-step attempts. Staging and production refuse a value looser than the default (5, then one a minute) |
 | `API_TRUST_PROXY_HOPS` | `0` | Proxy trust off in CI |
 
 ## 6. Security implications

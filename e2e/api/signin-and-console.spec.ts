@@ -43,7 +43,7 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
     await page.getByRole("button", { name: "Sign in" }).click();
 
     // Admin accounts require TOTP challenge under MFA_ENFORCEMENT=enforce. Because TOTP steps are single-use
-    // and an earlier spec (e.g. leave.spec.ts) may have spent stepOffset 0 inside the same 30-second window,
+    // and an earlier spec (e.g. inventory.spec.ts or leave.spec.ts) may have spent stepOffset 0 inside the same 30-second window,
     // wait for the next 30-second window on replay instead of spending +1 (the API only accepts a step later than
     // the last one it accepted, so +1 would also refuse the seed re-run that follows, at offset 0, for two steps).
     const mfaInput = page.locator("#api-mfa-answer");
@@ -96,6 +96,8 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
 
     await page.goto(`/s/${seed.slug}/admin/leave`);
     await expect(page.getByRole("heading", { name: "Leave requests" })).toBeVisible({ timeout: 15_000 });
+    await page.goto(`/s/${seed.slug}/admin/inventory`);
+    await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible({ timeout: 15_000 });
 
     // The principal has no staff record, so teaches no class: the teacher's register screen offers none, not the
     // whole school (it used to fall back to every class).

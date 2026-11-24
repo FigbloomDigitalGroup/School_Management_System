@@ -174,6 +174,8 @@ Takes about 10 minutes.
 
 - **Two-step codes:**
   - A TOTP code works once per 30 s window. Wait for the next window before a second sign-in.
+  - Every code attempt, right or wrong, spends one of the account's 5 attempts (one comes back a minute). A run that signs in as the same admin many times (the `browser-api` job does) can run out and get 429 "Too many attempts".
+  - On a local or CI API, raise it with `MFA_ATTEMPT_RATE_CAPACITY` and `MFA_ATTEMPT_RATE_REFILL`. Staging and production refuse a value looser than the default.
   - A fresh database needs `session-hmac.mjs provision` again, or sign-in answers 401 "Unable to create session".
 - **Worktree resolution:**
   - In a worktree, `@figbloom/shared` resolves to the **main checkout** through the `node_modules` junction, for both tsc and vitest.

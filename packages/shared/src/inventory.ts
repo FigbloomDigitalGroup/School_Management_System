@@ -1,3 +1,15 @@
+import { onApi } from "./backend";
+import {
+  apiCloseInventoryIssue,
+  apiFetchInventory,
+  apiFetchInventoryIssues,
+  apiFetchInventoryPeople,
+  apiFetchMyInventory,
+  apiIssueInventoryItem,
+  apiIssueInventoryToClass,
+  apiSaveInventoryItem,
+  apiSetItemRetired,
+} from "./api/inventoryApi";
 import { supabase } from "./supabase";
 import { toCsv } from "./csv";
 
@@ -233,6 +245,7 @@ function toIssueRow(r: IssueJoin): InventoryIssueRow {
 
 /** The whole register, each item with its out and available counts. */
 export async function fetchInventory(tenantId: string): Promise<InventoryItemRow[]> {
+  if (onApi()) return apiFetchInventory(tenantId);
   const sb = supabase();
   const [items, out] = await Promise.all([
     allRows<InventoryItem>((from, to) =>
@@ -251,6 +264,7 @@ export async function fetchInventory(tenantId: string): Promise<InventoryItemRow
 
 /** Every issue in the school (out and closed), with names. */
 export async function fetchInventoryIssues(tenantId: string): Promise<InventoryIssueRow[]> {
+  if (onApi()) return apiFetchInventoryIssues(tenantId);
   const rows = await allRows<IssueJoin>((from, to) =>
     supabase().from("inventory_issues").select(ISSUE_SELECT).eq("tenant_id", tenantId)
       .order("issued_at", { ascending: false }).order("id").range(from, to).returns<IssueJoin[]>());
@@ -259,6 +273,7 @@ export async function fetchInventoryIssues(tenantId: string): Promise<InventoryI
 
 /** What a member of staff has been issued, out and returned. */
 export async function fetchMyInventory(profileId: string): Promise<InventoryIssueRow[]> {
+  if (onApi()) return apiFetchMyInventory(profileId);
   const { data, error } = await supabase()
     .from("inventory_issues").select(ISSUE_SELECT).eq("profile_id", profileId)
     .order("issued_at", { ascending: false }).returns<IssueJoin[]>();
@@ -289,6 +304,7 @@ export type InventoryItemInput = Pick<
 >;
 
 export async function saveInventoryItem(tenantId: string, input: InventoryItemInput, id?: string): Promise<void> {
+  if (onApi()) return apiSaveInventoryItem(tenantId, input, id);
   const row = { ...input, quantity: input.tracking === "asset" ? 1 : input.quantity };
   const { error } = id
     ? await supabase().from("inventory_items").update(row).eq("id", id)
@@ -298,6 +314,7 @@ export async function saveInventoryItem(tenantId: string, input: InventoryItemIn
 
 /** Writes an item off (disposed of, beyond repair), or brings it back. */
 export async function setItemRetired(id: string, retired: boolean): Promise<void> {
+  if (onApi()) return apiSetItemRetired(id, retired);
   const { error } = await supabase().from("inventory_items").update({ retired_at: retired ? new Date().toISOString() : null }).eq("id", id);
   if (error) throw new Error(error.message);
 }
@@ -305,6 +322,7 @@ export async function setItemRetired(id: string, retired: boolean): Promise<void
 export async function issueInventoryItem(input: {
   tenantId: string; itemId: string; holder: IssueHolder; quantity: number; dueOn: string | null; note: string;
 }): Promise<void> {
+  if (onApi()) return apiIssueInventoryItem(input);
   const { error } = await supabase().from("inventory_issues").insert({
     tenant_id: input.tenantId,
     item_id: input.itemId,
@@ -319,12 +337,14 @@ export async function issueInventoryItem(input: {
 
 /** One copy to every learner in the class who hasn't got one. Returns how many were issued. */
 export async function issueInventoryToClass(itemId: string, classId: string, dueOn: string | null): Promise<number> {
+  if (onApi()) return apiIssueInventoryToClass(itemId, classId, dueOn);
   const { data, error } = await supabase().rpc("issue_item_to_class", { p_item_id: itemId, p_class_id: classId, p_due_on: dueOn });
   if (error) throw new Error(error.message);
   return (data as number | null) ?? 0;
 }
 
 export async function closeInventoryIssue(id: string, status: Exclude<IssueStatus, "out">, returnedCondition: ItemCondition | null, note: string): Promise<void> {
+  if (onApi()) return apiCloseInventoryIssue(id, status, returnedCondition, note);
   const patch: Record<string, unknown> = { status, returned_condition: status === "lost" ? null : returnedCondition };
   if (note.trim()) patch.note = note.trim();
   const { error } = await supabase().from("inventory_issues").update(patch).eq("id", id);
@@ -339,6 +359,7 @@ export interface InventoryPeople {
 
 /** Who something can be issued to: the school's active learners and staff, and its classes. */
 export async function fetchInventoryPeople(tenantId: string): Promise<InventoryPeople> {
+  if (onApi()) return apiFetchInventoryPeople(tenantId);
   const sb = supabase();
   const [learners, staff, classes] = await Promise.all([
     allRows<InventoryPeople["learners"][number]>((from, to) =>

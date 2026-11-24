@@ -65,14 +65,24 @@ export async function assertMfaAssurance(
 export const MFA_MAX_FAILURES = 10;
 export const MFA_FAILURE_WINDOW_MINUTES = 15;
 
+/** The token bucket for code attempts and enrolments: from MFA_ATTEMPT_RATE_* (5 at once, then one a minute by default). */
+export function mfaAttemptRatePolicy(
+  config: Pick<AppConfig, "mfaAttemptRateCapacity" | "mfaAttemptRateRefill" | "mfaAttemptRateIntervalMs">,
+): Pick<AppConfig, "authRateCapacity" | "authRateRefill" | "authRateIntervalMs"> {
+  return {
+    authRateCapacity: config.mfaAttemptRateCapacity,
+    authRateRefill: config.mfaAttemptRateRefill,
+    authRateIntervalMs: config.mfaAttemptRateIntervalMs,
+  };
+}
+
 export async function guardMfaAttempt(db: IdentityDb, config: AppConfig, userId: string, scope: "attempt" | "enroll" = "attempt"): Promise<void> {
-  // 5 attempts burst, then 1 per minute, per user
+  // Per user: a burst of attempts, then a slow refill. Both numbers come from config; staging and production cannot loosen them.
   await consumeAuthToken(
     db as unknown as Db,
-    { authRateCapacity: 5, authRateRefill: 1, authRateIntervalMs: 60_000 },
+    mfaAttemptRatePolicy(config),
     scope === "attempt" ? `mfa:user:${userId}` : `mfa-enroll:user:${userId}`,
   );
-  void config;
   const r = await db.query<{ failed_count: number; remaining: number | null }>(
     `SELECT failed_count,
             GREATEST(0, ceil(extract(epoch FROM (failed_window_start + interval '${MFA_FAILURE_WINDOW_MINUTES} minutes' - now()))))::int AS remaining
