@@ -205,7 +205,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           scrolls as a last resort for windows too short even for that. */}
       <nav
         aria-label="Main"
-        className="flex shrink-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-4 transition-[width] duration-150"
+        className="no-scrollbar flex shrink-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-4 transition-[width] duration-150"
         style={{ width: open ? 224 : 68, background: tenantScoped ? "var(--accent-deep)" : "#17402A" }}
       >
         <div className="flex min-h-[34px] shrink-0 items-center gap-3 px-0.5 pb-2">
@@ -276,7 +276,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           </NavLink>
         )}
 
-        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
+        <div className="no-scrollbar -mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
         {/* Each heading folds its pages away and opens them again; they all start open. Collapsed to icons, a thin line stands in for the
             heading and every page stays on show, since an icon is the only way to reach it. */}
         {sections.map((section, i) => {

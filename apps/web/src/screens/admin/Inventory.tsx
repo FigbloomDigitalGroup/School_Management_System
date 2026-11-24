@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   chargeLearner, fetchIssueCharges, suggestedCharge, voidFeeCharge, type FeeCharge,
-  closeInventoryIssue, daysOverdue, endOfSchoolYear, fetchInventory, fetchInventoryIssues, fetchInventoryPeople, formatMoney,
+  closeInventoryIssue, daysOverdue, endOfSchoolYear, fetchInventory, fetchInventoryIssues, fetchInventoryItem, fetchInventoryPeople,
+  fetchInventorySummary, fetchIssuesPage, fetchItemIssues, fetchRegisterPage, formatMoney,
   formatQty, formatShortDate, INVENTORY_CATEGORY_LABEL, isOverdue, ISSUE_STATUS_LABEL, issueInventoryItem, issueInventoryToClass,
-  issueMatches, issuesCsv, ITEM_CONDITION_LABEL, registerCsv, saveInventoryItem, setItemRetired, sortIssues, summariseInventory,
-  type InventoryCategory, type InventoryIssueRow, type InventoryItemInput, type InventoryItemRow, type InventoryPeople,
+  issueMatches, issuesCsv, ITEM_CONDITION_LABEL, registerCsv, saveInventoryItem, setItemRetired, sortIssues,
+  type InventoryCategory, type InventoryIssueRow, type InventoryItemInput, type InventoryItemRow,
   type IssueStatus, type ItemCondition, UNIT_SUGGESTIONS,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -13,12 +15,15 @@ import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { SelectField, TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
+import { Pagination } from "../../components/ui/Pagination";
+import { usePaging } from "../../components/ui/usePaging";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
-import { useAsync } from "../../lib/useAsync";
+import { invalidate, useQuery } from "../../lib/queryCache";
 import { useTenantSession } from "../../lib/sessionContext";
 import { MovementList, MovementModal, StockLevelCell, StockView, type MoveAction } from "./InventoryStock";
+import { invalidateInventory, invKey } from "./inventoryStockData";
 
 type Tab = "register" | "stock" | "out" | "overdue" | "history";
 const TABS: { key: Tab; label: string }[] = [
@@ -54,56 +59,95 @@ const issuedOn = (iso: string) => formatShortDate(iso.slice(0, 10));
  * Things go out to a learner or a member of staff (or, for textbooks, one
  * copy to everyone in a class) and come back returned, damaged, or lost;
  * nothing is deleted, so every item and every person keeps a full history.
+ *
+ * Every list reads one page at a time from the server (with its total), the
+ * cards read only the columns they add up, the people list loads when Issue
+ * opens, and an item's history when it is opened. All of it goes through the
+ * query cache, so coming back to a tab is instant; a save refreshes it.
  */
 export function AdminInventory() {
   const toast = useToast();
   const { tenant } = useTenantSession();
+  const [params, setParams] = useSearchParams();
+  const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "register") as Tab;
+  const openItemId = params.get("item");
+  const setParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(params);
+    if (value == null) next.delete(key); else next.set(key, value);
+    setParams(next, { replace: true });
+  };
+  const setTab = (t: Tab) => {
+    const next = new URLSearchParams(params);
+    if (t === "register") next.delete("tab"); else next.set("tab", t);
+    setParams(next, { replace: true });
+  };
   const [reloadKey, setReloadKey] = useState(0);
-  const reload = () => setReloadKey((k) => k + 1);
-  const { data: items, loading: itemsLoading, error: itemsError } = useAsync(() => fetchInventory(tenant.id), [tenant.id, reloadKey]);
-  const { data: issues, loading: issuesLoading, error: issuesError } = useAsync(() => fetchInventoryIssues(tenant.id), [tenant.id, reloadKey]);
-  const { data: people } = useAsync(() => fetchInventoryPeople(tenant.id), [tenant.id]);
-  const { data: charges } = useAsync(() => fetchIssueCharges(tenant.id), [tenant.id, reloadKey]);
-  const [charging, setCharging] = useState<InventoryIssueRow | null>(null);
+  /** After any save: everything inventory (and the fee lists a charge touches) refetches. */
+  const reload = () => {
+    invalidateInventory(tenant.id);
+    invalidate(`${tenant.id}:fees:`);
+    setReloadKey((k) => k + 1);
+  };
 
-  const [tab, setTab] = useState<Tab>("register");
   const [query, setQuery] = useState("");
+  const [typed, setTyped] = useState("");
+  const q = query.trim();
+  const [charging, setCharging] = useState<InventoryIssueRow | null>(null);
   const [editing, setEditing] = useState<InventoryItemRow | "new" | null>(null);
   const [issuing, setIssuing] = useState<InventoryItemRow | null>(null);
   const [returning, setReturning] = useState<InventoryIssueRow | null>(null);
-  const [viewing, setViewing] = useState<InventoryItemRow | null>(null);
   const [moving, setMoving] = useState<{ item: InventoryItemRow; action: MoveAction } | null>(null);
 
-  const summary = items && issues ? summariseInventory(items, issues) : null;
-  const q = query.trim().toLowerCase();
+  const summaryQ = useQuery(invKey(tenant.id, "summary"), () => fetchInventorySummary(tenant.id), { staleTime: 60_000 });
+  const summary = summaryQ.data;
 
-  const registerRows = useMemo(() => (items ?? []).filter((i) =>
-    !q || [i.name, i.asset_tag, i.location, INVENTORY_CATEGORY_LABEL[i.category]].some((s) => s?.toLowerCase().includes(q)),
-  ), [items, q]);
+  // the register and the issue lists, one page at a time from the server
+  const [total, setTotal] = useState(0);
+  const paging = usePaging(total, `${tab}|${q}`);
+  const isIssues = tab === "out" || tab === "overdue" || tab === "history";
+  const registerQ = useQuery(tab === "register" ? invKey(tenant.id, "register", q, paging.offset, paging.size) : null,
+    () => fetchRegisterPage(tenant.id, { query: q, offset: paging.offset, limit: paging.size }), { staleTime: 60_000 });
+  const issuesQ = useQuery(isIssues ? invKey(tenant.id, "issues", tab, q, paging.offset, paging.size) : null,
+    () => fetchIssuesPage(tenant.id, { filter: tab === "history" ? "all" : (tab as "out" | "overdue"), query: q, offset: paging.offset, limit: paging.size }), { staleTime: 60_000 });
+  const pageQ = tab === "register" ? registerQ : issuesQ;
+  const pageTotal = pageQ.data?.total;
+  if (pageTotal != null && pageTotal !== total) setTotal(pageTotal);
+  // fee charges matter only where lost / damaged issues are listed
+  const chargesQ = useQuery(tab === "history" ? invKey(tenant.id, "charges") : null, () => fetchIssueCharges(tenant.id), { staleTime: 60_000 });
 
-  const issueRows = useMemo(() => {
-    const all = sortIssues(issues ?? []);
-    const byTab = tab === "out" ? all.filter((i) => i.status === "out")
-      : tab === "overdue" ? all.filter((i) => isOverdue(i))
-      : all;
-    return byTab.filter((i) => issueMatches(i, query));
-  }, [issues, tab, query]);
+  function search(value: string) {
+    setTyped(value);
+    setQuery(value);
+  }
 
-  const loading = (itemsLoading && !items) || (issuesLoading && !issues);
-  const error = itemsError ?? issuesError;
-
-  function exportCsv() {
-    if (tab === "register" || tab === "stock") downloadCsv(registerCsv(registerRows), "inventory-register.csv");
-    else downloadCsv(issuesCsv(issueRows), `inventory-${tab}.csv`);
+  const [exporting, setExporting] = useState(false);
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      if (tab === "register" || tab === "stock") {
+        const all = await fetchInventory(tenant.id);
+        downloadCsv(registerCsv(all), "inventory-register.csv");
+      } else {
+        const all = sortIssues(await fetchInventoryIssues(tenant.id));
+        const rows = (tab === "out" ? all.filter((i) => i.status === "out") : tab === "overdue" ? all.filter((i) => isOverdue(i)) : all).filter((i) => issueMatches(i, q));
+        downloadCsv(issuesCsv(rows), `inventory-${tab}.csv`);
+      }
+    } catch (err) {
+      toast(err instanceof Error ? `Could not export: ${err.message}` : "Could not export.", "error");
+    } finally {
+      setExporting(false);
+    }
   }
 
   /** A person's whole history: every issue to them, out and closed. */
   function showHolder(r: InventoryIssueRow) {
     setTab("history");
-    setQuery(r.holderName);
+    search(r.holderName);
   }
 
   const money = (cents: number | null) => (cents == null ? "—" : formatMoney(cents, tenant.country));
+  const registerRows = registerQ.data?.rows ?? [];
+  const openItem = (i: InventoryItemRow) => setParam("item", i.id);
 
   return (
     <>
@@ -113,7 +157,7 @@ export function AdminInventory() {
         blurb="What the school owns and who has it. Issue textbooks, equipment and uniforms to learners or staff and track what comes back; receive and use up kitchen food and other consumables."
         actions={
           <div className="flex gap-2">
-            <Button onClick={exportCsv} disabled={loading}>Export CSV</Button>
+            <Button onClick={() => void exportCsv()} disabled={exporting}>{exporting ? "Exporting…" : "Export CSV"}</Button>
             <Button variant="accent" onClick={() => setEditing("new")}>Add item</Button>
           </div>
         }
@@ -128,7 +172,7 @@ export function AdminInventory() {
         ]} />
 
         <div className="flex flex-wrap items-center gap-3">
-          <div role="group" aria-label="Show" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
+          <div role="group" aria-label="Show" className="flex flex-wrap rounded-md border border-[#D3DAD5] bg-white p-0.5">
             {TABS.map((t) => (
               <button key={t.key} type="button" aria-pressed={tab === t.key} onClick={() => setTab(t.key)} className="rounded px-3 py-1.5 text-small"
                 style={tab === t.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
@@ -137,24 +181,28 @@ export function AdminInventory() {
             ))}
           </div>
           {tab !== "stock" && (
-            <input value={query} onChange={(e) => setQuery(e.target.value)}
-              placeholder={tab === "register" ? "Item, tag or location" : "Item, tag, name or admission number"}
-              aria-label="Search inventory"
-              className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); search(typed); }}>
+              <input value={typed} onChange={(e) => setTyped(e.target.value)}
+                placeholder={tab === "register" ? "Item, tag, location or category" : "Item, tag, name or admission number"}
+                aria-label="Search inventory"
+                className="w-64 rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
+              <Button type="submit">Search</Button>
+              {q && <Button onClick={() => search("")}>Clear</Button>}
+            </form>
           )}
-          {query && tab !== "stock" && <Button onClick={() => setQuery("")}>Clear</Button>}
         </div>
 
-        {error ? (
+        {tab === "stock" ? (
+          <StockView onOpenItem={(id) => setParam("item", id)} />
+        ) : pageQ.error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
-            <span aria-hidden>✕</span>Could not load the inventory: {error.message}
+            <span aria-hidden>✕</span>Could not load the inventory: {pageQ.error.message}
           </p>
-        ) : loading ? (
+        ) : pageQ.loading ? (
           <TableSkeleton rows={8} />
-        ) : tab === "stock" ? (
-          <StockView items={items ?? []} onOpenItem={setViewing} />
         ) : tab === "register" ? (
           <DataTable
+            pageSize={0}
             columns={[
               {
                 key: "name", header: "Item", width: "1.8fr",
@@ -190,20 +238,21 @@ export function AdminInventory() {
             ]}
             rows={registerRows}
             rowKey={(i) => i.id}
-            onRowClick={(i) => setViewing(i)}
+            onRowClick={openItem}
             minWidth="880px"
             empty={q
-              ? { title: "Nothing matches", body: "Try a different name, tag or location." }
+              ? { title: "Nothing matches", body: "Try a different name, tag, location or category." }
               : { title: "The register is empty", body: "Add the school's textbooks, equipment and furniture to start tracking who has what.", action: <Button variant="accent" onClick={() => setEditing("new")}>Add item</Button> }}
           />
         ) : (
           <IssueTable
-            rows={issueRows}
+            rows={issuesQ.data?.rows ?? []}
             onReturn={setReturning}
             onHolder={showHolder}
-            charges={charges ?? null}
-            onCharge={setCharging}
+            charges={chargesQ.data ?? null}
+            onCharge={tab === "history" ? setCharging : undefined}
             country={tenant.country}
+            pageSize={0}
             empty={
               q ? { title: "Nothing matches", body: "Try a different item, name or admission number." }
               : tab === "overdue" ? { title: "Nothing overdue", body: "Everything that's out is still within its return date." }
@@ -212,6 +261,7 @@ export function AdminInventory() {
             }
           />
         )}
+        {tab !== "stock" && !pageQ.error && total > 0 && <Pagination {...paging.props} total={total} label={tab === "register" ? "items" : "issues"} />}
       </div>
 
       {editing && (
@@ -224,7 +274,6 @@ export function AdminInventory() {
       {issuing && (
         <IssueModal
           item={issuing}
-          people={people ?? null}
           onClose={() => setIssuing(null)}
           onIssued={(msg) => { setIssuing(null); toast(msg); reload(); }}
         />
@@ -239,8 +288,7 @@ export function AdminInventory() {
       {charging && (
         <ChargeModal
           issue={charging}
-          unitCostCents={(items ?? []).find((i) => i.id === charging.item_id)?.unit_cost_cents ?? null}
-          existing={charges?.get(charging.id) ?? null}
+          existing={chargesQ.data?.get(charging.id) ?? null}
           country={tenant.country}
           onClose={() => setCharging(null)}
           onDone={(msg) => { setCharging(null); toast(msg); reload(); }}
@@ -254,21 +302,21 @@ export function AdminInventory() {
           onDone={(msg) => { setMoving(null); toast(msg); reload(); }}
         />
       )}
-      {viewing && !moving && (
+      {openItemId && !moving && !issuing && !returning && !editing && (
         <ItemHistoryModal
-          item={(items ?? []).find((i) => i.id === viewing.id) ?? viewing}
+          itemId={openItemId}
+          fallback={registerRows.find((i) => i.id === openItemId) ?? null}
           reloadKey={reloadKey}
           country={tenant.country}
-          onMove={(action) => setMoving({ item: (items ?? []).find((i) => i.id === viewing.id) ?? viewing, action })}
-          issues={sortIssues((issues ?? []).filter((i) => i.item_id === viewing.id))}
-          onClose={() => setViewing(null)}
-          onIssue={() => { setIssuing(viewing); setViewing(null); }}
-          onReturn={(r) => { setReturning(r); setViewing(null); }}
-          onRetire={async (retired) => {
+          onMove={(item, action) => setMoving({ item, action })}
+          onClose={() => setParam("item", null)}
+          onIssue={(item) => { setIssuing(item); setParam("item", null); }}
+          onReturn={(r) => setReturning(r)}
+          onRetire={async (item, retired) => {
             try {
-              await setItemRetired(viewing.id, retired);
-              toast(retired ? `${viewing.name} written off.` : `${viewing.name} is back on the register.`);
-              setViewing(null);
+              await setItemRetired(item.id, retired);
+              toast(retired ? `${item.name} written off.` : `${item.name} is back on the register.`);
+              setParam("item", null);
               reload();
             } catch (err) {
               toast(err instanceof Error ? `Could not save that: ${err.message}` : "Could not save that.", "error");
@@ -280,7 +328,7 @@ export function AdminInventory() {
   );
 }
 
-function IssueTable({ rows, onReturn, onHolder, charges, onCharge, country, empty, compact }: {
+function IssueTable({ rows, onReturn, onHolder, charges, onCharge, country, empty, compact, pageSize }: {
   rows: InventoryIssueRow[];
   onReturn?: (r: InventoryIssueRow) => void;
   onHolder?: (r: InventoryIssueRow) => void;
@@ -290,6 +338,8 @@ function IssueTable({ rows, onReturn, onHolder, charges, onCharge, country, empt
   country?: string;
   empty: { title: string; body: string };
   compact?: boolean;
+  /** 0 when the caller pages on the server. */
+  pageSize?: number;
 }) {
   const chargeable = (r: InventoryIssueRow) => !!onCharge && r.holderKind === "learner" && (r.status === "lost" || r.status === "damaged");
   function action(r: InventoryIssueRow) {
@@ -349,6 +399,8 @@ function IssueTable({ rows, onReturn, onHolder, charges, onCharge, country, empt
       ]}
       rows={rows}
       rowKey={(r) => r.id}
+      pageSize={pageSize ?? (compact ? 10 : undefined)}
+      rowsLabel="issues"
       minWidth={compact ? "560px" : "880px"}
       empty={empty}
     />
@@ -498,10 +550,12 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
 
 type HolderKind = "learner" | "staff" | "class";
 
-function IssueModal({ item, people, onClose, onIssued }: {
-  item: InventoryItemRow; people: InventoryPeople | null; onClose: () => void; onIssued: (msg: string) => void;
+function IssueModal({ item, onClose, onIssued }: {
+  item: InventoryItemRow; onClose: () => void; onIssued: (msg: string) => void;
 }) {
   const { tenant } = useTenantSession();
+  // who something can go to: read when Issue opens, not with the register
+  const { data: people } = useQuery(invKey(tenant.id, "people"), () => fetchInventoryPeople(tenant.id), { staleTime: 5 * 60_000 });
   const [kind, setKind] = useState<HolderKind>("learner");
   const [search, setSearch] = useState("");
   const [holderId, setHolderId] = useState("");
@@ -682,7 +736,17 @@ function ReturnModal({ issue, onClose, onDone }: { issue: InventoryIssueRow; onC
  * decides: change the amount, the wording, or close without charging. A
  * standing charge can be cancelled here too, with a reason.
  */
-function ChargeModal({ issue, unitCostCents, existing, country, onClose, onDone }: {
+function ChargeModal({ issue, existing, country, onClose, onDone }: {
+  issue: InventoryIssueRow; existing: FeeCharge | null; country: string;
+  onClose: () => void; onDone: (msg: string) => void;
+}) {
+  const { tenant } = useTenantSession();
+  const itemQ = useQuery(invKey(tenant.id, "item", issue.item_id), () => fetchInventoryItem(issue.item_id));
+  if (itemQ.loading) return <Modal open onClose={onClose} eyebrow="Fees" title={`Charge ${issue.holderName} for ${issue.itemName}`}><TableSkeleton rows={2} /></Modal>;
+  return <ChargeForm issue={issue} unitCostCents={itemQ.data?.unit_cost_cents ?? null} existing={existing} country={country} onClose={onClose} onDone={onDone} />;
+}
+
+function ChargeForm({ issue, unitCostCents, existing, country, onClose, onDone }: {
   issue: InventoryIssueRow; unitCostCents: number | null; existing: FeeCharge | null; country: string;
   onClose: () => void; onDone: (msg: string) => void;
 }) {
@@ -759,9 +823,40 @@ function ChargeModal({ issue, unitCostCents, existing, country, onClose, onDone 
 
 // ---------------------------------------------------------------- item history
 
-function ItemHistoryModal({ item, issues, reloadKey, country, onMove, onClose, onIssue, onReturn, onRetire }: {
+/** An item and its history, read when it is opened (from the register, the stock pages or a shared ?item= link). */
+function ItemHistoryModal({ itemId, fallback, reloadKey, country, onMove, onClose, onIssue, onReturn, onRetire }: {
+  itemId: string;
+  /** The row the register already has, shown while the item is read. */
+  fallback: InventoryItemRow | null;
+  reloadKey: number;
+  country: string;
+  onMove: (item: InventoryItemRow, action: MoveAction) => void;
+  onClose: () => void;
+  onIssue: (item: InventoryItemRow) => void;
+  onReturn: (r: InventoryIssueRow) => void;
+  onRetire: (item: InventoryItemRow, retired: boolean) => Promise<void>;
+}) {
+  const { tenant } = useTenantSession();
+  const itemQ = useQuery(invKey(tenant.id, "item", itemId), () => fetchInventoryItem(itemId));
+  const issuesQ = useQuery(invKey(tenant.id, "item-issues", itemId), () => fetchItemIssues(itemId).then((r) => sortIssues(r)));
+  const item = itemQ.data ?? fallback;
+  if (!item) {
+    return (
+      <Modal open onClose={onClose} eyebrow="Inventory" title={itemQ.error ? "Could not open that item" : "Loading…"} width={760}>
+        {itemQ.error ? <p className="text-[12.5px] text-warn-ink">{itemQ.error.message}</p> : <TableSkeleton rows={4} />}
+      </Modal>
+    );
+  }
+  return (
+    <ItemHistoryBody item={item} issues={issuesQ.data} issuesLoading={issuesQ.loading} reloadKey={reloadKey} country={country}
+      onMove={(a) => onMove(item, a)} onClose={onClose} onIssue={() => onIssue(item)} onReturn={onReturn} onRetire={(r) => onRetire(item, r)} />
+  );
+}
+
+function ItemHistoryBody({ item, issues: loadedIssues, issuesLoading, reloadKey, country, onMove, onClose, onIssue, onReturn, onRetire }: {
   item: InventoryItemRow;
-  issues: InventoryIssueRow[];
+  issues: InventoryIssueRow[] | null;
+  issuesLoading: boolean;
   reloadKey: number;
   country: string;
   /** Receive, Use or Stock-take on a stock line. */
@@ -772,6 +867,7 @@ function ItemHistoryModal({ item, issues, reloadKey, country, onMove, onClose, o
   onRetire: (retired: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const issues = loadedIssues ?? [];
   const facts = [
     INVENTORY_CATEGORY_LABEL[item.category],
     item.tracking === "stock" ? (item.consumable ? `${formatQty(item.quantity, item.unit)} in stock` : `${item.available} of ${item.quantity} on the shelf`) : item.out ? "Out" : "In store",
@@ -819,12 +915,12 @@ function ItemHistoryModal({ item, issues, reloadKey, country, onMove, onClose, o
         {(!item.consumable || issues.length > 0) && (
           <section className="grid gap-2">
             {item.tracking === "stock" && <h3 className="text-[12.5px] font-semibold uppercase tracking-wide text-ink-muted">Issued to people</h3>}
-            <IssueTable
+            {issuesLoading ? <TableSkeleton rows={4} /> : <IssueTable
               rows={issues}
               onReturn={onReturn}
               compact
               empty={{ title: "Never issued", body: "Every hand-out and return of this item will be listed here." }}
-            />
+            />}
           </section>
         )}
       </div>

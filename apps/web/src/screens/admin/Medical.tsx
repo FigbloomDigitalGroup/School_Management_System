@@ -93,7 +93,7 @@ function Board({ reloadKey, onEdit, onOpen }: { reloadKey: number; onEdit: (v: S
       fetchVisits(tenant.id, start, new Date(start.getTime() + 86_400_000)),
     ]);
     return { open: sickBayBoard(open), todays };
-  }, [tenant.id, today, reloadKey]);
+  }, [tenant.id, today, reloadKey], { cache: false });
 
   if (error) return <ErrorLine what="the sick bay" error={error} />;
   if (loading && !data) return <TableSkeleton rows={5} />;

@@ -51,6 +51,7 @@ import { AdminReports } from "./screens/admin/Reports";
 import { Performance } from "./screens/admin/Performance";
 import { AdminLeave } from "./screens/admin/Leave";
 import { AdminInventory } from "./screens/admin/Inventory";
+import { InventoryStockPage } from "./screens/admin/InventoryStockPages";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
@@ -271,6 +272,7 @@ function TenantRoutes() {
           <Route path="admin/leave-to-approve" element={<AdminShell page="admin/leave-to-approve"><LeaveToApprove /></AdminShell>} />
           <Route path="admin/hr" element={<AdminShell page="admin/hr"><HrPayroll /></AdminShell>} />
           <Route path="admin/inventory" element={<AdminShell page="admin/inventory"><AdminInventory /></AdminShell>} />
+          <Route path="admin/inventory/stock/:section" element={<AdminShell page="admin/inventory"><InventoryStockPage /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell page="admin/exams"><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell page="admin/papers"><ExamPapers admin /></AdminShell>} />
           <Route path="admin/materials" element={<AdminShell page="admin/materials"><LearningMaterials admin /></AdminShell>} />

@@ -16,6 +16,7 @@ import { useToast } from "../../components/ui/Toast";
 import { saveAttachments, UploadCancelled, type AttachmentBatch, type BatchProgress, type WebMediaDraft } from "../../lib/resumableUpload";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
+import { PagedList } from "../../components/ui/PagedList";
 
 /**
  * SMS costs real money per recipient, so the composer shows the reach and the
@@ -229,15 +230,15 @@ export function Announcements() {
             <div className="rounded-xl border border-line p-4">
               <div className="font-mono text-micro tracking-[0.12em] text-ink-faint">RECENTLY SENT</div>
               <ul className="mt-2.5 grid gap-2">
-                {data.recent.map((a) => (
-                  <li key={a.id} className="border-b border-line-soft pb-2 last:border-0 last:pb-0">
+                <PagedList items={data.recent} keyOf={(a) => a.id} pageSize={10} label="announcements" render={(a) => (
+                  <li className="border-b border-line-soft pb-2 last:border-0 last:pb-0">
                     <div className="truncate text-[12.5px] font-medium">{a.subject}</div>
                     <div className="mt-0.5 font-mono text-[10.5px] text-ink-faint">
                       {a.published_at ? new Date(a.published_at).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" }) : "Draft"}
                     </div>
                     <MessageSignatureStatus announcementId={a.id} />
                   </li>
-                ))}
+                )} />
               </ul>
             </div>
           )}

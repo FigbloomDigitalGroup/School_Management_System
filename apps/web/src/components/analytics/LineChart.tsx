@@ -18,9 +18,14 @@ interface Props {
   digits?: number;
   unit?: string;
   controls?: React.ReactNode;
+  /** Points to mark with a dashed rule and a short label (a flagged day). Say them in the summary too. */
+  marks?: { index: number; label: string }[];
+  /** The x axis's name in the table view ("Exam" by default). */
+  xHeader?: string;
+  height?: number;
 }
 
-const H = 240;
+const H_DEFAULT = 240;
 const PAD = { top: 14, right: 16, bottom: 40, left: 34 };
 const LABEL_GAP = 14;
 
@@ -29,7 +34,8 @@ const LABEL_GAP = 14;
  * paper not sat is not a zero), end dots carrying direct labels, and a
  * crosshair + tooltip on hover or arrow keys.
  */
-export function LineChart({ title, summary, points, series, yMin = 0, yMax = 100, yTicks = [0, 25, 50, 75, 100], digits = 1, unit = "", controls }: Props) {
+export function LineChart({ title, summary, points, series, yMin = 0, yMax = 100, yTicks = [0, 25, 50, 75, 100], digits = 1, unit = "", controls, marks = [], xHeader = "Exam", height }: Props) {
+  const H = height ?? H_DEFAULT;
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
   const shown = series.slice(0, SERIES_COLORS.length);
@@ -68,7 +74,7 @@ export function LineChart({ title, summary, points, series, yMin = 0, yMax = 100
   const table = (
     <ChartTable
       caption={title}
-      head={["Exam", ...shown.map((s) => s.name)]}
+      head={[xHeader, ...shown.map((s) => s.name)]}
       rows={points.map((p, i) => [p.sublabel ? `${p.label} · ${p.sublabel}` : p.label, ...shown.map((s) => fmt(s.values[i], digits))])}
     />
   );
@@ -102,6 +108,12 @@ export function LineChart({ title, summary, points, series, yMin = 0, yMax = 100
               <g key={i}>
                 <text x={x(i)} y={H - PAD.bottom + 16} textAnchor="middle" fontSize={11} fill="var(--viz-ink-2)">{truncate(p.label, 14)}</text>
                 {p.sublabel && <text x={x(i)} y={H - PAD.bottom + 30} textAnchor="middle" fontSize={10} fill="var(--viz-muted)">{truncate(p.sublabel, 16)}</text>}
+              </g>
+            ))}
+            {marks.filter((m) => m.index >= 0 && m.index < points.length).map((m) => (
+              <g key={`mark-${m.index}`}>
+                <line x1={x(m.index)} x2={x(m.index)} y1={PAD.top} y2={PAD.top + plotH} stroke="var(--viz-2)" strokeWidth={1.5} strokeDasharray="4 3" />
+                <text x={x(m.index)} y={PAD.top - 3} textAnchor="middle" fontSize={10} fontWeight={600} fill="var(--viz-ink)">{truncate(m.label, 18)}</text>
               </g>
             ))}
             {active !== null && (

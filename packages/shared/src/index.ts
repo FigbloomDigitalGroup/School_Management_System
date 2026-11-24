@@ -81,6 +81,8 @@ export * from "./pushTargets";
 export * from "./markdown";
 export * from "./inventory";
 export * from "./inventoryStock";
+export * from "./inventoryPaging";
+export * from "./feesPaging";
 export * from "./feeCharges";
 export * from "./otherStaff";
 export * from "./adminAreas";
