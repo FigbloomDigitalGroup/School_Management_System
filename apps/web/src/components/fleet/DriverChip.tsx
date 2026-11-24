@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { BusOnRoute } from "@figbloom/shared";
+import { fleetCapabilities, type BusOnRoute } from "@figbloom/shared";
 import { Avatar } from "../Avatar";
 import { Modal } from "../ui/Modal";
 
@@ -11,7 +11,7 @@ import { Modal } from "../ui/Modal";
 export function DriverChip({ bus, size = 34 }: { bus: BusOnRoute; size?: number }) {
   const [open, setOpen] = useState(false);
   const d = bus.driver;
-  if (!d) return <div className="text-[12px] text-ink-faint">Driver not assigned yet</div>;
+  if (!d) return <div className="text-[12px] text-ink-faint">{fleetCapabilities().assignments ? "Driver not assigned yet" : "No driver on a trip"}</div>;
 
   return (
     <>

@@ -4,6 +4,7 @@ import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminCons
 import { BloomFab } from "../components/BloomFab";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { useAsync } from "../lib/useAsync";
+import { ApiDriverConsole } from "./ApiDriver";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
 import { ApiStaffHome } from "./ApiStaffHome";
 import { API_ADMIN_PAGES, API_STAFF_PAGES, API_TEACHER_PAGES, adminPageDefs, staffPageDefs, staffPagesFor, teacherPageDefs } from "./pages";
@@ -89,6 +90,8 @@ function staffRoutes(session: SchoolSession) {
 }
 
 export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onSignOut: () => Promise<void> }) {
+  // A driver has their own full-width pages (ApiDriver.tsx), not the console.
+  if (session.profile.role === "driver") return <ApiDriverConsole session={session} />;
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
   const isStaff = session.profile.role === "staff";
   if (!hasAdminConsole(access)) {

@@ -567,6 +567,46 @@ export function aiCapabilities(): AiCapabilities {
 }
 
 /**
+ * Buses, fleet and the driver's pages: admin/fleet, teacher/buses, driver, driver/profile. A flag is true where that backend
+ * offers the control. The API can add a route and its stops but cannot list them, and it has no read of who drives which vehicle,
+ * so most of what the maps and tables show about a route stays hidden (docs/WEB_ON_THE_NEW_API.md, "Buses, fleet and driver").
+ */
+export interface FleetCapabilities {
+  /** Reading and saving a route's stops: the stops under the maps, the stop editor, "Next stop" on the driver's screen (the API has no read of stops). */
+  routeStops: boolean;
+  /** Who rides a route, and "Rebuild stops from riders' homes" (no list of a route's riders, no learner home on the API). */
+  routeRiders: boolean;
+  /** Who drives which vehicle, as the office sees it: the Driver & route column, the Assigned count, "Currently ..." (the API has no read of assignments). */
+  assignments: boolean;
+  /** Speeding and off-route alerts raised by the server (the API raises none). */
+  speedAlerts: boolean;
+  /** API only: a driver's breakdown report (an "incident" on the trip) shown to the office as an alert. */
+  tripIncidents: boolean;
+  /** "Undo" on a child's mark (the API's trip events cannot be taken back). */
+  undoRiderMark: boolean;
+  /** A breakdown report tells the families of the children affected (on the API only the office is told, and tells families itself). */
+  breakdownTellsFamilies: boolean;
+  /** The driver's own screen follows the bus on the live feed (a driver may not read the fleet on the API; their phone's own position is used). */
+  driverLiveFeed: boolean;
+  /** Each trip's number of alerts in the trip history. */
+  tripAlertCounts: boolean;
+}
+
+const FLEET_ON_SUPABASE: FleetCapabilities = {
+  routeStops: true, routeRiders: true, assignments: true, speedAlerts: true, tripIncidents: false, undoRiderMark: true,
+  breakdownTellsFamilies: true, driverLiveFeed: true, tripAlertCounts: true,
+};
+
+const FLEET_ON_API: FleetCapabilities = {
+  routeStops: false, routeRiders: false, assignments: false, speedAlerts: false, tripIncidents: true, undoRiderMark: false,
+  breakdownTellsFamilies: false, driverLiveFeed: false, tripAlertCounts: false,
+};
+
+export function fleetCapabilities(): FleetCapabilities {
+  return onApi() ? FLEET_ON_API : FLEET_ON_SUPABASE;
+}
+
+/**
  * The organisation console (S11, apps/api/docs/ORG-CONSOLE.md). On the API an org admin reads their organisations, the
  * schools in them (name, address, status), the other org admins and their own audit events, and gives or takes away a
  * co-admin's access inside one school. The rest waits on an owner decision or on the platform console.

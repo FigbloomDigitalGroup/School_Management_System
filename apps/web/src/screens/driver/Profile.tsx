@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signOutHere } from "@figbloom/shared";
+import { accountCapabilities, signOutHere } from "@figbloom/shared";
+import { AccountSections } from "../../components/account/AccountSections";
 import { MyAccountFields } from "../../components/MyAccountFields";
 import { PasswordForm } from "../../components/PasswordGate";
 import { useToast } from "../../components/ui/Toast";
@@ -34,17 +35,25 @@ export function DriverProfile() {
   const toast = useToast();
   const navigate = useNavigate();
   const { profile } = useTenantSession();
+  // On the new system the account sections hold the password, two-step and notices, and there is no photo to set (accountCapabilities).
+  const accountSections = accountCapabilities().security;
 
   return (
     <DriverFrame title="My profile" back>
-      <p className="text-small leading-relaxed text-ink-muted">
-        Parents see your photo and name on their bus page so they know who's collecting their child. Use a clear photo of your face.
-      </p>
-      <MyAccountFields nameLocked />
-      <section className="rounded-lg border border-line bg-white p-4">
-        <h2 className="mb-3 text-[14px] font-semibold">Change password</h2>
-        <PasswordForm profileId={profile.id} submitLabel="Change password" onDone={() => toast("Password changed")} />
-      </section>
+      {accountSections ? (
+        <AccountSections nameLocked />
+      ) : (
+        <>
+          <p className="text-small leading-relaxed text-ink-muted">
+            Parents see your photo and name on their bus page so they know who's collecting their child. Use a clear photo of your face.
+          </p>
+          <MyAccountFields nameLocked />
+          <section className="rounded-lg border border-line bg-white p-4">
+            <h2 className="mb-3 text-[14px] font-semibold">Change password</h2>
+            <PasswordForm profileId={profile.id} submitLabel="Change password" onDone={() => toast("Password changed")} />
+          </section>
+        </>
+      )}
       <button
         onClick={() => void signOutHere().then(() => navigate("/signin", { replace: true }))}
         className="hit justify-self-start rounded-lg border border-line px-4 py-2 text-small font-semibold text-ink-muted"

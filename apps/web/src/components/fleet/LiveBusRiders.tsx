@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  arrangeRiders, listActiveTrips, listRouteStops, listTripRiders, riderMarkedAt, stopsInTravelOrder,
+  arrangeRiders, fleetCapabilities, listActiveTrips, listRouteStops, listTripRiders, onApi, riderMarkedAt, startPolling, stopsInTravelOrder, stopsOfRiders,
   type ArrangedRider, type DriverOption, type Route, type Trip, type Vehicle,
 } from "@figbloom/shared";
 import { Avatar } from "../Avatar";
@@ -21,9 +21,11 @@ interface LiveTrip { trip: Trip; riders: ArrangedRider[]; stopName: Map<string, 
 async function load(tenantId: string): Promise<LiveTrip[]> {
   const trips = await listActiveTrips(tenantId);
   return Promise.all(trips.map(async (trip) => {
-    const [riders, stops] = await Promise.all([listTripRiders(trip.id), trip.route_id ? listRouteStops(trip.route_id) : Promise.resolve([])]);
-    const ordered = stopsInTravelOrder(stops, trip.direction);
-    return { trip, riders: arrangeRiders(riders, ordered.map((s) => s.id)), stopName: new Map(stops.map((s) => [s.id, s.name])) };
+    // The new system cannot list a route's stops: the stops are those of the children's manifest, already in travel order.
+    const readStops = fleetCapabilities().routeStops && trip.route_id;
+    const [riders, listed] = await Promise.all([listTripRiders(trip.id), readStops ? listRouteStops(trip.route_id!) : Promise.resolve(null)]);
+    const ordered = listed ? stopsInTravelOrder(listed, trip.direction) : stopsOfRiders(riders, trip.direction);
+    return { trip, riders: arrangeRiders(riders, ordered.map((s) => s.id)), stopName: new Map((listed ?? ordered).map((s) => [s.id, s.name])) };
   }));
 }
 
@@ -45,6 +47,11 @@ export function LiveBusRiders({ tenantId, vehicles, routes, drivers }: {
     const tick = () => load(tenantId)
       .then((t) => { if (alive) { setTrips(t); setError(null); } })
       .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : String(err)); });
+    // Supabase: as before. The new system pauses while the tab is hidden or unused, so a tab left open does not keep the session alive (poll.ts).
+    if (onApi()) {
+      const stop = startPolling(tick, { intervalMs: POLL_MS, immediate: true });
+      return () => { alive = false; stop(); };
+    }
     void tick();
     const id = window.setInterval(() => void tick(), POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
