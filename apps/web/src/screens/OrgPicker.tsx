@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { formatMoney, loadMyWorkspaces, signOutHere } from "@figbloom/shared";
+import { formatMoney, loadMyWorkspaces, orgCapabilities, signOutHere } from "@figbloom/shared";
 import { useAsync } from "../lib/useAsync";
 import { Skeleton } from "../components/ui/Skeleton";
 
@@ -34,7 +34,7 @@ export function OrgPicker() {
           <div>
             <div className="text-[15px] font-semibold">Choose a workspace</div>
             <p className="text-[12.5px] text-ink-muted">
-              {loading ? "…" : `${data?.name}, you administer more than one organization.`}
+              {loading ? "…" : data && data.orgs.length > 1 ? `${data.name}, you administer more than one organization.` : `${data?.name}, pick where to go.`}
             </p>
           </div>
         </div>
@@ -42,12 +42,15 @@ export function OrgPicker() {
         {!loading && data && data.schools.length > 0 && (
           <div className="mb-4 grid grid-cols-3 gap-2.5">
             <CombinedStat label="Schools" value={data.schools.length.toLocaleString()} />
+            {/* Learner and fee totals are not on the new API (orgCapabilities().schoolFigures, S11). */}
+            {orgCapabilities().schoolFigures && <>
             <CombinedStat label="Active students" value={data.schools.reduce((a, s) => a + s.active_students, 0).toLocaleString()} />
             {/* Every school in this list can belong to a different org, and today every org is Kenyan-only
                 (the country selector is locked to Kenya) — "KE" is safe here for the same reason it is
                 elsewhere in the org console; a real cross-country combined total is a currency-aggregation
                 problem to solve once that's possible, not a formatting one. */}
             <CombinedStat label="Fees collected" value={formatMoney(data.schools.reduce((a, s) => a + s.fees_collected_cents, 0), "KE")} />
+            </>}
           </div>
         )}
 

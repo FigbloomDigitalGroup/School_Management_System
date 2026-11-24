@@ -39,3 +39,4 @@ export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAutho
 export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";
 export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayReadItems, type MyStaffRecord } from "./otherStaffApi";
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
+export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";

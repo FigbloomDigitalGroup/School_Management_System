@@ -625,3 +625,45 @@ const AI_ON_API: AiCapabilities = {
 export function aiCapabilities(): AiCapabilities {
   return onApi() ? AI_ON_API : AI_ON_SUPABASE;
 }
+
+/**
+ * The organisation console (S11, apps/api/docs/ORG-CONSOLE.md). On the API an org admin reads their organisations, the
+ * schools in them (name, address, status), the other org admins and their own audit events, and gives or takes away a
+ * co-admin's access inside one school. The rest waits on an owner decision or on the platform console.
+ */
+export interface OrgCapabilities {
+  /** Learners, attendance today and fees billed and collected per school (owner decision 4: which figures an org admin may see). */
+  schoolFigures: boolean;
+  /** A school's kind (K-12 or higher-ed) and delivery: the API's organisation school list does not carry them. */
+  schoolKind: boolean;
+  /** "Add school": on the API a school is provisioned by a platform super admin only. */
+  addSchool: boolean;
+  /** "Open for sign-in": on the API a school opens when its first administrator accepts the invitation. */
+  openForSignIn: boolean;
+  /** A school's own administrators on its page (a school-level read an org admin does not hold). */
+  schoolAdmins: boolean;
+  /** "Open school console": an org admin inside a school's console is not on the API web build yet. */
+  openSchoolConsole: boolean;
+  /** "Invite admin" (owner decision 1: who may add an org admin). */
+  inviteOrgAdmin: boolean;
+  /** "+ Create new organization" from the workspace switcher (no self-service organisations on the API). */
+  createOrganization: boolean;
+  /** Every console page view is logged and listed (Supabase). On the API the Audit log lists the person's own recorded actions. */
+  pageViewLog: boolean;
+  /** Give or take away a co-admin's access inside one school (API delegations; on Supabase an org admin already runs every school). */
+  schoolAccess: boolean;
+}
+
+const ORG_ON_SUPABASE: OrgCapabilities = {
+  schoolFigures: true, schoolKind: true, addSchool: true, openForSignIn: true, schoolAdmins: true, openSchoolConsole: true,
+  inviteOrgAdmin: true, createOrganization: true, pageViewLog: true, schoolAccess: false,
+};
+
+const ORG_ON_API: OrgCapabilities = {
+  schoolFigures: false, schoolKind: false, addSchool: false, openForSignIn: false, schoolAdmins: false, openSchoolConsole: false,
+  inviteOrgAdmin: false, createOrganization: false, pageViewLog: false, schoolAccess: true,
+};
+
+export function orgCapabilities(): OrgCapabilities {
+  return onApi() ? ORG_ON_API : ORG_ON_SUPABASE;
+}

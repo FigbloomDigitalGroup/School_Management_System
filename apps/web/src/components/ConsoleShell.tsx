@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, API_PASSWORD_MIN_LENGTH, apiChangePassword, apiPasswordProblem, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
+import { NAV, API_PASSWORD_MIN_LENGTH, orgCapabilities, apiChangePassword, apiPasswordProblem, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
@@ -573,13 +573,16 @@ function WorkspaceSwitcher({ current, options }: { current: string; options: { s
                 All organizations
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setCreating(true); }}
-              className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-forest hover:bg-page"
-            >
-              + Create new organization
-            </button>
+            {/* Not on the new API: no self-service organisations there (orgCapabilities). */}
+            {orgCapabilities().createOrganization && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setCreating(true); }}
+                className="block w-full px-3 py-2 text-left text-[12.5px] font-medium text-forest hover:bg-page"
+              >
+                + Create new organization
+              </button>
+            )}
           </div>
         </div>
       )}

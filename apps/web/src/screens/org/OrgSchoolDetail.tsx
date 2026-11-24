@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchOrganizationTenantSummaries, fetchTenantSlug, logOrganizationAccess, formatMoney } from "@figbloom/shared";
+import { fetchOrganizationTenantSummaries, fetchTenantSlug, logOrganizationAccess, formatMoney, orgCapabilities } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
@@ -10,6 +10,7 @@ import { StatRow } from "../../components/ui/StatCard";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useAsync } from "../../lib/useAsync";
 import { useOrgSessionCtx } from "../../lib/orgSessionContext";
+import { SchoolAccessPanel } from "./SchoolAccessPanel";
 
 /**
  * Aggregate figures (same organization_tenant_summary the schools list
@@ -25,9 +26,11 @@ export function OrgSchoolDetail() {
   const { data: summaries, loading, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id]);
   const school = summaries?.find((s) => s.tenant_id === tenantId) ?? null;
   const [opening, setOpening] = useState(false);
+  // On the new API: name, address and status, and access for the organisation's admins; no figures, no school console (S11).
+  const caps = orgCapabilities();
 
   useEffect(() => {
-    if (tenantId) void logOrganizationAccess(organization.id, profile.id, "viewed_tenant_detail", tenantId);
+    if (tenantId && orgCapabilities().pageViewLog) void logOrganizationAccess(organization.id, profile.id, "viewed_tenant_detail", tenantId);
   }, [organization.id, profile.id, tenantId]);
 
   async function openConsole() {
@@ -69,13 +72,17 @@ export function OrgSchoolDetail() {
       <PageHead
         eyebrow={organization.name}
         title={school.name}
-        blurb={`${school.institution_type === "higher_ed" ? (school.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[school.higher_ed_subtype] : "Higher-ed institution") : "K-12 school"}${school.delivery_mode !== "in_person" ? ` · ${DELIVERY_MODE_LABEL[school.delivery_mode]}` : ""} · last updated ${new Date(school.updated_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+        blurb={caps.schoolKind
+          ? `${school.institution_type === "higher_ed" ? (school.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[school.higher_ed_subtype] : "Higher-ed institution") : "K-12 school"}${school.delivery_mode !== "in_person" ? ` · ${DELIVERY_MODE_LABEL[school.delivery_mode]}` : ""} · last updated ${new Date(school.updated_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+          : school.slug ? `schoolmanagement.figbloom.org/s/${school.slug}` : undefined}
         actions={
           <>
             <Button onClick={() => nav("../schools")}>Back to schools</Button>
-            <Button variant="accent" onClick={() => void openConsole()} disabled={opening}>
-              {opening ? "Opening…" : "Open school console"}
-            </Button>
+            {caps.openSchoolConsole && (
+              <Button variant="accent" onClick={() => void openConsole()} disabled={opening}>
+                {opening ? "Opening…" : "Open school console"}
+              </Button>
+            )}
           </>
         }
       />
@@ -85,7 +92,7 @@ export function OrgSchoolDetail() {
           <Badge tone={school.status === "active" ? "ok" : "warn"}>{school.status}</Badge>
         </div>
 
-        <StatRow
+        {caps.schoolFigures && <StatRow
           stats={[
             { label: "Active students", value: school.active_students.toLocaleString() },
             { label: "Present today", value: school.present_today.toLocaleString(), sub: school.active_students > 0 ? `${Math.round((school.present_today / school.active_students) * 100)}% of enrolled` : undefined },
@@ -102,17 +109,31 @@ export function OrgSchoolDetail() {
               sub: school.fees_billed_cents > 0 ? `${Math.round((school.fees_collected_cents / school.fees_billed_cents) * 100)}% collected` : "nothing billed yet",
             },
           ]}
-        />
+        />}
 
-        <div className="mt-5 max-w-[760px]">
-          <SchoolAdmins tenantId={school.tenant_id} tenantName={school.name} />
-        </div>
+        {caps.schoolAdmins && (
+          <div className="mt-5 max-w-[760px]">
+            <SchoolAdmins tenantId={school.tenant_id} tenantName={school.name} />
+          </div>
+        )}
 
-        <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
-          "Open school console" gives you the same access this school's own admin has — its students, staff, fees,
-          and everything else. Every visit is logged here and the school can see it, the same way this page view
-          already is.
-        </p>
+        {caps.schoolAccess && (
+          <div className="mt-5 max-w-[760px]">
+            <SchoolAccessPanel tenantId={school.tenant_id} organizationId={organization.id} schoolName={school.name} />
+          </div>
+        )}
+
+        {caps.openSchoolConsole ? (
+          <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
+            "Open school console" gives you the same access this school's own admin has — its students, staff, fees,
+            and everything else. Every visit is logged here and the school can see it, the same way this page view
+            already is.
+          </p>
+        ) : (
+          <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
+            Not on the new system yet: this school's learner numbers, attendance and fees, its own admins, and opening its console from here.
+          </p>
+        )}
       </div>
     </>
   );

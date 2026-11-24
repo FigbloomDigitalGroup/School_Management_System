@@ -213,9 +213,10 @@ describe("loadSchoolSession on the API", () => {
 });
 
 describe("the rest of session.ts on the API", () => {
-  it("has no org console", async () => {
-    boot({});
+  it("org console (S11): a session the server no longer honours answers null (the rest is in orgApi.test.ts)", async () => {
+    boot({ "GET /v1/auth/me": { status: 401, body: { error: { code: "unauthorized", message: "Session expired" } } } });
     expect(await loadOrgSession("any")).toBeNull();
+    boot({ "GET /v1/auth/me": { status: 401, body: { error: { code: "unauthorized", message: "Session expired" } } } });
     expect(await loadMyWorkspaces()).toBeNull();
   });
 
