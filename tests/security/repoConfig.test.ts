@@ -166,9 +166,29 @@ describe("the web host's security headers (apps/web/vercel.json)", () => {
     expect(keys.has("x-frame-options") || /frame-ancestors/.test(csp)).toBe(true);
   });
 
-  // Content-Security-Policy comes in W1 once the API address is known (FIG-1459 / FIG-1901).
-  it.fails("QA14-HEADERS FIG-1459: every page is sent with a Content-Security-Policy", () => {
+  it("QA14-HEADERS FIG-1459: every page is sent with a Content-Security-Policy", () => {
     expect(keys.has("content-security-policy")).toBe(true);
+    const directives = new Map(
+      csp.split(";").map((d) => d.trim()).filter(Boolean).map((d) => {
+        const [name, ...rest] = d.split(/\s+/);
+        return [name!.toLowerCase(), rest.join(" ")];
+      }),
+    );
+    const connectSrc = directives.get("connect-src") ?? "";
+    expect(connectSrc).toContain("https://sms-api.figbloom.org");
+    expect(connectSrc).toContain("https://*.supabase.co");
+    expect(connectSrc).toContain("wss://*.supabase.co");
+    expect(connectSrc).toContain("https://*.livekit.cloud");
+    expect(connectSrc).toContain("wss://*.livekit.cloud");
+    const scriptSrc = directives.get("script-src") ?? "";
+    // Google Maps loads its main script from maps.gstatic.com and its tiles from *.googleapis.com.
+    expect(scriptSrc).toContain("https://*.gstatic.com");
+    expect(scriptSrc).toContain("https://*.googleapis.com");
+    expect(directives.get("img-src") ?? "").toContain("https://*.googleapis.com");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+    expect(scriptSrc).not.toContain("'unsafe-eval'");
+    expect(directives.get("object-src")).toBe("'none'");
+    expect(directives.get("frame-ancestors")).toBe("'none'");
   });
 
   it("the header rules that do exist are valid (security, caching and noindex only, nothing that weakens a page)", () => {
@@ -179,6 +199,7 @@ describe("the web host's security headers (apps/web/vercel.json)", () => {
       "x-frame-options",
       "x-content-type-options",
       "referrer-policy",
+      "content-security-policy",
     ];
     for (const h of vercel.headers ?? []) for (const x of h.headers) {
       expect(allowed, `${h.source}: ${x.key}`).toContain(x.key.toLowerCase());

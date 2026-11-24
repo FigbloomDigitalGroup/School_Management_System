@@ -1,7 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { fetchStaffNotices } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
-import { MyAccountFields } from "../../components/MyAccountFields";
+import { AccountSections, accountBlurb } from "../../components/account/AccountSections";
 import { useTenantSession } from "../../lib/sessionContext";
 import { TeacherNotices } from "../teacher/Notices";
 import { DeskVisitors } from "../frontdesk/Desk";
@@ -39,9 +39,9 @@ export function StaffNotices() {
 export function StaffAccount() {
   return (
     <>
-      <PageHead eyebrow="Account" title="My account" blurb="Your own name, phone, and photo — nobody else's. Your title is set by the school office." />
+      <PageHead eyebrow="Account" title="My account" blurb={`${accountBlurb()} Your title is set by the school office.`} />
       <div className="px-7 py-6">
-        <MyAccountFields />
+        <AccountSections />
       </div>
     </>
   );

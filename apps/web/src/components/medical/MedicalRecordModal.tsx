@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import {
-  DOSE_STATUS_LABEL, openMedicalRecord, REQUEST_STATUS_LABEL,
+  DOSE_STATUS_LABEL, fetchMedicalAccess, MEDICAL_HEALTH_HIDDEN, medicalCapabilities, openMedicalRecord, REQUEST_STATUS_LABEL,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
@@ -18,18 +18,23 @@ const fmtDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString("
  * which learner) by medical_record() in the database.
  */
 export function MedicalRecordModal({ studentId, name, onClose }: { studentId: string; name: string; onClose: () => void }) {
+  const caps = medicalCapabilities();
   const { data, loading, error } = useAsync(() => openMedicalRecord(studentId), [studentId]);
+  const { data: access } = useAsync(() => fetchMedicalAccess(), []);
   const h = data?.health ?? null;
+  const healthHidden = !!access && !access.healthRecords;
 
   return (
     <Modal open onClose={onClose} eyebrow="Medical record" title={name} width={760}
-      footNote="Opening this record is noted in the school's audit trail."
+      footNote={caps.recordOpenAudited ? "Opening this record is noted in the school's audit trail." : undefined}
       actions={<Button onClick={onClose}>Close</Button>}>
       {error ? <ErrorLine what="the record" error={error} /> : loading || !data ? (
         <div className="grid gap-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-24 w-full" /></div>
       ) : (
         <div className="grid gap-4">
-          <HealthAlerts health={h} />
+          {healthHidden
+            ? <p role="note" className="rounded-lg border border-line bg-page px-3 py-2.5 text-[12.5px] text-ink-muted">{MEDICAL_HEALTH_HIDDEN}</p>
+            : <HealthAlerts health={h} />}
           {h && (
             <dl className="grid gap-x-4 gap-y-1.5 text-[12.5px]" style={{ gridTemplateColumns: "max-content 1fr" }}>
               {h.blood_group && <><dt className="text-ink-muted">Blood group</dt><dd>{h.blood_group}</dd></>}
@@ -44,6 +49,7 @@ export function MedicalRecordModal({ studentId, name, onClose }: { studentId: st
           )}
 
           <Section title={`Sick bay visits · ${data.visits.length}`}>
+            {!caps.visitHistory && <p className="mb-1 text-[11.5px] text-ink-faint">Showing open visits only; past visit history is not on the new system yet.</p>}
             {data.visits.length === 0 ? <Empty>No visits yet.</Empty> : data.visits.map((v) => (
               <div key={v.id} className="border-b border-line-soft py-2 last:border-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -63,19 +69,22 @@ export function MedicalRecordModal({ studentId, name, onClose }: { studentId: st
             ))}
           </Section>
 
-          <Section title="Medication">
-            {data.schedules.length === 0 ? <Empty>No medication on a schedule.</Empty> : data.schedules.map((s) => (
-              <p key={s.id} className="py-1 text-[12.5px]">
-                <span className="font-semibold">{s.drug} {s.dose}</span> at {s.times.join(", ")} · {fmtDay(s.starts_on)} to {s.ends_on ? fmtDay(s.ends_on) : "until stopped"}
-                {s.stopped_at ? " · stopped" : ""}{s.prescriber ? ` · ${s.prescriber}` : ""}
-              </p>
-            ))}
-            {data.doses.length > 0 && (
-              <p className="mt-1 text-[12px] text-ink-muted">
-                Last 60 days: {(["given", "refused", "missed"] as const).map((k) => `${data.doses.filter((d) => d.status === k).length} ${DOSE_STATUS_LABEL[k].toLowerCase()}`).join(", ")}.
-              </p>
-            )}
-          </Section>
+          {(caps.medicationRound || data.schedules.length > 0 || data.doses.length > 0 || (data.otherDoses ?? 0) > 0) && (
+            <Section title="Medication">
+              {data.schedules.length === 0 ? (caps.medicationRound ? <Empty>No medication on a schedule.</Empty> : null) : data.schedules.map((s) => (
+                <p key={s.id} className="py-1 text-[12.5px]">
+                  <span className="font-semibold">{s.drug} {s.dose}</span> at {s.times.join(", ")} · {fmtDay(s.starts_on)} to {s.ends_on ? fmtDay(s.ends_on) : "until stopped"}
+                  {s.stopped_at ? " · stopped" : ""}{s.prescriber ? ` · ${s.prescriber}` : ""}
+                </p>
+              ))}
+              {(data.doses.length > 0 || (data.otherDoses ?? 0) > 0) && (
+                <p className="mt-1 text-[12px] text-ink-muted">
+                  Last 60 days: {(["given", "refused", "missed"] as const).map((k) => `${data.doses.filter((d) => d.status === k).length} ${DOSE_STATUS_LABEL[k].toLowerCase()}`).join(", ")}
+                  {data.otherDoses ? `, ${data.otherDoses} held back or noted as an exception` : ""}.
+                </p>
+              )}
+            </Section>
+          )}
 
           {data.requests.length > 0 && (
             <Section title="Requests from the family">

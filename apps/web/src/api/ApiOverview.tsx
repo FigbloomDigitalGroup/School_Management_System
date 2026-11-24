@@ -11,7 +11,7 @@ const ROLE_NAMES: Record<Role, string> = {
   staff: "Staff", org_admin: "Organization administrator", super_admin: "Platform administrator",
 };
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
+export function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4">
       <dt className="w-40 shrink-0 text-small font-semibold text-ink-muted">{label}</dt>

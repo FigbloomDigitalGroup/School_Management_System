@@ -8,7 +8,8 @@ import { uuidString } from "./schemas.js";
 import { withTenantRequest } from "./tenantRequest.js";
 import { assertSameTenant } from "../modules/tenancy/context.js";
 import { teacherClassIds } from "../modules/academics/structure.js";
-import { hasPermission, requirePermission } from "../modules/rbac/authorize.js";
+import { TEACHING_READ, teachingClassIds, teachingYearIds } from "../modules/academics/teaching.js";
+import { hasPermission, loadEffectivePermissions, requirePermission } from "../modules/rbac/authorize.js";
 import { parsePage, type PageInput } from "../modules/academics/pagination.js";
 
 export function assertUuid(value: string, field: string): void {
@@ -63,6 +64,33 @@ export async function classReadScope(
     await requirePermission(tx, auth.authz, readPermission, { ip, deferAudit: true });
   }
   return classes;
+}
+
+/**
+ * Teacher reads (docs/TEACHER-READS.md): the classes the caller teaches. Requires `resource.teaching.read` (the standard
+ * audited 403 for a parent, a student or a driver); an empty list when the caller teaches nothing or has no linked staff
+ * record. Read only: no write route uses it.
+ */
+export async function myTeachingClassIds(tx: Tx, auth: RequestAuth, ip: string | null): Promise<string[]> {
+  await requirePermission(tx, auth.authz, TEACHING_READ, { ip, deferAudit: true });
+  return auth.authz.tenantId ? teachingClassIds(tx, { tenantId: auth.authz.tenantId, userId: auth.user.id }) : [];
+}
+
+/**
+ * Academic calendar read scope (docs/TEACHER-READS.md). Holders of `resource.academics.read` read every year and term: null.
+ * A holder of `resource.teaching.read` who teaches reads only the academic years of the classes they teach (and those years'
+ * terms). Anyone else, including a teacher who teaches nothing, gets the standard audited 403. Read only.
+ */
+export async function calendarReadScope(tx: Tx, auth: RequestAuth, ip: string | null): Promise<string[] | null> {
+  const perms = await loadEffectivePermissions(tx, auth.authz);
+  if (perms.has("resource.academics.read")) return null;
+  const tenantId = auth.authz.tenantId;
+  const years =
+    tenantId && perms.has(TEACHING_READ)
+      ? await teachingYearIds(tx, { tenantId, classIds: await teachingClassIds(tx, { tenantId, userId: auth.user.id }) })
+      : [];
+  if (years.length === 0) await requirePermission(tx, auth.authz, "resource.academics.read", { ip, deferAudit: true });
+  return years;
 }
 
 /** `limit` and `cursor` query parameters of a paged list. */
