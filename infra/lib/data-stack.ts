@@ -21,6 +21,8 @@ export class DataStack extends Stack {
   readonly sessionMintHmacKey: secretsmanager.Secret;
   readonly idempotencyFingerprintKey: secretsmanager.Secret;
   readonly mfaEncryptionKey: secretsmanager.Secret;
+  /** Resend API key. Created with a random placeholder (e-mail stays off) until someone stores the real "re_..." key. */
+  readonly resendApiKey: secretsmanager.Secret;
   /** One security group per kind of task, so the database lets in exactly these. */
   readonly apiSg: ec2.SecurityGroup;
   readonly workerSg: ec2.SecurityGroup;
@@ -122,6 +124,14 @@ export class DataStack extends Stack {
       "mfa-encryption-key",
       "MFA_ENCRYPTION_KEY. Encrypts every user's two-step secret: changing or losing it locks everyone with two-step out",
       64,
+    );
+    // Not a key we can generate: the random value is a placeholder the API treats as "e-mail off" (a real key starts
+    // with "re_"). Store the real one with `aws secretsmanager put-secret-value` (infra/README.md); never in code.
+    this.resendApiKey = generated(
+      "ResendApiKey",
+      "resend-api-key",
+      "RESEND_API_KEY for account and invoice e-mail. Placeholder until the real re_... key is stored; then redeploy the api service",
+      32,
     );
   }
 }

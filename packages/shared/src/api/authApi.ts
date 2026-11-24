@@ -132,6 +132,31 @@ export async function apiMfaRegenerateRecoveryCodes(code: string): Promise<strin
   return res.recoveryCodes as string[];
 }
 
+/**
+ * Asks for a password-reset e-mail. The server answers the same whether or not the address has an account
+ * (no enumeration), so this resolves either way; only throttling and outages throw.
+ */
+export async function apiRequestPasswordReset(email: string): Promise<void> {
+  await apiClient().post("/v1/auth/password-reset/request", {
+    body: { email: email.trim() },
+    auth: false,
+    tenantId: null,
+  });
+}
+
+/**
+ * Sets a new password with the token from a reset e-mail. The token works once and for 30 minutes; the server
+ * signs that account out everywhere. An invalid, used or expired token is a 401 ApiError.
+ */
+export async function apiCompletePasswordReset(input: { token: string; password: string }): Promise<void> {
+  await apiClient().post("/v1/auth/password-reset/complete", {
+    body: { token: input.token, password: input.password },
+    auth: false,
+    tenantId: null,
+    keepSessionOn401: true,
+  });
+}
+
 export interface AcceptInvitationResult {
   status: "accepted";
   tenantId: string | null;

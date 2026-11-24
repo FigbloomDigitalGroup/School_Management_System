@@ -4,10 +4,17 @@ import { acquireClient } from "./db/tenantTransaction.js";
 import { assertRuntimeRole } from "./db/roleAssert.js";
 import { startServer } from "./server.js";
 import { describeError, logError, logInfo } from "./log.js";
+import { setAccountNotifier } from "./modules/account/notifier.js";
+import { resendNotifierFromEnv } from "./modules/account/resendNotifier.js";
 
 async function main(): Promise<void> {
   loadDotEnvForLocal();
   const config = loadConfig();
+  // Account e-mail (invitations, password resets). Off unless RESEND_API_KEY is a real key; then issuers no
+  // longer receive tokens, so the links must open a working page (ACCOUNT_LINK_BASE_URL).
+  const notifier = resendNotifierFromEnv(process.env, config.appEnv);
+  if (notifier) setAccountNotifier(notifier);
+  logInfo("account_email", { outcome: notifier ? "resend" : "not_configured" });
   const pool = createPool(runtimePoolOptions(config));
   try {
     const client = await acquireClient(pool, config.poolAcquireTimeoutMs);

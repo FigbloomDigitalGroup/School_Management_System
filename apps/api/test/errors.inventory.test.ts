@@ -19,6 +19,7 @@ import { financeHarness } from "./support/financeHarness.js";
  * | modules/finance/money.ts          | 1 | database money value is not a safe integer         | invariant   | no: finance_payments CHECK caps amounts at 1e11 |
  * | modules/finance/mpesa.ts          | 2 | operator context mismatch; settle without checkout | invariant   | no: the operator path answers 'inconclusive' first; callbacks and the job locate the payment BY checkout id |
  * | modules/finance/mpesaProvider.ts  | 6 | provider unconfigured / auth / push / query failed | operational | no: every caller catches it (503 / inconclusive / retry) |
+ * | modules/account/resendNotifier.ts | 4 | RESEND_API_KEY set but ACCOUNT_EMAIL_FROM / ACCOUNT_LINK_BASE_URL unusable | startup config | no: only index.ts main() calls resendNotifierFromEnv, before the server listens |
  * | modules/identity/password.ts      | 1 | crypto.argon2 unavailable (Node < 24.7)            | startup/environment | no |
  * | src/worker/index.ts               | 1 | worker configuration                               | startup     | n/a (not an HTTP path) |
  */
@@ -29,6 +30,7 @@ const EXPECTED: Record<string, number> = {
   "db/roleAssert.ts": 14,
   "db/tenantContext.ts": 1,
   "db/tenantTransaction.ts": 1,
+  "modules/account/resendNotifier.ts": 4, // startup refusals: e-mail on (RESEND_API_KEY) but the sender or link origin is unusable
   "modules/auth/sessionProof.ts": 2,
   "modules/directory/documents.ts": 1,
   "modules/directory/guardians.ts": 1,

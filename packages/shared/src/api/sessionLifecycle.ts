@@ -65,5 +65,6 @@ export function signOutReasonNotice(reason: string | null | undefined): string {
   if (reason === "idle") return "You were signed out after 15 minutes without activity. Sign in again to return where you left off.";
   if (reason === "expired") return "Your 8-hour session ended. Sign in again to continue.";
   if (reason === "unauthorized") return "Your session ended. Sign in again to continue.";
+  if (reason === "password_reset") return "Your password was changed and you were signed out everywhere. Sign in with the new password.";
   return "";
 }

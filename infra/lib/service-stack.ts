@@ -119,6 +119,11 @@ export class ServiceStack extends Stack {
         API_TRUST_PROXY_HOPS: "1",
         API_TRUST_PROXY_CIDRS: settings.platform.vpcCidr,
         MFA_ENFORCEMENT: "enforce",
+        // E-mail through Resend (on once RESEND_API_KEY holds a real key). Account links open the web app, which
+        // must be the API build by then: until the switch these links reach the Supabase site and do not work.
+        ACCOUNT_EMAIL_FROM: settings.email.accountFrom,
+        ACCOUNT_LINK_BASE_URL: settings.webOrigins[0],
+        EMAIL_FROM: settings.email.billingFrom,
         SERVER_KEEP_ALIVE_TIMEOUT_MS: String(keepAliveMs),
         SERVER_HEADERS_TIMEOUT_MS: String(keepAliveMs + 1000),
         // ECS takes the task out of the load balancer (deregistration delay) before it sends SIGTERM,
@@ -132,6 +137,7 @@ export class ServiceStack extends Stack {
         SESSION_MINT_HMAC_KEY: secret(data.sessionMintHmacKey),
         IDEMPOTENCY_FINGERPRINT_KEY: secret(data.idempotencyFingerprintKey),
         MFA_ENCRYPTION_KEY: secret(data.mfaEncryptionKey),
+        RESEND_API_KEY: secret(data.resendApiKey),
       },
       portMappings: [{ containerPort: settings.api.port }],
       stopTimeout: Duration.seconds(30),
@@ -187,6 +193,9 @@ export class ServiceStack extends Stack {
     apiService.attachToApplicationTargetGroup(targets);
     // ECS refuses a target group that no load balancer uses yet: create the rule first.
     apiService.node.addDependency(hostRule);
+    // Both directions are needed. The shared load balancer's security group allows NO outbound traffic by default:
+    // each app adds its own rule (HR: 3001, CRM: 3000). Without it the balancer cannot reach the tasks (504) and the
+    // first deployment's circuit breaker rolls the service back (seen 2026-11-24).
     new ec2.CfnSecurityGroupIngress(this, "EdgeToApi", {
       groupId: data.apiSg.securityGroupId,
       sourceSecurityGroupId: edgeSg.securityGroupId,
@@ -194,6 +203,14 @@ export class ServiceStack extends Stack {
       fromPort: settings.api.port,
       toPort: settings.api.port,
       description: "API port from the shared load balancer only",
+    });
+    new ec2.CfnSecurityGroupEgress(this, "EdgeEgressToApi", {
+      groupId: edgeSg.securityGroupId,
+      destinationSecurityGroupId: data.apiSg.securityGroupId,
+      ipProtocol: "tcp",
+      fromPort: settings.api.port,
+      toPort: settings.api.port,
+      description: "Shared load balancer to the Schools API",
     });
 
     // ---- worker -----------------------------------------------------------------------------------------

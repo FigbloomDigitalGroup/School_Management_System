@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   apiChangePassword, apiLoginWithEmail, apiLogout, apiMfaChallenge, apiMfaEnroll, apiMfaVerify, apiReauth,
   continueSignIn, forgetApiSchools, hasSession, isApiError, safeReturnPath, signOutReasonNotice, userMessage,
@@ -142,7 +142,8 @@ function CredentialsStep({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
         <Button type="submit" variant="primary" block disabled={busy || !email.trim() || !password}>{busy ? "Signing in…" : "Sign in"}</Button>
       </form>
       <p className="mt-4 text-[12px] leading-relaxed text-ink-faint">
-        Signing in with a school ID, and resetting a password by email, are not on the new system yet.
+        <Link to="/forgot-password" className="font-medium text-forest hover:underline">Forgot your password?</Link>
+        {" "}Signing in with a school ID is not on the new system yet.
       </p>
     </Card>
   );
