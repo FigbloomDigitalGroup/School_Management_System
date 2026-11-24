@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { NAV, adminAccessFor, apiFetchMyStaffRecord, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch } from "@figbloom/shared";
+import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch } from "@figbloom/shared";
+import { BloomFab } from "../components/BloomFab";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { useAsync } from "../lib/useAsync";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
@@ -13,13 +14,17 @@ export { API_ADMIN_PAGES, API_STAFF_PAGES, API_TEACHER_PAGES };
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
- * (App.tsx), without the parts that read Supabase (unread counts, the guide, the visitor alerts, My HR). Full admins see
+ * (App.tsx), without the parts that read Supabase (unread counts, the visitor alerts, My HR). The guide and the Ask Bloom button run on /ai/query. Full admins see
  * every page this build has; a teacher or other staff member holding admin areas sees the pages of those areas.
  */
 function AdminPage({ page, session, children }: { page: string; session: SchoolSession; children: ReactNode }) {
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  // The guide (and the School assistant's chat) exist only where Bloom is on for the school, as on the Supabase build. While this is
+  // being read, or when it cannot be read, the guide stays: it then says why it cannot answer.
+  const { data: ai, loading: aiLoading } = useAsync(() => fetchAiStatus(session.tenant.id).catch(() => null), [session.tenant.id]);
   if (!mayOpenAdminPage(access, page)) return <Navigate to={`/s/${session.tenant.slug}/admin`} replace />;
   const full = access === "all";
+  const guideOn = aiLoading || ai === null || ai.aiEnabled;
   return (
     <ConsoleShell
       role="school_admin"
@@ -28,8 +33,10 @@ function AdminPage({ page, session, children }: { page: string; session: SchoolS
       consoleSwitch={session.profile.role === "staff" && showsAdminSwitch("staff", session.adminAreas)
         ? { current: "admin", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" }
         : undefined}
+      guide={guideOn ? { tenantId: session.tenant.id, adminAreas: !full } : undefined}
     >
       {children}
+      {full && <BloomFab console="admin" />}
     </ConsoleShell>
   );
 }
@@ -42,6 +49,7 @@ function TeacherPage({ session, children }: { session: SchoolSession; children: 
       hiddenNav={NAV.teacher.map((i) => i.to).filter((to) => !API_TEACHER_PAGES.includes(to))}
     >
       {children}
+      <BloomFab console="teacher" />
     </ConsoleShell>
   );
 }
