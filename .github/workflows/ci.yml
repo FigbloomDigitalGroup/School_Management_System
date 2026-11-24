@@ -56,11 +56,21 @@ jobs:
   # typecheck script omits it and the root unit tests are web/shared only), so without this job
   # no API change, migration or RLS regression is gated. Every step fails the job on a genuine
   # error: no continue-on-error, no excluded test, no allowlisted advisory.
+  #
+  # The test files run one at a time against one database (fileParallelism: false), about 7 minutes
+  # in a row, so they are split by file across three machines, each with its own throwaway
+  # database. The one-off checks (audit, typecheck, lint, migrations, OpenAPI) run in part 1 only.
+  # Together the three parts run every test file exactly once.
   api:
-    name: API (typecheck, lint, migrations, RLS and tests, OpenAPI, audit)
+    name: API ${{ matrix.part }}/3 (${{ matrix.part == 1 && 'typecheck, lint, migrations, OpenAPI, audit, tests' || 'tests' }})
     needs: security-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
+    strategy:
+      # One failing part must not cancel the others: each reports its own failures.
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
     # Read-only token; the job writes nothing and publishes nothing.
     permissions:
       contents: read
@@ -101,25 +111,33 @@ jobs:
       # --ignore-scripts so no dependency runs code at install time.
       - run: npm ci --ignore-scripts
       # Audit gate for the API workspace, production and development dependencies: any finding fails.
-      - run: npm audit --workspace @figbloom/api
-      - run: npm run typecheck --workspace @figbloom/api
+      - if: matrix.part == 1
+        run: npm audit --workspace @figbloom/api
+      - if: matrix.part == 1
+        run: npm run typecheck --workspace @figbloom/api
       # The root flat config, scoped to the API source and tests. apps/api/scripts/*.mjs is left
       # out on purpose: the root config gives those two committed scripts no Node globals, so
       # linting them fails today ('process' is not defined). That is a separate config fix.
-      - run: npx eslint apps/api/src apps/api/test
+      - if: matrix.part == 1
+        run: npx eslint apps/api/src apps/api/test
+      # Every part builds and migrates: the tests include a compiled-build smoke test, and each
+      # part starts from the same migrated database the single job used to.
       - run: npm run build --workspace @figbloom/api
       # Compiled migrations as the migrator: apply, verify, and a second run must be a no-op.
       - run: npm run migrate --workspace @figbloom/api
-      - run: npm run migrate:verify --workspace @figbloom/api
-      - run: npm run migrate --workspace @figbloom/api
-      - run: npm run openapi:check --workspace @figbloom/api
+      - if: matrix.part == 1
+        run: npm run migrate:verify --workspace @figbloom/api
+      - if: matrix.part == 1
+        run: npm run migrate --workspace @figbloom/api
+      - if: matrix.part == 1
+        run: npm run openapi:check --workspace @figbloom/api
       # Stamp the throwaway CI container with the disposable test-database marker before vitest globalSetup.
       - run: node apps/api/scripts/designate-test-db.mjs
-      # The whole API suite: RLS and tenant isolation through the real figbloom_app login,
-      # runtime-role assertions, SECURITY DEFINER inventory, credential access, idempotency,
-      # headers/CORS, logging redaction, delegation, forced password change, the architecture
-      # rules and a compiled-build smoke test.
-      - run: npm run test --workspace @figbloom/api
+      # The API suite, a third of the files per part: RLS and tenant isolation through the real
+      # figbloom_app login, runtime-role assertions, SECURITY DEFINER inventory, credential access,
+      # idempotency, headers/CORS, logging redaction, delegation, forced password change, the
+      # architecture rules and a compiled-build smoke test.
+      - run: npm run test --workspace @figbloom/api -- --shard=${{ matrix.part }}/3
 
   edge-functions:
     name: Edge function tests (Deno)
@@ -139,10 +157,27 @@ jobs:
       - run: deno test --allow-env --config supabase/functions/deno.json supabase/functions
 
   database-and-browser:
-    name: RLS checks and browser tests (local Supabase)
+    # Three machines, each with its own throwaway Supabase stack, instead of one machine running the
+    # SQL checks and then the browser tests (13 to 24 minutes in a row). Separate stacks also mean
+    # tenant_matrix.sql no longer stalls the other scripts or the browser tests.
+    name: ${{ matrix.name }} (local Supabase)
     needs: security-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Browser tests
+            part: browser
+          # The slowest script by far, so it has a machine to itself.
+          - name: RLS checks, tenant matrix
+            part: rls
+            scripts: supabase/rls-checks/tenant_matrix.sql
+          # Every other script, worked out at run time so that a new script is never left out.
+          - name: RLS checks, all other scripts
+            part: rls
+            scripts: $(ls supabase/rls-checks/*.sql | grep -vxF supabase/rls-checks/tenant_matrix.sql)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -158,7 +193,11 @@ jobs:
         with:
           version: 2.122.0
       # Postgres, Auth, Storage and the edge runtime in Docker, with supabase/migrations applied.
-      - run: supabase start
+      # Containers a part never uses are left out, so their images are not downloaded: Studio and
+      # its postgres-meta everywhere; for the SQL checks also realtime, the edge runtime, image
+      # resizing and the mail catcher (the scripts talk to Postgres only, and the seeds to Auth,
+      # REST and Storage).
+      - run: supabase start -x ${{ matrix.part == 'rls' && 'studio,postgres-meta,realtime,edge-runtime,imgproxy,mailpit' || 'studio,postgres-meta' }}
       # The keys below belong to this throwaway stack, not to any real project.
       - name: Write .env from the local stack
         run: |
@@ -171,15 +210,16 @@ jobs:
           } > .env
       - run: npm run db:seed
       - run: npm run db:seed-org
-      # One at a time: both write to the same database, and tenant_matrix.sql makes every
-      # other request time out while it runs.
-      - run: sh scripts/run-rls-checks.sh
-      - run: npx playwright install --with-deps chromium
+      - if: matrix.part == 'rls'
+        run: sh scripts/run-rls-checks.sh ${{ matrix.scripts }}
+      - if: matrix.part == 'browser'
+        run: npx playwright install --with-deps chromium
       # The five critical flows. The longer specs (accessibility walk, usability, reports) take
       # about an hour together and run by hand: npx playwright test
-      - run: npx playwright test e2e/flows.spec.ts
+      - if: matrix.part == 'browser'
+        run: npx playwright test e2e/flows.spec.ts
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: failure()
+        if: failure() && matrix.part == 'browser'
         with:
           name: playwright-results
           path: test-results
