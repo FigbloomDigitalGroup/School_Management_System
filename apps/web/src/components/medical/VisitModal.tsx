@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  addVisitMedication, fetchMedicalStock, fetchStudentHealth, findMedicalLearners, logVisit, markVisitAttendance,
-  offersAttendanceMark, VISIT_OUTCOME_LABEL, outcomeClosesVisit, pushMedicalNotices, updateVisit, VISIT_OUTCOMES, sickBayVisitProblem,
+  addVisitMedication, fetchMedicalAccess, fetchMedicalStock, fetchStudentHealth, findMedicalLearners, logVisit, markVisitAttendance,
+  MEDICAL_HEALTH_HIDDEN, medicalCapabilities, offersAttendanceMark, VISIT_OUTCOME_LABEL, outcomeClosesVisit, pushMedicalNotices, updateVisit,
+  VISIT_OUTCOMES, sickBayVisitProblem,
   type LearnerHit, type SickBayVisit, type SickBayVisitDraft, type VisitOutcome,
 } from "@figbloom/shared";
 import { Button } from "../ui/Button";
@@ -42,6 +43,7 @@ const blankMed = (): MedLine => ({ drug: "", dose: "", time: hm(new Date().toISO
  * "mark in the register" action; nothing changes the register by itself.
  */
 export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | null; onClose: () => void; onSaved: () => void }) {
+  const caps = medicalCapabilities();
   const toast = useToast();
   const { tenant } = useTenantSession();
   const [saved, setSaved] = useState<SickBayVisit | null>(visit);
@@ -55,7 +57,11 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
 
   const { data: health, loading: healthLoading } = useAsync(
     () => (learner ? fetchStudentHealth(learner.id) : Promise.resolve(null)), [learner?.id]);
-  const { data: stock } = useAsync(() => fetchMedicalStock(tenant.id).catch(() => []), [tenant.id]);
+  const { data: access } = useAsync(() => fetchMedicalAccess(), []);
+  const { data: stock } = useAsync(
+    () => (caps.visitMedications ? fetchMedicalStock(tenant.id).catch(() => []) : Promise.resolve([])),
+    [caps.visitMedications, tenant.id],
+  );
 
   const set = (patch: Partial<SickBayVisitDraft>) => setD((x) => ({ ...x, ...patch }));
   function setOutcome(outcome: VisitOutcome | null) {
@@ -86,7 +92,7 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
       setSaved(row);
       setMeds([]);
       onSaved();
-      if (!offersAttendanceMark(row.outcome)) onClose();
+      if (!caps.markVisitAttendance || !offersAttendanceMark(row.outcome)) onClose();
       else toast("Saved. You can mark them in today's register below.");
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not save the visit.");
@@ -110,7 +116,7 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
     }
   }
 
-  const offerRegister = !!saved && offersAttendanceMark(saved.outcome) && saved.outcome === d.outcome;
+  const offerRegister = caps.markVisitAttendance && !!saved && offersAttendanceMark(saved.outcome) && saved.outcome === d.outcome;
 
   return (
     <Modal
@@ -133,13 +139,16 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
         ) : (
           <LearnerPicker tenantId={tenant.id} value={learner} onChange={setLearner} />
         )}
-        {learner && <HealthAlerts health={health} loading={healthLoading} />}
+        {learner && (access && !access.healthRecords
+          ? <p role="note" className="rounded-lg border border-line bg-page px-3 py-2.5 text-[12.5px] text-ink-muted">{MEDICAL_HEALTH_HIDDEN}</p>
+          : <HealthAlerts health={health} loading={healthLoading} />)}
 
         <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">
             <span className={label}>Time in</span>
-            <input type="datetime-local" className={input} value={toLocalInput(d.time_in)}
+            <input type="datetime-local" className={input} disabled={!caps.editVisitTimeIn} value={toLocalInput(d.time_in)}
               onChange={(e) => e.target.value && set({ time_in: fromLocalInput(e.target.value) })} />
+            {!caps.editVisitTimeIn && <span className="mt-0.5 block text-[11px] text-ink-faint">Set by the system when the visit is logged.</span>}
           </label>
           <label className="block">
             <span className={label}>Complaint</span>
@@ -160,6 +169,7 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
         <Area label="Assessment" value={d.assessment} onChange={(assessment) => set({ assessment })} />
         <Area label="Treatment given" value={d.treatment} onChange={(treatment) => set({ treatment })} placeholder="e.g. Rest, oral fluids, cold compress" />
 
+        {caps.visitMedications && (
         <section className="rounded-lg border border-line p-3">
           <h3 className="text-[12.5px] font-semibold">Medicine given</h3>
           {(saved?.visit_medications ?? []).length > 0 && (
@@ -187,6 +197,7 @@ export function VisitModal({ visit, onClose, onSaved }: { visit: SickBayVisit | 
             <span className="text-[11.5px] text-ink-faint">Saved with the visit. Medicine given can't be edited afterwards; add a note to correct one.</span>
           </div>
         </section>
+        )}
 
         <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">

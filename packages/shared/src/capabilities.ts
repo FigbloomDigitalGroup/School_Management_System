@@ -308,3 +308,94 @@ export interface GradesAccess {
 }
 
 export const FULL_GRADES_ACCESS: GradesAccess = { gradebook: true, gradebookReason: null, publish: true };
+
+/** Sports and co-curricular activities (admin/activities and teacher/activities). */
+export interface ActivitiesCapabilities {
+  /** Edit, close or reopen an activity (no PATCH /activities/{activityId} endpoint). */
+  editActivity: boolean;
+  /** Delete an activity (no DELETE /activities/{activityId} endpoint). */
+  deleteActivity: boolean;
+  /** List existing patrons or remove a patron (API only has POST /activities/{activityId}/patrons). */
+  listPatrons: boolean;
+  /** Change a member's role after they are added (no PATCH /activities/{activityId}/members/{learnerId}, B11). */
+  editMemberRole: boolean;
+  /** Remove a member from an activity (no DELETE /activities/{activityId}/members/{learnerId}, B11). */
+  removeMember: boolean;
+  /** Fixtures, competitions, trips, performances, participants, results and telling families (no /activity-events endpoints). */
+  events: boolean;
+}
+
+const ACTIVITIES_ON_SUPABASE: ActivitiesCapabilities = {
+  editActivity: true, deleteActivity: true, listPatrons: true, editMemberRole: true, removeMember: true, events: true,
+};
+
+const ACTIVITIES_ON_API: ActivitiesCapabilities = {
+  editActivity: false, deleteActivity: false, listPatrons: false, editMemberRole: false, removeMember: false, events: false,
+};
+
+export function activitiesCapabilities(): ActivitiesCapabilities {
+  return onApi() ? ACTIVITIES_ON_API : ACTIVITIES_ON_SUPABASE;
+}
+
+/** The sick bay and medical screen (admin/medical). */
+export interface MedicalCapabilities {
+  /** List visits in a date range, including discharged visits (GET /health/sick-bay/board returns open visits only). */
+  visitHistory: boolean;
+  /** Set or edit a visit's time_in (server-stamped on create, not patchable). */
+  editVisitTimeIn: boolean;
+  /** Log medicine given at a visit or deduct from medical stock (no visit_medications or medical_stock endpoints). */
+  visitMedications: boolean;
+  /** Mark a learner excused or absent in today's attendance register from a visit (no medical_mark_attendance endpoint). */
+  markVisitAttendance: boolean;
+  /** School-wide medication round, schedules, doses and overdue banner (no GET /health/medications/schedules or school-wide MAR list). */
+  medicationRound: boolean;
+  /** School-wide pending guardian medication requests list and review (no GET /health/medications/authorizations). */
+  medicationRequests: boolean;
+  /** Sick-bay and medication compliance reports (needs date-range visit, schedule and dose lists). */
+  reports: boolean;
+  /** Whether sick-bay notices are emitted to guardians (the API persists the policy but reports guardian_notices_available: false). */
+  guardianNoticesEmitted: boolean;
+  /** Whether opening a learner's medical record is written to the audit trail (the API's profile and dose-record reads write no audit event). */
+  recordOpenAudited: boolean;
+}
+
+const MEDICAL_ON_SUPABASE: MedicalCapabilities = {
+  visitHistory: true, editVisitTimeIn: true, visitMedications: true, markVisitAttendance: true,
+  medicationRound: true, medicationRequests: true, reports: true, guardianNoticesEmitted: true, recordOpenAudited: true,
+};
+
+const MEDICAL_ON_API: MedicalCapabilities = {
+  visitHistory: false, editVisitTimeIn: false, visitMedications: false, markVisitAttendance: false,
+  medicationRound: false, medicationRequests: false, reports: false, guardianNoticesEmitted: false, recordOpenAudited: false,
+};
+
+export function medicalCapabilities(): MedicalCapabilities {
+  return onApi() ? MEDICAL_ON_API : MEDICAL_ON_SUPABASE;
+}
+
+/**
+ * What the signed-in person may read on the sick bay screen, from the permissions the API gives them. The Medical area opens the
+ * board and the visits, but not the learners' names or their health records: names need `resource.learner.read` (the People area)
+ * and health records need `resource.medication.read` (school administrators only). On Supabase everyone with the page may read both.
+ */
+export interface MedicalAccess {
+  /** Learners' names (the board, the learner box). */
+  learners: boolean;
+  /** Allergies, conditions and medication records. */
+  healthRecords: boolean;
+}
+
+export const FULL_MEDICAL_ACCESS: MedicalAccess = { learners: true, healthRecords: true };
+
+export const MEDICAL_LEARNERS_HIDDEN =
+  "The new system does not let you read the school's learners with the access you have, so names are not shown on the board and you cannot search for a learner. Ask the school office to give you the People area as well.";
+export const MEDICAL_HEALTH_HIDDEN =
+  "Allergies, conditions and medication are not shown: the new system keeps health records to school administrators. Ask the learner before you give anything.";
+
+/** The sentences the sick bay says when part of the screen is empty because of access (none when nothing is held back). */
+export function medicalAccessNotes(access: MedicalAccess): string[] {
+  const notes: string[] = [];
+  if (!access.learners) notes.push(MEDICAL_LEARNERS_HIDDEN);
+  if (!access.healthRecords) notes.push(MEDICAL_HEALTH_HIDDEN);
+  return notes;
+}
