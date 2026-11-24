@@ -91,13 +91,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List every school (platform directory)
+         * @description Super administrators only (`platform.tenants.read`). Directory fields from the school record and its organisation; nothing from inside a school. The caller's school (session or `X-Tenant-Id`) is ignored. SQL keyset-paginated (FIG-1621) on `name COLLATE "C", id`; the cursor identifies the last school by id and is bound to the filters, so changing `status` or `organizationId` with an old cursor is `400 validation_error`.
+         */
+        get: operations["listPlatformSchools"];
         put?: never;
         /**
          * Provision a school
          * @description Super administrator only. Creates the school (and a single-school organisation unless organization_id is given) and issues the initial school-administrator invitation. No default credentials exist; the administrator sets their own password by accepting the invitation.
          */
         post: operations["platformProvisionSchool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/schools/{schoolId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One school's directory record (platform)
+         * @description Super administrators only (`platform.tenants.read`). The same fields as one item of the platform school list. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["getPlatformSchool"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1059,7 +1083,7 @@ export interface paths {
         };
         /**
          * List academic years
-         * @description Newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         * @description Newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). Teacher reads (docs/TEACHER-READS.md): a caller without `resource.academics.read` who holds `resource.teaching.read` and teaches (class teacher or an active teaching assignment of an active class, through their linked active staff record) reads only the academic years of those classes; a caller who teaches nothing gets 403.
          */
         get: operations["listAcademicYears"];
         put?: never;
@@ -1078,7 +1102,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get an academic year */
+        /**
+         * Get an academic year
+         * @description Teacher reads (docs/TEACHER-READS.md): a caller without `resource.academics.read` who teaches reads only the academic years of the classes they teach (404 for any other year, as for one that does not exist); a caller who teaches nothing gets 403.
+         */
         get: operations["getAcademicYear"];
         put?: never;
         post?: never;
@@ -1117,7 +1144,7 @@ export interface paths {
         };
         /**
          * List academic terms
-         * @description With academicYearId: by term index; otherwise newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         * @description With academicYearId: by term index; otherwise newest start date first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). Teacher reads (docs/TEACHER-READS.md): a caller without `resource.academics.read` who holds `resource.teaching.read` and teaches reads only the terms of the academic years of the classes they teach (an `academicYearId` outside them gives an empty list); a caller who teaches nothing gets 403.
          */
         get: operations["listAcademicTerms"];
         put?: never;
@@ -1136,7 +1163,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get an academic term */
+        /**
+         * Get an academic term
+         * @description Teacher reads (docs/TEACHER-READS.md): a caller without `resource.academics.read` who teaches reads only the terms of the academic years of the classes they teach (404 for any other term, as for one that does not exist); a caller who teaches nothing gets 403.
+         */
         get: operations["getAcademicTerm"];
         put?: never;
         post?: never;
@@ -3217,6 +3247,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/chat/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Staff a staff member may start a chat with
+         * @description Teacher reads (docs/TEACHER-READS.md). For a caller whose role in this school is school_admin, teacher, driver or staff: every other member of the school with one of those roles and an active account (the staff-to-staff rule of may_talk, which starting a chat checks again). Empty for anyone else: a parent's list is `/me/chat-contacts`, and parents are not listed for staff. By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         */
+        get: operations["chatListStaffContacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/chat/conversations/{conversationId}/messages": {
         parameters: {
             query?: never;
@@ -5094,6 +5144,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/me/teaching/learners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The learners in the classes the caller teaches (names only)
+         * @description Teacher reads (docs/TEACHER-READS.md). One row per active class membership of an active learner in a class the caller teaches now: an active class whose class teacher, or an active teaching assignment, is the caller's linked active staff record. `classId` narrows to one class (a class they do not teach gives an empty list). Empty for a caller who teaches nothing or has no linked staff record. No date of birth, gender, boarding or contacts. By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         */
+        get: operations["teachingMyLearners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/teaching/colleagues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The staff who teach the caller's classes (names only)
+         * @description Teacher reads (docs/TEACHER-READS.md). The active staff records that are class teacher, or hold an active teaching assignment, in the classes the caller teaches now (the caller's own record included), so a timetable or an assignment's staff id can be named. Empty for a caller who teaches nothing. No phone, e-mail, title or account id. By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         */
+        get: operations["teachingMyColleagues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/chat-contacts": {
         parameters: {
             query?: never;
@@ -5183,6 +5273,32 @@ export interface components {
             timezone?: string;
             /** Format: uuid */
             organizationId?: string;
+        };
+        /** @enum {string} */
+        PlatformSchoolStatus: "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
+        PlatformSchool: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+            status: components["schemas"]["PlatformSchoolStatus"];
+            timezone: string;
+            /** Format: date-time */
+            createdAt: string;
+            organization: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                slug: string;
+                /** @enum {string} */
+                kind: "government" | "county" | "constituency" | "group_owner";
+                /** @enum {string} */
+                status: "pending" | "active" | "suspended" | "rejected";
+            };
+        };
+        PlatformSchoolList: {
+            items: components["schemas"]["PlatformSchool"][];
+            page: components["schemas"]["PageInfo"];
         };
         PageInfo: {
             limit: number;
@@ -7374,6 +7490,33 @@ export interface components {
             last_message_at?: string | null;
             /** Format: uuid */
             peer_user_id?: string;
+            /** @description List only. The other person's account name (docs/TEACHER-READS.md). */
+            peer_full_name?: string;
+            /**
+             * @description List only. The other person's role in this school; null once they are no longer a member.
+             * @enum {string|null}
+             */
+            peer_role?: "school_admin" | "teacher" | "parent" | "student" | "driver" | "staff" | null;
+        };
+        ChatStaffContact: {
+            /** Format: uuid */
+            user_id: string;
+            full_name: string;
+            /** @enum {string} */
+            role: "school_admin" | "teacher" | "driver" | "staff";
+        };
+        TeachingLearner: {
+            /** Format: uuid */
+            learner_id: string;
+            full_name: string;
+            admission_no: string;
+            /** Format: uuid */
+            class_id: string;
+        };
+        TeachingColleague: {
+            /** Format: uuid */
+            staff_member_id: string;
+            full_name: string;
         };
         ChatOpenConversationRequest: {
             /** Format: uuid */
@@ -8321,6 +8464,40 @@ export interface operations {
             };
         };
     };
+    listPlatformSchools: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+                /** @description Only schools with this status. */
+                status?: components["schemas"]["PlatformSchoolStatus"];
+                /** @description Only the schools of this organisation. */
+                organizationId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of schools */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSchoolList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     platformProvisionSchool: {
         parameters: {
             query?: never;
@@ -8375,6 +8552,32 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getPlatformSchool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schoolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The school */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSchool"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     accountsCreateInvitation: {
@@ -16158,6 +16361,44 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    chatListStaffContacts: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Contacts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        contacts: components["schemas"]["ChatStaffContact"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     chatListMessages: {
         parameters: {
             query?: {
@@ -22351,6 +22592,83 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    teachingMyLearners: {
+        parameters: {
+            query?: {
+                classId?: string;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The learners */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        learners: components["schemas"]["TeachingLearner"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    teachingMyColleagues: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The colleagues */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        colleagues: components["schemas"]["TeachingColleague"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     familyChatContacts: {

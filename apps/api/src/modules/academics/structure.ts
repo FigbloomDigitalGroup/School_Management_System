@@ -105,8 +105,11 @@ export async function createAcademicYear(
 
 export async function listAcademicYears(
   tx: Tx,
-  input: { tenantId: string; page: PageInput },
+  /** `scopeYearIds`: null = every year; otherwise only these (teacher reads, docs/TEACHER-READS.md). */
+  input: { tenantId: string; page: PageInput; scopeYearIds?: string[] | null },
 ): Promise<Page<PublicAcademicYear>> {
+  const scope = input.scopeYearIds ?? null;
+  if (scope !== null && scope.length === 0) return { items: [], page: { next_cursor: null, limit: input.page.limit } };
   const res = await pageQuery<{
     id: string;
     tenant_id: string;
@@ -119,8 +122,8 @@ export async function listAcademicYears(
   }>(
     tx,
     `SELECT id, tenant_id, label, starts_on, ends_on, is_current, created_at, updated_at
-     FROM academic_years WHERE tenant_id = $1`,
-    [input.tenantId],
+     FROM academic_years WHERE tenant_id = $1${scope !== null ? " AND id = ANY($2::uuid[])" : ""}`,
+    scope !== null ? [input.tenantId, scope] : [input.tenantId],
     { name: "academic_years", expr: "q.starts_on", type: "date", dir: "desc" },
     input.page,
   );
@@ -338,10 +341,15 @@ function mapTerm(row: {
 
 export async function listTerms(
   tx: Tx,
-  input: { tenantId: string; academicYearId?: string; page: PageInput },
+  /** `scopeYearIds`: null = every term; otherwise only the terms of these years (teacher reads, docs/TEACHER-READS.md). */
+  input: { tenantId: string; academicYearId?: string; page: PageInput; scopeYearIds?: string[] | null },
 ): Promise<Page<PublicTerm>> {
   const cols = `SELECT id, tenant_id, academic_year_id, index, label, starts_on, ends_on, is_current,
                 created_at, updated_at FROM academic_terms`;
+  const scope = input.scopeYearIds ?? null;
+  if (scope !== null && (scope.length === 0 || (input.academicYearId !== undefined && !scope.includes(input.academicYearId)))) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
   const res = input.academicYearId
     ? await pageQuery<Parameters<typeof mapTerm>[0]>(
         tx,
@@ -352,8 +360,8 @@ export async function listTerms(
       )
     : await pageQuery<Parameters<typeof mapTerm>[0]>(
         tx,
-        `${cols} WHERE tenant_id = $1`,
-        [input.tenantId],
+        `${cols} WHERE tenant_id = $1${scope !== null ? " AND academic_year_id = ANY($2::uuid[])" : ""}`,
+        scope !== null ? [input.tenantId, scope] : [input.tenantId],
         { name: "terms", expr: "q.starts_on", type: "date", dir: "desc" },
         input.page,
       );
