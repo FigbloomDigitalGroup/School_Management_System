@@ -76,7 +76,8 @@ export function RouteSeo() {
     }
 
     const page = PAGE_TITLES.find(([pattern]) => pattern.test(pathname))?.[1] ?? "Page not found";
-    document.title = `${page} | ${APP_NAME}`;
+    // Figbloom HR's launch tab reads exactly as HR's own "Opening Figbloom HR" screen (HR_HANDOFF_LOADER_SPEC.md)
+    document.title = pathname === "/hr/launch" ? "Opening Figbloom HR" : `${page} | ${APP_NAME}`;
     setRobots("noindex, nofollow");
     setCanonical(null);
   }, [pathname]);

@@ -77,6 +77,8 @@ export class FakePlatform {
       this.tenants.set(local, t);
       return json({ tenant_id: t.tenant_id, slug: t.local_slug, local_slug: t.local_slug }, existing ? 200 : 201);
     }
+    m = /^\/tenants\/([^/]+)\/(modules|links)\/([^/]+)$/.exec(url.pathname);
+    if (m && method === "GET") return this.tenantModuleOrLink(decodeURIComponent(m[1]), m[2] as "modules" | "links", decodeURIComponent(m[3]));
     if (url.pathname === "/events" && method === "POST") return this.postEvent(body);
     if (url.pathname === "/handoffs" && method === "POST") return this.postHandoff(body);
     if (url.pathname === "/products/schools/event-webhook" && method === "PUT") {
@@ -114,6 +116,21 @@ export class FakePlatform {
     m.handoffUrl = handoffUrl;
     this.modules.set(target, m);
     return m;
+  }
+
+  /**
+   * GET /tenants/{platform id}/modules/{module} (module_status "active" while it is on, null when never switched on) and
+   * GET /tenants/{platform id}/links/{module} (404 not_linked until the product has linked the school), from `modules`.
+   */
+  private tenantModuleOrLink(platformId: string, kind: "modules" | "links", module: string): Response {
+    const local = [...this.tenants.entries()].find(([, t]) => t.tenant_id === platformId)?.[0];
+    if (!local) return json({ error: { code: "tenant_not_found", message: "No such customer account" } }, 404);
+    const m = this.modules.get(module);
+    if (kind === "modules") {
+      return json({ tenant_id: platformId, module, module_status: m?.enabled.has(local) ? "active" : null, cache_seconds: 60 });
+    }
+    if (!m?.linked.has(local)) return json({ error: { code: "not_linked", message: `This account has no ${module} link yet` } }, 404);
+    return json({ tenant_id: platformId, module, local_tenant_id: `${module}-${local}` });
   }
 
   /** Contract section 1: the school must be known; the target on, linked and with a handoff URL; the answer a one-time URL. */

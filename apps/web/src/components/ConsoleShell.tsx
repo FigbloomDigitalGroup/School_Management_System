@@ -49,7 +49,29 @@ export interface ShellAction {
   title?: string;
   /** Working on it: the entry is dimmed and says so. */
   busy?: boolean;
+  /** A small mark at the end: "external" opens another product in a new tab (↗), "connect" isn't set up yet (+). */
+  mark?: "external" | "connect";
+  /** A page in this app: the entry is a link to it (and shows as current there); onClick is for other callers' buttons. */
+  to?: string;
   onClick: () => void;
+}
+
+/** The mark at the end of a side action; its words are for screen readers (and the "+" has a tooltip). */
+function ShellActionMark({ mark }: { mark: NonNullable<ShellAction["mark"]> }) {
+  if (mark === "external") {
+    return (
+      <>
+        <span aria-hidden className="shrink-0 text-[12px] leading-none opacity-70">↗</span>
+        <span className="sr-only">(opens in a new tab)</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <span aria-hidden title="Connect" className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[11px] leading-none opacity-70">+</span>
+      <span className="sr-only">Connect</span>
+    </>
+  );
 }
 
 interface Props {
@@ -320,22 +342,36 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         {sideActions.length > 0 && (
           // Other Figbloom products: set apart, so they don't read as the last entry of the heading above.
           <div className="mt-1 flex flex-col gap-0.5 border-t border-white/10 pt-1.5">
-            {sideActions.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                onClick={a.onClick}
-                disabled={a.busy}
-                aria-busy={a.busy || undefined}
-                title={a.title ?? a.label}
-                className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
-                style={{ height: 38 }}
-              >
-                <Icon name={a.icon} />
-                {open && <span className="flex-1 truncate text-body">{a.label}</span>}
-                {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
-              </button>
-            ))}
+            {sideActions.map((a) => {
+              const look = (current: boolean) =>
+                `hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left disabled:opacity-60 ${current ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10"} ${open ? "" : "justify-center"}`;
+              const inside = (
+                <>
+                  <Icon name={a.icon} />
+                  {open && <span className="flex-1 truncate text-body">{a.label}</span>}
+                  {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
+                  {open && !a.busy && a.mark && <ShellActionMark mark={a.mark} />}
+                </>
+              );
+              return a.to ? (
+                <NavLink key={a.key} to={a.to} title={a.title ?? a.label} className={({ isActive }) => look(isActive)} style={{ height: 38 }}>
+                  {inside}
+                </NavLink>
+              ) : (
+                <button
+                  key={a.key}
+                  type="button"
+                  onClick={a.onClick}
+                  disabled={a.busy}
+                  aria-busy={a.busy || undefined}
+                  title={a.title ?? a.label}
+                  className={look(false)}
+                  style={{ height: 38 }}
+                >
+                  {inside}
+                </button>
+              );
+            })}
           </div>
         )}
         </div>

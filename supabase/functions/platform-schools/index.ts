@@ -18,7 +18,9 @@
  *   "school_admin"}], every school admin who is not archived and has a real
  *   email, synthetic login addresses dropped, oldest first, at most 20), so
  *   the console can invite them to Figbloom HR (20261105610000): no other
- *   names of staff, none of learners, no records.
+ *   names of staff, none of learners, no records. hr_requested_at (ISO, or
+ *   null): when the school asked Figbloom for HR & Payroll from its HR &
+ *   Payroll page (20261124100000), for staff to switch HR on.
  * - {"action": "set_status", school_id, status: "suspended" | "active",
  *   reason, actor_email} -> {school: row}. Suspends through Schools' own
  *   mechanism (tenants.status, see 20261104600000_platform_console_schools.sql);
@@ -66,6 +68,8 @@ export interface SchoolRow {
   teachers: number;
   parents: number;
   last_activity_at: string | null;
+  /** When the school asked Figbloom for HR & Payroll (20261124100000), or null. */
+  hr_requested_at: string | null;
 }
 
 export interface SchoolAdmin {
@@ -191,6 +195,7 @@ export function toRow(r: any): SchoolRow {
     teachers: Number(r.teachers ?? 0),
     parents: Number(r.parents ?? 0),
     last_activity_at: r.last_activity_at ?? null,
+    hr_requested_at: typeof r.hr_requested_at === "string" ? r.hr_requested_at : null,
   };
 }
 

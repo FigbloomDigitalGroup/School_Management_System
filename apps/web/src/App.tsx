@@ -110,6 +110,8 @@ import { StaffLoans } from "./screens/staff/Loans";
 import { MyHr } from "./screens/myhr/MyHr";
 import { HrLeave } from "./screens/leave/HrLeave";
 import { LeaveToApprove } from "./screens/leave/LeaveToApprove";
+import { HrPayroll } from "./screens/hr/HrPayroll";
+import { HrLaunch } from "./screens/hr/HrLaunch";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
 import { AdminAuditLog } from "./screens/admin/AuditLog";
@@ -141,6 +143,8 @@ export function App() {
         <Route path="/org-picker" element={<OrgPicker />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        {/* Figbloom HR's launch tab: no console, the "Opening Figbloom HR" screen until HR takes over */}
+        <Route path="/hr/launch" element={<HrLaunch />} />
 
         <Route path="/platform" element={<Navigate to="/platform/tenants" replace />} />
         <Route path="/platform/:page" element={<PlatformShell />} />
@@ -265,6 +269,7 @@ function TenantRoutes() {
           <Route path="admin/performance" element={<AdminShell page="admin/performance"><Performance /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell page="admin/leave"><AdminLeave /></AdminShell>} />
           <Route path="admin/leave-to-approve" element={<AdminShell page="admin/leave-to-approve"><LeaveToApprove /></AdminShell>} />
+          <Route path="admin/hr" element={<AdminShell page="admin/hr"><HrPayroll /></AdminShell>} />
           <Route path="admin/inventory" element={<AdminShell page="admin/inventory"><AdminInventory /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell page="admin/exams"><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell page="admin/papers"><ExamPapers admin /></AdminShell>} />
