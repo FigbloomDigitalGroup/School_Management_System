@@ -199,23 +199,116 @@ describe("teacher attendance console helpers on API", () => {
     date_of_birth: "2011-01-01", active: true, archived_at: null, ...stamp,
   });
 
-  it("filters teacher classes by class_teacher_staff_id and teaching-assignments, falling back to all when unlinked", async () => {
-    boot({
-      [`GET ${P}/academic-years`]: list("academic_years", [year()]),
-      [`GET ${P}/classes`]: list("classes", [clsRow(C1, "Form 1 East", S1), clsRow(C2, "Form 2 West", null)]),
-      [`GET ${P}/staff`]: list("staff", [{
-        id: S1, tenantId: T, full_name: "David Kamau", staff_title: "Teacher", classification: "teacher",
-        phone: null, email: "teacher@alliance.sc.ke", userId: U1, active: true, archived_at: null, ...stamp,
-      }]),
-      [`GET ${P}/teaching-assignments`]: list("assignments", []),
+  describe("which classes a teacher gets", () => {
+    const C3 = "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3";
+    const S2 = "30000002-1111-4111-8111-111111111111";
+    const U2 = "20000002-1111-4111-8111-111111111111";
+    const UNLINKED = "99999999-1111-4111-8111-111111111111";
+    const SUBJECT = "40000001-1111-4111-8111-111111111111";
+    const staffRow = (id: string, userId: string | null, full_name: string) => ({
+      id, tenantId: T, full_name, staff_title: "Teacher", classification: "teacher",
+      phone: null, email: null, userId, active: true, archived_at: null, ...stamp,
+    });
+    const assignment = (id: string, staffId: string, classId: string) => ({
+      id, tenantId: T, staff_member_id: staffId, class_id: classId, subject_id: SUBJECT, active: true, archived_at: null, ...stamp,
+    });
+    const permissions = (items: string[]): FakeReply => ({
+      body: {
+        role: "teacher", tenantId: T, mayAdminister: false, isOrgAdminForTenant: false, isSuperAdmin: false,
+        delegatedPermissions: [], actingVia: "membership", items, page: page(),
+      },
+    });
+    // The whole school, as someone who may read every class sees it.
+    const wholeSchool = [clsRow(C1, "Form 1 East", S1), clsRow(C2, "Form 2 West", S2), clsRow(C3, "Form 3 North", null)];
+    const staffList = list("staff", [staffRow(S1, U1, "David Kamau"), staffRow(S2, U2, "Mercy Wanjiru")]);
+    const assignments = list("assignments", [assignment("a1", S1, C3), assignment("a2", S2, C2)]);
+    const names = (cs: { name: string }[]) => cs.map((c) => c.name);
+
+    it("keeps the classes the teacher's staff record teaches: class teacher or a teaching assignment", async () => {
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: list("classes", wholeSchool),
+        [`GET ${P}/staff`]: staffList,
+        [`GET ${P}/teaching-assignments`]: assignments,
+      });
+
+      expect(names(await fetchTeacherClasses(U1))).toEqual(["Form 1 East", "Form 3 North"]);
+      expect(names(await fetchTeacherClasses(U2))).toEqual(["Form 2 West"]);
+      expect(api.callsTo(`GET ${P}/classes`)[0]?.query.get("academicYearId")).toBe(YEAR);
+      expect(api.callsTo("GET /v1/rbac/permissions")).toHaveLength(0);
     });
 
-    const mine = await fetchTeacherClasses(U1);
-    expect(mine.map((c) => c.name)).toEqual(["Form 1 East"]);
+    it("gives a teacher with no class and no assignment no classes, not the whole school", async () => {
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: list("classes", [clsRow(C1, "Form 1 East", S1), clsRow(C3, "Form 3 North", null)]),
+        [`GET ${P}/staff`]: staffList,
+        [`GET ${P}/teaching-assignments`]: list("assignments", []),
+      });
 
-    // Unlinked admin/user falls back to all current-year classes.
-    const all = await fetchTeacherClasses("99999999-1111-4111-8111-111111111111");
-    expect(all.map((c) => c.name)).toEqual(["Form 1 East", "Form 2 West"]);
+      expect(await fetchTeacherClasses(U2)).toEqual([]);
+    });
+
+    it("gives someone with no staff record (an admin who does not teach) no classes, not the whole school", async () => {
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: list("classes", wholeSchool),
+        [`GET ${P}/staff`]: staffList,
+        [`GET ${P}/teaching-assignments`]: assignments,
+      });
+
+      expect(await fetchTeacherClasses(UNLINKED)).toEqual([]);
+    });
+
+    it("trusts the API's own scoping when the teacher may read neither the staff list nor every class", async () => {
+      // OD-2: without academics read, /classes already answers with only the classes this teacher teaches.
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: list("classes", [clsRow(C1, "Form 1 East", S1), clsRow(C3, "Form 3 North", null)]),
+        [`GET ${P}/staff`]: refused("forbidden", 403),
+        [`GET ${P}/teaching-assignments`]: list("assignments", [assignment("a1", S1, C3)]),
+        ["GET /v1/rbac/permissions"]: permissions(["resource.attendance.read"]),
+      });
+
+      expect(names(await fetchTeacherClasses(U1))).toEqual(["Form 1 East", "Form 3 North"]);
+      expect(api.callsTo("GET /v1/rbac/permissions")).toHaveLength(1);
+    });
+
+    it("shows no classes when the teacher may read every class but not the staff list (nothing says which are theirs)", async () => {
+      // A teacher holding the Academics area and not People: /classes is the whole school, /staff is refused.
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: list("classes", wholeSchool),
+        [`GET ${P}/staff`]: refused("forbidden", 403),
+        [`GET ${P}/teaching-assignments`]: assignments,
+        ["GET /v1/rbac/permissions"]: permissions(["resource.academics.read", "resource.academics.write"]),
+      });
+
+      expect(await fetchTeacherClasses(U1)).toEqual([]);
+    });
+
+    it("gives a teacher who teaches nothing no classes when the API refuses the class list, instead of an error", async () => {
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: refused("forbidden", 403),
+        [`GET ${P}/staff`]: refused("forbidden", 403),
+        [`GET ${P}/teaching-assignments`]: refused("forbidden", 403),
+      });
+
+      expect(await fetchTeacherClasses(U1)).toEqual([]);
+      expect(api.callsTo("GET /v1/rbac/permissions")).toHaveLength(0);
+    });
+
+    it("passes on failures other than a refusal", async () => {
+      boot({
+        [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+        [`GET ${P}/classes`]: list("classes", wholeSchool),
+        [`GET ${P}/staff`]: refused("internal", 500, "boom"),
+        [`GET ${P}/teaching-assignments`]: assignments,
+      });
+
+      await expect(fetchTeacherClasses(U1)).rejects.toThrow();
+    });
   });
 
   it("builds class roster and today's class progress, and degrades health/sick-bay to empty maps", async () => {
