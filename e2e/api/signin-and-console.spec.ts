@@ -102,7 +102,9 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
     await expect(page.getByTestId("api-home")).toBeVisible();
     await expect(page.getByText("Teacher", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Sign out" }).click();
+    // Since the teacher console (#348) a teacher lands in the console shell, where Sign out is in the account menu.
+    await page.getByRole("navigation", { name: "Main" }).locator('button[aria-haspopup="menu"]').click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/signin/);
 
     expect(errors).toEqual([]);
