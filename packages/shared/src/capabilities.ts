@@ -308,3 +308,53 @@ export interface GradesAccess {
 }
 
 export const FULL_GRADES_ACCESS: GradesAccess = { gradebook: true, gradebookReason: null, publish: true };
+
+/** AI and Bloom screens: School assistant, Bloom study helper, and Bloom chat. */
+export interface AiCapabilities {
+  /** Saved Bloom chat history (list, open, rename, delete chats; apps/api has no chat persistence yet). */
+  savedChats: boolean;
+  /** Web search toggle and web citations in Bloom chat (not in the bloom-school/1 contract). */
+  webSearch: boolean;
+  /** Attaching files from Google Drive to Bloom chat questions (bloom-school/1 takes text prompts only). */
+  chatAttachments: boolean;
+  /** Maximum characters in one Bloom prompt (4,000 on bloom-school/1; 12,000 on Supabase). */
+  promptMaxChars: number;
+  /** Structured School assistant setup plans (creating classes, subjects, terms, exams, fees; bloom-school/1 has tools: []). */
+  guideSetupPlans: boolean;
+  /** Structured AI drafting (lesson plans, paper import, report comments, questions, homework, message drafting/translation; C13). */
+  aiDrafting: boolean;
+  /** Per-learner monthly question and token usage counts on the Study helper roster (not tracked by the API yet). */
+  studyHelperUsage: boolean;
+  /** The whole chat goes in one prompt (apps/api takes one prompt, not a list of turns), so Bloom reads only the newest part of a long chat. */
+  chatInOnePrompt: boolean;
+  /** A switch in School settings that turns Bloom on or off for the school (on apps/api Bloom is on once the school has study helper settings, and has no switch). */
+  schoolSwitch: boolean;
+}
+
+const AI_ON_SUPABASE: AiCapabilities = {
+  savedChats: true,
+  webSearch: true,
+  chatAttachments: true,
+  promptMaxChars: 12_000,
+  guideSetupPlans: true,
+  aiDrafting: true,
+  studyHelperUsage: true,
+  chatInOnePrompt: false,
+  schoolSwitch: true,
+};
+
+const AI_ON_API: AiCapabilities = {
+  savedChats: false,
+  webSearch: false,
+  chatAttachments: false,
+  promptMaxChars: 4_000,
+  guideSetupPlans: false,
+  aiDrafting: false,
+  studyHelperUsage: false,
+  chatInOnePrompt: true,
+  schoolSwitch: false,
+};
+
+export function aiCapabilities(): AiCapabilities {
+  return onApi() ? AI_ON_API : AI_ON_SUPABASE;
+}

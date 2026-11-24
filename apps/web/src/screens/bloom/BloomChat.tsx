@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  askBloomChat, chatTitleFrom, createAiChat, deleteAiChat, deleteAiChatMessage, EdgeError, fetchAiChatMessages, fetchAiChats,
-  formatFileSize, homeRouteFor, renameAiChat, saveAiChatTurns, setAiChatWebSearch, sourceHost, CHAT_MESSAGE_MAX, type AiChat, type AiChatSource, type AiChatTurn,
+  aiCapabilities, apiFetchBloomReadiness, askBloomChat, chatTitleFrom, createAiChat, deleteAiChat, deleteAiChatMessage, EdgeError, fetchAiChatMessages, fetchAiChats,
+  formatFileSize, homeRouteFor, onApi, renameAiChat, saveAiChatTurns, setAiChatWebSearch, sourceHost, type AiChat, type AiChatSource, type AiChatTurn,
 } from "@figbloom/shared";
 import type { BloomChatState, BloomConsole } from "../../components/BloomFab";
 import { Markdown } from "../../components/Markdown";
@@ -37,6 +37,13 @@ const STARTERS = [
   "Translate this notice into Kiswahili:",
 ];
 
+const API_STARTERS = [
+  "Explain the CBE assessment rubric levels simply",
+  "Summarise key points for a parent-teacher meeting",
+  "Help me prepare a short assembly talk on teamwork",
+  "How do I explain fractions to Grade 7 learners?",
+];
+
 /**
  * Bloom chat: a general AI assistant for the office and teachers, opened from
  * the floating button on every console page. Replies come from the
@@ -64,9 +71,17 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   const location = useLocation();
   const { tenant, actingForTenant } = useTenantSession();
   const ai = useAiStatus();
+  const caps = aiCapabilities();
+  const { data: readiness } = useAsync(
+    () => (onApi() ? apiFetchBloomReadiness(tenant.id).catch(() => null) : Promise.resolve(null)),
+    [tenant.id],
+  );
 
   const [chatsKey, setChatsKey] = useState(0);
-  const { data: chats, loading: chatsLoading } = useAsync(() => fetchAiChats(), [chatsKey]);
+  const { data: chats, loading: chatsLoading } = useAsync(
+    () => (caps.savedChats ? fetchAiChats() : Promise.resolve([])),
+    [chatsKey, caps.savedChats],
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [loadingTurns, setLoadingTurns] = useState(false);
@@ -147,7 +162,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     let chatId = activeId;
     let created = false;
     try {
-      if (!chatId) {
+      if (caps.savedChats && !chatId) {
         const chat = await createAiChat(tenant.id, chatTitleFrom(question?.content ?? ""), webSearch);
         chatId = chat.id;
         created = true;
@@ -155,22 +170,24 @@ export function BloomChat({ console }: { console: BloomConsole }) {
         setChatsKey((k) => k + 1);
       }
       // the question's files, still in memory (a new question, or Regenerate in the same visit)
-      const files = history[history.length - 1]?.files;
+      const files = caps.chatAttachments ? history[history.length - 1]?.files : undefined;
       const reply = await askBloomChat(history.map(({ role, content }) => ({ role, content })), {
-        tenantId: actingForTenant ? tenant.id : undefined,
+        tenantId: actingForTenant || onApi() ? tenant.id : undefined,
         signal: controller.signal,
-        webSearch,
+        webSearch: caps.webSearch && webSearch,
         attachments: files,
       });
       const answer: Turn = { role: "assistant", content: reply.text || "(Bloom gave an empty answer. Try again.)", sources: reply.sources };
       setTurns([...history, answer]);
-      try {
-        const saved: Turn[] = await saveAiChatTurns(chatId, question ? [question, answer] : [answer]);
-        if (question?.files) saved.forEach((s, k) => { if (k === 0 && s.role === "user") saved[k] = { ...s, files: question.files }; });
-        setTurns([...history.slice(0, question ? -1 : undefined), ...saved]);
-        setChatsKey((k) => k + 1);
-      } catch {
-        toast("Bloom answered, but the chat couldn't be saved. Copy anything you need.", "error");
+      if (caps.savedChats && chatId) {
+        try {
+          const saved: Turn[] = await saveAiChatTurns(chatId, question ? [question, answer] : [answer]);
+          if (question?.files) saved.forEach((s, k) => { if (k === 0 && s.role === "user") saved[k] = { ...s, files: question.files }; });
+          setTurns([...history.slice(0, question ? -1 : undefined), ...saved]);
+          setChatsKey((k) => k + 1);
+        } catch {
+          toast("Bloom answered, but the chat couldn't be saved. Copy anything you need.", "error");
+        }
       }
     } catch (err) {
       setTurns(before);
@@ -178,7 +195,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
         setDraft(question.content);
         setAttachments(question.files ?? []);
       }
-      if (created && chatId) {
+      if (caps.savedChats && created && chatId) {
         // Nothing was said in it: don't leave an empty chat in the list.
         await deleteAiChat(chatId).catch(() => {});
         setActiveId(null);
@@ -195,8 +212,8 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     const content = text.trim();
     if (!content || busy) return;
     const question: Turn = {
-      role: "user", content: content.slice(0, CHAT_MESSAGE_MAX),
-      ...(attachments.length ? { attachments: attachments.map((a) => a.name), files: attachments } : {}),
+      role: "user", content: content.slice(0, caps.promptMaxChars),
+      ...(caps.chatAttachments && attachments.length ? { attachments: attachments.map((a) => a.name), files: attachments } : {}),
     };
     setDraft("");
     setAttachments([]);
@@ -263,7 +280,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
     const last = turns[turns.length - 1];
     if (busy || last?.role !== "assistant") return;
     const history = turns.slice(0, -1);
-    if (last.id) {
+    if (caps.savedChats && last.id) {
       try { await deleteAiChatMessage(last.id); } catch (err) {
         toast(err instanceof Error ? err.message : "Could not regenerate.", "error");
         return;
@@ -373,8 +390,14 @@ export function BloomChat({ console }: { console: BloomConsole }) {
   }
 
   const off = ai !== null && !ai.aiEnabled;
+  // On the API build, say up front when Bloom is switched on but cannot answer (no AI service connected, or its circuit is open).
+  const unavailableNote = !readiness || !readiness.enabledForSchool ? null
+    : !readiness.providerConfigured ? "Bloom is turned on for this school, but no AI service is connected to this server yet. Questions will not be answered."
+    : readiness.circuit === "open" ? "Bloom is not answering right now. Try again in a moment."
+    : null;
   // The school's switch; while it's loading the toggle stays hidden, and the edge function decides anyway.
-  const searchAllowed = ai?.webSearchEnabled === true;
+  const searchAllowed = caps.webSearch && ai?.webSearchEnabled === true;
+  const starters = caps.aiDrafting ? STARTERS : API_STARTERS;
   const lastIsAnswer = turns[turns.length - 1]?.role === "assistant";
 
   const sidebar = (
@@ -445,6 +468,9 @@ export function BloomChat({ console }: { console: BloomConsole }) {
             <button type="button" onClick={disconnect} className="shrink-0 font-semibold text-forest hover:underline">Disconnect</button>
           </p>
         )}
+        {!caps.savedChats && turns.length > 0 && (
+          <Button onClick={newChat} disabled={busy}>+ New chat</Button>
+        )}
         {turns.length > 0 && (
           <ExportMenu
             label={exporting ? "Preparing…" : "Export whole chat"}
@@ -455,20 +481,29 @@ export function BloomChat({ console }: { console: BloomConsole }) {
             items={chatItems}
           />
         )}
-        <Button className="md:hidden" onClick={() => setSidebarOpen((o) => !o)} aria-expanded={sidebarOpen}>Chats</Button>
+        {caps.savedChats && (
+          <Button className="md:hidden" onClick={() => setSidebarOpen((o) => !o)} aria-expanded={sidebarOpen}>Chats</Button>
+        )}
       </header>
 
       <div className="relative flex min-h-0 flex-1">
-        <aside className={`${sidebarOpen ? "absolute inset-y-0 left-0 z-10 flex shadow-lg" : "hidden"} w-[260px] shrink-0 flex-col border-r border-line bg-[#FAFBFA] md:static md:flex md:shadow-none`}>
-          {sidebar}
-        </aside>
+        {caps.savedChats && (
+          <aside className={`${sidebarOpen ? "absolute inset-y-0 left-0 z-10 flex shadow-lg" : "hidden"} w-[260px] shrink-0 flex-col border-r border-line bg-[#FAFBFA] md:static md:flex md:shadow-none`}>
+            {sidebar}
+          </aside>
+        )}
 
         <section className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex max-w-[820px] flex-col gap-4 px-4 py-6 sm:px-6">
+              {unavailableNote && (
+                <p role="status" className="rounded-lg border border-line bg-white px-4 py-3 text-[12.5px] text-ink-muted">{unavailableNote}</p>
+              )}
               {off ? (
                 <p className="rounded-lg border border-line bg-white px-4 py-4 text-[13px] text-ink-muted">
-                  Bloom is turned off for this school. The school office can turn it on in School settings.
+                  {caps.schoolSwitch
+                    ? "Bloom is turned off for this school. The school office can turn it on in School settings."
+                    : "Bloom is not turned on for this school yet. The new system has no switch for it yet."}
                 </p>
               ) : turns.length === 0 && !loadingTurns ? (
                 <div className="flex flex-col items-center gap-4 pt-10 text-center">
@@ -476,11 +511,13 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                   <div>
                     <h2 className="text-[18px] font-semibold tracking-tight">How can Bloom help?</h2>
                     <p className="mt-1 max-w-[460px] text-[13px] text-ink-muted">
-                      Write, plan lessons, explain, translate, work through maths, or anything else. Bloom can't see your school's records.
+                      {caps.aiDrafting
+                        ? "Write, plan lessons, explain, translate, work through maths, or anything else. Bloom can't see your school's records."
+                        : `Ask questions, explain topics, or work through ideas. A message can be up to ${caps.promptMaxChars.toLocaleString("en-KE")} characters.`}
                     </p>
                   </div>
                   <div className="flex max-w-[620px] flex-wrap justify-center gap-2">
-                    {STARTERS.map((s) => (
+                    {starters.map((s) => (
                       <button key={s} type="button" disabled={busy}
                         onClick={() => { if (s.endsWith(":")) { setDraft(`${s}\n`); input.current?.focus(); } else send(s); }}
                         className="rounded-full border border-line bg-white px-3 py-1.5 text-[12.5px] text-ink-soft hover:border-accent">
@@ -564,7 +601,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                 id="bloom-input"
                 ref={input}
                 rows={2}
-                maxLength={CHAT_MESSAGE_MAX}
+                maxLength={caps.promptMaxChars}
                 value={draft}
                 disabled={off}
                 onChange={(e) => setDraft(e.target.value)}
@@ -583,7 +620,7 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                   Search the web
                 </label>
               )}
-              {DRIVE && (
+              {DRIVE && caps.chatAttachments && (
                 <span className="flex shrink-0 items-center gap-2">
                   <button type="button" onClick={() => void addFromDrive()}
                     disabled={off || busy || attaching || attachments.length >= CHAT_MAX_ATTACHMENTS}
@@ -594,7 +631,10 @@ export function BloomChat({ console }: { console: BloomConsole }) {
                 </span>
               )}
               <p className="min-w-0 flex-1 text-[11px] text-ink-faint">
-                Bloom is an AI and can get things wrong. Check before you use it. Your chats are saved for you only.
+                {caps.savedChats
+                  ? "Bloom is an AI and can get things wrong. Check before you use it. Your chats are saved for you only."
+                  : "Bloom is an AI and can get things wrong. Check before you use it. Chats are not saved on the new system yet; copy or export anything you need."}
+                {caps.chatInOnePrompt && ` A message can be ${caps.promptMaxChars.toLocaleString("en-KE")} characters, and Bloom reads only the newest ${caps.promptMaxChars.toLocaleString("en-KE")} characters of a chat.`}
               </p>
             </div>
           </form>

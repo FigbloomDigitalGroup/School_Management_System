@@ -1,3 +1,6 @@
+import { apiAskBloomChat } from "./api/aiApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
 import { attachmentName, CHAT_MAX_ATTACHMENTS, type ChatAttachment } from "./bloomAttachments";
@@ -69,6 +72,7 @@ const CHAT_SEND_TURNS = 40;
 export async function askBloomChat(
   turns: AiChatTurn[], opts: { tenantId?: string; signal?: AbortSignal; webSearch?: boolean; attachments?: ChatAttachment[] } = {},
 ): Promise<AiChatReply> {
+  if (onApi()) return apiAskBloomChat(turns, opts);
   const attachments = (opts.attachments ?? []).map((a) => a.kind === "text"
     ? { name: a.name, kind: a.kind, text: a.text }
     : { name: a.name, kind: a.kind, data: a.data });
@@ -97,6 +101,7 @@ export function chatTitleFrom(question: string): string {
 // ------------------------------------------------------------------ saved chats
 
 export async function fetchAiChats(): Promise<AiChat[]> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const { data, error } = await supabase().from("ai_chats").select("id, title, updated_at, web_search").order("updated_at", { ascending: false }).limit(200);
   if (error) throw new Error(error.message);
   return (data ?? []) as AiChat[];
@@ -114,6 +119,7 @@ const asMessage = (r: MessageRow): AiChatMessage => ({ ...r, sources: parseChatS
 const MESSAGE_COLUMNS = "id, role, content, created_at, sources, attachments";
 
 export async function fetchAiChatMessages(chatId: string): Promise<AiChatMessage[]> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const { data, error } = await supabase().from("ai_chat_messages")
     .select(MESSAGE_COLUMNS).eq("chat_id", chatId).order("created_at").order("id");
   if (error) throw new Error(error.message);
@@ -121,6 +127,7 @@ export async function fetchAiChatMessages(chatId: string): Promise<AiChatMessage
 }
 
 export async function createAiChat(tenantId: string, title: string, webSearch = true): Promise<AiChat> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const { data, error } = await supabase().from("ai_chats")
     .insert({ tenant_id: tenantId, title: title.slice(0, 120) || "New chat", web_search: webSearch })
     .select("id, title, updated_at, web_search").single();
@@ -130,11 +137,13 @@ export async function createAiChat(tenantId: string, title: string, webSearch = 
 
 /** Remembers the chat's "Search the web" toggle. */
 export async function setAiChatWebSearch(chatId: string, on: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const { error } = await supabase().from("ai_chats").update({ web_search: on }).eq("id", chatId);
   if (error) throw new Error(error.message);
 }
 
 export async function renameAiChat(chatId: string, title: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const t = title.trim().slice(0, 120);
   if (!t) throw new Error("Give the chat a name.");
   const { error } = await supabase().from("ai_chats").update({ title: t }).eq("id", chatId);
@@ -142,12 +151,14 @@ export async function renameAiChat(chatId: string, title: string): Promise<void>
 }
 
 export async function deleteAiChat(chatId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const { error } = await supabase().from("ai_chats").delete().eq("id", chatId);
   if (error) throw new Error(error.message);
 }
 
 /** Saves turns in order; created_at is stamped one millisecond apart so a question always sorts before its answer. */
 export async function saveAiChatTurns(chatId: string, turns: (AiChatTurn & { sources?: AiChatSource[]; attachments?: string[] })[]): Promise<AiChatMessage[]> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   if (!turns.length) return [];
   const base = Date.now();
   const { data, error } = await supabase().from("ai_chat_messages").insert(
@@ -165,6 +176,7 @@ export async function saveAiChatTurns(chatId: string, turns: (AiChatTurn & { sou
 
 /** Drops the last answer (Regenerate), so the question can be asked again. */
 export async function deleteAiChatMessage(messageId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saved Bloom chats");
   const { error } = await supabase().from("ai_chat_messages").delete().eq("id", messageId);
   if (error) throw new Error(error.message);
 }

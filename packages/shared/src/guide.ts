@@ -1,3 +1,6 @@
+import { apiAskGuide, apiFetchSetupCounts } from "./api/aiApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
 import { EXAM_OUT_OF, validateExamName } from "./exams";
@@ -123,6 +126,7 @@ export async function askGuide(
   turns: GuideTurn[],
   opts: { pages: GuidePageInfo[]; here: string; adminAreas?: boolean; tenantId?: string; organizationId?: string; signal?: AbortSignal },
 ): Promise<GuideAnswer> {
+  if (onApi()) return apiAskGuide(turns, opts);
   const { result } = await invokeEdge<{ result: GuideAnswer }>("ai-assist", {
     task: "guide",
     payload: { messages: turns, pages: opts.pages, here: opts.here, adminAreas: !!opts.adminAreas },
@@ -145,6 +149,7 @@ export interface SetupExisting {
 }
 
 export async function fetchSetupExisting(tenantId: string): Promise<SetupExisting> {
+  if (onApi()) throw new NotOnApiError("Assistant setup plans");
   const db = supabase();
   const [classes, subjects, terms] = await Promise.all([
     db.from("classes").select("name").eq("tenant_id", tenantId),
@@ -286,6 +291,7 @@ export interface PlanResult { label: string; ok: boolean; message: string }
  * reported and the rest still run; exams and fee items wait for the term.
  */
 export async function applySetupPlan(tenantId: string, items: PlanItem[], existingTermId: string | null): Promise<PlanResult[]> {
+  if (onApi()) throw new NotOnApiError("Assistant setup plans");
   const db = supabase();
   const results: PlanResult[] = [];
   const of = <K extends SetupAction["kind"]>(kind: K) =>
@@ -360,6 +366,8 @@ export interface SetupStep {
 export interface SetupCounts {
   hasPaymentDetails: boolean;
   hasCrest: boolean;
+  /** Steps this build cannot check or do, left off the list (the API stores no payment details or crest yet). */
+  leaveOut?: ("details" | "payments")[];
   currentTerm: string | null;
   classes: number;
   subjects: number;
@@ -377,7 +385,7 @@ const count = (value: number, one: string, many = `${one}s`) => `${value.toLocal
 /** The checklist, in the order a school is best set up. Pure, so it can be tested. */
 export function setupSteps(c: SetupCounts): SetupStep[] {
   const term = c.currentTerm;
-  return [
+  const steps: SetupStep[] = [
     {
       key: "term", title: "Start the term", to: "admin/settings", done: !!term,
       detail: term ? `${term} is the current term.` : "Give the current term its dates. Exams, fees and registers belong to a term.",
@@ -439,10 +447,13 @@ export function setupSteps(c: SetupCounts): SetupStep[] {
       ask: "How do I give the bursar access to Fees only?",
     },
   ];
+  const out = c.leaveOut ?? [];
+  return out.length ? steps.filter((s) => !out.includes(s.key as "details" | "payments")) : steps;
 }
 
 /** Counts for the checklist, read as the admin (row-level security applies). */
 export async function fetchSetupCounts(tenantId: string): Promise<SetupCounts> {
+  if (onApi()) return apiFetchSetupCounts(tenantId);
   const db = supabase();
   const head = { count: "exact" as const, head: true };
   const total = async (q: PromiseLike<{ count: number | null; error: { message: string } | null }>) => {
