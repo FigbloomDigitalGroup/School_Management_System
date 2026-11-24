@@ -80,6 +80,7 @@ export * from "./bloomAttachments";
 export * from "./pushTargets";
 export * from "./markdown";
 export * from "./inventory";
+export * from "./inventoryStock";
 export * from "./feeCharges";
 export * from "./otherStaff";
 export * from "./adminAreas";
