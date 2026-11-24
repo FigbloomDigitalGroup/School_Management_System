@@ -39,6 +39,7 @@ tags:
   - name: import
   - name: me
   - name: family
+  - name: teaching
 paths:
   /livez:
     get:
@@ -17865,7 +17866,7 @@ paths:
   /v1/tenants/{tenantId}/me/teaching/learners:
     get:
       tags:
-        - academics
+        - teaching
       summary: The learners in the classes the caller teaches (names only)
       description: "Teacher reads (docs/TEACHER-READS.md). One row per active class membership of an active learner in a
         class the caller teaches now: an active class whose class teacher, or an active teaching assignment, is the caller's
@@ -17924,7 +17925,7 @@ paths:
   /v1/tenants/{tenantId}/me/teaching/colleagues:
     get:
       tags:
-        - academics
+        - teaching
       summary: The staff who teach the caller's classes (names only)
       description: "Teacher reads (docs/TEACHER-READS.md). The active staff records that are class teacher, or hold an active
         teaching assignment, in the classes the caller teaches now (the caller's own record included), so a timetable or

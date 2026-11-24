@@ -410,7 +410,7 @@ describe("teacher reads", () => {
         });
         expect(res.statusCode, res.body).toBe(201);
       };
-      await start("teacherA", id.teacher2);
+      await start("teacherA", id.teacher2!);
       await start("parent", ids.adminA);
       const peers = async (who: string) =>
         (await ok(who, "/chat/conversations", "conversations")).map((c) => `${c.peer_full_name}:${c.peer_role}`);
