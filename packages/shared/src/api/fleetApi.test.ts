@@ -335,7 +335,7 @@ describe("the list of children on a trip", () => {
   });
 
   it("sends a mark as a trip event, once, and accepts the server's 'already have it'", async () => {
-    boot({ [`POST ${P}/trips/${TRIP}/events`]: (c) => (api.callsTo(`POST ${P}/trips/${TRIP}/events`).length > 1 ? { status: 200, body: { event: {}, replayed: true } } : { status: 201, body: { event: {}, replayed: false } }) });
+    boot({ [`POST ${P}/trips/${TRIP}/events`]: () => (api.callsTo(`POST ${P}/trips/${TRIP}/events`).length > 1 ? { status: 200, body: { event: {}, replayed: true } } : { status: 201, body: { event: {}, replayed: false } }) });
     const input = { tenantId: T, tripId: TRIP, studentId: L1, stopId: S1, status: "boarded" as const, markedAt: "2026-11-24T05:50:00Z" };
     await markRider(input);
     await markRider(input);
