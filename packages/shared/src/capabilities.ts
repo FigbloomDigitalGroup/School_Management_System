@@ -67,8 +67,12 @@ export interface PeopleCapabilities {
   deleteLearner: boolean;
   /** Learners' sign-in accounts: the Login column, "Create logins", a learner's password reset. */
   learnerLogins: boolean;
-  /** "Invite guardians" from the selected learners (parents' sign-in accounts). */
+  /** "Invite guardians" from the selected learners (parents' sign-in accounts, made with a login ID and password). */
   inviteGuardians: boolean;
+  /** API only: invite a guardian record to sign in (one invitation per guardian and learner, by e-mail or SMS), send it again, cancel it. */
+  guardianInvitations: boolean;
+  /** API only: invite a staff member to sign in by e-mail, and issue a one-time password-reset link for a staff member who has a sign-in. */
+  staffSignIn: boolean;
   /** The Guardian column (a placeholder on Supabase; guardians are read from a learner's own card on the API). */
   guardianColumn: boolean;
   /** Each learner's fee status. */
@@ -109,14 +113,14 @@ export interface PeopleCapabilities {
 }
 
 const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
-  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
+  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
   learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true,
   photos: true, passwordResets: true, staffAccounts: true, staffSubjects: true, staffCalls: true, staffArchive: false, guardianContactForm: false,
   importByAreaHolders: true, learnerWithoutClass: false, unassignClass: true,
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
-  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
+  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
   learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
@@ -254,6 +258,44 @@ const INVENTORY_ON_API: InventoryCapabilities = {
 
 export function inventoryCapabilities(): InventoryCapabilities {
   return onApi() ? INVENTORY_ON_API : INVENTORY_ON_SUPABASE;
+}
+
+/** The chat screens (admin/chats, teacher/chats, staff/chats and the parent and learner ones that share them). */
+export interface ChatCapabilities {
+  /** Sending and opening files in a chat (waits on API file storage, A5 / FIG-1873; chat messages are text only). */
+  attachments: boolean;
+  /** Voice and video calls from a chat, and the school's call log (not in the API contract, C13). */
+  calls: boolean;
+  /** The office reading every chat in the school (the API shows a person only the chats they are in). */
+  oversight: boolean;
+  /** Unread counts: the menu badge, a bold name, the count on a chat (the API does not say what a person has read). */
+  unreadCounts: boolean;
+}
+
+const CHAT_ON_SUPABASE: ChatCapabilities = { attachments: true, calls: true, oversight: true, unreadCounts: true };
+const CHAT_ON_API: ChatCapabilities = { attachments: false, calls: false, oversight: false, unreadCounts: false };
+
+export function chatCapabilities(): ChatCapabilities {
+  return onApi() ? CHAT_ON_API : CHAT_ON_SUPABASE;
+}
+
+/** The notices inbox (teacher/notices, staff/notices). */
+export interface NoticesCapabilities {
+  /** Which notices a person has opened: the orange dot, the bold subject and the menu badge (the inbox does not say). */
+  readState: boolean;
+}
+
+export function noticesCapabilities(): NoticesCapabilities {
+  return { readState: !onApi() };
+}
+
+/**
+ * Whether a teacher may send a message to one of their classes (teacher/messages). On Supabase every teacher may. On the
+ * API a notice is written by whoever holds `resource.announcement.write`: the school office and anyone with the
+ * Communication area, not a teacher by being a teacher.
+ */
+export function canMessageClasses(adminAreas: readonly string[]): boolean {
+  return !onApi() || adminAreas.includes("communication");
 }
 
 /** Exams and marks: the admin Exams page, the teacher Gradebook, Performance and Reports. */
