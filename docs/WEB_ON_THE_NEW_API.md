@@ -4,6 +4,29 @@ Written 2026-11-23. The first steps of moving the web app from Supabase to `apps
 the school-setup screens (School settings, Classes, Subjects) and the People page (Students & staff). Everything else in
 the web app still reads Supabase and is **not in an API build**.
 
+## One file for each area
+
+Each area of the API build has its own file in `docs/web-on-api/`, so that two pull requests never edit the same lines and
+conflict. This page keeps what is common to the whole build.
+
+- **A new area adds a file** there, named after the area (for example `report-cards.md`): what works, what is hidden and why,
+  how the model is mapped, and the API findings. It does not edit this page or another area's file.
+- **New findings are numbered inside the area's own file, with the area as a prefix** (`parent-1`, `parent-2`, ...), so that
+  two areas never pick the same number. Findings 1 to 46 keep their numbers and are in the files below.
+- **Pages are registered the same way:** an area adds `apps/web/src/api/pages/<area>.pages.tsx` and does not edit
+  `ApiConsole.tsx` (see "Where the code is").
+
+| Findings | Where |
+|---|---|
+| 1 to 13 | this page, "Things found in the API while doing this (for Ancel)" |
+| 14 to 16 | [family-reads.md](web-on-api/family-reads.md) |
+| 17 to 22 | [account-and-access.md](web-on-api/account-and-access.md) |
+| 23 to 28 | [grades.md](web-on-api/grades.md) |
+| 29 to 34 | [chats-notices-messages.md](web-on-api/chats-notices-messages.md) |
+| 35 to 37 | [sign-in-invitations.md](web-on-api/sign-in-invitations.md) |
+| 38 to 44 | [timetable-classes-courses.md](web-on-api/timetable-classes-courses.md) |
+| 45 and 46 | [report-cards.md](web-on-api/report-cards.md) |
+
 ## What a build is
 
 A build talks to **one** backend, chosen when it is built:
@@ -189,7 +212,13 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
   need no change when their area is ported.
 - `apps/web/src/lib/client.ts` starts the right backend; `apiTokenStore.ts` keeps the token in `localStorage`.
-- `apps/web/src/api/`: the screens of an API build.
+- `apps/web/src/api/`: the screens of an API build. `ApiConsole.tsx` is the shell (menus, the page gate, the two home pages).
+  The pages it serves are registered in `apps/web/src/api/pages/`: one `<area>.pages.tsx` file for each area, which exports
+  `pages` (`{ admin: [...], teacher: [...] }`, see `pages/types.ts`). `pages/index.ts` picks every such file up and builds
+  `API_ADMIN_PAGES` and `API_TEACHER_PAGES` and the routes from them, so **a new area adds a file there and does not edit
+  `ApiConsole.tsx`**. Wrap a `lazy()` page in `<Lazy>` (from `pages/Lazy.tsx`).
+
+Each area describes its own code in its own file in `docs/web-on-api/`, not in the list above.
 
 `packages/shared/src/api/schema.d.ts` is generated from `apps/api/openapi/openapi.yaml`:
 
@@ -252,409 +281,3 @@ inside the same 30 seconds needs the next code.
 13. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
     only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
     issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.
-
-## Family reads (API side of A1, FIG-1869)
-
-The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). No parent
-or student page is ported yet: the web slices come after this merges.
-
-- `GET /v1/tenants/{t}/me/children`: the parent's own children in that school, with each child's current class.
-- Per child, `GET /v1/tenants/{t}/me/children/{learnerId}/…`: `attendance`, `results`, `report-cards`, `homework`,
-  `materials`, `timetable`, `fees`, `activities`, `items`, `health`. Any learner who is not the caller's child is a 404.
-- `GET /v1/tenants/{t}/me/chat-contacts`: who a parent may start a chat with.
-- Bus: the existing `/me/transport`.
-- Paying (M-Pesa prompt, invoice PDF, payment proof, AI-helper opt-in) now works for a parent whose account link reaches
-  the learner. Class and form-level notices now reach the parents of children in them, and a parent may chat with their
-  child's teachers.
-- All of them need permission `resource.family.read`, which only parents hold.
-
-Things found while doing it:
-
-14. **Learners have no sign-in on the API** (A4). There is no link from an account to a learner record and no flow that
-    makes a `student` membership. It needs owner decisions first (who makes the login, how a child without e-mail gets
-    a password, session length, MFA, chat); see "Student accounts" in `apps/api/docs/FAMILY-READS.md`. The student
-    pages stay on Supabase until then.
-15. **Sick-bay notices to guardians are never written.** `medical_notices` exists and parents could read it, but the
-    sick-bay module still reports `guardian_notices_available: false` and emits none. The family health read shows the
-    visits instead.
-16. **Push for class and form-level announcements counts nobody.** The worker's eligibility count covers only
-    whole-school, role, user and people audiences (migration 063), for staff and parents alike.
-
-## Account and access (admin/account, teacher/account, admin/access)
-
-Opened from the menu on an API build: **My account** (the avatar menu, and the sidebar's "My account" / "Account" entry) for school
-admins and teachers, and **Access & roles** for full admins. The shared account code is built to be reused by `staff/account` and
-`parent/settings` (`AccountSections`, `apps/web/src/components/account/`).
-
-### My account
-
-- **Your details**: name, email, sign-in ID, role and school, read from `GET /v1/auth/me`. Read-only (see below).
-- **Password**: current password, new password twice, with the server's rule (10 or more characters, letters and numbers). The server
-  ends the person's other sessions and keeps this one. The sidebar's "Change password" does the same call.
-- **Two-step verification**: its state from `GET /v1/auth/mfa/status`. A person who has it can make new recovery codes (a fresh code
-  from the app is needed) and, where their role does not require it, turn it off. Setting it up still happens at sign-in, when the server
-  asks for it.
-- **How we reach you**: the notification switches of `GET`/`PATCH /v1/me/notification-preferences`, saved when flipped. A staff
-  member has "General school notices" and "Chat messages"; a family has all five.
-- Every call that needs the password again (`reauth_required`: new recovery codes, turning two-step off, giving access) opens the app's
-  own "Confirm your password" prompt (`ApiSessionGuard`) and is retried once.
-
-| Hidden on the API build | Why |
-|---|---|
-| Changing your own name, phone or second phone | no endpoint: `PATCH /v1/auth/me` does not exist, and `/v1/auth/me` carries no phone |
-| Your photo | needs file storage (A5, FIG-1873), and the API holds no photo |
-| "Call someone" (teacher) | calls are not on the API (C13) |
-| Setting up two-step from the account page | the server only asks for the code from people it requires it of, so a set-up on this page would never be used (finding 18) |
-| Turning two-step off, for a person whose role needs it | the server would only ask them to set it up again at the next sign-in |
-
-### Access & roles
-
-Full admins give **admin areas** to a teacher or other staff member, one person at a time (`PUT /v1/rbac/staff-areas`, read back with
-`GET /v1/rbac/staff-areas`, the new endpoint of the API PR #362), with the same quick picks and area ticks as the Supabase build. The same
-card gives or takes away **access to parents' records** (`/v1/rbac/guardian-access`, read and change apart). **Organization
-administrators** who were given access to the school are listed, with a way to take it all back (`/v1/rbac/org-delegations`).
-
-| Hidden on the API build | Why |
-|---|---|
-| The school's own named roles ("Exams officer": make, edit, delete, give to people) | the API has no write path for school roles (finding 20) |
-| Giving an organization administrator access | the list carries user ids only and nothing looks an administrator up; it starts from the organization console, which is not on the API build (finding 21) |
-| Admin areas for a person with no sign-in, a driver, a full admin, or yourself | areas belong to a sign-in; the server only lets teachers and staff hold them, and refuses your own |
-
-### API findings (for the API owner)
-
-17. **No way to change your own name, phone or photo.** The `users` table has a `full_name` and a `phone`, but there is no
-    `PATCH /v1/auth/me`, and `GET /v1/auth/me` returns no phone. The staff directory holds its own name and phone for the same person, so
-    one of the two would have to win.
-18. **Two-step is only asked of the people it is required of.** `auth_mfa_state` makes `required` true for admins, org admins, super
-    admins, anyone with the Fees area (and `MFA_REQUIRED_ROLES`). A teacher who sets it up anyway is never asked for the code at
-    sign-in, so it protects nothing. The account page therefore offers no set-up to people who are not required.
-19. **Nothing read another person's admin areas** (`GET /v1/rbac/permissions` is the caller's own), so `PUT /v1/rbac/staff-areas`, which
-    replaces, could only be used blind. `GET /v1/rbac/staff-areas` is added in the API PR #362: one row per person with areas of their
-    own, keyset-paged, for holders of `rbac.staff_areas.manage`.
-20. **School roles have tables and a place in `authorize.ts` but no endpoints** (`school_roles`, `school_role_assignments`), and the API's
-    own test says they have no write path. The Access screen shows none.
-21. **Delegations name nobody.** `GET /v1/rbac/org-delegations` gives `delegateUserId` only, and no endpoint lists an organization's
-    administrators, so a school cannot choose one to give access to.
-22. **The password rule is not in the contract.** `passwordPolicy.ts` wants 10 or more characters with letters and numbers; the OpenAPI
-    file says nothing, and the web's sidebar dialog said 8 (fixed here).
-
-## Grades: exams, the gradebook, performance and reports
-
-Five pages: `admin/exams`, `teacher/gradebook`, `admin/performance` and `teacher/performance` (one screen), and `admin/reports`.
-They are the Supabase app's own screens. The API side is `packages/shared/src/api/gradesApi.ts` (exams and marks),
-`performanceApi.ts` (the charts) and `reportsApi.ts` (the term report); `gradesCapabilities()` and `fetchGradesAccess()` in
-`capabilities.ts` and `teacherData.ts` say what is hidden. Report cards are not here (another slice).
-
-### How the API's model differs
-
-- **An exam is a name for the term** on Supabase. The API has no such record: it has an **assessment for each class and
-  subject** (a title, a kind, `max_score`, a status of draft, published or closed). So on the API an exam is every assessment
-  of kind `exam` with the same title in a term, and its id is `<termId>|<title>`. "New exam" makes one assessment for every
-  class of the term's year and subject that has a teacher (one request each, four at a time). "Add new class subjects" makes
-  the missing ones later, when a subject was given a teacher after the exam was made.
-- **The paper's total is `max_score`** (up to 10,000, decimals allowed), not a fixed 100. "New exam" asks for it. The
-  Gradebook header, the limit on a mark and the decimals follow it. Grades and means are worked out as percentages, so exams
-  with different totals still compare.
-- **Publishing is final and is the Academics area's.** A teacher who is assigned the class and subject can save marks (a
-  draft) but cannot publish; the school office publishes from the Exams page (the "Papers" window: publish or close one paper,
-  or all drafts). A published paper's marks are locked, so "Withdraw results" does not exist and the boxes are read-only.
-- **There is no "absent" mark.** `abs` saves nothing for that learner; a saved mark cannot be taken back to absent (the web
-  refuses before writing anything).
-- **No bulk write.** Marks are sent four at a time; only marks that changed are sent (with the `row_version` they were read at);
-  a failure says how many were saved ("Saved 2 of 3 marks (1 failed: ...)").
-
-### What a person can do, by role (checked on a real API)
-
-| | School admin | Teacher with the Academics and People areas | Plain teacher (class or subject teacher, no areas) |
-|---|---|---|---|
-| Exams | all of it: new exam, papers, publish, close, add new class subjects | no menu page unless the Academics area opens the admin console; publishing needs `resource.academics.write` | no page |
-| Gradebook | not a teacher page (no classes of their own) | enters marks for the classes and subjects they teach, and publishes | **cannot open it**: the page says why |
-| Performance | the whole school, or one class | their classes | **cannot open it**: the page says why |
-| Reports | all of it (full admins only, as on Supabase) | no page | no page |
-
-A plain teacher can read classes, class memberships, assessments and marks of the classes they teach (OD-2). They cannot read
-the terms or the subjects (`resource.academics.read`) or the learners' names (`resource.learner.read`), so the Gradebook has no
-term, no subject names and no learners to show. The page says: "The new system does not let you read this school's terms,
-subjects and learners with the access you have, so the Gradebook cannot open for you yet. Ask the school office to give you the
-Academics and People areas." Performance gives a sentence of the same kind. This is the gap that also stops the teacher's
-Attendance page for a plain teacher (finding 23).
-
-### What the API cannot do yet (hidden on the API build)
-
-`gradesCapabilities()` hides these, and the shared function behind each throws `NotOnApiError`:
-
-| Hidden on the API build | Missing in the API |
-|---|---|
-| Rename an exam; delete an exam | no change or delete for an assessment's title (the same missing PATCH and DELETE as classes and subjects) |
-| "Marks entered" on the Exams page | an assessment carries no mark count; the "Papers" window counts each paper's marks with one read each |
-| Withdraw results; change a published mark | publication is final; a correction (`/mark-corrections`, needs a reason, Academics writers) is not built in the web yet |
-| The CBE strand gradebook (the "Strand assessment" tab) | a subject has no learning area, so its strands cannot be found; CBE results are written by Academics writers only |
-| The higher-education gradebook | the API keeps one final grade for each enrolment (`/he-enrolments/{id}/grade`), not a section's assessments and marks; the screen shows a sentence |
-| The CBE rubric charts on Performance, the CBE table on Reports | the figures need the learning-area link above (the functions answer "none") |
-
-### How the figures are worked out
-
-- **Performance** (`performanceApi.ts`): the published and closed papers of kind `exam` (one list), their marks (one read per
-  paper, six at a time, kept for a minute because a published paper's marks are final), the terms, subjects, classes and who
-  teaches each (staff names only if the staff list may be read). Rows are percentages of each paper's own total. Only published
-  results count, like Supabase.
-- **Reports** (`reportsApi.ts`): the API's reports (`/reports/overview`, `finance-summary`, `academics-summary`) are
-  whole-school counts with nothing by class. So attendance comes from `/attendance-counted` (every entry of the term, 200 to a
-  page, counted by class), fees from the term's invoices joined to each active learner's class, and the class means from the
-  marks of the latest exam to go out. A class mean uses published papers only (Supabase's counted any entered mark, FIG-1441).
-  A big school waits longer than it did on Supabase (finding 25).
-
-### Things found in the API while doing this
-
-(Numbered so that no other slice shares a number: this slice's findings are 23 to 28.)
-
-23. **A plain teacher cannot read what the teacher pages need.** They read classes, memberships, teaching assignments, assessments
-    and marks (OD-2 scoped), but `/academic-terms`, `/subjects`, `/learners` and `/staff` answer 403, so they have no term, no
-    subject names, no learner names and cannot tell which subjects are theirs. The Gradebook, Performance and the teacher's
-    Attendance page cannot work for them. A teacher read of the current term, of the subjects they teach, and of the names of
-    the learners in classes they teach (on `/class-memberships`, say) would fix all three.
-24. **A teacher cannot publish their own marks.** Mark writes are open to the assigned teacher; `publish` and `close` need
-    `resource.academics.write`. Supabase let each teacher publish their own class and subject. If that is wanted, `publish`
-    could accept the assigned teacher, as the mark write does. Publication is also final (no withdraw), and a mark cannot be
-    deleted or saved as "absent" (`score` is required).
-25. **No per-class term figures.** Reports needs attendance, fees and marks by class for a term. Supabase did this in
-    `term_class_figures`. On the API the web reads every attendance entry of the term (`/attendance-counted`, 200 a page): a
-    school of 500 learners over a 60-day term is about 150 requests, one of 1,500 about 450. A `GET /reports/term-class-figures`
-    (attendance here and total, billed and paid, and a mark mean for an exam, per class) would be one request. Also,
-    `/attendance-counted` accepts `classId` in the route and the description, but the OpenAPI file does not list the parameter.
-26. **An exam is not a record.** An exam is a title shared by the per-class assessments, so it has no rename, no delete, no
-    mark count, and making one takes one request for each class and subject. A term-level exam record (name, total) that the
-    assessments point to would give all of these, and let the web publish a whole exam in one call.
-27. **A subject has no learning area**, so a CBE assessment (`learning_area_id`) cannot be chosen from the subject a teacher
-    teaches, and the strands of a subject cannot be found. CBE results can be written only by Academics writers.
-28. **Higher education marks.** The API has one grade per enrolment and no section assessments with marks, so the course
-    gradebook (`GpaGradebook`) has nothing to run on.
-
-## Chats, notices and messages
-
-`admin/chats`, `teacher/chats`, `teacher/notices` and `teacher/messages` run on an API build. The screens are the Supabase
-app's own; the shared functions behind them (`chat.ts`, the notice functions in `teacherData.ts` and `otherStaff.ts`,
-`subscribeAnnouncements` in `parentData.ts`) branch on `onApi()` into `api/chatApi.ts`, `api/noticesApi.ts`,
-`api/inboxApi.ts` and `api/directoryApi.ts`. `staff/chats` and `staff/notices` use the same functions: when the staff shell
-exists it needs only the two routes.
-
-| Page | On the API build |
-|---|---|
-| `admin/chats` | "My chats" only: list, start a chat, read and send text. The "All school chats" and "Calls" tabs are hidden |
-| `teacher/chats` | The same list and thread. A plain teacher cannot see names or start a chat (finding 29) |
-| `teacher/notices` | The inbox, newest first, with the notice's text. No unread marks, attachments or signatures |
-| `teacher/messages` | Opens. A teacher without the Communication area gets a message saying why instead of a composer (finding 33) |
-
-### Polling instead of realtime
-
-The API has no push channel, so `packages/shared/src/api/poll.ts` asks again every few seconds. The header of that file
-is its documentation. In short: `startPolling`, `pollNewItems` (the shape of `subscribeChatMessages` and the other
-`subscribe*` helpers that deliver rows) and `pollChanges` (the shape of `subscribeAnnouncements`); one request at a time;
-paused while the tab is hidden and after 10 minutes with no input, so a tab left open does not keep the API's idle timer
-alive; one catch-up request when the person comes back; a longer wait after failures. An open thread asks every 4.5 s, the
-chat list every 10 s, the notices inbox every 30 s. The fleet, visitors and parent slices use the same file.
-
-### What is hidden on this build, and why
-
-`chatCapabilities()` and `noticesCapabilities()` in `packages/shared/src/capabilities.ts`; the shared function behind each
-control throws `NotOnApiError`.
-
-| Hidden | Missing in the API |
-|---|---|
-| Sending and opening files in a chat | chat messages are text only; files wait on storage (A5, FIG-1873) |
-| Voice and video calls, and the school's call log | not in the contract (C13) |
-| "All school chats" (the office reading every chat) and the line "The school's administrators can read this chat" | nobody can read a chat they are not in, the office included (finding 30) |
-| Unread counts: the menu badge, a bold name, the count on a chat | the API does not say what a person has read (finding 29) |
-| Unread dots and the menu badge on notices | the inbox has no read state (finding 32) |
-| Notice attachments, "Waiting for your signature", the AI writing helper in Messages | storage (A5), signatures (C12), an edge function; the same as the Announcements page |
-| A list of people to start a chat with, for a person who may not read the staff list | there is no contacts endpoint (finding 29) |
-
-### How the model is mapped
-
-- A chat has `peer_user_id` and `last_message_at`, nothing else. The other person's name comes from the staff list
-  (`GET /staff`, which needs `resource.staff.read`: a school admin and the People area have it, a plain teacher does not),
-  kept for a minute per school. Without it the chat shows "Someone at the school". Parents and learners cannot be named:
-  guardian contacts carry no account id.
-- The chat list's preview is the newest message of each of the 30 latest chats, one small request each.
-- "Start a chat" offers staff who have an account (`userId` on the staff record), active, other than the person. Who may
-  talk to whom is the server's `may_talk`: staff with staff, a parent with the school office. A refused pair is a 403 on
-  the first message, shown as the server's own words.
-- A thread is the newest 1,000 messages. A poll asks for the newest 50 and merges by id.
-- The notices inbox is `GET /communications/announcements/inbox`: what reaches the person (whole school, their role, them by
-  name, the classes they teach) and what they wrote. That is more than the Supabase list, which showed only whole-school
-  notices and ones sent to the teacher by name. "From" is "You" for their own, a teacher's name when the staff list can be
-  read, else "School office".
-- "Sent by you" is the person's own published notices, read from the inbox (a teacher cannot read the composer's list, and
-  drafts are not in the inbox). Opening a notice calls `POST .../read` once, for when the inbox says what is read.
-- A class message is an in-app announcement with audience `{ kind: "class", class_id, recipients }`, created and published.
-  `recipients` is stored but the server's reach rule ignores it. Parents and learners are not reached until their accounts
-  are linked (FIG-1869): only the teachers of that class see it. The composer says so.
-- A teacher who holds an admin area lands in the admin console on this build, which has no console switch yet. Their
-  `teacher/chats`, `teacher/notices` and `teacher/messages` are reachable by address only, as `teacher/leave` is.
-
-### Things found in the API while doing this (for the owner)
-
-29. **The chat list is only ids.** `GET /chat/conversations` answers `peer_user_id` and `last_message_at`: no name, no role,
-    no last message, no unread count. There is also no "people I may chat with" list, no unread count and no single-chat
-    read. A plain teacher cannot read `/staff`, so every chat is "Someone at the school" and they cannot start one. Add to
-    each conversation `peer { user_id, full_name, role }`, `last_message { body, sender_id, created_at }` and
-    `unread_count` (from `conversation_members.last_read_at`, which exists and is never returned), plus
-    `GET /chat/contacts` (the people `may_talk` allows, with a name and a role) and `GET /chat/unread-count`.
-30. **No oversight read.** `listMessages` needs membership of the chat, so the office cannot read other people's chats, and
-    there is no school-wide list. The Supabase app tells families and teachers "The school's administrators can read this
-    chat", and the Communication area is described as reading the school's chats. That is a product and privacy decision
-    first, an endpoint second.
-31. **Chat messages come newest first with no `since`**, so a poll re-reads a page. A `since` (or `after`) cursor on
-    `GET .../messages` and on the conversation list would make polling cheaper (B7).
-32. **The announcements inbox has no read state and no author name.** Items have the composer's shape, with `author_id`
-    only. `communications_announcement_reads` is written by `POST .../read` and never returned. Add `read_at` (null when
-    unread) and the author's name and role to each inbox item. Class and year-group notices also reach no parent or learner
-    until their accounts are linked (FIG-1869), and `recipients` in a class audience is ignored by
-    `communications_audience_reaches`.
-33. **A teacher cannot send a class message.** `POST /communications/announcements` and `.../publish` need
-    `resource.announcement.write`, which only the school admin role and the Communication area hold. The check for a `class`
-    audience does not look at who the sender is: anyone with the permission can post to any class. A rule that lets a teacher
-    create and publish a `class` announcement for a class they teach (the reach function already knows who teaches what)
-    would make the Messages page work for the people it is for. It widens who may write to families, so it is the owner's
-    call.
-34. **`/notifications` is not announcements.** It lists generic in-app notifications (transport, medication and so on; its
-    items are an untyped `object` in the OpenAPI file), and publishing an announcement creates none. The Notices page does
-    not use it. A bell or a notification centre would be a new screen the web app does not have.
-
-## Sign-in invitations (People page)
-
-On the API a sign-in is made by an **invitation**, not by the school choosing a password. The People page now has:
-
-- **Learner card, Guardians:** each guardian with an e-mail or phone has **Invite by e-mail** (or **by SMS** when there is no e-mail). An open
-  invitation shows "Invited (r***@gmail.com), open until ...", with **Send again** (a new invitation replaces the open one) and **Cancel invitation**.
-- **Invite guardians** (toolbar, selected learners): the same controls for every guardian of up to 25 selected learners, with a line saying families
-  cannot read anything on the new system yet.
-- **Staff card, Sign-in:** a staff record with no sign-in is invited by e-mail (a teacher, other staff or a driver; an administrator's sign-in is made
-  by the platform). A record that has a sign-in can have a one-time **reset link** made (needs the password confirmed again).
-- Every invitation or reset answers `delivery`. When the message was not sent (no e-mail provider, or it failed; a local API never sends) the
-  single-use code or link comes back once and is shown for the school to hand over, with a Copy button. Staff links are the web's own
-  `/accept-invite?token=` and `/reset-password?token=` addresses.
-
-| Hidden or missing on the API build | Why |
-|---|---|
-| A list of open staff invitations (the staff card shows only the one sent in this visit, which can be cancelled) | no endpoint lists them (finding 35) |
-| Joining the new sign-in to the staff record by itself | nothing tells the web which sign-in accepted: the record's `userId` can only be set with a user id the web cannot find (finding 36) |
-| A page where a guardian accepts the code | the guardian accept endpoints exist (`/v1/guardian-invitations/preview` and `/accept`) but the web has no page for them, and families can read nothing yet (FIG-1869) |
-| Guardian invitations by e-mail text | the server sends no e-mail for guardian invitations (they are "handed over as a code or QR by the school"), so a guardian invitation always shows the code |
-| Making a reset link for yourself or for an administrator | the server refuses both |
-
-### API findings (continued)
-
-35. **No list of open staff invitations.** `POST /v1/tenants/{id}/invitations` and its `revoke` exist; nothing lists them, so a page cannot show who
-    was invited and is still waiting. Guardian invitations have a list.
-36. **Accepting a staff invitation does not link the staff record.** The invitation takes an e-mail, a role and a name, and accepting makes a user and a
-    membership; the staff record keeps `userId: null`. `PATCH .../staff/{id}` can set `userId`, but nothing returns a user's id (no members list, no
-    lookup by e-mail). Linking by e-mail inside `account_accept_invitation` (a staff record of the school with the same e-mail and no `userId`), or a
-    `staff_id` on the invitation, would fix it. Until then an invited teacher has a sign-in but is not "their" staff record (their classes, leave).
-37. **Guardian invitations carry no e-mail and no accept page.** `guardian_invitation` messages are never sent (the e-mail notifier returns
-    `not_configured` for them), so the school hands over the code, and the web has no page that takes it.
-
-
-## Timetable, My classes and Courses
-
-Pages: `teacher/timetable`, `teacher/classes`, the Timetable window of a class on `admin/classes`, and `admin/courses` (higher-education
-schools). `teacher/sections` is not on the API build (see below). Capability flags: `timetableCapabilities()` and
-`coursesCapabilities()` in `packages/shared/src/capabilities.ts`. The API side is `api/timetableApi.ts`, `api/teachingLookups.ts`,
-`api/teachingApi.ts` and `api/coursesApi.ts`.
-
-**Needs API PR #363 merged first:** `GET /v1/tenants/{id}/staff/me` (a person's own staff record) and a teacher-scoped
-`GET /subjects` (the subjects of the classes they teach). Without them these pages still open, but a plain teacher cannot tell which
-periods and classes are theirs, a period's subject shows as "Lesson", and My classes lists no subjects.
-
-### What works
-
-- **Timetable (teacher):** the classes the teacher teaches or leads; one class's week or all of them; the class teacher sees the
-  whole week of their homeroom (each period says whose it is), a subject teacher sees only their own periods. Times and rooms come
-  from the class's timetable slots.
-- **My classes (teacher):** the classes, the person's role in each (class teacher or subject teacher), the subjects they teach
-  there, the roll size.
-- **Classes > Timetable (admin):** the class's periods, Monday to Friday, with start and end times, subject, teacher and room; add a
-  period (day, start, end, subject, room). An overlapping period is refused by the API and the window says so.
-- **Courses (admin, higher-education schools):** semesters (= academic terms: list, add, set as current), the course catalogue (list,
-  add), sections of a semester (list, add), a section's roster (list, enrol learners).
-
-### How the model is mapped
-
-- A timetable **slot** has a subject, a day number, a start and an end time and a room. It has no free-text label, so a period is
-  named by its subject; "Games", "Library" or "Break" can only be periods if the school makes them subjects. Saturday and Sunday
-  slots are not shown (the screens' week is Monday to Friday).
-- Who teaches a period is the **teaching assignment** of that subject in that class (the slot's own link when it has one). "Mine"
-  means "assigned to my staff id", found with `GET .../staff/me`.
-- A class records its class teacher as a staff id. In a teacher's own class list, a class they lead carries their sign-in id as
-  `class_teacher_id`, so the screens' existing "am I this class's teacher" check works (this also fixes the early sign-out check on
-  the teacher Attendance screen).
-- A **semester is an academic term**. "Add semester" finds or makes the calendar year (1 January to 31 December), then the term.
-  "Set as current" also sets the term's year current. Every higher-education call is refused (400) unless the school's profile says
-  it is a higher-education school.
-- A course's **title** is the screens' course name and its **credit hours** are its credits. The API has no batch, so enrolling
-  several learners goes one at a time (four at once) and a refusal part-way says how many went in.
-- The school-wide lookups of a timetable page (subject names, staff names, the person's own staff id) are kept for 8 seconds so a
-  page of six classes asks for them once.
-
-### What a plain teacher can and cannot do on the API
-
-A plain teacher (no area) reads only the classes they teach (OD-2), and those classes' memberships, assignments and timetable
-slots. They cannot read the staff list, learners or academic years/terms. So on the Timetable page they see their periods; a colleague's
-name is missing from the class teacher's whole-class view; and the page's "Timetable · Term 1" heading is missing (no term read).
-A teacher who teaches nothing sees "You aren't assigned to any classes yet." A person with no staff record (a school administrator
-who was never added to the directory) has no periods of their own.
-
-### What the API cannot do yet (hidden on the API build)
-
-| Hidden on the API build | Missing in the API |
-|---|---|
-| The week-grid editor of a class's timetable (replaces the whole week; CSV import) | a slot can be made and listed, not changed or removed; so there is a list and an "Add a period" form instead |
-| A free-text period label ("Games", "Library", "Break") | a slot is a subject's period, with no label |
-| "Needs cover" and "Covered by" on a teacher's timetable | `/attendance-coverage` is attendance cover by class and day, not cover for a period, and a plain teacher cannot read others' leave |
-| The "Live classes" panel on the teacher Timetable | calls and live classes are not in the API |
-| A course's department | a course is a code, a title and credit hours |
-| A section's instructor, room, capacity and weekly schedule | a section is a course in a term with a label |
-| Dropping a student from a section | an enrolment can be made; nothing ends it (the status `withdrawn` exists, with no endpoint) |
-| **`teacher/sections` ("My sections")** | no instructor on a section, so a lecturer's sections cannot be found. The page is not on the API build |
-
-`/timetable-publications` (a versioned snapshot of a class's timetable that is published) has no Supabase counterpart and nothing
-on the web reads it, so it is not used.
-
-### API findings (numbered 38 to 44 so that no other slice shares a number)
-
-38. **A plain teacher cannot learn their own staff id.** Class teachers, teaching assignments and timetable slots name staff ids, a
-    teacher cannot read the staff list, and `/auth/me` has no staff id. Fixed in API PR #363 with `GET /staff/me`.
-39. **A plain teacher cannot read the subject list**, so a timetable slot or a teaching assignment (subject ids) cannot be named, and
-    "My classes" cannot list subjects. Fixed in API PR #363: `GET /subjects` is scoped like the class list (OD-2) to the subjects of
-    the active teaching assignments and timetable slots of the classes they teach.
-40. **Colleagues' names:** the class teacher's whole-class timetable would name each period's teacher, which needs the staff list.
-    A plain teacher sees no name. A staff name inside the teaching-assignment record, or a scoped staff read, would fix it.
-41. **A timetable slot cannot be changed or removed**, and a slot needs a subject (no "Break", "Games", "Assembly").
-42. **A higher-education section has no instructor, room, capacity or schedule**, and an enrolment cannot be ended. So a lecturer's
-    "My sections" cannot be built on the API, and the admin cannot name an instructor.
-43. **The OpenAPI file does not declare** `sectionId` on `GET /he-enrolments` or `courseId` on `GET /he-sections`, although the routes
-    honour them. The typed client cannot send them, so a section's roster lists every enrolment of the school and picks the section
-    out. Declaring them would make it one small call.
-44. **Per-period cover for approved leave** (the Supabase "Needs cover" list) has no API counterpart: `/attendance-coverage` assigns
-    who may take a class's register on a day.
-
-## Content-Security-Policy
-
-`apps/web/vercel.json` sends a `Content-Security-Policy` header on every page (`/(.*)`). This is the first CSP the site has
-had, and it is enforced. `connect-src` allows `https://sms-api.figbloom.org` alongside Supabase (`https://*.supabase.co`,
-`wss://*.supabase.co`), LiveKit (`https://*.livekit.cloud`, `wss://*.livekit.cloud`) and the Google origins, so both the
-API build and the Supabase build keep working.
-
-- **Google Maps and Drive** (bus map, home pin picker, Drive attachments): scripts, images and connections are allowed from
-  `*.googleapis.com`, `*.gstatic.com` and `*.google.com`, as Google's own CSP guide says. A narrower list breaks the map,
-  because the Maps script loads more files from `maps.gstatic.com`.
-- **No inline scripts** (`script-src` has no `'unsafe-inline'` and no `'unsafe-eval'`). Inline styles are allowed because the
-  UI uses style attributes.
-- **Not known from the repo:** the production Supabase address. `https://*.supabase.co` only matches a hosted project. If
-  production uses a custom domain, add it to `connect-src`, `img-src`, `media-src` and `frame-src` before merging.
-- **Still to add** when presigned storage uploads are wired up: the S3 (or CDN) origin in `connect-src`, `img-src` and
-  `media-src`.
-- **Checked:** the policy parses and the header tests pass. **Not checked:** a signed-in browser pass with the header on
-  (maps, Drive, calls, videos). Open the Vercel preview of the PR and watch the console for "Refused to ..." messages before
-  merging.
-
