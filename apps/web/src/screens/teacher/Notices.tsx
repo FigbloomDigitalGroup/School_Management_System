@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchTeacherNotices, markNoticeRead, subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
+import { announcementsCapabilities, fetchTeacherNotices, markNoticeRead, onApi, subscribeAnnouncements, type NoticeInfo } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { OwnerAttachments } from "../../components/Media";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -19,6 +19,8 @@ const NOTICE_POLL_MS = 20_000;
  * poll as a fallback — a reminder sent while this screen is already open
  * just appears, no navigating away and back, no page refresh.
  * Other staff use the same screen with their own list (fetchStaffNotices).
+ * On the API there is no realtime and no read state: subscribeAnnouncements polls the inbox (and pauses when the tab is
+ * hidden or idle), so this screen runs no timer of its own there, and no notice shows as unread.
  */
 export function TeacherNotices({ load: fetchNotices = fetchTeacherNotices }: { load?: (profileId: string) => Promise<NoticeInfo[]> } = {}) {
   const { profile, tenant } = useTenantSession();
@@ -29,6 +31,9 @@ export function TeacherNotices({ load: fetchNotices = fetchTeacherNotices }: { l
   // Only the very first load is allowed to surface an error screen — once
   // something's on screen, a later poll hiccup shouldn't blank it out.
   const loadedOnce = useRef(false);
+  const caps = announcementsCapabilities();
+  // On the API each notice is told to the server once, the first time it is opened.
+  const toldOnApi = useRef(new Set<string>());
 
   useEffect(() => {
     let alive = true;
@@ -43,13 +48,17 @@ export function TeacherNotices({ load: fetchNotices = fetchTeacherNotices }: { l
         .catch((err: Error) => { if (alive && !loadedOnce.current) setError(err); });
     };
     load();
-    const id = window.setInterval(load, NOTICE_POLL_MS);
+    const id = onApi() ? null : window.setInterval(load, NOTICE_POLL_MS);
     const unsubscribe = subscribeAnnouncements(tenant.id, load);
-    return () => { alive = false; window.clearInterval(id); unsubscribe(); };
+    return () => { alive = false; if (id !== null) window.clearInterval(id); unsubscribe(); };
   }, [profile.id, tenant.id, fetchNotices]);
 
   function open(id: string) {
     setSelectedId(id);
+    if (onApi() && !toldOnApi.current.has(id)) {
+      toldOnApi.current.add(id);
+      void markNoticeRead(profile.id, id).catch(() => {});
+    }
     setNotices((ns) => {
       if (!ns) return ns;
       const target = ns.find((n) => n.id === id);
@@ -87,7 +96,7 @@ export function TeacherNotices({ load: fetchNotices = fetchTeacherNotices }: { l
   return (
     <>
       <PageHead eyebrow="Notices" title="Notices" blurb={notices.length ? `${notices.length} notice${notices.length === 1 ? "" : "s"}.` : undefined} />
-      <div className="px-7 pt-6 empty:hidden"><PendingSignatures compact /></div>
+      {caps.signatures && <div className="px-7 pt-6 empty:hidden"><PendingSignatures compact /></div>}
 
       {notices.length === 0 ? (
         <div className="px-7 py-6">
@@ -125,7 +134,7 @@ export function TeacherNotices({ load: fetchNotices = fetchTeacherNotices }: { l
                 <h2 className="text-[18px] font-semibold leading-snug tracking-tight">{selected.subject}</h2>
                 <div className="mt-1.5 text-[12.5px] text-ink-faint">{selected.from} · {selected.when}</div>
                 <p className="mt-4 max-w-[620px] whitespace-pre-line text-[14px] leading-relaxed">{selected.body}</p>
-                <div className="mt-5 max-w-[620px]"><OwnerAttachments owner="announcement" id={selected.id} /></div>
+                {caps.attachments && <div className="mt-5 max-w-[620px]"><OwnerAttachments owner="announcement" id={selected.id} /></div>}
               </>
             ) : (
               <EmptyState title="No notice selected" body="Choose a notice from the list on the left." />

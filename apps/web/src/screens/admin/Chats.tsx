@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { callDuration, callOutcome, chatRoleWord, fetchActiveLearnerOptions, fetchSchoolCallLog, fetchSchoolConversations, filterCallsByName, filterSchoolConversations, schoolChatTitle, type Call, type SchoolConversation } from "@figbloom/shared";
+import { callDuration, callOutcome, chatCapabilities, chatRoleWord, fetchActiveLearnerOptions, fetchSchoolCallLog, fetchSchoolConversations, filterCallsByName, filterSchoolConversations, schoolChatTitle, type Call, type SchoolConversation } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { ChatThread } from "../../components/chat/ChatThread";
 import { ChatWorkspace } from "../../components/chat/ChatWorkspace";
@@ -20,18 +20,24 @@ const TAB_LABEL: Record<Tab, string> = { mine: "My chats", school: "All school c
  */
 export function AdminChats() {
   const { actingForTenant } = useTenantSession();
+  const caps = chatCapabilities();
   // An org admin acting for the school isn't in the school's chats, only overseeing them.
-  const [tab, setTab] = useState<Tab>(actingForTenant ? "school" : "mine");
+  // On the API there is no oversight read and no call log (chatCapabilities), so "My chats" is all there is.
+  const tabs = (actingForTenant ? (["school", "calls"] as Tab[]) : (["mine", "school", "calls"] as Tab[]))
+    .filter((t) => (t === "school" ? caps.oversight : t === "calls" ? caps.calls : true));
+  const [tab, setTab] = useState<Tab>(tabs[0] ?? "mine");
 
   return (
     <div className="flex h-full flex-col">
       <PageHead
         eyebrow="Chats"
         title="Chats"
-        blurb="Your chats with parents and staff, every chat in the school, which you can read but not join, and who called whom."
-        actions={
+        blurb={caps.oversight
+          ? "Your chats with parents and staff, every chat in the school, which you can read but not join, and who called whom."
+          : "Your chats with staff at the school."}
+        actions={tabs.length > 1 && (
           <div role="tablist" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
-            {(actingForTenant ? (["school", "calls"] as Tab[]) : (["mine", "school", "calls"] as Tab[])).map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t}
                 type="button"
@@ -44,7 +50,7 @@ export function AdminChats() {
               </button>
             ))}
           </div>
-        }
+        )}
       />
       {tab === "mine" ? <ChatWorkspace emptyBody="Start a chat with any parent or member of staff at the school." />
         : tab === "school" ? <SchoolChats /> : <SchoolCalls />}

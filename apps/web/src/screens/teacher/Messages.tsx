@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  deleteAnnouncement, fetchSentByMe, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, sendClassMessage,
+  announcementsCapabilities, canMessageClasses, deleteAnnouncement, fetchSentByMe, onApi, fetchTeacherClasses, publishAnnouncement, removeAttachmentFilesFor, requireAttachmentSignatures, sendClassMessage,
   type ClassMessageRecipients,
 } from "@figbloom/shared";
 import { AiWriteHelper } from "../../components/AiWriteHelper";
@@ -29,7 +29,9 @@ function recipientsLabel(r?: ClassMessageRecipients): string {
  */
 export function TeacherMessages() {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas } = useTenantSession();
+  const caps = announcementsCapabilities();
+  const maySend = canMessageClasses(adminAreas);
   const [reloadKey, setReloadKey] = useState(0);
 
   const { data: classes, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
@@ -63,7 +65,7 @@ export function TeacherMessages() {
         batch.current = saveAttachments(tenant.id, "announcement", id, drafts, setProgress);
         await batch.current.done;
         // before it goes out: sending is what asks the families to sign
-        if (needsSignature) await requireAttachmentSignatures(id);
+        if (caps.signatures && needsSignature) await requireAttachmentSignatures(id);
         await publishAnnouncement(id);
         pendingId = null;
       }
@@ -100,7 +102,12 @@ export function TeacherMessages() {
 
       <div className="grid gap-5 px-7 py-6" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
         <div className="grid content-start gap-3.5 rounded-lg border border-line bg-white p-4">
-          {classesLoading ? (
+          {!maySend ? (
+            <EmptyState
+              title="Teachers can't send messages here yet."
+              body="On the new system only the school office, or a teacher given the Communication area, can send notices. Ask the office to send yours."
+            />
+          ) : classesLoading ? (
             <TableSkeleton rows={3} />
           ) : !classes || classes.length === 0 ? (
             <EmptyState title="No classes yet." body="You need a class assigned before you can message its parents or students." />
@@ -127,23 +134,30 @@ export function TeacherMessages() {
                 ]}
               />
 
-              <AiWriteHelper
-                audience={`${recipientsLabel(recipients)} of ${classById.get(effectiveClassId)?.name ?? "the class"}`}
-                schoolName={tenant.name}
-                subject={subject}
-                body={body}
-                disabled={sending}
-                onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
-              />
+              {caps.aiHelper && (
+                <AiWriteHelper
+                  audience={`${recipientsLabel(recipients)} of ${classById.get(effectiveClassId)?.name ?? "the class"}`}
+                  schoolName={tenant.name}
+                  subject={subject}
+                  body={body}
+                  disabled={sending}
+                  onUse={(d) => { setSubject(d.subject); setBody(d.body); }}
+                />
+              )}
               <TextField id="subject" label="Subject" placeholder="e.g. CAT results out Friday"
                 value={subject} onChange={(e) => setSubject(e.target.value)} />
 
               <TextArea id="body" label="Message" value={body} onChange={(e) => setBody(e.target.value)}
                 placeholder="Plain language, one instruction per paragraph."
                 hint={`This goes to this class's ${recipientsLabel(recipients)}, in-app only.`} />
+              {onApi() && (
+                <p className="-mt-1.5 text-[11.5px] leading-snug text-ink-faint">
+                  Parents and students see class messages once their accounts are linked to the new system. Until then only the teachers of the class do.
+                </p>
+              )}
 
-              <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />
-              {drafts.some((d) => d.type === "file") && <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />}
+              {caps.attachments && <AttachmentPicker drafts={drafts} onChange={setDrafts} progress={progress} onCancel={() => batch.current?.cancel()} disabled={sending} />}
+              {caps.attachments && caps.signatures && drafts.some((d) => d.type === "file") && <NeedsSignatureToggle checked={needsSignature} onChange={setNeedsSignature} disabled={sending} />}
 
               <Button variant="accent" disabled={!subject.trim() || !body.trim() || sending} onClick={() => void send()}>
                 {sending ? "Sending…" : "Send"}
@@ -175,7 +189,7 @@ export function TeacherMessages() {
                       </span>
                     </div>
                     <div className="mt-0.5 text-[11.5px] text-ink-faint">To {who} of {className}</div>
-                    <MessageSignatureStatus announcementId={a.id} />
+                    {caps.signatures && <MessageSignatureStatus announcementId={a.id} />}
                   </div>
                 );
               })
