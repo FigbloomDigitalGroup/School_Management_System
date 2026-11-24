@@ -6,6 +6,7 @@ import { requirePermission } from "../../modules/rbac/authorize.js";
 import {
   archiveStaffMember,
   createStaffMember,
+  getOwnStaffMember,
   getStaffMemberById,
   listStaffMembersPage,
   restoreStaffMember,
@@ -19,7 +20,7 @@ import {
 import { parseSearchTerm } from "../../modules/directory/search.js";
 import { assertSameTenant } from "../../modules/tenancy/context.js";
 import { clientIp } from "../clientIp.js";
-import { AppError, forbidden, validationError } from "../errors.js";
+import { AppError, forbidden, notFound, validationError } from "../errors.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { withTenantRequest } from "../tenantRequest.js";
 import { parseOrThrow } from "../validation.js";
@@ -143,6 +144,20 @@ export async function registerStaffRoutes(app: FastifyInstance, pool: AppPool): 
         staff: page.items.map(({ _sort_name: _, ...member }) => member),
         page: page.page,
       };
+    });
+  });
+
+  // The caller's own staff record. Any member of the school may read their OWN row (no directory permission): the teaching
+  // records (class teacher, teaching assignments, timetable) name staff ids, and a teacher who cannot read the staff list could
+  // otherwise never tell which of them is theirs. Declared before ":staffId": the literal segment wins either way.
+  app.get("/v1/tenants/:tenantId/staff/me", async (request) => {
+    const params = request.params as { tenantId: string };
+    if (!UuidParam.safeParse(params.tenantId).success) throw validationError("tenantId must be a UUID");
+    return withTenantRequest(pool, app.appConfig, request, async ({ tx, auth }) => {
+      assertSameTenant(auth.authz.tenantId, params.tenantId);
+      const staff = await getOwnStaffMember(tx, { tenantId: params.tenantId, userId: auth.user.id });
+      if (!staff) throw notFound("No staff record is linked to this account in this school");
+      return { staff };
     });
   });
 

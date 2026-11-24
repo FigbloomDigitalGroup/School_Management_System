@@ -40,6 +40,8 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "trips_terminal_guard()": { secdef: false, grantees: [], why: "trigger; a completed or cancelled trip is final and its route is frozen once boarding events exist" },
   "trip_events_guard()": { secdef: false, grantees: [], why: "trigger; learner on route, boarded-before-dropped-off, exclusive no-show, stop on route, trip active" },
   "transport_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: resolves only the calling guardian account's linked, active learners in the current tenant" },
+  // Migration 099: family reads (docs/FAMILY-READS.md)
+  "family_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: the calling account's children in the current school (live link, active account, parent membership, active guardian record, live relationship, active learner); no argument, so no other account can be asked about" },
   "transport_fanout_notifications(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "tenant-bound fan-out of a trip event to linked guardian accounts (deduplicated); guardian_accounts is owner-only" },
   "worker_prune_vehicle_locations(integer)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded privacy retention cleanup for expired GPS locations" },
   "auth_mfa_state(uuid,uuid,text[])": { secdef: true, grantees: ["figbloom_app"], why: "identity-level MFA decision (required / assured / enrolled) for one session; the one enforcement query" },
@@ -501,6 +503,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "platform_provision_school(uuid,text,text,text,text,text,text,timestamp with time zone)",
   "transport_fanout_notifications(uuid)",
   "transport_my_children()",
+  "family_my_children()",
   "auth_credential_by_email(text)",
   "auth_credential_by_login_id(uuid,text)",
   "auth_password_credential(uuid)",

@@ -48,6 +48,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Leave** (`admin/leave` and `teacher/leave`): teachers submit leave requests (dates and reason), view their history, and
   withdraw pending requests; school admins and Leave-area holders review pending requests, approve or reject them with a note
   (sending an in-app notice to the teacher), and view past requests.
+- **Inventory** (`admin/inventory`): view the register of active items with out/available counts, add stock or tracked-asset
+  items, issue copies to learners, user-linked staff, or a whole class, view Out now and Overdue issues, record returns
+  (returned, damaged, or lost), write off items with nothing out, and export CSV.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -109,6 +112,26 @@ How the model is mapped (`packages/shared/src/api/leaveApi.ts`):
 - `decideLeaveRequest` posts the review and then creates and publishes an in-app `user`-audience announcement; if only the
   announcement fails (for example, a Leave-only reviewer without `resource.announcement.write`), the decision stands and the
   screen shows the notice error.
+### Inventory screen: what the API cannot do yet
+
+`inventoryCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet:
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Edit an inventory item | no `PATCH /v1/tenants/{tenantId}/inventory/items/{itemId}` endpoint |
+| Restore a written-off item ("Put back on the register") | no unretire endpoint, and `GET /inventory/items` returns active items only |
+| Purchase date, unit cost, and item notes | not stored on the API's `InventoryItem` schema |
+| History tab and Lost counter | `GET /inventory/issues` returns open (`status = 'out'`) issues only |
+| Hand-out note when issuing an item | `POST /inventory/issues` has no `note` field (`POST .../close` does) |
+| Charge lost or damaged items to fees | waits on closed-issue history and charge-by-issue lookup |
+| Teacher's "My items" (`teacher/items`) | `GET /inventory/issues` requires `resource.inventory.read`, which regular teachers do not hold |
+
+How the model is mapped (`packages/shared/src/api/inventoryApi.ts`):
+
+- `POST /inventory/issues` requires `holder_user_id` to be an active school membership `user_id`, so the staff picker lists
+  only staff directory records linked to a user account.
+- Issuing to a whole class verifies that enough copies are on the shelf for every active learner in the class who does not
+  already hold one, then sends individual `POST /inventory/issues` calls 4 at a time (`settlePool`).
 
 Where the model differs it is mapped in `packages/shared/src/api/setupApi.ts`: a class belongs to an academic year (the screen
 shows the current year's classes, and a class needs a current year, which "Start a term" makes); a teacher is a staff record,
@@ -160,6 +183,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
 - `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
 - `packages/shared/src/api/leaveApi.ts`: the API side of `leave.ts` (`admin/leave` and `teacher/leave`), plus the API short-circuit in `hrLeave.ts`.
+- `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
@@ -225,6 +249,36 @@ inside the same 30 seconds needs the next code.
     requester's name. The web resolves names from `GET /v1/tenants/{tenantId}/staff`, which fails with 403 for a teacher holding
     only the Leave area (not People) and misses any user without a linked staff record (falling back to `"Unknown teacher"`).
     Including `staff_name` on `LeaveRequest` would remove the extra call and fix Leave-only reviewers.
+13. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
+    only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
+    issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.
+
+## Family reads (API side of A1, FIG-1869)
+
+The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). No parent
+or student page is ported yet: the web slices come after this merges.
+
+- `GET /v1/tenants/{t}/me/children`: the parent's own children in that school, with each child's current class.
+- Per child, `GET /v1/tenants/{t}/me/children/{learnerId}/…`: `attendance`, `results`, `report-cards`, `homework`,
+  `materials`, `timetable`, `fees`, `activities`, `items`, `health`. Any learner who is not the caller's child is a 404.
+- `GET /v1/tenants/{t}/me/chat-contacts`: who a parent may start a chat with.
+- Bus: the existing `/me/transport`.
+- Paying (M-Pesa prompt, invoice PDF, payment proof, AI-helper opt-in) now works for a parent whose account link reaches
+  the learner. Class and form-level notices now reach the parents of children in them, and a parent may chat with their
+  child's teachers.
+- All of them need permission `resource.family.read`, which only parents hold.
+
+Things found while doing it:
+
+14. **Learners have no sign-in on the API** (A4). There is no link from an account to a learner record and no flow that
+    makes a `student` membership. It needs owner decisions first (who makes the login, how a child without e-mail gets
+    a password, session length, MFA, chat); see "Student accounts" in `apps/api/docs/FAMILY-READS.md`. The student
+    pages stay on Supabase until then.
+15. **Sick-bay notices to guardians are never written.** `medical_notices` exists and parents could read it, but the
+    sick-bay module still reports `guardian_notices_available: false` and emits none. The family health read shows the
+    visits instead.
+16. **Push for class and form-level announcements counts nobody.** The worker's eligibility count covers only
+    whole-school, role, user and people audiences (migration 063), for staff and parents alike.
 
 ## Grades: exams, the gradebook, performance and reports
 
@@ -265,7 +319,7 @@ the terms or the subjects (`resource.academics.read`) or the learners' names (`r
 term, no subject names and no learners to show. The page says: "The new system does not let you read this school's terms,
 subjects and learners with the access you have, so the Gradebook cannot open for you yet. Ask the school office to give you the
 Academics and People areas." Performance gives a sentence of the same kind. This is the gap that also stops the teacher's
-Attendance page for a plain teacher (finding 13).
+Attendance page for a plain teacher (finding 23).
 
 ### What the API cannot do yet (hidden on the API build)
 
@@ -290,30 +344,30 @@ Attendance page for a plain teacher (finding 13).
   whole-school counts with nothing by class. So attendance comes from `/attendance-counted` (every entry of the term, 200 to a
   page, counted by class), fees from the term's invoices joined to each active learner's class, and the class means from the
   marks of the latest exam to go out. A class mean uses published papers only (Supabase's counted any entered mark, FIG-1441).
-  A big school waits longer than it did on Supabase (finding 15).
+  A big school waits longer than it did on Supabase (finding 25).
 
 ### Things found in the API while doing this
 
-(Numbered after the leave slice's 12; another slice may add numbers too.)
+(Numbered so that no other slice shares a number: this slice's findings are 23 to 28.)
 
-13. **A plain teacher cannot read what the teacher pages need.** They read classes, memberships, teaching assignments, assessments
+23. **A plain teacher cannot read what the teacher pages need.** They read classes, memberships, teaching assignments, assessments
     and marks (OD-2 scoped), but `/academic-terms`, `/subjects`, `/learners` and `/staff` answer 403, so they have no term, no
     subject names, no learner names and cannot tell which subjects are theirs. The Gradebook, Performance and the teacher's
     Attendance page cannot work for them. A teacher read of the current term, of the subjects they teach, and of the names of
     the learners in classes they teach (on `/class-memberships`, say) would fix all three.
-14. **A teacher cannot publish their own marks.** Mark writes are open to the assigned teacher; `publish` and `close` need
+24. **A teacher cannot publish their own marks.** Mark writes are open to the assigned teacher; `publish` and `close` need
     `resource.academics.write`. Supabase let each teacher publish their own class and subject. If that is wanted, `publish`
     could accept the assigned teacher, as the mark write does. Publication is also final (no withdraw), and a mark cannot be
     deleted or saved as "absent" (`score` is required).
-15. **No per-class term figures.** Reports needs attendance, fees and marks by class for a term. Supabase did this in
+25. **No per-class term figures.** Reports needs attendance, fees and marks by class for a term. Supabase did this in
     `term_class_figures`. On the API the web reads every attendance entry of the term (`/attendance-counted`, 200 a page): a
     school of 500 learners over a 60-day term is about 150 requests, one of 1,500 about 450. A `GET /reports/term-class-figures`
     (attendance here and total, billed and paid, and a mark mean for an exam, per class) would be one request. Also,
     `/attendance-counted` accepts `classId` in the route and the description, but the OpenAPI file does not list the parameter.
-16. **An exam is not a record.** An exam is a title shared by the per-class assessments, so it has no rename, no delete, no
+26. **An exam is not a record.** An exam is a title shared by the per-class assessments, so it has no rename, no delete, no
     mark count, and making one takes one request for each class and subject. A term-level exam record (name, total) that the
     assessments point to would give all of these, and let the web publish a whole exam in one call.
-17. **A subject has no learning area**, so a CBE assessment (`learning_area_id`) cannot be chosen from the subject a teacher
+27. **A subject has no learning area**, so a CBE assessment (`learning_area_id`) cannot be chosen from the subject a teacher
     teaches, and the strands of a subject cannot be found. CBE results can be written only by Academics writers.
-18. **Higher education marks.** The API has one grade per enrolment and no section assessments with marks, so the course
+28. **Higher education marks.** The API has one grade per enrolment and no section assessments with marks, so the course
     gradebook (`GpaGradebook`) has nothing to run on.

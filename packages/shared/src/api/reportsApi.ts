@@ -16,7 +16,7 @@ import { classGroupFromApi } from "./setupApi";
  * Supabase added the term up in the database (`term_class_figures`). The API's reports are whole-school counts (`/reports/overview`,
  * `/reports/finance-summary`, `/reports/academics-summary`), with nothing by class, so the figures are worked out here from the term's
  * own rows: `/attendance-counted` for attendance, the term's invoices for fees, and the marks of the latest published exam. Each is
- * read a page of 200 at a time, so a big school waits longer than it did on Supabase (finding 12 in docs/WEB_ON_THE_NEW_API.md).
+ * read a page of 200 at a time, so a big school waits longer than it did on Supabase (finding 25 in docs/WEB_ON_THE_NEW_API.md).
  *
  * Differences from Supabase worth knowing:
  *  - Attendance counts the school's own way (`/attendance-counted` follows the attendance setting: one entry per register entry, or
