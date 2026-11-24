@@ -18,6 +18,9 @@ import { ApiParentConsole } from "./ApiParent";
 const People = lazy(() => import("../screens/admin/People").then((m) => ({ default: m.People })));
 const AdminLeave = lazy(() => import("../screens/admin/Leave").then((m) => ({ default: m.AdminLeave })));
 const TeacherLeave = lazy(() => import("../screens/teacher/Leave").then((m) => ({ default: m.TeacherLeave })));
+const AdminCourses = lazy(() => import("../screens/admin/Courses").then((m) => ({ default: m.AdminCourses })));
+const TeacherTimetable = lazy(() => import("../screens/teacher/Timetable").then((m) => ({ default: m.TeacherTimetable })));
+const TeacherClasses = lazy(() => import("../screens/teacher/Classes").then((m) => ({ default: m.TeacherClasses })));
 const AdminInventory = lazy(() => import("../screens/admin/Inventory").then((m) => ({ default: m.AdminInventory })));
 const AccessRoles = lazy(() => import("../screens/admin/AccessRoles").then((m) => ({ default: m.AccessRoles })));
 const AdminAccount = lazy(() => import("../screens/admin/Account").then((m) => ({ default: m.AdminAccount })));
@@ -46,11 +49,11 @@ const pageFallback = (
  */
 export const API_ADMIN_PAGES = [
   "admin", "admin/people", "admin/fees", "admin/settings", "admin/classes", "admin/subjects", "admin/announcements", "admin/inventory", "admin/leave",
-  "admin/access", "admin/account", "admin/chats", "admin/exams", "admin/performance", "admin/reports",
+  "admin/access", "admin/account", "admin/chats", "admin/exams", "admin/performance", "admin/reports", "admin/courses",
 ] as const;
 
 /** Teacher pages available on the API build (FIG-1891). */
-export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/chats", "teacher/notices", "teacher/messages", "teacher/gradebook", "teacher/performance"] as const;
+export const API_TEACHER_PAGES = ["teacher", "teacher/attendance", "teacher/leave", "teacher/account", "teacher/chats", "teacher/notices", "teacher/messages", "teacher/gradebook", "teacher/performance", "teacher/timetable", "teacher/classes"] as const;
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
@@ -97,6 +100,8 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
           <Route path="teacher" element={tPage(<ApiOverview session={session} onSignOut={onSignOut} inShell />)} />
           <Route path="teacher/attendance" element={tPage(<TeacherAttendance />)} />
           <Route path="teacher/leave" element={tPage(<Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+          <Route path="teacher/timetable" element={tPage(<Suspense fallback={pageFallback}><TeacherTimetable /></Suspense>)} />
+          <Route path="teacher/classes" element={tPage(<Suspense fallback={pageFallback}><TeacherClasses /></Suspense>)} />
           <Route path="teacher/account" element={tPage(<Suspense fallback={pageFallback}><TeacherAccount /></Suspense>)} />
           <Route path="teacher/chats" element={tPage(<Suspense fallback={pageFallback}><MyChats role="teacher" /></Suspense>)} />
           <Route path="teacher/notices" element={tPage(<Suspense fallback={pageFallback}><TeacherNotices /></Suspense>)} />
@@ -122,6 +127,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/subjects" element={page("admin/subjects", <AdminSubjects />)} />
       <Route path="admin/announcements" element={page("admin/announcements", <Announcements />)} />
       <Route path="admin/leave" element={page("admin/leave", <Suspense fallback={pageFallback}><AdminLeave /></Suspense>)} />
+      <Route path="admin/courses" element={page("admin/courses", <Suspense fallback={pageFallback}><AdminCourses /></Suspense>)} />
       <Route path="admin/inventory" element={page("admin/inventory", <Suspense fallback={pageFallback}><AdminInventory /></Suspense>)} />
       <Route path="admin/access" element={page("admin/access", <Suspense fallback={pageFallback}><AccessRoles /></Suspense>)} />
       <Route path="admin/account" element={page("admin/account", <Suspense fallback={pageFallback}><AdminAccount /></Suspense>)} />
@@ -132,6 +138,8 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       <Route path="admin/bank-reconciliation" element={page("admin/fees", <BankReconciliation />)} />
       <Route path="teacher/attendance" element={page("admin", <TeacherAttendance />)} />
       <Route path="teacher/leave" element={page("admin", <Suspense fallback={pageFallback}><TeacherLeave /></Suspense>)} />
+      <Route path="teacher/timetable" element={page("admin", <Suspense fallback={pageFallback}><TeacherTimetable /></Suspense>)} />
+      <Route path="teacher/classes" element={page("admin", <Suspense fallback={pageFallback}><TeacherClasses /></Suspense>)} />
       <Route path="teacher/reports" element={page("admin", <TeacherReports />)} />
       {/* A teacher who holds admin areas lands here and has no console switch on the API build yet: their teacher chats, notices and
           messages are reachable by address only, as teacher/leave is. */}

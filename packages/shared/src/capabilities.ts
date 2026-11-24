@@ -67,8 +67,12 @@ export interface PeopleCapabilities {
   deleteLearner: boolean;
   /** Learners' sign-in accounts: the Login column, "Create logins", a learner's password reset. */
   learnerLogins: boolean;
-  /** "Invite guardians" from the selected learners (parents' sign-in accounts). */
+  /** "Invite guardians" from the selected learners (parents' sign-in accounts, made with a login ID and password). */
   inviteGuardians: boolean;
+  /** API only: invite a guardian record to sign in (one invitation per guardian and learner, by e-mail or SMS), send it again, cancel it. */
+  guardianInvitations: boolean;
+  /** API only: invite a staff member to sign in by e-mail, and issue a one-time password-reset link for a staff member who has a sign-in. */
+  staffSignIn: boolean;
   /** The Guardian column (a placeholder on Supabase; guardians are read from a learner's own card on the API). */
   guardianColumn: boolean;
   /** Each learner's fee status. */
@@ -109,14 +113,14 @@ export interface PeopleCapabilities {
 }
 
 const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
-  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
+  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
   learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true,
   photos: true, passwordResets: true, staffAccounts: true, staffSubjects: true, staffCalls: true, staffArchive: false, guardianContactForm: false,
   importByAreaHolders: true, learnerWithoutClass: false, unassignClass: true,
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
-  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
+  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
   learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
@@ -216,6 +220,52 @@ const LEAVE_ON_API: LeaveCapabilities = { hrLeave: false, optionalReason: false 
 
 export function leaveCapabilities(): LeaveCapabilities {
   return onApi() ? LEAVE_ON_API : LEAVE_ON_SUPABASE;
+}
+
+/** The timetable screens: teacher/timetable, and the Timetable window of a class on admin/classes. */
+export interface TimetableCapabilities {
+  /** The week-grid editor that saves a class's whole timetable at once (the API can only add a period). */
+  classTimetableEditor: boolean;
+  /** API only: a class's periods listed, with an "Add a period" form. */
+  classPeriods: boolean;
+  /** The "Live classes" panel on a teacher's timetable (calls are not in the API). */
+  liveClasses: boolean;
+  /** "Needs cover" and "Covered by" on a teacher's timetable: leave worked out against the week (the API's attendance cover is by class and day, not by period). */
+  coverageFlags: boolean;
+}
+
+const TIMETABLE_ON_SUPABASE: TimetableCapabilities = { classTimetableEditor: true, classPeriods: false, liveClasses: true, coverageFlags: true };
+const TIMETABLE_ON_API: TimetableCapabilities = { classTimetableEditor: false, classPeriods: true, liveClasses: false, coverageFlags: false };
+
+export function timetableCapabilities(): TimetableCapabilities {
+  return onApi() ? TIMETABLE_ON_API : TIMETABLE_ON_SUPABASE;
+}
+
+/** The higher-education screens: admin/courses and teacher/sections. */
+export interface CoursesCapabilities {
+  /** A course's department (the API's course is a code, a title and credit hours). */
+  courseDepartment: boolean;
+  /** Naming a section's instructor (a section has none in the API). */
+  sectionInstructor: boolean;
+  /** A section's room and capacity. */
+  sectionRoomAndCapacity: boolean;
+  /** A section's weekly schedule. */
+  sectionSchedule: boolean;
+  /** Dropping a student from a section (an enrolment can be made, not ended). */
+  dropEnrolment: boolean;
+  /** "My sections" for a lecturer: needs the instructor of a section. */
+  mySections: boolean;
+}
+
+const COURSES_ON_SUPABASE: CoursesCapabilities = {
+  courseDepartment: true, sectionInstructor: true, sectionRoomAndCapacity: true, sectionSchedule: true, dropEnrolment: true, mySections: true,
+};
+const COURSES_ON_API: CoursesCapabilities = {
+  courseDepartment: false, sectionInstructor: false, sectionRoomAndCapacity: false, sectionSchedule: false, dropEnrolment: false, mySections: false,
+};
+
+export function coursesCapabilities(): CoursesCapabilities {
+  return onApi() ? COURSES_ON_API : COURSES_ON_SUPABASE;
 }
 
 /** The admin Inventory screen (admin/inventory). */

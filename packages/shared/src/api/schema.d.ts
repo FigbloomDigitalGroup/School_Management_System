@@ -1175,7 +1175,7 @@ export interface paths {
         };
         /**
          * List subjects
-         * @description By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         * @description By name. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). OD-2 read scope: a caller without `resource.academics.read` who teaches (active teaching assignment or class teacher) reads only the subjects of the active teaching assignments and active timetable slots of their classes; a caller who teaches nothing gets 403.
          */
         get: operations["listSubjects"];
         put?: never;
