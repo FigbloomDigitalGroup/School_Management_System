@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import {
   chargeLearner, fetchIssueCharges, suggestedCharge, voidFeeCharge, type FeeCharge,
   closeInventoryIssue, daysOverdue, endOfSchoolYear, fetchInventory, fetchInventoryIssues, fetchInventoryPeople, formatMoney,
-  formatShortDate, INVENTORY_CATEGORY_LABEL, isOverdue, ISSUE_STATUS_LABEL, issueInventoryItem, issueInventoryToClass,
+  formatQty, formatShortDate, INVENTORY_CATEGORY_LABEL, isOverdue, ISSUE_STATUS_LABEL, issueInventoryItem, issueInventoryToClass,
   issueMatches, issuesCsv, ITEM_CONDITION_LABEL, registerCsv, saveInventoryItem, setItemRetired, sortIssues, summariseInventory,
   type InventoryCategory, type InventoryIssueRow, type InventoryItemInput, type InventoryItemRow, type InventoryPeople,
-  type IssueStatus, type ItemCondition,
+  type IssueStatus, type ItemCondition, UNIT_SUGGESTIONS,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge, type Tone } from "../../components/ui/Badge";
@@ -18,10 +18,12 @@ import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { MovementList, MovementModal, StockLevelCell, StockView, type MoveAction } from "./InventoryStock";
 
-type Tab = "register" | "out" | "overdue" | "history";
+type Tab = "register" | "stock" | "out" | "overdue" | "history";
 const TABS: { key: Tab; label: string }[] = [
   { key: "register", label: "Register" },
+  { key: "stock", label: "Stock & kitchen" },
   { key: "out", label: "Out now" },
   { key: "overdue", label: "Overdue" },
   { key: "history", label: "History" },
@@ -70,6 +72,7 @@ export function AdminInventory() {
   const [issuing, setIssuing] = useState<InventoryItemRow | null>(null);
   const [returning, setReturning] = useState<InventoryIssueRow | null>(null);
   const [viewing, setViewing] = useState<InventoryItemRow | null>(null);
+  const [moving, setMoving] = useState<{ item: InventoryItemRow; action: MoveAction } | null>(null);
 
   const summary = items && issues ? summariseInventory(items, issues) : null;
   const q = query.trim().toLowerCase();
@@ -90,7 +93,7 @@ export function AdminInventory() {
   const error = itemsError ?? issuesError;
 
   function exportCsv() {
-    if (tab === "register") downloadCsv(registerCsv(registerRows), "inventory-register.csv");
+    if (tab === "register" || tab === "stock") downloadCsv(registerCsv(registerRows), "inventory-register.csv");
     else downloadCsv(issuesCsv(issueRows), `inventory-${tab}.csv`);
   }
 
@@ -107,7 +110,7 @@ export function AdminInventory() {
       <PageHead
         eyebrow="School"
         title="Inventory"
-        blurb="What the school owns and who has it. Issue textbooks, equipment and uniforms to learners or staff and track what comes back."
+        blurb="What the school owns and who has it. Issue textbooks, equipment and uniforms to learners or staff and track what comes back; receive and use up kitchen food and other consumables."
         actions={
           <div className="flex gap-2">
             <Button onClick={exportCsv} disabled={loading}>Export CSV</Button>
@@ -133,11 +136,13 @@ export function AdminInventory() {
               </button>
             ))}
           </div>
-          <input value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder={tab === "register" ? "Item, tag or location" : "Item, tag, name or admission number"}
-            aria-label="Search inventory"
-            className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
-          {query && <Button onClick={() => setQuery("")}>Clear</Button>}
+          {tab !== "stock" && (
+            <input value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder={tab === "register" ? "Item, tag or location" : "Item, tag, name or admission number"}
+              aria-label="Search inventory"
+              className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
+          )}
+          {query && tab !== "stock" && <Button onClick={() => setQuery("")}>Clear</Button>}
         </div>
 
         {error ? (
@@ -146,6 +151,8 @@ export function AdminInventory() {
           </p>
         ) : loading ? (
           <TableSkeleton rows={8} />
+        ) : tab === "stock" ? (
+          <StockView items={items ?? []} onOpenItem={setViewing} />
         ) : tab === "register" ? (
           <DataTable
             columns={[
@@ -162,6 +169,7 @@ export function AdminInventory() {
                 key: "stock", header: "On the shelf",
                 render: (i: InventoryItemRow) => i.retired_at ? <Badge>Written off</Badge>
                   : i.tracking === "asset" ? <Badge tone={i.out ? "info" : "ok"}>{i.out ? "Out" : "In store"}</Badge>
+                  : i.consumable || i.unit || i.reorder_level != null ? <StockLevelCell item={i} />
                   : <span className="text-[13px]"><Mono>{i.available}</Mono> of {i.quantity}</span>,
               },
               { key: "condition", header: "Condition", render: (i: InventoryItemRow) => <Badge tone={CONDITION_TONE[i.condition]}>{ITEM_CONDITION_LABEL[i.condition]}</Badge> },
@@ -171,7 +179,11 @@ export function AdminInventory() {
                 render: (i: InventoryItemRow) => (
                   <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                     <Button onClick={() => setEditing(i)}>Edit</Button>
-                    <Button variant="accent" disabled={!!i.retired_at || i.available === 0} onClick={() => setIssuing(i)}>Issue</Button>
+                    {i.consumable ? (
+                      <Button variant="accent" disabled={!!i.retired_at || i.quantity === 0} onClick={() => setMoving({ item: i, action: "used" })}>Use</Button>
+                    ) : (
+                      <Button variant="accent" disabled={!!i.retired_at || i.available === 0} onClick={() => setIssuing(i)}>Issue</Button>
+                    )}
                   </div>
                 ),
               },
@@ -234,9 +246,20 @@ export function AdminInventory() {
           onDone={(msg) => { setCharging(null); toast(msg); reload(); }}
         />
       )}
-      {viewing && (
+      {moving && (
+        <MovementModal
+          item={moving.item}
+          action={moving.action}
+          onClose={() => setMoving(null)}
+          onDone={(msg) => { setMoving(null); toast(msg); reload(); }}
+        />
+      )}
+      {viewing && !moving && (
         <ItemHistoryModal
-          item={viewing}
+          item={(items ?? []).find((i) => i.id === viewing.id) ?? viewing}
+          reloadKey={reloadKey}
+          country={tenant.country}
+          onMove={(action) => setMoving({ item: (items ?? []).find((i) => i.id === viewing.id) ?? viewing, action })}
           issues={sortIssues((issues ?? []).filter((i) => i.item_id === viewing.id))}
           onClose={() => setViewing(null)}
           onIssue={() => { setIssuing(viewing); setViewing(null); }}
@@ -347,6 +370,9 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
     purchased_on: item?.purchased_on ?? "",
     unit_cost: item?.unit_cost_cents != null ? String(item.unit_cost_cents / 100) : "",
     notes: item?.notes ?? "",
+    unit: item?.unit ?? "",
+    consumable: item?.consumable ?? false,
+    reorder_level: item?.reorder_level != null ? String(item.reorder_level) : "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -356,10 +382,15 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
   const cost = form.unit_cost.trim() === "" ? null : Number(form.unit_cost);
   const qtyBad = form.tracking === "stock" && (!Number.isInteger(qty) || qty < 0);
   const costBad = cost != null && (!Number.isFinite(cost) || cost < 0);
+  const reorder = form.reorder_level.trim() === "" ? null : Number(form.reorder_level);
+  const reorderBad = reorder != null && (!Number.isInteger(reorder) || reorder < 0);
+  const unitBad = form.unit.trim().length > 20;
+  // a consumable already on the register moves only with deliveries, use and stock-takes
+  const countLocked = !!item && item.consumable && form.consumable;
   const minQty = item?.out ?? 0;
 
   async function save() {
-    if (!form.name.trim() || qtyBad || costBad) return;
+    if (!form.name.trim() || qtyBad || costBad || reorderBad || unitBad) return;
     if (form.tracking === "stock" && qty < minQty) {
       setError(`${minQty} copies are out with people, so the school owns at least ${minQty}.`);
       return;
@@ -377,6 +408,9 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
       purchased_on: form.purchased_on || null,
       unit_cost_cents: cost == null ? null : Math.round(cost * 100),
       notes: form.notes.trim() || null,
+      unit: form.tracking === "stock" ? form.unit.trim() || null : null,
+      consumable: form.tracking === "stock" && form.consumable,
+      reorder_level: form.tracking === "stock" ? reorder : null,
     };
     try {
       await saveInventoryItem(tenant.id, input, item?.id);
@@ -397,7 +431,7 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="accent" onClick={() => void save()} disabled={saving || !form.name.trim() || qtyBad || costBad}>
+          <Button variant="accent" onClick={() => void save()} disabled={saving || !form.name.trim() || qtyBad || costBad || reorderBad || unitBad}>
             {saving ? "Saving…" : item ? "Save" : "Add item"}
           </Button>
         </>
@@ -417,13 +451,33 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
         </div>
         <div className="grid gap-3.5 sm:grid-cols-2">
           {form.tracking === "stock" ? (
-            <TextField id="inv-qty" label="Copies owned" type="number" min={minQty} value={form.quantity} onChange={(e) => set("quantity", e.target.value)}
-              error={qtyBad ? "A whole number, 0 or more." : undefined} hint={minQty ? `${minQty} out with people now.` : undefined} />
+            <TextField id="inv-qty" label={form.consumable ? `In stock${form.unit.trim() ? ` (${form.unit.trim()})` : ""}` : "Copies owned"} type="number" min={minQty}
+              value={form.quantity} onChange={(e) => set("quantity", e.target.value)} disabled={countLocked}
+              error={qtyBad ? "A whole number, 0 or more." : undefined}
+              hint={countLocked ? "Changes with deliveries, use and stock-takes (open the item)." : minQty ? `${minQty} out with people now.` : form.consumable && !item ? "Opening stock." : undefined} />
           ) : (
             <TextField id="inv-tag" label="Asset tag or serial" mono placeholder="e.g. PRJ-007" value={form.asset_tag} onChange={(e) => set("asset_tag", e.target.value)} />
           )}
           <SelectField id="inv-condition" label="Condition" value={form.condition} onChange={(e) => set("condition", e.target.value as ItemCondition)} options={CONDITION_OPTIONS} />
         </div>
+        {form.tracking === "stock" && (
+          <>
+            <label className="flex items-start gap-2 text-[13px]">
+              <input type="checkbox" className="mt-0.5" checked={form.consumable} onChange={(e) => set("consumable", e.target.checked)} />
+              <span>Used up, not handed out and returned<span className="block text-[12px] text-ink-faint">Kitchen food, chalk, printer paper. Record deliveries and daily use instead of issuing.</span></span>
+            </label>
+            <div className="grid gap-3.5 sm:grid-cols-2">
+              <div>
+                <TextField id="inv-unit" label="Counted in (optional)" placeholder="e.g. kg, litres, bags" list="inv-units" maxLength={20}
+                  value={form.unit} onChange={(e) => set("unit", e.target.value)} error={unitBad ? "At most 20 characters." : undefined} />
+                <datalist id="inv-units">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist>
+              </div>
+              <TextField id="inv-reorder" label="Reorder at (optional)" type="number" min={0} step={1} value={form.reorder_level}
+                onChange={(e) => set("reorder_level", e.target.value)} error={reorderBad ? "A whole number, 0 or more." : undefined}
+                hint="Shown as Low at or below this." />
+            </div>
+          </>
+        )}
         {form.tracking === "stock" && (
           <TextField id="inv-tag-stock" label="Tag or code (optional)" mono placeholder="e.g. BIO-F2" value={form.asset_tag} onChange={(e) => set("asset_tag", e.target.value)} />
         )}
@@ -431,7 +485,7 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
           <TextField id="inv-location" label="Kept in (optional)" placeholder="e.g. Library store" value={form.location} onChange={(e) => set("location", e.target.value)} />
           <TextField id="inv-purchased" label="Bought on (optional)" type="date" value={form.purchased_on} onChange={(e) => set("purchased_on", e.target.value)} />
         </div>
-        <TextField id="inv-cost" label={form.tracking === "stock" ? "Cost per copy (optional)" : "Cost (optional)"} type="number" min={0} step="0.01"
+        <TextField id="inv-cost" label={form.tracking === "stock" ? `Cost per ${form.consumable ? form.unit.trim() || "unit" : "copy"} (optional)` : "Cost (optional)"} type="number" min={0} step="0.01"
           value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} error={costBad ? "Enter an amount, or leave it blank." : undefined} />
         <TextArea id="inv-notes" label="Notes (optional)" value={form.notes} onChange={(e) => set("notes", e.target.value)} />
         {error && <p role="alert" className="text-[12.5px] text-warn-ink">{error}</p>}
@@ -705,9 +759,13 @@ function ChargeModal({ issue, unitCostCents, existing, country, onClose, onDone 
 
 // ---------------------------------------------------------------- item history
 
-function ItemHistoryModal({ item, issues, onClose, onIssue, onReturn, onRetire }: {
+function ItemHistoryModal({ item, issues, reloadKey, country, onMove, onClose, onIssue, onReturn, onRetire }: {
   item: InventoryItemRow;
   issues: InventoryIssueRow[];
+  reloadKey: number;
+  country: string;
+  /** Receive, Use or Stock-take on a stock line. */
+  onMove: (action: MoveAction) => void;
   onClose: () => void;
   onIssue: () => void;
   onReturn: (r: InventoryIssueRow) => void;
@@ -716,7 +774,8 @@ function ItemHistoryModal({ item, issues, onClose, onIssue, onReturn, onRetire }
   const [busy, setBusy] = useState(false);
   const facts = [
     INVENTORY_CATEGORY_LABEL[item.category],
-    item.tracking === "stock" ? `${item.available} of ${item.quantity} on the shelf` : item.out ? "Out" : "In store",
+    item.tracking === "stock" ? (item.consumable ? `${formatQty(item.quantity, item.unit)} in stock` : `${item.available} of ${item.quantity} on the shelf`) : item.out ? "Out" : "In store",
+    item.reorder_level != null ? `Reorder at ${formatQty(item.reorder_level, item.unit)}` : null,
     ITEM_CONDITION_LABEL[item.condition],
     item.location,
     item.purchased_on ? `Bought ${formatShortDate(item.purchased_on)} ${item.purchased_on.slice(0, 4)}` : null,
@@ -738,16 +797,37 @@ function ItemHistoryModal({ item, issues, onClose, onIssue, onReturn, onRetire }
             onClick={async () => { setBusy(true); await onRetire(!item.retired_at); setBusy(false); }}>
             {item.retired_at ? "Put back on the register" : "Write off"}
           </Button>
-          <Button variant="accent" disabled={!!item.retired_at || item.available === 0} onClick={onIssue}>Issue</Button>
+          {item.tracking === "stock" && !item.retired_at && (
+            <>
+              <Button onClick={() => onMove("adjusted")}>Stock-take</Button>
+              <Button onClick={() => onMove("received")}>Receive</Button>
+            </>
+          )}
+          {item.consumable
+            ? <Button variant="accent" disabled={!!item.retired_at || item.quantity === 0} onClick={() => onMove("used")}>Use</Button>
+            : <Button variant="accent" disabled={!!item.retired_at || item.available === 0} onClick={onIssue}>Issue</Button>}
         </>
       }
     >
-      <IssueTable
-        rows={issues}
-        onReturn={onReturn}
-        compact
-        empty={{ title: "Never issued", body: "Every hand-out and return of this item will be listed here." }}
-      />
+      <div className="grid gap-4">
+        {item.tracking === "stock" && (
+          <section className="grid gap-2">
+            <h3 className="text-[12.5px] font-semibold uppercase tracking-wide text-ink-muted">Deliveries, use and stock-takes</h3>
+            <MovementList itemId={item.id} unit={item.unit} reloadKey={reloadKey} country={country} />
+          </section>
+        )}
+        {(!item.consumable || issues.length > 0) && (
+          <section className="grid gap-2">
+            {item.tracking === "stock" && <h3 className="text-[12.5px] font-semibold uppercase tracking-wide text-ink-muted">Issued to people</h3>}
+            <IssueTable
+              rows={issues}
+              onReturn={onReturn}
+              compact
+              empty={{ title: "Never issued", body: "Every hand-out and return of this item will be listed here." }}
+            />
+          </section>
+        )}
+      </div>
     </Modal>
   );
 }

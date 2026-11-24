@@ -8,10 +8,10 @@
  * a draft and edit it; nothing a task returns is saved or sent by itself.
  */
 
-export type Task = "report_comment" | "questions" | "homework" | "message" | "translate" | "tutor" | "chat" | "paper_import" | "guide";
+export type Task = "report_comment" | "questions" | "homework" | "message" | "translate" | "tutor" | "chat" | "paper_import" | "guide" | "stock_insights";
 export type Role = "school_admin" | "teacher" | "student" | "staff" | "org_admin";
 
-export const TASKS: Task[] = ["report_comment", "questions", "homework", "message", "translate", "tutor", "chat", "paper_import", "guide"];
+export const TASKS: Task[] = ["report_comment", "questions", "homework", "message", "translate", "tutor", "chat", "paper_import", "guide", "stock_insights"];
 
 /** Who may run each task. Org admins and Figbloom staff work through a school's own accounts. */
 export const ALLOWED: Record<Task, Role[]> = {
@@ -25,6 +25,9 @@ export const ALLOWED: Record<Task, Role[]> = {
   paper_import: ["school_admin", "teacher"],
   // every console; only a full school admin is offered setup actions (index.ts)
   guide: ["school_admin", "teacher", "staff", "org_admin"],
+  // the office and the storekeeper or bursar (other staff with the inventory area); the
+  // flags function itself refuses anyone who may not read the school's stock
+  stock_insights: ["school_admin", "staff"],
 };
 
 /** How hard the model thinks: drafting short text doesn't need much; a question paper with a marking key does. */
@@ -40,6 +43,7 @@ export const EFFORT: Record<Task, "low" | "medium"> = {
   paper_import: "medium",
   // finding the way round the app is quick; planning a school's structure takes some thought
   guide: "medium",
+  stock_insights: "low",
 };
 
 export class BadInput extends Error {}
@@ -650,7 +654,101 @@ How to answer:
 You can't create or change anything yourself; you show the way. Leave out anything about setting things up for them.`}`;
 }
 
-export function prepare(task: Exclude<Task, "tutor" | "chat" | "paper_import" | "guide">, payload: Json): PreparedTask {
+// ------------------------------------------------------------------ stock insights
+
+/** Longest period a briefing covers. */
+export const STOCK_INSIGHTS_MAX_DAYS = 120;
+/** Most flags sent to the model; the most serious go first. */
+export const STOCK_INSIGHTS_MAX_FLAGS = 60;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The period asked about: two dates, in order, at most STOCK_INSIGHTS_MAX_DAYS apart. */
+export function stockInsightsRange(p: Json): { from: string; to: string } {
+  const from = str(p?.from, "from", 10);
+  const to = str(p?.to, "to", 10);
+  if (!ISO_DATE.test(from) || !ISO_DATE.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
+    throw new BadInput("from and to must be dates (YYYY-MM-DD).");
+  }
+  const days = (Date.parse(to) - Date.parse(from)) / 86_400_000;
+  if (days < 0) throw new BadInput("from must be on or before to.");
+  if (days > STOCK_INSIGHTS_MAX_DAYS) throw new BadInput(`Ask about at most ${STOCK_INSIGHTS_MAX_DAYS} days at a time.`);
+  return { from, to };
+}
+
+/** A flag as the model sees it: the numbers and the plain reason. Flags never name a person. */
+export interface StockFlagForAi {
+  kind: string; item: string; store: string; unit: string | null; purpose: string | null; date: string; since: string | null;
+  expected: number | null; actual: number | null; headcount: number | null; usualHeadcount: number | null; visitors: number | null;
+  severity: string; explained: boolean; reason: string;
+}
+export interface StockLevelForAi {
+  item: string; store: string; unit: string | null; onHand: number; reorderLevel: number | null; avgDailyUse: number | null; daysOfCover: number | null;
+  nextDeliveryUsually: string | null;
+}
+
+/** The store an inventory category belongs to, in the words a head teacher uses. */
+const STORE_NAME: Record<string, string> = { kitchen: "Kitchen", stationery: "Stationery & art", lab_equipment: "Lab", medical: "Clinic", uniforms: "Uniforms" };
+const storeName = (category: unknown): string => STORE_NAME[String(category ?? "")] ?? "Other";
+
+const numOrNull = (v: unknown): number | null => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+const severityRank = (s: unknown) => (s === "high" ? 0 : s === "medium" ? 1 : 2);
+
+/** The database's flag rows cut down to the fields above, alarms before explained rises, most serious first. */
+export function stockFlagsForAi(rows: Json[]): StockFlagForAi[] {
+  return [...(rows ?? [])]
+    .sort((a, b) => Number(!!a.explained) - Number(!!b.explained) || severityRank(a.severity) - severityRank(b.severity))
+    .slice(0, STOCK_INSIGHTS_MAX_FLAGS)
+    .map((r) => ({
+      kind: String(r.kind), item: String(r.item_name ?? ""), store: storeName(r.category), unit: r.unit ?? null, purpose: r.purpose ?? null,
+      date: String(r.occurred_on ?? ""), since: r.period_from ?? null,
+      expected: numOrNull(r.expected), actual: numOrNull(r.actual), headcount: numOrNull(r.headcount),
+      usualHeadcount: numOrNull(r.baseline_headcount), visitors: numOrNull(r.visitors),
+      severity: String(r.severity ?? "low"), explained: !!r.explained, reason: String(r.reason ?? "").slice(0, 400),
+    }));
+}
+
+/** Consumables only, field by field. */
+export function stockLevelsForAi(rows: Json[]): StockLevelForAi[] {
+  return (rows ?? []).filter((r) => r?.consumable).slice(0, 80).map((r) => ({
+    item: String(r.name ?? ""), store: storeName(r.category), unit: r.unit ?? null, onHand: Number(r.quantity ?? 0), reorderLevel: numOrNull(r.reorder_level),
+    avgDailyUse: numOrNull(r.avg_daily_use), daysOfCover: numOrNull(r.days_of_cover), nextDeliveryUsually: r.next_delivery_on ?? null,
+  }));
+}
+
+export const STOCK_INSIGHTS_SCHEMA = obj({
+  headline: { type: "string" },
+  standsOut: { type: "array", items: { type: "string" } },
+  questions: { type: "array", items: { type: "string" } },
+  looksFine: { type: "array", items: { type: "string" } },
+  suggestions: { type: "array", items: { type: "string" } },
+});
+
+export function stockInsightsSystem(schoolName: string, today: string): string {
+  return `You brief the head teacher and the bursar${schoolName ? ` of ${schoolName}` : ""}, a school in Kenya, on the school's consumable stores: the kitchen, stationery and art, the lab, the clinic (sick-bay medicine) and others. Today is ${today}.
+
+You are given flags a program has already worked out from the stock records (kitchen food compared day by day with its usual use per head; other stores week by week, lab supplies per practical and clinic supplies per sick-bay visit; stock-takes, delivery prices, days of stock left) and the current stock levels, each with its store. Explain them; do not recalculate them or invent new ones.
+
+- headline: one sentence, the single most important thing (or that all looks normal).
+- standsOut: up to 5 short points, most serious first. Quote amounts, units and dates exactly as given.
+- questions: up to 5 questions the head teacher could ask the kitchen or the store, concrete and polite, such as "Where did the extra 5 kg of rice go on Tuesday?". Never accuse anyone; there can be innocent reasons.
+- looksFine: up to 3 points on what is normal and why, including rises marked explained (more people ate that day, such as a sports day or visitors).
+- suggestions: up to 4 practical next steps, such as reordering before stock runs out or comparing suppliers' prices.
+Leave a list empty rather than padding it. Do not name or guess at any person.
+${HOUSE_STYLE}`;
+}
+
+export function stockInsightsUser(range: { from: string; to: string }, flags: StockFlagForAi[], levels: StockLevelForAi[]): string {
+  return `Period: ${range.from} to ${range.to}.
+
+Flags (JSON, most serious first; explained = true means headcount rose to match):
+${JSON.stringify(flags)}
+
+Consumable stock now (JSON):
+${JSON.stringify(levels)}`;
+}
+
+export function prepare(task: Exclude<Task, "tutor" | "chat" | "paper_import" | "guide" | "stock_insights">, payload: Json): PreparedTask {
   if (!payload || typeof payload !== "object") throw new BadInput("Missing request details.");
   switch (task) {
     case "report_comment": return reportComment(payload);

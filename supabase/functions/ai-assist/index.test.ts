@@ -658,3 +658,77 @@ describe("the guide", () => {
     assertEquals(res.status, 400);
   });
 });
+
+describe("stock insights", () => {
+  const FLAGS = [
+    { kind: "usage_up", item_name: "Rice", category: "kitchen", unit: "kg", purpose: "Lunch", occurred_on: "2026-10-14", period_from: null, expected: "20", actual: "25",
+      headcount: 1066, baseline_headcount: 1064, visitors: 2, severity: "medium", explained: false,
+      reason: "25 kg Rice for Lunch used on Tue 14 Oct against about 20 expected." },
+    { kind: "usage_up", item_name: "Beans", unit: "kg", purpose: "Lunch", occurred_on: "2026-10-17", period_from: null, expected: "12", actual: "14",
+      headcount: 1264, baseline_headcount: 1064, visitors: 200, severity: "low", explained: true, reason: "Sports day." },
+  ];
+  const LEVELS = [
+    { name: "Rice", unit: "kg", consumable: true, quantity: 120, reorder_level: 100, avg_daily_use: "20", days_of_cover: "6", next_delivery_on: "2026-11-30" },
+    { name: "Projector bulbs", unit: null, consumable: false, quantity: 4 },
+  ];
+  const insightsReq = (payload: unknown) => req("stock_insights", payload);
+  const answer = JSON.stringify({ headline: "Rice use rose on Tuesday.", standsOut: ["x"], questions: ["Where did the extra 5 kg go?"], looksFine: [], suggestions: [] });
+
+  function clients(role = "school_admin") {
+    const c = makeClients(role);
+    const calls: Record<string, unknown>[] = [];
+    c.asUser.rpcAnswers.inventory_consumption_flags = (args) => { calls.push(args); return FLAGS; };
+    c.asUser.rpcAnswers.inventory_stock_levels = () => LEVELS;
+    return { ...c, calls };
+  }
+
+  it("reads the flags as the caller, sends only numbers and reasons, and returns the briefing", async () => {
+    const { admin, asUser, calls: rpcCalls } = clients();
+    const { ai, calls } = fakeAi(answer);
+    const res = await handle(insightsReq({ from: "2026-10-01", to: "2026-10-31" }), { admin, asUser, ai });
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).result.headline, "Rice use rose on Tuesday.");
+    assertEquals(rpcCalls[0], { p_tenant_id: TENANT_ID, p_from: "2026-10-01", p_to: "2026-10-31" });
+    const sent = calls[0]!.messages[0]!.content as string;
+    assertStringIncludes(sent, "25 kg Rice for Lunch");
+    assert(!sent.includes("Projector"), "only consumables are sent");
+    assertStringIncludes(sent, "\"store\":\"Kitchen\"");
+    // the alarm goes before the explained rise
+    assert(sent.indexOf("\"Rice\"") < sent.indexOf("\"Beans\""));
+    assert(calls[0]!.schema, "answers in JSON");
+    assertEquals(admin.rowsIn("ai_usage")[0]!.task, "stock_insights");
+  });
+
+  it("is for the office and other staff, not teachers or families", async () => {
+    for (const role of ["teacher", "parent", "student"]) {
+      const { admin, asUser } = clients(role);
+      const res = await handle(insightsReq({ from: "2026-10-01", to: "2026-10-31" }), { admin, asUser, ai: fakeAi(answer).ai });
+      assertEquals(res.status, 403, role);
+    }
+  });
+
+  it("refuses a bad or too-long period before reading anything", async () => {
+    for (const payload of [{}, { from: "2026-10-31", to: "2026-10-01" }, { from: "2026-01-01", to: "2026-12-31" }, { from: "yesterday", to: "today" }]) {
+      const { admin, asUser, calls } = clients();
+      const res = await handle(insightsReq(payload), { admin, asUser, ai: fakeAi(answer).ai });
+      assertEquals(res.status, 400, JSON.stringify(payload));
+      assertEquals(calls.length, 0);
+    }
+  });
+
+  it("stops, spending nothing, when the database refuses the caller the stock figures", async () => {
+    const { admin, asUser } = clients("staff");
+    asUser.failNextRpc("Only the school's staff can see its stock reports");
+    const { ai, calls } = fakeAi(answer);
+    const res = await handle(insightsReq({ from: "2026-10-01", to: "2026-10-31" }), { admin, asUser, ai });
+    assertEquals(res.status, 403);
+    assertEquals(calls.length, 0);
+    assertEquals(admin.rowsIn("ai_usage").length, 0);
+  });
+
+  it("says AI isn't set up when there is no model, so the screen can still show the flags", async () => {
+    const { admin, asUser } = clients();
+    const res = await handle(insightsReq({ from: "2026-10-01", to: "2026-10-31" }), { admin, asUser, ai: { error: "ANTHROPIC_API_KEY is missing" } });
+    assertEquals(res.status, 503);
+  });
+});
