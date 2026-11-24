@@ -4,17 +4,17 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
+import { sharedVpc } from "./platform.js";
 import { settings } from "./settings.js";
 
 /**
- * Everything that holds data or secrets: the network, PostgreSQL and the generated keys.
- * Kept apart from the services, with termination protection, so redeploying or even deleting
- * the service stack can never take the database with it.
+ * Everything that holds data or secrets: PostgreSQL, the generated keys and the security groups that decide who
+ * may reach the database. Kept apart from the services, with termination protection, so redeploying or even
+ * deleting the service stack can never take the database with it. The network is the account's shared one.
  */
 export class DataStack extends Stack {
-  readonly vpc: ec2.Vpc;
   readonly db: rds.DatabaseInstance;
-  /** The owner's generated credentials (JSON: username, password, host, ...). */
+  /** The owner's generated credentials (JSON: username, password, ...). */
   readonly ownerSecret: secretsmanager.ISecret;
   readonly appDbPassword: secretsmanager.Secret;
   readonly workerDbPassword: secretsmanager.Secret;
@@ -26,35 +26,19 @@ export class DataStack extends Stack {
   readonly workerSg: ec2.SecurityGroup;
   readonly opsSg: ec2.SecurityGroup;
 
-  /** Named, not looked up: synth needs no AWS call and the network never moves under us. */
-  override get availabilityZones(): string[] {
-    return [`${settings.region}a`, `${settings.region}b`];
-  }
-
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, props);
+    const vpc = sharedVpc(this);
+    const name = (suffix: string) => `figbloom/${settings.component}/${suffix}`;
 
-    // Public subnets for the load balancer and the tasks (tasks take a public address for outbound calls such as
-    // M-Pesa and push; their security groups admit nothing from the internet). Isolated subnets for the database,
-    // which has no route to or from the internet. No NAT gateway.
-    this.vpc = new ec2.Vpc(this, "Vpc", {
-      ipAddresses: ec2.IpAddresses.cidr(settings.vpcCidr),
-      maxAzs: 2,
-      natGateways: 0,
-      subnetConfiguration: [
-        { name: "public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
-        { name: "database", subnetType: ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
-      ],
-    });
-
-    const sg = (name: string, description: string) =>
-      new ec2.SecurityGroup(this, name, { vpc: this.vpc, description, allowAllOutbound: true });
-    this.apiSg = sg("ApiSg", "FigBloom API tasks (inbound only from the load balancer)");
-    this.workerSg = sg("WorkerSg", "FigBloom worker tasks (no inbound)");
-    this.opsSg = sg("OpsSg", "FigBloom one-off operator tasks (no inbound)");
+    // Tasks run in the shared private subnets and reach the internet (M-Pesa, push, ...) through the shared NAT.
+    const sg = (id: string, description: string) => new ec2.SecurityGroup(this, id, { vpc, description, allowAllOutbound: true });
+    this.apiSg = sg("ApiSg", "Schools API tasks (inbound only from the shared load balancer)");
+    this.workerSg = sg("WorkerSg", "Schools API worker tasks (no inbound)");
+    this.opsSg = sg("OpsSg", "Schools API one-off operator tasks (no inbound)");
     const dbSg = new ec2.SecurityGroup(this, "DbSg", {
-      vpc: this.vpc,
-      description: "FigBloom PostgreSQL (inbound 5432 from the API, worker and operator tasks only)",
+      vpc,
+      description: "Schools API PostgreSQL (inbound 5432 from the API, worker and operator tasks only)",
       allowAllOutbound: false,
     });
     for (const [peer, what] of [
@@ -68,7 +52,7 @@ export class DataStack extends Stack {
     const engine = rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16 });
     const parameterGroup = new rds.ParameterGroup(this, "DbParams", {
       engine,
-      description: "FigBloom API PostgreSQL 16",
+      description: "Schools API PostgreSQL 16",
       parameters: {
         "rds.force_ssl": "1",
         password_encryption: "scram-sha-256",
@@ -79,15 +63,16 @@ export class DataStack extends Stack {
     });
 
     const db = settings.database;
-    // Created here (not inside the instance) so it can be kept if the stack is ever deleted: a snapshot is
+    // Created here (not inside the instance) so it is kept if the stack is ever deleted: a snapshot is
     // useless without the owner's password.
-    const ownerSecret = new rds.DatabaseSecret(this, "DbOwnerSecret", { username: db.owner, secretName: "figbloom-api/db-owner" });
+    const ownerSecret = new rds.DatabaseSecret(this, "DbOwnerSecret", { username: db.owner, secretName: name("db-owner") });
     ownerSecret.applyRemovalPolicy(RemovalPolicy.RETAIN);
     this.db = new rds.DatabaseInstance(this, "Db", {
       engine,
+      instanceIdentifier: db.instanceIdentifier,
       instanceType: new ec2.InstanceType(db.instanceType),
-      vpc: this.vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      vpc,
+      vpcSubnets: { subnets: vpc.privateSubnets },
       securityGroups: [dbSg],
       publiclyAccessible: false,
       credentials: rds.Credentials.fromSecret(ownerSecret),
@@ -114,9 +99,9 @@ export class DataStack extends Stack {
 
     // Generated once and kept even if the stack is deleted. Letters and digits only, so they survive URLs
     // and the session-hmac script's "no whitespace" rule.
-    const generated = (id: string, name: string, description: string, length: number) => {
+    const generated = (id: string, suffix: string, description: string, length: number) => {
       const secret = new secretsmanager.Secret(this, id, {
-        secretName: `figbloom-api/${name}`,
+        secretName: name(suffix),
         description,
         generateSecretString: { passwordLength: length, excludePunctuation: true, includeSpace: false },
       });

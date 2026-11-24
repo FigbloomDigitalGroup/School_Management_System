@@ -19,18 +19,22 @@ if (!certificateArn) {
 }
 const env = { account, region: settings.region };
 
-const data = new DataStack(app, "FigbloomApiData", {
+const data = new DataStack(app, settings.stacks.data, {
   env,
   terminationProtection: true,
-  description: "FigBloom API: network, PostgreSQL and generated secrets (stateful; termination protected)",
+  description: "Figbloom Schools API (prod): PostgreSQL on RDS, generated secrets, database security groups (stateful; termination protected)",
 });
-new ServiceStack(app, "FigbloomApiService", {
+const service = new ServiceStack(app, settings.stacks.service, {
   env,
   data,
   certificateArn,
   repoRoot: fileURLToPath(new URL("../../", import.meta.url)),
-  description: "FigBloom API: image, ECS services (API, worker), operator task, HTTPS load balancer",
+  description: "Figbloom Schools API (prod): image, ECS Fargate API and worker, operator task, host rule on the shared load balancer",
 });
 
-Tags.of(app).add("project", "figbloom-api");
-Tags.of(app).add("environment", "production");
+// The account's tag convention (every other stack carries these four).
+Tags.of(app).add("Project", "figbloom");
+Tags.of(app).add("ManagedBy", "cdk");
+Tags.of(app).add("Environment", "prod");
+Tags.of(data).add("Component", `${settings.component}-data`);
+Tags.of(service).add("Component", settings.component);

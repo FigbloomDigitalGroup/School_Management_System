@@ -3,17 +3,33 @@
  * so read the note beside it first.
  */
 export const settings = {
-  /** Ireland. The figbloom-prod AWS profile and the API's S3 example both use it. */
+  /** Ireland, where the rest of the FigBloom platform runs (profile figbloom-prod). */
   region: "eu-west-1",
-  /** The API's public address. TLS certificate: AWS Certificate Manager, DNS-validated (see infra/README.md). */
+  /** Stack names and tags follow the account's convention: <Component>-prod, Project=figbloom. */
+  stacks: { data: "SchoolsApiData-prod", service: "SchoolsApi-prod" },
+  /** Names for secrets (figbloom/<component>/...) and log groups (/figbloom/<component>/...). */
+  component: "schools-api",
+
+  /** The API's public address. Its certificate is attached to the shared load balancer (infra/README.md). */
   apiDomain: "sms-api.figbloom.org",
   /** Browser origins allowed to call the API (exact origins; the API refuses wildcards). */
   webOrigins: ["https://schoolmanagement.figbloom.org"],
 
-  /** Address range of the API's private network. API_TRUST_PROXY_CIDRS is this range (the load balancer lives in it). */
-  vpcCidr: "10.40.0.0/16",
+  /** The shared platform this app plugs into (lib/platform.ts). Values read from the live account on 2026-11-24. */
+  platform: {
+    vpcCidr: "10.20.0.0/16",
+    availabilityZones: ["eu-west-1a", "eu-west-1b"],
+    /** Idle timeout of the shared load balancer. The API's keep-alive must be longer, or idle connections end in 502s. */
+    loadBalancerIdleTimeoutSeconds: 120,
+    /**
+     * Priority of this app's host rule on the shared HTTPS listener. Must be unique on that listener;
+     * in use on 2026-11-24: 100, 101 (HR), 500 (CRM).
+     */
+    listenerRulePriority: 300,
+  },
 
   database: {
+    instanceIdentifier: "figbloom-schools-api-prod",
     name: "figbloom_api",
     /** The RDS master user. It owns every table and runs the migrations; the API never connects as it. */
     owner: "figbloom_owner",

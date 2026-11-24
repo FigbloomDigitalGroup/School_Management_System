@@ -1,13 +1,12 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import { CfnOutput, Duration, IgnoreMode, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as logs from "aws-cdk-lib/aws-logs";
-import { IgnoreMode } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import type { DataStack } from "./data-stack.js";
+import { edgeHttpsListener, edgeSecurityGroup, sharedVpc } from "./platform.js";
 import { settings } from "./settings.js";
 
 export interface ServiceStackProps extends StackProps {
@@ -20,7 +19,7 @@ export interface ServiceStackProps extends StackProps {
 
 /**
  * The running parts: one image, three uses.
- *   API service      behind an HTTPS load balancer; health = /readyz
+ *   API service      in the shared private subnets, reached through the shared load balancer by host name
  *   worker service   no inbound traffic
  *   ops task         run by hand (infra/scripts/ops.sh) for bootstrap-admin and session-hmac
  * Every API and worker task first runs the image's `release` command as an init container (migrate, role
@@ -31,8 +30,11 @@ export class ServiceStack extends Stack {
   constructor(scope: Construct, id: string, props: ServiceStackProps) {
     super(scope, id, props);
     const { data } = props;
-    const vpc = data.vpc;
-    const publicSubnets = { subnetType: ec2.SubnetType.PUBLIC };
+    const vpc = sharedVpc(this);
+    const privateSubnets = { subnets: vpc.privateSubnets };
+    const immutable = (id: string, group: ec2.ISecurityGroup) =>
+      // Used through immutable references so nothing here writes rules into the data stack (a cross-stack cycle).
+      ec2.SecurityGroup.fromSecurityGroupId(this, id, group.securityGroupId, { mutable: false });
 
     const image = ecs.ContainerImage.fromDockerImageAsset(
       new DockerImageAsset(this, "ApiImage", {
@@ -43,11 +45,11 @@ export class ServiceStack extends Stack {
       }),
     );
 
-    const cluster = new ecs.Cluster(this, "Cluster", { vpc, clusterName: "figbloom-api" });
+    const cluster = new ecs.Cluster(this, "Cluster", { vpc, clusterName: `figbloom-${settings.component}-prod` });
 
-    const logGroup = (id: string, name: string, days: number) =>
+    const logGroup = (id: string, suffix: string, days: number) =>
       new logs.LogGroup(this, id, {
-        logGroupName: `/figbloom-api/${name}`,
+        logGroupName: `/figbloom/${settings.component}/${suffix}`,
         retention: days as logs.RetentionDays,
         removalPolicy: RemovalPolicy.RETAIN,
       });
@@ -94,7 +96,10 @@ export class ServiceStack extends Stack {
       });
 
     // ---- API --------------------------------------------------------------------------------------------
-    const apiTd = taskDefinition("ApiTask", "figbloom-api", settings.api.cpu, settings.api.memoryMiB);
+    // The shared load balancer keeps idle connections for 120 s; the API must keep them longer, or it closes
+    // a connection the balancer is about to reuse and the client gets a 502.
+    const keepAliveMs = (settings.platform.loadBalancerIdleTimeoutSeconds + 5) * 1000;
+    const apiTd = taskDefinition("ApiTask", `figbloom-${settings.component}`, settings.api.cpu, settings.api.memoryMiB);
     const apiRelease = addRelease(apiTd, "Api");
     const api = apiTd.addContainer("api", {
       image,
@@ -108,12 +113,14 @@ export class ServiceStack extends Stack {
         APPLICATION_NAME: "figbloom-api",
         POOL_MAX: String(settings.api.poolMax),
         CORS_ALLOWED_ORIGINS: settings.webOrigins.join(","),
-        // TLS ends at the load balancer for this host only, and it serves HTTPS only.
+        // TLS ends at the shared load balancer, which redirects HTTP to HTTPS for every host.
         HSTS_ENABLED: "true",
         // The load balancer adds the client's address to X-Forwarded-For; trust exactly that one hop, from inside the VPC.
         API_TRUST_PROXY_HOPS: "1",
-        API_TRUST_PROXY_CIDRS: settings.vpcCidr,
+        API_TRUST_PROXY_CIDRS: settings.platform.vpcCidr,
         MFA_ENFORCEMENT: "enforce",
+        SERVER_KEEP_ALIVE_TIMEOUT_MS: String(keepAliveMs),
+        SERVER_HEADERS_TIMEOUT_MS: String(keepAliveMs + 1000),
         // ECS takes the task out of the load balancer (deregistration delay) before it sends SIGTERM,
         // so a short drain is enough. Hard limit must exceed grace + drain (the API checks).
         SHUTDOWN_DRAIN_DELAY_MS: "5000",
@@ -133,10 +140,6 @@ export class ServiceStack extends Stack {
     });
     api.addContainerDependencies({ container: apiRelease, condition: ecs.ContainerDependencyCondition.SUCCESS });
 
-    // The API's security group lives in the data stack (the database's rule names it). Used here through an
-    // IMMUTABLE reference, so the load balancer cannot write its rule into the data stack (a cross-stack cycle);
-    // the one rule it needs is added below, in this stack.
-    const apiSg = ec2.SecurityGroup.fromSecurityGroupId(this, "ApiSgRef", data.apiSg.securityGroupId, { mutable: false });
     const apiService = new ecs.FargateService(this, "ApiService", {
       cluster,
       serviceName: "api",
@@ -144,44 +147,26 @@ export class ServiceStack extends Stack {
       desiredCount: settings.api.desiredCount,
       minHealthyPercent: 100,
       maxHealthyPercent: 200,
-      assignPublicIp: true,
-      vpcSubnets: publicSubnets,
-      securityGroups: [apiSg],
+      assignPublicIp: false,
+      vpcSubnets: privateSubnets,
+      securityGroups: [immutable("ApiSgRef", data.apiSg)],
       healthCheckGracePeriod: Duration.seconds(90),
       circuitBreaker: { enable: true, rollback: true },
     });
 
-    // HTTPS only. There is deliberately no port 80: a bearer token sent to http:// would cross the internet
-    // in clear before any redirect could happen.
-    const albSg = new ec2.SecurityGroup(this, "AlbSg", { vpc, description: "FigBloom API load balancer (HTTPS from anywhere)" });
-    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), "HTTPS");
-    new ec2.CfnSecurityGroupIngress(this, "AlbToApi", {
-      groupId: data.apiSg.securityGroupId,
-      sourceSecurityGroupId: albSg.securityGroupId,
-      ipProtocol: "tcp",
-      fromPort: settings.api.port,
-      toPort: settings.api.port,
-      description: "API port from the load balancer only",
+    // Plug into the shared load balancer the way the other apps do: our certificate on its HTTPS listener,
+    // and a rule that sends our host name to our tasks. Every other host is untouched.
+    const edgeSg = edgeSecurityGroup(this);
+    const listener = edgeHttpsListener(this, edgeSg);
+    new elbv2.ApplicationListenerCertificate(this, "Certificate", {
+      listener,
+      certificates: [elbv2.ListenerCertificate.fromArn(props.certificateArn)],
     });
-    const alb = new elbv2.ApplicationLoadBalancer(this, "Alb", {
+    const targets = new elbv2.ApplicationTargetGroup(this, "ApiTargets", {
       vpc,
-      vpcSubnets: publicSubnets,
-      internetFacing: true,
-      securityGroup: albSg,
-      // The API's keep-alive (65 s) must outlast this.
-      idleTimeout: Duration.seconds(60),
-      dropInvalidHeaderFields: true,
-    });
-    const https = alb.addListener("Https", {
-      port: 443,
-      open: false,
-      certificates: [acm.Certificate.fromCertificateArn(this, "Certificate", props.certificateArn)],
-      sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
-    });
-    https.addTargets("Api", {
       port: settings.api.port,
       protocol: elbv2.ApplicationProtocol.HTTP,
-      targets: [apiService.loadBalancerTarget({ containerName: "api", containerPort: settings.api.port })],
+      targetType: elbv2.TargetType.IP,
       deregistrationDelay: Duration.seconds(30),
       healthCheck: {
         // Ready = database reachable AND the session-mint key matches (apps/api/docs/OPERATIONS.md).
@@ -193,9 +178,26 @@ export class ServiceStack extends Stack {
         unhealthyThresholdCount: 3,
       },
     });
+    const hostRule = new elbv2.ApplicationListenerRule(this, "HostRule", {
+      listener,
+      priority: settings.platform.listenerRulePriority,
+      conditions: [elbv2.ListenerCondition.hostHeaders([settings.apiDomain])],
+      action: elbv2.ListenerAction.forward([targets]),
+    });
+    apiService.attachToApplicationTargetGroup(targets);
+    // ECS refuses a target group that no load balancer uses yet: create the rule first.
+    apiService.node.addDependency(hostRule);
+    new ec2.CfnSecurityGroupIngress(this, "EdgeToApi", {
+      groupId: data.apiSg.securityGroupId,
+      sourceSecurityGroupId: edgeSg.securityGroupId,
+      ipProtocol: "tcp",
+      fromPort: settings.api.port,
+      toPort: settings.api.port,
+      description: "API port from the shared load balancer only",
+    });
 
     // ---- worker -----------------------------------------------------------------------------------------
-    const workerTd = taskDefinition("WorkerTask", "figbloom-worker", settings.worker.cpu, settings.worker.memoryMiB);
+    const workerTd = taskDefinition("WorkerTask", `figbloom-${settings.component}-worker`, settings.worker.cpu, settings.worker.memoryMiB);
     const workerRelease = addRelease(workerTd, "Worker");
     const worker = workerTd.addContainer("worker", {
       image,
@@ -215,14 +217,14 @@ export class ServiceStack extends Stack {
       desiredCount: settings.worker.desiredCount,
       minHealthyPercent: 100,
       maxHealthyPercent: 200,
-      assignPublicIp: true,
-      vpcSubnets: publicSubnets,
-      securityGroups: [ec2.SecurityGroup.fromSecurityGroupId(this, "WorkerSgRef", data.workerSg.securityGroupId, { mutable: false })],
+      assignPublicIp: false,
+      vpcSubnets: privateSubnets,
+      securityGroups: [immutable("WorkerSgRef", data.workerSg)],
       circuitBreaker: { enable: true, rollback: true },
     });
 
     // ---- operator task (no service; run with infra/scripts/ops.sh) ---------------------------------------
-    const opsTd = taskDefinition("OpsTask", "figbloom-ops", 256, 512);
+    const opsTd = taskDefinition("OpsTask", `figbloom-${settings.component}-ops`, 256, 512);
     opsTd.addContainer("ops", {
       image,
       command: ["session-hmac", "status"],
@@ -234,13 +236,12 @@ export class ServiceStack extends Stack {
     });
 
     new CfnOutput(this, "ApiUrl", { value: `https://${settings.apiDomain}` });
-    new CfnOutput(this, "LoadBalancerDns", {
-      value: alb.loadBalancerDnsName,
-      description: `DNS: make ${settings.apiDomain} a CNAME to this`,
+    new CfnOutput(this, "DnsNote", {
+      value: `${settings.apiDomain} CNAME -> the LoadBalancerDns output of the Edge-prod stack`,
     });
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
     new CfnOutput(this, "OpsTaskDefinition", { value: opsTd.family });
-    new CfnOutput(this, "OpsSubnets", { value: vpc.selectSubnets(publicSubnets).subnetIds.join(",") });
+    new CfnOutput(this, "OpsSubnets", { value: vpc.privateSubnets.map((s) => s.subnetId).join(",") });
     new CfnOutput(this, "OpsSecurityGroup", { value: data.opsSg.securityGroupId });
     new CfnOutput(this, "OpsLogGroup", { value: opsLogs.logGroupName });
   }
