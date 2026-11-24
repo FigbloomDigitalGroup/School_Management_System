@@ -1,3 +1,4 @@
+import { apiFetchClassSizes } from "./api/examPapersApi";
 import { apiLoadParentHomework } from "./api/parentApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -162,6 +163,7 @@ export async function fetchMyHomework(teacherId: string): Promise<HomeworkRow[]>
 
 /** Active learners per class, for "12 of 43 handed in". A learner who has left is archived and not counted. */
 export async function fetchClassSizes(classIds: string[]): Promise<Record<string, number>> {
+  if (onApi()) return apiFetchClassSizes(classIds);
   if (!classIds.length) return {};
   const { data, error } = await supabase()
     .from("classes").select("id, students(count)").in("id", classIds).eq("students.active", true)

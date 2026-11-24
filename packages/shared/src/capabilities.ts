@@ -722,3 +722,41 @@ const DASHBOARD_ON_API: DashboardCapabilities = { pendingSignatures: false, peri
 export function dashboardCapabilities(): DashboardCapabilities {
   return onApi() ? DASHBOARD_ON_API : DASHBOARD_ON_SUPABASE;
 }
+
+/** Online exam papers & tests (admin/papers, later teacher/exams). */
+export interface ExamPapersCapabilities {
+  /** Read-only PDF/typed papers alongside online MCQ papers (API only has /online-exam-papers). */
+  readMode: boolean;
+  /** Paper instructions, open/close window, duration timer, and paper kind (exam vs assessment). */
+  scheduling: boolean;
+  /** Reference sheet / PDF file uploads on papers (not part of /online-exam-papers). */
+  fileAttachments: boolean;
+  /** Linking a paper to a term exam so scores flow to the Gradebook. */
+  examLink: boolean;
+  /** Draft / publish / unpublish workflow (POST /online-exam-papers creates live papers immediately). */
+  draftWorkflow: boolean;
+  /** Editing a paper or its questions after creation (no PATCH /online-exam-papers/{id} endpoint). */
+  editPaper: boolean;
+  /** Deleting a paper (no DELETE /online-exam-papers/{id} endpoint). */
+  deletePaper: boolean;
+  /** Short and long written questions with model answers (API accepts mcq and true_false only). */
+  writtenQuestions: boolean;
+  /** Viewing learner attempts/scripts, marking written answers, releasing results, extensions and excusals (no GET attempts endpoint). */
+  scripts: boolean;
+  /** Maximum characters per question prompt (1,000 on API vs 4,000 on Supabase). */
+  promptMaxChars: number;
+}
+
+const EXAM_PAPERS_ON_SUPABASE: ExamPapersCapabilities = {
+  readMode: true, scheduling: true, fileAttachments: true, examLink: true, draftWorkflow: true,
+  editPaper: true, deletePaper: true, writtenQuestions: true, scripts: true, promptMaxChars: 4000,
+};
+
+const EXAM_PAPERS_ON_API: ExamPapersCapabilities = {
+  readMode: false, scheduling: false, fileAttachments: false, examLink: false, draftWorkflow: false,
+  editPaper: false, deletePaper: false, writtenQuestions: false, scripts: false, promptMaxChars: 1000,
+};
+
+export function examPapersCapabilities(): ExamPapersCapabilities {
+  return onApi() ? EXAM_PAPERS_ON_API : EXAM_PAPERS_ON_SUPABASE;
+}
