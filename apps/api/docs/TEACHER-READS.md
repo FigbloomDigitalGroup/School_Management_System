@@ -75,7 +75,8 @@ request; the per-class filter is application code, as for every other read.
 - **Any write.** Publishing marks and class announcements are owner decisions (below).
 - **Linking a staff record when a staff invitation is accepted** (found by the account slice: a teacher invited on the
   API "teaches nothing" until someone sets `userId` on their staff record). Not part of this change: it touches the
-  `account_accept_invitation` definer function, so it belongs in its own small PR.
+  `account_accept_invitation` definer function, so it is its own small PR (#380, migration 104: link by e-mail when
+  exactly one unlinked staff record matches).
 
 ## Tests (negative first)
 
