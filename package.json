@@ -26,6 +26,7 @@
     "db:seed-cbe": "tsx --env-file=.env supabase/seed-cbe.ts",
     "db:seed-org": "tsx --env-file=.env supabase/seed-cbe.ts --with-org",
     "db:seed-kijani-full": "tsx supabase/seed-kijani-full.ts",
+    "db:seed-kijani-behaviour": "tsx supabase/seed-kijani-behaviour.ts",
     "db:fresh": "npm run db:reset && npm run db:seed && npm run db:seed-org",
     "db:simulate-trip": "tsx --env-file=.env supabase/simulate-trip.ts",
     "db:simulate-kijani": "tsx supabase/simulate-kijani.ts"

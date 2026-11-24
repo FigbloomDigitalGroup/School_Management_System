@@ -1,3 +1,4 @@
+import { LearnerBehaviour } from "../../components/behaviour/Behaviour";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   addLearner, archiveLearners, deleteLearners, fetchArchivedLearners, fetchPeopleRoster, learnerCount, restoreLearners, reviewStaffPhoto, setTeacherQualified,
@@ -462,6 +463,12 @@ export function People() {
           )}
           {manage.kind === "students" && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
+          )}
+          {manage.kind === "students" && (fullAdmin || adminAreas.includes("discipline")) && (
+            <section className="mt-5">
+              <h3 className="mb-2 text-small font-semibold">Behaviour</h3>
+              <LearnerBehaviour studentId={manageRow.id} tenantId={tenant.id} staff firstName={manageRow.full_name.split(" ")[0] ?? null} canVoid={() => true} />
+            </section>
           )}
           {manage.kind === "students" && (
             <section className="mt-5">
