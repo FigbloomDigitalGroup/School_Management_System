@@ -29,3 +29,4 @@ export {
   apiFetchChildMaterials, apiFetchChildReportCards, levelOfChildClass, type FamilyMaterialView, type FamilyReportCardView,
 } from "./parentApi";
 export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAuthorizationView } from "./parentHealthApi";
+export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";
