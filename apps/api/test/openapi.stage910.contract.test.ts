@@ -68,7 +68,8 @@ describe("OA-1 static contract", () => {
       if (rb && rb.additionalProperties === true) bad.push(`${key}: request body allows arbitrary properties`);
     }
     expect(bad).toEqual([]);
-    expect(stage910Ops().length).toBe(84);
+    // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive.
+    expect(stage910Ops().length).toBe(89);
   });
 });
 
@@ -79,7 +80,7 @@ describe("OA-1 runtime conformance tour", () => {
   const covered = new Set<string>();
   const problems: string[] = [];
 
-  async function call(method: "GET" | "POST" | "PUT", template: string, vars: Record<string, string>, payload?: unknown, query = "") {
+  async function call(method: "GET" | "POST" | "PUT" | "PATCH", template: string, vars: Record<string, string>, payload?: unknown, query = "") {
     const url = template.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? `MISSING_${k}`) + query;
     const res = await ctx.app.inject({
       method,
@@ -143,9 +144,11 @@ describe("OA-1 runtime conformance tour", () => {
     await call("POST", `${T}/academic-terms/{termId}/set-current`, v, {});
     v.subjectId = (await call("POST", `${T}/subjects`, v, { code: "TOUR", name: "Tour subject" })).subject.id;
     await call("GET", `${T}/subjects`, v);
-    v.classId = (await call("POST", `${T}/classes`, v, { academic_year_id: v.academicYearId, name: "Tour class", form_level: 1, stream: "East" })).school_class.id;
+    await call("PATCH", `${T}/subjects/{subjectId}`, v, { education_level: "secondary", min_form_level: 1, max_form_level: 4, is_core: false });
+    v.classId = (await call("POST", `${T}/classes`, v, { academic_year_id: v.academicYearId, name: "Tour class", form_level: 1, stream: "East", room: "Tour room" })).school_class.id;
     await call("GET", `${T}/classes`, v);
     await call("GET", `${T}/classes/{classId}`, v);
+    await call("PATCH", `${T}/classes/{classId}`, v, { room: "Tour lab", class_teacher_staff_id: null });
     const learner = await ctx.app.inject({
       method: "POST",
       url: `/v1/tenants/${ids.tenantA}/learners`,
@@ -162,7 +165,15 @@ describe("OA-1 runtime conformance tour", () => {
       payload: { full_name: "Tour Teacher", classification: "teacher", userId: ids.teacherA },
     });
     const assignmentId = (await call("POST", `${T}/teaching-assignments`, v, { staff_member_id: staff.json().staff.id, class_id: v.classId, subject_id: v.subjectId })).assignment.id;
+    v.assignmentId = assignmentId;
     await call("GET", `${T}/teaching-assignments`, v);
+    const secondStaff = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/staff`,
+      headers: { authorization: `Bearer ${token}`, "x-tenant-id": ids.tenantA },
+      payload: { full_name: "Tour Teacher Two", classification: "teacher" },
+    });
+    await call("PATCH", `${T}/teaching-assignments/{assignmentId}`, v, { staff_member_id: secondStaff.json().staff.id });
     await call("POST", `${T}/timetable-slots`, v, { class_id: v.classId, subject_id: v.subjectId, teaching_assignment_id: assignmentId, day_of_week: 2, starts_at: "08:00", ends_at: "08:40", room: "Lab" });
     await call("GET", `${T}/timetable-slots`, v, undefined, `?classId=${v.classId}`);
 
@@ -247,6 +258,9 @@ describe("OA-1 runtime conformance tour", () => {
     await call("GET", `${T}/early-sign-outs/{signOutId}`, v);
     await call("POST", `${T}/early-sign-outs/{signOutId}/void`, v, { reason: "Entered in error" });
     await call("POST", `${T}/class-memberships/{membershipId}/archive`, v, {});
+    // migration 101: end the assignment, then archive the class (its only learner has just left it)
+    await call("POST", `${T}/teaching-assignments/{assignmentId}/archive`, v);
+    await call("POST", `${T}/classes/{classId}/archive`, v);
 
     expect(problems).toEqual([]);
     const missing = stage910Ops().filter((k) => !covered.has(k));
