@@ -207,6 +207,8 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   // leave applications waiting on this person in Figbloom HR (20261105800000): the shell shows it to approvers only
   // (the school's admins, the leave and fees areas) while the school's leave is HR's; HR decides who has items
   "admin/leave-to-approve": null,
+  // Figbloom HR & Payroll for the school (HR_CONNECT_SPEC.md): the same people who may open HR (hrHandoff.ts mayOfferHr)
+  "admin/hr": "fees",
 };
 
 /** Whether this access opens that admin page. A page not listed is full admins only. */

@@ -74,7 +74,7 @@ select pg_temp.check('the list has every school',
   (select count(*) from l) = (select count(*) from tenants));
 select pg_temp.check('a row has exactly the contract''s fields',
   (select array_agg(k order by k) from jsonb_object_keys((select row from l where row ->> 'id' = current_setting('t.a'))) k)
-  = array['admin_email','admins','created_at','id','last_activity_at','name','organization','parents','slug','status','status_reason','students','teachers']);
+  = array['admin_email','admins','created_at','hr_requested_at','id','last_activity_at','name','organization','parents','slug','status','status_reason','students','teachers']);
 select pg_temp.check('admins lists the school''s current admins with a real email, as {email, name, role}',
   (select row -> 'admins' from l where row ->> 'id' = current_setting('t.a'))
   = (select coalesce(jsonb_agg(jsonb_build_object('email', e.email, 'name', e.full_name, 'role', 'school_admin') order by e.created_at, e.id), '[]'::jsonb)

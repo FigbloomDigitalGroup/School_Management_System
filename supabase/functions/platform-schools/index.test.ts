@@ -170,7 +170,17 @@ describe("platform-schools handle", () => {
         teachers: 2,
         parents: 1,
         last_activity_at: "2026-11-01T17:22:00Z",
+        hr_requested_at: null,
       });
+    });
+
+    it("hr_requested_at: when the school asked Figbloom for HR & Payroll (20261124100000), ISO in seconds, or null", async () => {
+      const admin = makeAdmin();
+      Object.assign(admin.rowsIn("tenants").find((t) => t.id === TRIAL)!, { hr_requested_at: "2026-11-20T08:30:15.789+00:00", hr_requested_by: "p-x" });
+      const body = await (await handle(call({ action: "list" }), deps(admin))).json();
+      assertEquals(body.schools.find((s: { id: string }) => s.id === TRIAL).hr_requested_at, "2026-11-20T08:30:15Z");
+      assertEquals(body.schools.find((s: { id: string }) => s.id === KILIMANI).hr_requested_at, null);
+      assert(!JSON.stringify(body).includes("p-x"), "who asked stays in Schools");
     });
 
     it("passes statuses through as Schools stores them, with the reason and no group", async () => {
@@ -237,7 +247,7 @@ describe("platform-schools handle", () => {
       const body = await (await handle(call({ action: "list" }), deps(admin))).json();
       for (const row of body.schools) {
         assertEquals(Object.keys(row).sort(), [
-          "admin_email", "admins", "created_at", "id", "last_activity_at", "name", "organization", "parents",
+          "admin_email", "admins", "created_at", "hr_requested_at", "id", "last_activity_at", "name", "organization", "parents",
           "slug", "status", "status_reason", "students", "teachers",
         ]);
       }
