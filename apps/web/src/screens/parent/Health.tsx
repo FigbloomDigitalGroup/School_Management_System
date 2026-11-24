@@ -30,7 +30,7 @@ export function ParentHealth() {
   const toast = useToast();
   const can = parentCapabilities();
   const { tenant } = useTenantSession();
-  const { child } = useParentData();
+  const { child, loading: kidsLoading } = useParentData();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => (child ? fetchChildMedical(child.id) : Promise.resolve(null)), [child?.id, reloadKey]);
   const [asking, setAsking] = useState(false);
@@ -62,7 +62,9 @@ export function ParentHealth() {
         actions={<div className="flex flex-wrap items-center gap-2"><ChildSwitcher />{can.medicationRequests && child && <Button variant="accent" onClick={() => setAsking(true)}>Ask the nurse to give a medicine</Button>}</div>}
       />
       <div className="grid gap-5 px-7 py-6">
-        {error ? <ErrorLine what="health records" error={error} /> : loading || !data ? <TableSkeleton rows={5} /> : (
+        {!child && !kidsLoading ? (
+          <EmptyState title="No child linked" body="This account is not yet linked to a learner. Contact the school office." />
+        ) : error ? <ErrorLine what="health records" error={error} /> : loading || kidsLoading || !data ? <TableSkeleton rows={5} /> : (
           <>
             {data.family && child && (
               <MedicineConsent first={child.first} authorizations={data.family.authorizations} onChanged={() => setReloadKey((k) => k + 1)} />
