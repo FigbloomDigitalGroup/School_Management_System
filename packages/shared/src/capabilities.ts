@@ -181,3 +181,41 @@ const LEAVE_ON_API: LeaveCapabilities = { hrLeave: false, optionalReason: false 
 export function leaveCapabilities(): LeaveCapabilities {
   return onApi() ? LEAVE_ON_API : LEAVE_ON_SUPABASE;
 }
+
+/** The admin Inventory screen (admin/inventory). */
+export interface InventoryCapabilities {
+  /** Editing an existing inventory item (no PATCH /inventory/items/{itemId} endpoint on API). */
+  editItem: boolean;
+  /** Putting a written-off item back on the register (no unretire endpoint; GET /inventory/items lists active items only). */
+  unretireItem: boolean;
+  /** Purchase date, unit cost, and item notes (not stored on the API's InventoryItem schema). */
+  itemCostAndNotes: boolean;
+  /** Closed-issue history tab and Lost counter (GET /inventory/issues lists open issues only). */
+  issueHistory: boolean;
+  /** Adding a note when issuing an item (POST /inventory/issues accepts no note; closing an issue does). */
+  issueNote: boolean;
+  /** Charging a learner's fees for lost or damaged items (waits on closed-issue history and charge-by-issue lookup). */
+  chargeToFees: boolean;
+}
+
+const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
+  editItem: true,
+  unretireItem: true,
+  itemCostAndNotes: true,
+  issueHistory: true,
+  issueNote: true,
+  chargeToFees: true,
+};
+
+const INVENTORY_ON_API: InventoryCapabilities = {
+  editItem: false,
+  unretireItem: false,
+  itemCostAndNotes: false,
+  issueHistory: false,
+  issueNote: false,
+  chargeToFees: false,
+};
+
+export function inventoryCapabilities(): InventoryCapabilities {
+  return onApi() ? INVENTORY_ON_API : INVENTORY_ON_SUPABASE;
+}

@@ -1,3 +1,5 @@
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import type { IssueStatus } from "./inventory";
 
@@ -78,6 +80,7 @@ export async function fetchInvoiceCharges(invoiceIds: string[]): Promise<FeeChar
 
 /** The school's charges made for inventory hand-outs, keyed by issue: the Inventory screen's "Charged" marks. Standing ones only. */
 export async function fetchIssueCharges(tenantId: string): Promise<Map<string, FeeCharge>> {
+  if (onApi()) return new Map();
   const { data, error } = await supabase().from("fee_charges").select(CHARGE_COLS)
     .eq("tenant_id", tenantId).not("issue_id", "is", null).is("voided_at", null).returns<ChargeRow[]>();
   if (error) throw new Error(error.message);
@@ -88,6 +91,7 @@ export async function fetchIssueCharges(tenantId: string): Promise<Map<string, F
 
 /** Adds a charge to the learner's invoice for the current term. Returns the charge's id. */
 export async function chargeLearner(input: { studentId: string; amountCents: number; reason: string; issueId?: string | null }): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Charging inventory losses to fees");
   const { data, error } = await supabase().rpc("charge_learner", {
     p_student_id: input.studentId, p_amount_cents: input.amountCents, p_reason: input.reason, p_issue_id: input.issueId ?? null,
   });
@@ -97,6 +101,7 @@ export async function chargeLearner(input: { studentId: string; amountCents: num
 
 /** Cancels a charge; the invoice total comes down by its amount. Refused once it has been paid for. */
 export async function voidFeeCharge(chargeId: string, reason: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Cancelling inventory fee charges");
   const { error } = await supabase().rpc("void_fee_charge", { p_charge_id: chargeId, p_reason: reason });
   if (error) throw new Error(error.message);
 }

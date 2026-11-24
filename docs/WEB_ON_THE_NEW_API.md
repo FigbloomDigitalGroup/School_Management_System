@@ -48,6 +48,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Leave** (`admin/leave` and `teacher/leave`): teachers submit leave requests (dates and reason), view their history, and
   withdraw pending requests; school admins and Leave-area holders review pending requests, approve or reject them with a note
   (sending an in-app notice to the teacher), and view past requests.
+- **Inventory** (`admin/inventory`): view the register of active items with out/available counts, add stock or tracked-asset
+  items, issue copies to learners, user-linked staff, or a whole class, view Out now and Overdue issues, record returns
+  (returned, damaged, or lost), write off items with nothing out, and export CSV.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -109,6 +112,26 @@ How the model is mapped (`packages/shared/src/api/leaveApi.ts`):
 - `decideLeaveRequest` posts the review and then creates and publishes an in-app `user`-audience announcement; if only the
   announcement fails (for example, a Leave-only reviewer without `resource.announcement.write`), the decision stands and the
   screen shows the notice error.
+### Inventory screen: what the API cannot do yet
+
+`inventoryCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet:
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Edit an inventory item | no `PATCH /v1/tenants/{tenantId}/inventory/items/{itemId}` endpoint |
+| Restore a written-off item ("Put back on the register") | no unretire endpoint, and `GET /inventory/items` returns active items only |
+| Purchase date, unit cost, and item notes | not stored on the API's `InventoryItem` schema |
+| History tab and Lost counter | `GET /inventory/issues` returns open (`status = 'out'`) issues only |
+| Hand-out note when issuing an item | `POST /inventory/issues` has no `note` field (`POST .../close` does) |
+| Charge lost or damaged items to fees | waits on closed-issue history and charge-by-issue lookup |
+| Teacher's "My items" (`teacher/items`) | `GET /inventory/issues` requires `resource.inventory.read`, which regular teachers do not hold |
+
+How the model is mapped (`packages/shared/src/api/inventoryApi.ts`):
+
+- `POST /inventory/issues` requires `holder_user_id` to be an active school membership `user_id`, so the staff picker lists
+  only staff directory records linked to a user account.
+- Issuing to a whole class verifies that enough copies are on the shelf for every active learner in the class who does not
+  already hold one, then sends individual `POST /inventory/issues` calls 4 at a time (`settlePool`).
 
 Where the model differs it is mapped in `packages/shared/src/api/setupApi.ts`: a class belongs to an academic year (the screen
 shows the current year's classes, and a class needs a current year, which "Start a term" makes); a teacher is a staff record,
@@ -160,6 +183,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
 - `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
 - `packages/shared/src/api/leaveApi.ts`: the API side of `leave.ts` (`admin/leave` and `teacher/leave`), plus the API short-circuit in `hrLeave.ts`.
+- `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
@@ -225,3 +249,6 @@ inside the same 30 seconds needs the next code.
     requester's name. The web resolves names from `GET /v1/tenants/{tenantId}/staff`, which fails with 403 for a teacher holding
     only the Leave area (not People) and misses any user without a linked staff record (falling back to `"Unknown teacher"`).
     Including `staff_name` on `LeaveRequest` would remove the extra call and fix Leave-only reviewers.
+13. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
+    only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
+    issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.
