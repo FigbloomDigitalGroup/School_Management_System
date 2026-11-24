@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { cancelLeaveRequest, fetchMyLeaveRequests, formatShortDate, requestLeave, type LeaveStatus } from "@figbloom/shared";
+import {
+  API_LEAVE_REASON_MIN, cancelLeaveRequest, fetchMyLeaveRequests, formatShortDate, leaveCapabilities, requestLeave,
+  type LeaveStatus,
+} from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -26,6 +29,12 @@ const STATUS_LABEL: Record<LeaveStatus, string> = {
  * as before, everywhere else. Nothing shows until the answer is in, so neither form flashes up first.
  */
 export function TeacherLeave() {
+  const { hrLeave } = leaveCapabilities();
+  if (!hrLeave) return <SchoolsLeave />;
+  return <HrOrSchoolsLeave />;
+}
+
+function HrOrSchoolsLeave() {
   const session = useTenantSession();
   const access = useHrLeaveAccess(session);
   if (!access) return <div className="px-7 py-6"><TableSkeleton rows={4} /></div>;
@@ -41,6 +50,7 @@ export function TeacherLeave() {
 function SchoolsLeave() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
+  const { optionalReason } = leaveCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   // No `loading`: a reload after requesting or withdrawing keeps the list up.
   const { data: requests, error } = useAsync(() => fetchMyLeaveRequests(profile.id), [profile.id, reloadKey]);
@@ -54,6 +64,10 @@ function SchoolsLeave() {
   async function submit() {
     if (!startsOn || !endsOn) { toast("Pick a start and end date.", "error"); return; }
     if (endsOn < startsOn) { toast("The end date is before the start date.", "error"); return; }
+    if (!optionalReason && reason.trim().length < API_LEAVE_REASON_MIN) {
+      toast(`Give a short reason (at least ${API_LEAVE_REASON_MIN} characters).`, "error");
+      return;
+    }
     setSaving(true);
     try {
       await requestLeave({ tenantId: tenant.id, teacherId: profile.id, startsOn, endsOn, reason });
@@ -91,7 +105,7 @@ function SchoolsLeave() {
             <TextField id="leave-end" label="To" type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
           </div>
           <TextArea
-            id="leave-reason" label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)}
+            id="leave-reason" label={optionalReason ? "Reason (optional)" : "Reason"} value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. Family event out of town"
           />
           <Button variant="accent" disabled={!startsOn || !endsOn || saving} onClick={() => void submit()}>

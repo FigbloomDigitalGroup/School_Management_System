@@ -25,6 +25,7 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
   });
 
   test("school admin signs in with MFA and loads every ported console page", async ({ page }, testInfo) => {
+    testInfo.setTimeout(Math.max(testInfo.timeout, 60_000));
     const seed = loadSeed();
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));
@@ -41,13 +42,27 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
     await page.locator("#api-password").fill(seed.admin.password);
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    // Admin accounts require TOTP challenge under MFA_ENFORCEMENT=enforce.
+    // Admin accounts require TOTP challenge under MFA_ENFORCEMENT=enforce. Because TOTP steps are single-use
+    // and an earlier spec (e.g. leave.spec.ts) may have spent stepOffset 0 inside the same 30-second window,
+    // wait for the next 30-second window on replay instead of spending +1 (the API only accepts a step later than
+    // the last one it accepted, so +1 would also refuse the seed re-run that follows, at offset 0, for two steps).
     const mfaInput = page.locator("#api-mfa-answer");
     await expect(mfaInput).toBeVisible({ timeout: 15_000 });
-    await mfaInput.fill(computeTotpCode(seed.admin.totpSecret));
-    await page.getByRole("button", { name: "Continue" }).click();
-
-    await expect(page).toHaveURL(new RegExp(`/s/${seed.slug}/admin`), { timeout: 15_000 });
+    const adminUrl = new RegExp(`/s/${seed.slug}/admin`);
+    for (const attempt of [0, 1]) {
+      if (attempt === 1) {
+        testInfo.setTimeout(testInfo.timeout + 31_000);
+        await page.waitForTimeout(30_000 - (Date.now() % 30_000) + 750);
+      }
+      await mfaInput.fill(computeTotpCode(seed.admin.totpSecret, Date.now(), 0));
+      await page.getByRole("button", { name: "Continue" }).click();
+      try {
+        await expect(page).toHaveURL(adminUrl, { timeout: 4_000 });
+        break;
+      } catch {
+        if (attempt === 1) throw new Error("Admin MFA sign-in did not complete after waiting for next TOTP step.");
+      }
+    }
     await expect(page.getByTestId("api-home")).toBeVisible();
     // The school name is in the sidebar and in the page heading; the heading is the one this page owns.
     await expect(page.getByRole("heading", { name: seed.schoolName })).toBeVisible();
@@ -78,6 +93,9 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
 
     await page.goto(`/s/${seed.slug}/admin/announcements`);
     await expect(page.getByText("Welcome to Term 1").first()).toBeVisible({ timeout: 15_000 });
+
+    await page.goto(`/s/${seed.slug}/admin/leave`);
+    await expect(page.getByRole("heading", { name: "Leave requests" })).toBeVisible({ timeout: 15_000 });
 
     // The principal has no staff record, so teaches no class: the teacher's register screen offers none, not the
     // whole school (it used to fall back to every class).

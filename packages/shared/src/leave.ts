@@ -1,3 +1,12 @@
+import { onApi } from "./backend";
+import {
+  apiCancelLeaveRequest,
+  apiDecideLeaveRequest,
+  apiFetchAllLeaveRequests,
+  apiFetchMyLeaveRequests,
+  apiRequestLeave,
+  apiReviewLeaveRequest,
+} from "./api/leaveApi";
 import { formatShortDate } from "./parentData";
 import { supabase } from "./supabase";
 
@@ -24,6 +33,7 @@ export interface LeaveRequestRow extends LeaveRequest {
 
 /** A teacher's own leave history, most recent first. */
 export async function fetchMyLeaveRequests(teacherId: string): Promise<LeaveRequest[]> {
+  if (onApi()) return apiFetchMyLeaveRequests(teacherId);
   const { data, error } = await supabase()
     .from("leave_requests").select("*").eq("teacher_id", teacherId).order("starts_on", { ascending: false })
     .returns<LeaveRequest[]>();
@@ -34,6 +44,7 @@ export async function fetchMyLeaveRequests(teacherId: string): Promise<LeaveRequ
 export async function requestLeave(input: {
   tenantId: string; teacherId: string; startsOn: string; endsOn: string; reason: string;
 }): Promise<void> {
+  if (onApi()) return apiRequestLeave(input);
   const { error } = await supabase().from("leave_requests").insert({
     tenant_id: input.tenantId,
     teacher_id: input.teacherId,
@@ -46,12 +57,14 @@ export async function requestLeave(input: {
 
 /** Withdraws a request that's still pending — RLS also enforces this isn't allowed once reviewed. */
 export async function cancelLeaveRequest(id: string): Promise<void> {
+  if (onApi()) return apiCancelLeaveRequest(id);
   const { error } = await supabase().from("leave_requests").update({ status: "cancelled" }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 /** Every leave request in the school — what the principal's review screen is built from. */
 export async function fetchAllLeaveRequests(tenantId: string): Promise<LeaveRequestRow[]> {
+  if (onApi()) return apiFetchAllLeaveRequests(tenantId);
   const { data, error } = await supabase()
     .from("leave_requests")
     .select("*, profiles!leave_requests_teacher_id_fkey(full_name)")
@@ -88,6 +101,7 @@ export async function decideLeaveRequest(input: {
   status: "approved" | "rejected";
   note: string;
 }): Promise<{ notifyError: string | null }> {
+  if (onApi()) return apiDecideLeaveRequest(input);
   const { tenantId, reviewerId, request: r, status, note } = input;
   await reviewLeaveRequest(r.id, reviewerId, status, note);
   const dates = `${formatShortDate(r.starts_on)} to ${formatShortDate(r.ends_on)}`;
@@ -107,6 +121,7 @@ export async function decideLeaveRequest(input: {
 export async function reviewLeaveRequest(
   id: string, reviewerId: string, status: "approved" | "rejected", note: string,
 ): Promise<void> {
+  if (onApi()) return apiReviewLeaveRequest(id, reviewerId, status, note);
   const { error } = await supabase().from("leave_requests").update({
     status, reviewed_by: reviewerId, reviewed_at: new Date().toISOString(), review_note: note.trim() || null,
   }).eq("id", id);
