@@ -24,7 +24,6 @@ describe("GET /v1/tenants/:tenantId/subjects is teacher-scoped for a caller with
   let taught: string;
   let inTimetableOnly: string;
   let someoneElses: string;
-  let unused: string;
 
   const headers = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}`, "x-tenant-id": ids.tenantA });
   const call = (method: "GET" | "POST", path: string, token: string, payload?: Json) =>
@@ -59,7 +58,7 @@ describe("GET /v1/tenants/:tenantId/subjects is teacher-scoped for a caller with
     taught = await created("/subjects", { code: "SBT", name: "Taught subject" }, "subject");
     inTimetableOnly = await created("/subjects", { code: "SBL", name: "Timetable-only subject" }, "subject");
     someoneElses = await created("/subjects", { code: "SBO", name: "Other class subject" }, "subject");
-    unused = await created("/subjects", { code: "SBU", name: "Unused subject" }, "subject");
+    await created("/subjects", { code: "SBU", name: "Unused subject" }, "subject");
 
     // Before they are linked to a staff record the teacher teaches nothing (checked first, below).
     const mine = (await call("POST", "/staff", admin, { full_name: "Teacher A", classification: "teacher", userId: ids.teacherA })).json().staff.id as string;
