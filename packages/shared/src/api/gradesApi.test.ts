@@ -57,7 +57,6 @@ afterEach(() => {
   initBackend({ kind: "supabase" });
 });
 
-const year = { id: YEAR, tenantId: T, label: "2026", starts_on: "2026-01-01", ends_on: "2026-12-31", is_current: true, ...stamp };
 const term = { id: TERM, tenantId: T, academic_year_id: YEAR, index: 2, label: "Term 2, 2026", starts_on: "2026-05-01", ends_on: "2026-08-01", is_current: true, ...stamp };
 const klass = (id: string, name: string) => ({
   id, tenantId: T, academic_year_id: YEAR, name, education_level: "secondary", form_level: 2, pathway: null, stream: null, class_teacher_staff_id: null,
@@ -77,7 +76,7 @@ describe("an exam is a title in a term", () => {
     const groups = groupExams([
       paper({ id: "a", title: "Mock 1" }), paper({ id: "b", title: " mock 1 ", subject_id: S2 }), paper({ id: "c", title: "Mock 1", kind: "homework" }),
       paper({ id: "d", title: "Opener", max_score: "100" }),
-    ]);
+    ] as Parameters<typeof groupExams>[0]);
     expect(groups.map((g) => [g.name, g.papers.length])).toEqual([["Mock 1", 2], ["Opener", 1]]);
   });
 
