@@ -222,6 +222,52 @@ export function leaveCapabilities(): LeaveCapabilities {
   return onApi() ? LEAVE_ON_API : LEAVE_ON_SUPABASE;
 }
 
+/** The timetable screens: teacher/timetable, and the Timetable window of a class on admin/classes. */
+export interface TimetableCapabilities {
+  /** The week-grid editor that saves a class's whole timetable at once (the API can only add a period). */
+  classTimetableEditor: boolean;
+  /** API only: a class's periods listed, with an "Add a period" form. */
+  classPeriods: boolean;
+  /** The "Live classes" panel on a teacher's timetable (calls are not in the API). */
+  liveClasses: boolean;
+  /** "Needs cover" and "Covered by" on a teacher's timetable: leave worked out against the week (the API's attendance cover is by class and day, not by period). */
+  coverageFlags: boolean;
+}
+
+const TIMETABLE_ON_SUPABASE: TimetableCapabilities = { classTimetableEditor: true, classPeriods: false, liveClasses: true, coverageFlags: true };
+const TIMETABLE_ON_API: TimetableCapabilities = { classTimetableEditor: false, classPeriods: true, liveClasses: false, coverageFlags: false };
+
+export function timetableCapabilities(): TimetableCapabilities {
+  return onApi() ? TIMETABLE_ON_API : TIMETABLE_ON_SUPABASE;
+}
+
+/** The higher-education screens: admin/courses and teacher/sections. */
+export interface CoursesCapabilities {
+  /** A course's department (the API's course is a code, a title and credit hours). */
+  courseDepartment: boolean;
+  /** Naming a section's instructor (a section has none in the API). */
+  sectionInstructor: boolean;
+  /** A section's room and capacity. */
+  sectionRoomAndCapacity: boolean;
+  /** A section's weekly schedule. */
+  sectionSchedule: boolean;
+  /** Dropping a student from a section (an enrolment can be made, not ended). */
+  dropEnrolment: boolean;
+  /** "My sections" for a lecturer: needs the instructor of a section. */
+  mySections: boolean;
+}
+
+const COURSES_ON_SUPABASE: CoursesCapabilities = {
+  courseDepartment: true, sectionInstructor: true, sectionRoomAndCapacity: true, sectionSchedule: true, dropEnrolment: true, mySections: true,
+};
+const COURSES_ON_API: CoursesCapabilities = {
+  courseDepartment: false, sectionInstructor: false, sectionRoomAndCapacity: false, sectionSchedule: false, dropEnrolment: false, mySections: false,
+};
+
+export function coursesCapabilities(): CoursesCapabilities {
+  return onApi() ? COURSES_ON_API : COURSES_ON_SUPABASE;
+}
+
 /** The admin Inventory screen (admin/inventory). */
 export interface InventoryCapabilities {
   /** Editing an existing inventory item (no PATCH /inventory/items/{itemId} endpoint on API). */

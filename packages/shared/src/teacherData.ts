@@ -2,6 +2,8 @@ import {
   apiFetchClassRoster, apiFetchCurrentTerm, apiFetchTeacherClasses, apiFetchTeacherClassProgress,
   apiFetchTodayAttendanceMarks, apiWriteAttendance,
 } from "./api/attendanceApi";
+import { apiFetchTeacherClassTimetable } from "./api/timetableApi";
+import { apiFetchMyClasses } from "./api/teachingApi";
 import { apiFetchNotices, apiFetchSentByMe, apiMarkNoticeRead, apiSendClassMessage } from "./api/noticesApi";
 import { onApi } from "./backend";
 import {
@@ -147,6 +149,7 @@ export async function fetchTeacherClassTimetable(classId: string, teacherId: str
   byDay: Record<Weekday, TeacherTimetableRow[]>;
   isClassTeacher: boolean;
 }> {
+  if (onApi()) return apiFetchTeacherClassTimetable(classId, teacherId);
   const sb = supabase();
   const [slots, { data: classRow, error: e1 }, { data: assignmentRows, error: e2 }] = await Promise.all([
     fetchClassTimetableSlots(classId),
@@ -204,6 +207,7 @@ export interface MyClassRow extends ClassGroup {
 /** "My classes" — every class a teacher is assigned to, whether as class
  *  teacher or a subject teacher, with what they teach there and roll size. */
 export async function fetchMyClasses(teacherId: string): Promise<MyClassRow[]> {
+  if (onApi()) return apiFetchMyClasses(teacherId);
   const classes = await fetchTeacherClasses(teacherId);
   if (!classes.length) return [];
 
