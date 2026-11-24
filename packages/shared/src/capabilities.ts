@@ -222,6 +222,34 @@ export function leaveCapabilities(): LeaveCapabilities {
   return onApi() ? LEAVE_ON_API : LEAVE_ON_SUPABASE;
 }
 
+/** The Report cards screens (admin/report-cards, teacher/report-cards). */
+export interface ReportCardsCapabilities {
+  /** Choose which exams count and configure optional sections (attendance, fees, activities, position, next term date). On the API, publishing always uses every published assessment for the class and term. */
+  selectExamsAndOptions: boolean;
+  /** Draft, send-to-families, and withdraw workflow (POST /report-cards publishes immediately with no draft or withdraw endpoint). */
+  draftWorkflow: boolean;
+  /** Per-learner class teacher and principal comments (not stored on the API's report_card_publications yet). */
+  comments: boolean;
+  /** Signing report cards and printing signatures on PDFs (waits on C12 / FIG-1880). */
+  signatures: boolean;
+  /** Bloom AI comment drafting (calls a Supabase edge function). */
+  aiComments: boolean;
+  /** Clearing a competency rating back to unrated (the API has no DELETE /competency-ratings endpoint yet). */
+  clearCompetencyRating: boolean;
+}
+
+const REPORT_CARDS_ON_SUPABASE: ReportCardsCapabilities = {
+  selectExamsAndOptions: true, draftWorkflow: true, comments: true, signatures: true, aiComments: true, clearCompetencyRating: true,
+};
+
+const REPORT_CARDS_ON_API: ReportCardsCapabilities = {
+  selectExamsAndOptions: false, draftWorkflow: false, comments: false, signatures: false, aiComments: false, clearCompetencyRating: false,
+};
+
+export function reportCardsCapabilities(): ReportCardsCapabilities {
+  return onApi() ? REPORT_CARDS_ON_API : REPORT_CARDS_ON_SUPABASE;
+}
+
 /** The timetable screens: teacher/timetable, and the Timetable window of a class on admin/classes. */
 export interface TimetableCapabilities {
   /** The week-grid editor that saves a class's whole timetable at once (the API can only add a period). */
@@ -455,4 +483,54 @@ const PARENT_ON_API: ParentCapabilities = {
 
 export function parentCapabilities(): ParentCapabilities {
   return onApi() ? PARENT_ON_API : PARENT_ON_SUPABASE;
+}
+
+/** AI and Bloom screens: School assistant, Bloom study helper, and Bloom chat. */
+export interface AiCapabilities {
+  /** Saved Bloom chat history (list, open, rename, delete chats; apps/api has no chat persistence yet). */
+  savedChats: boolean;
+  /** Web search toggle and web citations in Bloom chat (not in the bloom-school/1 contract). */
+  webSearch: boolean;
+  /** Attaching files from Google Drive to Bloom chat questions (bloom-school/1 takes text prompts only). */
+  chatAttachments: boolean;
+  /** Maximum characters in one Bloom prompt (4,000 on bloom-school/1; 12,000 on Supabase). */
+  promptMaxChars: number;
+  /** Structured School assistant setup plans (creating classes, subjects, terms, exams, fees; bloom-school/1 has tools: []). */
+  guideSetupPlans: boolean;
+  /** Structured AI drafting (lesson plans, paper import, report comments, questions, homework, message drafting/translation; C13). */
+  aiDrafting: boolean;
+  /** Per-learner monthly question and token usage counts on the Study helper roster (not tracked by the API yet). */
+  studyHelperUsage: boolean;
+  /** The whole chat goes in one prompt (apps/api takes one prompt, not a list of turns), so Bloom reads only the newest part of a long chat. */
+  chatInOnePrompt: boolean;
+  /** A switch in School settings that turns Bloom on or off for the school (on apps/api Bloom is on once the school has study helper settings, and has no switch). */
+  schoolSwitch: boolean;
+}
+
+const AI_ON_SUPABASE: AiCapabilities = {
+  savedChats: true,
+  webSearch: true,
+  chatAttachments: true,
+  promptMaxChars: 12_000,
+  guideSetupPlans: true,
+  aiDrafting: true,
+  studyHelperUsage: true,
+  chatInOnePrompt: false,
+  schoolSwitch: true,
+};
+
+const AI_ON_API: AiCapabilities = {
+  savedChats: false,
+  webSearch: false,
+  chatAttachments: false,
+  promptMaxChars: 4_000,
+  guideSetupPlans: false,
+  aiDrafting: false,
+  studyHelperUsage: false,
+  chatInOnePrompt: true,
+  schoolSwitch: false,
+};
+
+export function aiCapabilities(): AiCapabilities {
+  return onApi() ? AI_ON_API : AI_ON_SUPABASE;
 }

@@ -105,8 +105,11 @@ export async function createAcademicYear(
 
 export async function listAcademicYears(
   tx: Tx,
-  input: { tenantId: string; page: PageInput },
+  /** `scopeYearIds`: null = every year; otherwise only these (teacher reads, docs/TEACHER-READS.md). */
+  input: { tenantId: string; page: PageInput; scopeYearIds?: string[] | null },
 ): Promise<Page<PublicAcademicYear>> {
+  const scope = input.scopeYearIds ?? null;
+  if (scope !== null && scope.length === 0) return { items: [], page: { next_cursor: null, limit: input.page.limit } };
   const res = await pageQuery<{
     id: string;
     tenant_id: string;
@@ -119,8 +122,8 @@ export async function listAcademicYears(
   }>(
     tx,
     `SELECT id, tenant_id, label, starts_on, ends_on, is_current, created_at, updated_at
-     FROM academic_years WHERE tenant_id = $1`,
-    [input.tenantId],
+     FROM academic_years WHERE tenant_id = $1${scope !== null ? " AND id = ANY($2::uuid[])" : ""}`,
+    scope !== null ? [input.tenantId, scope] : [input.tenantId],
     { name: "academic_years", expr: "q.starts_on", type: "date", dir: "desc" },
     input.page,
   );
@@ -338,10 +341,15 @@ function mapTerm(row: {
 
 export async function listTerms(
   tx: Tx,
-  input: { tenantId: string; academicYearId?: string; page: PageInput },
+  /** `scopeYearIds`: null = every term; otherwise only the terms of these years (teacher reads, docs/TEACHER-READS.md). */
+  input: { tenantId: string; academicYearId?: string; page: PageInput; scopeYearIds?: string[] | null },
 ): Promise<Page<PublicTerm>> {
   const cols = `SELECT id, tenant_id, academic_year_id, index, label, starts_on, ends_on, is_current,
                 created_at, updated_at FROM academic_terms`;
+  const scope = input.scopeYearIds ?? null;
+  if (scope !== null && (scope.length === 0 || (input.academicYearId !== undefined && !scope.includes(input.academicYearId)))) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
   const res = input.academicYearId
     ? await pageQuery<Parameters<typeof mapTerm>[0]>(
         tx,
@@ -352,8 +360,8 @@ export async function listTerms(
       )
     : await pageQuery<Parameters<typeof mapTerm>[0]>(
         tx,
-        `${cols} WHERE tenant_id = $1`,
-        [input.tenantId],
+        `${cols} WHERE tenant_id = $1${scope !== null ? " AND academic_year_id = ANY($2::uuid[])" : ""}`,
+        scope !== null ? [input.tenantId, scope] : [input.tenantId],
         { name: "terms", expr: "q.starts_on", type: "date", dir: "desc" },
         input.page,
       );
@@ -413,10 +421,84 @@ export interface PublicSubject {
   tenantId: string;
   code: string;
   name: string;
+  /** The level the year range is read within; null = any level (migration 101). */
+  education_level: EducationLevel | null;
+  /** Lowest form/grade that takes the subject; null = no lower bound. */
+  min_form_level: number | null;
+  /** Highest form/grade that takes the subject; null = no upper bound. */
+  max_form_level: number | null;
+  is_core: boolean;
   active: boolean;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+const SUBJECT_COLS = `id, tenant_id, code, name, education_level, min_form_level, max_form_level, is_core,
+  active, archived_at, created_at, updated_at`;
+
+type SubjectRow = {
+  id: string;
+  tenant_id: string;
+  code: string;
+  name: string;
+  education_level: EducationLevel | null;
+  min_form_level: number | null;
+  max_form_level: number | null;
+  is_core: boolean;
+  active: boolean;
+  archived_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+function mapSubject(row: SubjectRow): PublicSubject {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    code: row.code,
+    name: row.name,
+    education_level: row.education_level,
+    min_form_level: row.min_form_level,
+    max_form_level: row.max_form_level,
+    is_core: row.is_core,
+    active: row.active,
+    archived_at: row.archived_at ? isoStamp(row.archived_at) : null,
+    created_at: isoStamp(row.created_at),
+    updated_at: isoStamp(row.updated_at),
+  };
+}
+
+/**
+ * A subject's year range: each bound 1-12, the lower not above the upper, and both inside the level's own years when a
+ * level is given (Form 1-4 for secondary, Grade 7-9 for junior secondary...). Same rule as subjects_level_year_chk (101).
+ */
+export function assertSubjectYearRange(
+  education_level: EducationLevel | null,
+  min_form_level: number | null,
+  max_form_level: number | null,
+): void {
+  for (const [field, value] of [["min_form_level", min_form_level], ["max_form_level", max_form_level]] as const) {
+    if (value != null && (value < 1 || value > 12)) throw validationError(`${field} must be between 1 and 12`);
+  }
+  if (min_form_level != null && max_form_level != null && min_form_level > max_form_level) {
+    throw validationError("min_form_level must not be above max_form_level");
+  }
+  if (education_level == null) return;
+  const band = LEVEL_YEAR[education_level];
+  for (const [field, value] of [["min_form_level", min_form_level], ["max_form_level", max_form_level]] as const) {
+    if (value != null && (value < band.min || value > band.max)) {
+      throw validationError(`${field} must be between ${band.min} and ${band.max} for ${education_level}`);
+    }
+  }
+}
+
+function subjectWriteError(err: unknown): never {
+  const c = (err as { code?: string }).code;
+  if (c === "23505") throw conflict("A subject with this code already exists");
+  // The CHECKs repeat assertSubjectYearRange; never forward a raw constraint text.
+  if (c === "23514") throw validationError("The subject's level and years do not fit together");
+  throw err;
 }
 
 export async function createSubject(
@@ -426,26 +508,25 @@ export async function createSubject(
     actorUserId: string;
     code: string;
     name: string;
+    education_level?: EducationLevel | null;
+    min_form_level?: number | null;
+    max_form_level?: number | null;
+    is_core?: boolean;
     ip?: string | null;
   },
 ): Promise<PublicSubject> {
   const code = trimRequired(input.code, "code", 32);
   const name = trimRequired(input.name, "name", 120);
+  const level = input.education_level ?? null;
+  const min = input.min_form_level ?? null;
+  const max = input.max_form_level ?? null;
+  assertSubjectYearRange(level, min, max);
   try {
-    const res = await tx.query<{
-      id: string;
-      tenant_id: string;
-      code: string;
-      name: string;
-      active: boolean;
-      archived_at: Date | string | null;
-      created_at: Date | string;
-      updated_at: Date | string;
-    }>(
-      `INSERT INTO subjects (tenant_id, code, name, created_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, tenant_id, code, name, active, archived_at, created_at, updated_at`,
-      [input.tenantId, code, name, input.actorUserId],
+    const res = await tx.query<SubjectRow>(
+      `INSERT INTO subjects (tenant_id, code, name, education_level, min_form_level, max_form_level, is_core, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${SUBJECT_COLS}`,
+      [input.tenantId, code, name, level, min, max, input.is_core ?? true, input.actorUserId],
     );
     const row = res.rows[0]!;
     await recordSecurityEvent(tx, {
@@ -455,20 +536,9 @@ export async function createSubject(
       detail: { subjectId: row.id, code: row.code },
       ip: input.ip,
     });
-    return {
-      id: row.id,
-      tenantId: row.tenant_id,
-      code: row.code,
-      name: row.name,
-      active: row.active,
-      archived_at: row.archived_at ? isoStamp(row.archived_at) : null,
-      created_at: isoStamp(row.created_at),
-      updated_at: isoStamp(row.updated_at),
-    };
+    return mapSubject(row);
   } catch (err) {
-    const c = (err as { code?: string }).code;
-    if (c === "23505") throw conflict("A subject with this code already exists");
-    throw err;
+    subjectWriteError(err);
   }
 }
 
@@ -507,67 +577,96 @@ export async function listSubjects(
     params.push(input.scopeSubjectIds);
     clauses.push(`id = ANY($${params.length}::uuid[])`);
   }
-  const res = await pageQuery<{ id: string }>(
+  const res = await pageQuery<SubjectRow>(
     tx,
-    `SELECT id, tenant_id, code, name, active, archived_at, created_at, updated_at
+    `SELECT ${SUBJECT_COLS}
        FROM subjects WHERE ${clauses.join(" AND ")}`,
     params,
     { name: "subjects", expr: "lower(q.name)", type: "text", dir: "asc" },
     input.page,
   );
-  return { page: res.page, items: (res.rows as unknown as Array<{
-    id: string;
-    tenant_id: string;
-    code: string;
-    name: string;
-    active: boolean;
-    archived_at: Date | string | null;
-    created_at: Date | string;
-    updated_at: Date | string;
-  }>).map((row) => ({
-    id: row.id,
-    tenantId: row.tenant_id,
-    code: row.code,
-    name: row.name,
-    active: row.active,
-    archived_at: row.archived_at ? isoStamp(row.archived_at) : null,
-    created_at: isoStamp(row.created_at),
-    updated_at: isoStamp(row.updated_at),
-  })) };
+  return { page: res.page, items: res.rows.map(mapSubject) };
 }
 
 export async function getSubjectById(
   tx: Tx,
   input: { tenantId: string; subjectId: string },
 ): Promise<PublicSubject> {
-  const res = await tx.query(
-    `SELECT id, tenant_id, code, name, active, archived_at, created_at, updated_at
+  const res = await tx.query<SubjectRow>(
+    `SELECT ${SUBJECT_COLS}
      FROM subjects WHERE tenant_id = $1 AND id = $2`,
     [input.tenantId, input.subjectId],
   );
-  const row = res.rows[0] as
-    | {
-        id: string;
-        tenant_id: string;
-        code: string;
-        name: string;
-        active: boolean;
-        archived_at: Date | string | null;
-        created_at: Date | string;
-        updated_at: Date | string;
-      }
-    | undefined;
+  const row = res.rows[0];
   if (!row) throw notFound("Subject not found");
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    code: row.code,
-    name: row.name,
-    active: row.active,
-    archived_at: row.archived_at ? isoStamp(row.archived_at) : null,
-    created_at: isoStamp(row.created_at),
-    updated_at: isoStamp(row.updated_at),
+  return mapSubject(row);
+}
+
+/**
+ * Partial update of a subject: code, name, level, year range, core flag. A field left out keeps its value; null clears
+ * a nullable one. The row is locked first so two concurrent updates cannot each read the same state and the later one
+ * silently drop the earlier one's fields (same pattern as the learner PATCH, P3-AUDIT-012).
+ */
+export async function updateSubject(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    subjectId: string;
+    actorUserId: string;
+    code?: string;
+    name?: string;
+    education_level?: EducationLevel | null;
+    min_form_level?: number | null;
+    max_form_level?: number | null;
+    is_core?: boolean;
+    ip?: string | null;
+  },
+): Promise<PublicSubject> {
+  await tx.query(`SELECT 1 FROM subjects WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [input.tenantId, input.subjectId]);
+  const current = await getSubjectById(tx, input);
+  if (!current.active) throw validationError("Archived subjects cannot be updated");
+  const next = {
+    code: input.code !== undefined ? trimRequired(input.code, "code", 32) : current.code,
+    name: input.name !== undefined ? trimRequired(input.name, "name", 120) : current.name,
+    education_level: input.education_level !== undefined ? input.education_level : current.education_level,
+    min_form_level: input.min_form_level !== undefined ? input.min_form_level : current.min_form_level,
+    max_form_level: input.max_form_level !== undefined ? input.max_form_level : current.max_form_level,
+    is_core: input.is_core !== undefined ? input.is_core : current.is_core,
   };
+  assertSubjectYearRange(next.education_level, next.min_form_level, next.max_form_level);
+  const changed = (Object.keys(next) as Array<keyof typeof next>).filter((k) => next[k] !== current[k]);
+  if (changed.length === 0) return current;
+  try {
+    const res = await tx.query<SubjectRow>(
+      `UPDATE subjects
+          SET code = $3, name = $4, education_level = $5, min_form_level = $6, max_form_level = $7, is_core = $8,
+              updated_at = now()
+        WHERE tenant_id = $1 AND id = $2 AND active = true
+        RETURNING ${SUBJECT_COLS}`,
+      [
+        input.tenantId,
+        input.subjectId,
+        next.code,
+        next.name,
+        next.education_level,
+        next.min_form_level,
+        next.max_form_level,
+        next.is_core,
+      ],
+    );
+    const row = res.rows[0];
+    if (!row) throw notFound("Subject not found");
+    await recordSecurityEvent(tx, {
+      eventType: "academics.subject.updated",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { subjectId: row.id, fields: changed },
+      ip: input.ip,
+    });
+    return mapSubject(row);
+  } catch (err) {
+    subjectWriteError(err);
+  }
 }
 
 // ── Classes ─────────────────────────────────────────────────────────────────
@@ -613,11 +712,16 @@ export interface PublicClass {
   pathway: Pathway | null;
   stream: string | null;
   class_teacher_staff_id: string | null;
+  /** Where the class usually meets (migration 101). */
+  room: string | null;
   active: boolean;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
+
+const CLASS_COLS = `id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream,
+  class_teacher_staff_id, room, active, archived_at, created_at, updated_at`;
 
 function mapClass(row: {
   id: string;
@@ -629,6 +733,7 @@ function mapClass(row: {
   pathway: Pathway | null;
   stream: string | null;
   class_teacher_staff_id: string | null;
+  room: string | null;
   active: boolean;
   archived_at: Date | string | null;
   created_at: Date | string;
@@ -644,11 +749,37 @@ function mapClass(row: {
     pathway: row.pathway,
     stream: row.stream,
     class_teacher_staff_id: row.class_teacher_staff_id,
+    room: row.room,
     active: row.active,
     archived_at: row.archived_at ? isoStamp(row.archived_at) : null,
     created_at: isoStamp(row.created_at),
     updated_at: isoStamp(row.updated_at),
   };
+}
+
+/** Optional free text: blank or null is "none", otherwise 1..max characters after trimming. */
+function optionalText(value: string | null | undefined, field: string, max: number): string | null {
+  return value === undefined || value === null || value.trim() === "" ? null : trimRequired(value, field, max);
+}
+
+async function assertActiveStaff(tx: Tx, tenantId: string, staffId: string, field: string): Promise<void> {
+  const staff = await tx.query(
+    `SELECT id FROM staff_members
+     WHERE tenant_id = $1 AND id = $2 AND active = true`,
+    [tenantId, staffId],
+  );
+  if (staff.rowCount === 0) {
+    throw validationError(`${field} must be an active staff member in this school`);
+  }
+}
+
+function classWriteError(err: unknown): never {
+  const c = (err as { code?: string }).code;
+  if (c === "23505") throw conflict("A class with this name already exists for the year");
+  if (c === "23503") throw validationError("Referenced year or staff member is invalid for this school");
+  // The CHECKs repeat the checks above; never forward a raw constraint text.
+  if (c === "23514") throw validationError("The class's level, year and pathway do not fit together");
+  throw err;
 }
 
 export async function createClass(
@@ -663,14 +794,13 @@ export async function createClass(
     pathway?: Pathway | null;
     stream?: string | null;
     class_teacher_staff_id?: string | null;
+    room?: string | null;
     ip?: string | null;
   },
 ): Promise<PublicClass> {
   const name = trimRequired(input.name, "name", 64);
-  const stream =
-    input.stream === undefined || input.stream === null || input.stream.trim() === ""
-      ? null
-      : trimRequired(input.stream, "stream", 32);
+  const stream = optionalText(input.stream, "stream", 32);
+  const room = optionalText(input.room, "room", 64);
   if (input.form_level != null && (input.form_level < 1 || input.form_level > 12)) {
     throw validationError("form_level must be between 1 and 12");
   }
@@ -680,22 +810,15 @@ export async function createClass(
     academicYearId: input.academic_year_id,
   });
   if (input.class_teacher_staff_id) {
-    const staff = await tx.query(
-      `SELECT id FROM staff_members
-       WHERE tenant_id = $1 AND id = $2 AND active = true`,
-      [input.tenantId, input.class_teacher_staff_id],
-    );
-    if (staff.rowCount === 0) {
-      throw validationError("class_teacher_staff_id must be an active staff member in this school");
-    }
+    await assertActiveStaff(tx, input.tenantId, input.class_teacher_staff_id, "class_teacher_staff_id");
   }
   try {
     const res = await tx.query(
       `INSERT INTO classes
-         (tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id,
-                 active, archived_at, created_at, updated_at`,
+         (tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id, room,
+          created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING ${CLASS_COLS}`,
       [
         input.tenantId,
         input.academic_year_id,
@@ -705,6 +828,7 @@ export async function createClass(
         input.pathway ?? null,
         stream,
         input.class_teacher_staff_id ?? null,
+        room,
         input.actorUserId,
       ],
     );
@@ -718,11 +842,153 @@ export async function createClass(
     });
     return mapClass(row);
   } catch (err) {
-    const c = (err as { code?: string }).code;
-    if (c === "23505") throw conflict("A class with this name already exists for the year");
-    if (c === "23503") throw validationError("Referenced year or staff member is invalid for this school");
-    throw err;
+    classWriteError(err);
   }
+}
+
+/**
+ * Partial update of a class: name, level and year, pathway, stream, room, and its class teacher (null takes the teacher
+ * off). The academic year is fixed: a class's memberships, assessments and registers belong to that year. A field left
+ * out keeps its value; the level, year and pathway rule is checked on the merged result. The row is locked first
+ * (P3-AUDIT-012 pattern). An archived class cannot be changed.
+ */
+export async function updateClass(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    classId: string;
+    actorUserId: string;
+    name?: string;
+    form_level?: number | null;
+    education_level?: EducationLevel | null;
+    pathway?: Pathway | null;
+    stream?: string | null;
+    class_teacher_staff_id?: string | null;
+    room?: string | null;
+    ip?: string | null;
+  },
+): Promise<PublicClass> {
+  await tx.query(`SELECT 1 FROM classes WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [input.tenantId, input.classId]);
+  const current = await getClassById(tx, input);
+  if (!current.active) throw validationError("Archived classes cannot be updated");
+  const next = {
+    name: input.name !== undefined ? trimRequired(input.name, "name", 64) : current.name,
+    form_level: input.form_level !== undefined ? input.form_level : current.form_level,
+    education_level: input.education_level !== undefined ? input.education_level : current.education_level,
+    pathway: input.pathway !== undefined ? input.pathway : current.pathway,
+    stream: input.stream !== undefined ? optionalText(input.stream, "stream", 32) : current.stream,
+    class_teacher_staff_id:
+      input.class_teacher_staff_id !== undefined ? input.class_teacher_staff_id : current.class_teacher_staff_id,
+    room: input.room !== undefined ? optionalText(input.room, "room", 64) : current.room,
+  };
+  if (next.form_level != null && (next.form_level < 1 || next.form_level > 12)) {
+    throw validationError("form_level must be between 1 and 12");
+  }
+  assertEducationLevelYear(next.education_level, next.form_level, next.pathway);
+  // A new class teacher must be an active staff member. The one the class already has is not re-checked, so a form
+  // that sends every field back unchanged still saves after that teacher was archived.
+  if (next.class_teacher_staff_id !== null && next.class_teacher_staff_id !== current.class_teacher_staff_id) {
+    await assertActiveStaff(tx, input.tenantId, next.class_teacher_staff_id, "class_teacher_staff_id");
+  }
+  const changed = (Object.keys(next) as Array<keyof typeof next>).filter((k) => next[k] !== current[k]);
+  if (changed.length === 0) return current;
+  try {
+    const res = await tx.query(
+      `UPDATE classes
+          SET name = $3, form_level = $4, education_level = $5, pathway = $6, stream = $7,
+              class_teacher_staff_id = $8, room = $9, updated_at = now()
+        WHERE tenant_id = $1 AND id = $2 AND active = true
+        RETURNING ${CLASS_COLS}`,
+      [
+        input.tenantId,
+        input.classId,
+        next.name,
+        next.form_level,
+        next.education_level,
+        next.pathway,
+        next.stream,
+        next.class_teacher_staff_id,
+        next.room,
+      ],
+    );
+    const row = res.rows[0] as Parameters<typeof mapClass>[0] | undefined;
+    if (!row) throw notFound("Class not found");
+    await recordSecurityEvent(tx, {
+      eventType: "academics.class.updated",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: {
+        classId: row.id,
+        fields: changed,
+        ...(changed.includes("class_teacher_staff_id")
+          ? { fromClassTeacherStaffId: current.class_teacher_staff_id, toClassTeacherStaffId: row.class_teacher_staff_id }
+          : {}),
+      },
+      ip: input.ip,
+    });
+    return mapClass(row);
+  } catch (err) {
+    classWriteError(err);
+  }
+}
+
+/**
+ * Archive a class: it stops running. Refused (409) while an ACTIVE learner is still in it, so nobody is left without a
+ * class by accident: move or take them out first. In the same transaction its active teaching assignments end (so the
+ * class leaves teachers' lists, as it already does for its class teacher, OD-2) and any membership still open for an
+ * ARCHIVED learner (left behind before finding 8 was fixed) is ended. Timetable slots and history are kept. There is no
+ * restore yet.
+ */
+export async function archiveClass(
+  tx: Tx,
+  input: { tenantId: string; classId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicClass> {
+  await tx.query(`SELECT 1 FROM classes WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [input.tenantId, input.classId]);
+  const current = await getClassById(tx, input);
+  if (!current.active) throw validationError("Class is already archived");
+  const learners = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n
+       FROM class_memberships m
+       JOIN learners l ON l.tenant_id = m.tenant_id AND l.id = m.learner_id
+      WHERE m.tenant_id = $1 AND m.class_id = $2 AND m.active = true AND l.active = true`,
+    [input.tenantId, input.classId],
+  );
+  const n = learners.rows[0]?.n ?? 0;
+  if (n > 0) {
+    throw conflict(`The class still has ${n} learner${n === 1 ? "" : "s"}. Move them to another class first.`);
+  }
+  const endedMemberships = await tx.query<{ id: string }>(
+    `UPDATE class_memberships SET active = false, archived_at = now(), updated_at = now()
+      WHERE tenant_id = $1 AND class_id = $2 AND active = true
+      RETURNING id`,
+    [input.tenantId, input.classId],
+  );
+  const endedAssignments = await tx.query<{ id: string }>(
+    `UPDATE teaching_assignments SET active = false, archived_at = now(), updated_at = now()
+      WHERE tenant_id = $1 AND class_id = $2 AND active = true
+      RETURNING id`,
+    [input.tenantId, input.classId],
+  );
+  const res = await tx.query(
+    `UPDATE classes SET active = false, archived_at = now(), updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND active = true
+      RETURNING ${CLASS_COLS}`,
+    [input.tenantId, input.classId],
+  );
+  const row = res.rows[0] as Parameters<typeof mapClass>[0] | undefined;
+  if (!row) throw notFound("Class not found");
+  await recordSecurityEvent(tx, {
+    eventType: "academics.class.archived",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: {
+      classId: row.id,
+      endedTeachingAssignmentIds: endedAssignments.rows.map((r) => r.id),
+      endedArchivedLearnerMembershipIds: endedMemberships.rows.map((r) => r.id),
+    },
+    ip: input.ip,
+  });
+  return mapClass(row);
 }
 
 export async function listClasses(
@@ -755,8 +1021,7 @@ export async function listClasses(
   }
   const res = await pageQuery<Parameters<typeof mapClass>[0]>(
     tx,
-    `SELECT id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id,
-            active, archived_at, created_at, updated_at
+    `SELECT ${CLASS_COLS}
      FROM classes WHERE ${clauses.join(" AND ")}`,
     params,
     { name: "classes", expr: "lower(q.name)", type: "text", dir: "asc" },
@@ -770,8 +1035,7 @@ export async function getClassById(
   input: { tenantId: string; classId: string },
 ): Promise<PublicClass> {
   const res = await tx.query(
-    `SELECT id, tenant_id, academic_year_id, name, form_level, education_level, pathway, stream, class_teacher_staff_id,
-            active, archived_at, created_at, updated_at
+    `SELECT ${CLASS_COLS}
      FROM classes WHERE tenant_id = $1 AND id = $2`,
     [input.tenantId, input.classId],
   );
@@ -1125,6 +1389,77 @@ export async function getTeachingAssignmentById(
   );
   const row = res.rows[0] as Parameters<typeof mapAssignment>[0] | undefined;
   return row ? mapAssignment(row) : null;
+}
+
+/**
+ * Give a class's subject another teacher. The assignment keeps its id (and its timetable slots keep their link); only
+ * the active assignment can be changed. Sending the teacher it already has changes nothing.
+ */
+export async function updateTeachingAssignment(
+  tx: Tx,
+  input: { tenantId: string; assignmentId: string; actorUserId: string; staff_member_id: string; ip?: string | null },
+): Promise<PublicTeachingAssignment> {
+  await tx.query(`SELECT 1 FROM teaching_assignments WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [
+    input.tenantId,
+    input.assignmentId,
+  ]);
+  const current = await getTeachingAssignmentById(tx, input);
+  if (!current) throw notFound("Teaching assignment not found");
+  if (!current.active) throw validationError("Archived teaching assignments cannot be changed; create a new one");
+  if (current.staff_member_id === input.staff_member_id) return current;
+  await assertActiveStaff(tx, input.tenantId, input.staff_member_id, "staff_member_id");
+  const res = await tx.query(
+    `UPDATE teaching_assignments SET staff_member_id = $3, updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND active = true
+      RETURNING id, tenant_id, staff_member_id, class_id, subject_id, active, archived_at, created_at, updated_at`,
+    [input.tenantId, input.assignmentId, input.staff_member_id],
+  );
+  const row = res.rows[0] as Parameters<typeof mapAssignment>[0] | undefined;
+  if (!row) throw notFound("Teaching assignment not found");
+  await recordSecurityEvent(tx, {
+    eventType: "academics.teaching_assignment.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: {
+      assignmentId: row.id,
+      classId: row.class_id,
+      subjectId: row.subject_id,
+      fromStaffMemberId: current.staff_member_id,
+      toStaffMemberId: row.staff_member_id,
+    },
+    ip: input.ip,
+  });
+  return mapAssignment(row);
+}
+
+/**
+ * End a teaching assignment: the subject has no teacher in that class until a new assignment is made (which the
+ * partial unique index allows straight away). Marks, timetable slots and history are kept.
+ */
+export async function archiveTeachingAssignment(
+  tx: Tx,
+  input: { tenantId: string; assignmentId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicTeachingAssignment> {
+  const res = await tx.query(
+    `UPDATE teaching_assignments SET active = false, archived_at = now(), updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND active = true
+      RETURNING id, tenant_id, staff_member_id, class_id, subject_id, active, archived_at, created_at, updated_at`,
+    [input.tenantId, input.assignmentId],
+  );
+  const row = res.rows[0] as Parameters<typeof mapAssignment>[0] | undefined;
+  if (!row) {
+    const existing = await getTeachingAssignmentById(tx, input);
+    if (!existing) throw notFound("Teaching assignment not found");
+    throw validationError("Teaching assignment is already archived");
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "academics.teaching_assignment.archived",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { assignmentId: row.id, staffMemberId: row.staff_member_id, classId: row.class_id, subjectId: row.subject_id },
+    ip: input.ip,
+  });
+  return mapAssignment(row);
 }
 
 /**

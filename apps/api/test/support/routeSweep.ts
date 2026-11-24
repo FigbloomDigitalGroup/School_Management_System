@@ -50,6 +50,9 @@ export const BODY_FIXTURES: Record<string, unknown> = {
     ends_on: "2035-12-31",
   },
   "POST /v1/tenants/{tenantId}/subjects": { code: "ENG", name: "English" },
+  // Migration 101: both patch bodies need at least one field, so the empty sample would answer 400 first.
+  "PATCH /v1/tenants/{tenantId}/subjects/{subjectId}": { name: "Fixture subject" },
+  "PATCH /v1/tenants/{tenantId}/classes/{classId}": { room: "Fixture room" },
   "POST /v1/tenants/{tenantId}/classes": {
     academic_year_id: randomUUID(),
     name: "Form 1A",

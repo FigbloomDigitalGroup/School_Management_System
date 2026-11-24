@@ -7,7 +7,7 @@ import { familyTenantId } from "./parentApi";
  * The API answers a guardian with one row per linked child: their route, their own stop (a name only: no coordinates and no list of
  * the route's stops), the bus's number plate, the driver's first name, the running trip, and the bus's position while the trip runs
  * ("live" when under a minute old or so, "stale" after that, nothing once the child has got off). The OpenAPI file leaves the answer
- * untyped, so it is read defensively here (finding 24).
+ * untyped, so it is read defensively here (finding parent-2, docs/web-on-api/parent-pages.md).
  */
 
 export type RideStatus = "waiting" | "boarded" | "dropped_off" | "not_boarded";

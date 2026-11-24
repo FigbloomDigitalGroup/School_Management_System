@@ -25,6 +25,7 @@ export { recentAnnouncementFromApi, activeApiChannels } from "./announcementsApi
 export { feeItemFromApi } from "./feesApi";
 export { earlySignOutFromApi, ATTENDANCE_WRITE_CONCURRENCY } from "./attendanceApi";
 export { API_LEAVE_REASON_MIN, leaveRequestFromApi, leaveStatusFromApi } from "./leaveApi";
+export { apiPublishClassReportCard, apiCanWriteCompetencyRatings, resetCompetencyRatingVersions } from "./reportCardsApi";
 export { inventoryItemFromApi, inventoryIssueFromApi, INVENTORY_ISSUE_CONCURRENCY } from "./inventoryApi";
 export {
   accessLockedReason, apiFetchAccessPeople, apiFetchStaffAreas, apiSetStaffAreas, apiFetchGuardianAccess, apiSetGuardianAccess, guardianAccessFromCodes, apiFetchOrgDelegations,
@@ -36,3 +37,4 @@ export {
 } from "./parentApi";
 export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAuthorizationView } from "./parentHealthApi";
 export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";
+export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";

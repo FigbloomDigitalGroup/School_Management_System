@@ -270,6 +270,8 @@ const EXPECTED_DIRECTORY_UPDATE_COLUMNS: Record<string, string[]> = {
 
 /**
  * Migration 079 (CBC engine) column-level UPDATE grants, plus prior Stage 9 grants they extend.
+ * Migration 101 adds classes.room and the subject level, year range and core flag (class, subject and
+ * teaching-assignment updates); teaching_assignments keeps its 029 columns.
  * Identity/provenance columns (id, tenant_id, created_*) must never appear.
  */
 const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
@@ -281,9 +283,22 @@ const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
     "form_level",
     "name",
     "pathway",
+    "room",
     "stream",
     "updated_at",
   ],
+  subjects: [
+    "active",
+    "archived_at",
+    "code",
+    "education_level",
+    "is_core",
+    "max_form_level",
+    "min_form_level",
+    "name",
+    "updated_at",
+  ],
+  teaching_assignments: ["active", "archived_at", "staff_member_id", "updated_at"],
   learning_areas: ["code", "education_level", "is_core", "max_grade", "min_grade", "name", "pathway"],
   rubric_descriptor_configs: ["criteria", "descriptors", "name", "scoring_mode", "version"],
   cbe_assessments: [
@@ -318,6 +333,8 @@ const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
 
 const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
   classes: ["id", "tenant_id", "academic_year_id", "created_at", "created_by"],
+  subjects: ["id", "tenant_id", "created_at", "created_by"],
+  teaching_assignments: ["id", "tenant_id", "class_id", "subject_id", "created_at", "created_by"],
   learning_areas: ["id", "tenant_id", "provenance_id", "created_at", "created_by"],
   rubric_descriptor_configs: ["id", "tenant_id", "created_at", "created_by"],
   cbe_assessments: ["id", "tenant_id", "class_id", "learning_area_id", "term_id", "created_at", "created_by"],

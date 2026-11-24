@@ -75,7 +75,7 @@ export async function apiFetchChildFees(learnerId: string): Promise<FamilyInvoic
 const shortDate = (dateOnly: string): string => new Date(`${dateOnly}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
 /**
- * The API's class has a year and a name but no education level (finding 23), and the level picks the grading scheme and whether the
+ * The API's class has a year and a name but no education level (finding parent-1, docs/web-on-api/parent-pages.md), and the level picks the grading scheme and whether the
  * child is on the CBE rubric. Read it from the class's own name where it says ("Form 2 West", "Grade 4", "PP1"), then from the year
  * where the year is unambiguous (7 to 12 are CBE junior and senior school; 5 and 6 can only be primary), and for years 1 to 4, which
  * are a Form, a primary Grade or a pre-primary year, from what the child has results in: strand levels and no exam marks is CBE.
