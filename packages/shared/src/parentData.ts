@@ -1,3 +1,4 @@
+import { apiPollAnnouncements } from "./api/inboxApi";
 import { apiLoadParentData } from "./api/parentApi";
 import { onApi } from "./backend";
 import { supabase } from "./supabase";
@@ -121,6 +122,8 @@ export function formatShortDate(dateOnly: string): string {
  * the notice and its attachments together.
  */
 export function subscribeAnnouncements(tenantId: string, onInsert: () => void): () => void {
+  // No realtime on the API: ask the inbox every half minute and call back when its newest notices change (api/poll.ts).
+  if (onApi()) return apiPollAnnouncements(tenantId, onInsert);
   const filter = { schema: "public", table: "announcements", filter: `tenant_id=eq.${tenantId}` };
   const channel = supabase()
     .channel(`announcements-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)

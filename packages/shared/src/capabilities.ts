@@ -256,6 +256,44 @@ export function inventoryCapabilities(): InventoryCapabilities {
   return onApi() ? INVENTORY_ON_API : INVENTORY_ON_SUPABASE;
 }
 
+/** The chat screens (admin/chats, teacher/chats, staff/chats and the parent and learner ones that share them). */
+export interface ChatCapabilities {
+  /** Sending and opening files in a chat (waits on API file storage, A5 / FIG-1873; chat messages are text only). */
+  attachments: boolean;
+  /** Voice and video calls from a chat, and the school's call log (not in the API contract, C13). */
+  calls: boolean;
+  /** The office reading every chat in the school (the API shows a person only the chats they are in). */
+  oversight: boolean;
+  /** Unread counts: the menu badge, a bold name, the count on a chat (the API does not say what a person has read). */
+  unreadCounts: boolean;
+}
+
+const CHAT_ON_SUPABASE: ChatCapabilities = { attachments: true, calls: true, oversight: true, unreadCounts: true };
+const CHAT_ON_API: ChatCapabilities = { attachments: false, calls: false, oversight: false, unreadCounts: false };
+
+export function chatCapabilities(): ChatCapabilities {
+  return onApi() ? CHAT_ON_API : CHAT_ON_SUPABASE;
+}
+
+/** The notices inbox (teacher/notices, staff/notices). */
+export interface NoticesCapabilities {
+  /** Which notices a person has opened: the orange dot, the bold subject and the menu badge (the inbox does not say). */
+  readState: boolean;
+}
+
+export function noticesCapabilities(): NoticesCapabilities {
+  return { readState: !onApi() };
+}
+
+/**
+ * Whether a teacher may send a message to one of their classes (teacher/messages). On Supabase every teacher may. On the
+ * API a notice is written by whoever holds `resource.announcement.write`: the school office and anyone with the
+ * Communication area, not a teacher by being a teacher.
+ */
+export function canMessageClasses(adminAreas: readonly string[]): boolean {
+  return !onApi() || adminAreas.includes("communication");
+}
+
 /** Exams and marks: the admin Exams page, the teacher Gradebook, Performance and Reports. */
 export interface GradesCapabilities {
   /** Rename an exam (the API has no change for an assessment's title). */

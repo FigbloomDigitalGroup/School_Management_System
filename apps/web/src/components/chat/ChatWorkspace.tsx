@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  chatRoleWord, conversationPreview, fetchChatContacts, fetchMyConversations, startConversation, subscribeChatMessages,
+  chatCapabilities, chatRoleWord, conversationPreview, fetchChatContacts, fetchMyConversations, onApi, startConversation, subscribeChatMessages,
   type ChatContact, type ConversationSummary,
 } from "@figbloom/shared";
 import { Avatar } from "../Avatar";
@@ -29,6 +29,7 @@ function when(iso: string | null): string {
  */
 export function ChatWorkspace({ emptyBody }: { emptyBody: string }) {
   const toast = useToast();
+  const caps = chatCapabilities();
   const { profile, tenant } = useTenantSession();
   const [list, setList] = useState<ConversationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,13 +92,13 @@ export function ChatWorkspace({ emptyBody }: { emptyBody: string }) {
                   <Avatar id={c.otherId} name={c.otherName} url={c.otherAvatarUrl} size={32} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-[13px]" style={{ fontWeight: c.unread ? 700 : 500 }}>{c.otherName}</span>
+                      <span className="truncate text-[13px]" style={{ fontWeight: caps.unreadCounts && c.unread ? 700 : 500 }}>{c.otherName}</span>
                       <span className="shrink-0 text-[11px] text-ink-faint">{when(c.lastMessageAt)}</span>
                     </div>
-                    <div className="text-[11px] text-ink-faint">{chatRoleWord(c.otherRole)}</div>
+                    {c.nameKnown !== false && <div className="text-[11px] text-ink-faint">{chatRoleWord(c.otherRole)}</div>}
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <p className="min-w-0 flex-1 truncate text-[12px] text-ink-muted">{conversationPreview(c, profile.id)}</p>
-                      {c.unread > 0 && <span className="shrink-0 rounded-full bg-orange px-1.5 font-mono text-[10px] text-white">{c.unread}</span>}
+                      {caps.unreadCounts && c.unread > 0 && <span className="shrink-0 rounded-full bg-orange px-1.5 font-mono text-[10px] text-white">{c.unread}</span>}
                     </div>
                   </div>
                 </button>
@@ -142,6 +143,7 @@ function ContactPicker({ open, onClose, onPick }: { open: boolean; onClose: () =
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setError(null);
     fetchChatContacts().then(setContacts).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load contacts."));
   }, [open]);
 
@@ -151,7 +153,7 @@ function ContactPicker({ open, onClose, onPick }: { open: boolean; onClose: () =
   }, [contacts, query]);
 
   return (
-    <Modal open={open} onClose={onClose} eyebrow="Chats" title="Start a chat" blurb="Only people you're connected to through a learner are listed." width={520}>
+    <Modal open={open} onClose={onClose} eyebrow="Chats" title="Start a chat" blurb={onApi() ? "Staff with an account at the school." : "Only people you're connected to through a learner are listed."} width={520}>
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
