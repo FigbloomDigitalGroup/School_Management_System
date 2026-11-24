@@ -6,18 +6,18 @@
 #   BOOTSTRAP_ADMIN_EMAIL=you@example.org BOOTSTRAP_ADMIN_NAME="Your Name" FIGBLOOM_BOOTSTRAP_CONFIRM=yes \
 #     sh infra/scripts/ops.sh bootstrap-admin
 #
-# Commands: infra/api/entrypoint.mjs. Output also stays in the /figbloom-api/ops log group (kept 7 days).
+# Commands: infra/api/entrypoint.mjs. Output also stays in the /figbloom/schools-api/ops log group (kept 7 days).
 # Only the three bootstrap variables above are passed through; never pass a secret here (task overrides
 # are visible to anyone who can describe the task).
 set -eu
-export MSYS_NO_PATHCONV=1 # Git Bash on Windows: do not rewrite /figbloom-api/... into a Windows path
+export MSYS_NO_PATHCONV=1 # Git Bash on Windows: do not rewrite /figbloom/... into a Windows path
 
 [ $# -gt 0 ] || { echo "usage: sh infra/scripts/ops.sh <command> [args]" >&2; exit 64; }
 PROFILE="${AWS_PROFILE:-figbloom-prod}"
 REGION=eu-west-1
 aws_() { aws --profile "$PROFILE" --region "$REGION" "$@"; }
 output() {
-  aws_ cloudformation describe-stacks --stack-name FigbloomApiService \
+  aws_ cloudformation describe-stacks --stack-name SchoolsApi-prod \
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
 }
 
@@ -35,7 +35,7 @@ OVERRIDES=$(node -e '
 ' "$@")
 
 TASK=$(aws_ ecs run-task --cluster "$CLUSTER" --task-definition "$TASK_DEF" --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
   --overrides "$OVERRIDES" --query 'tasks[0].taskArn' --output text)
 echo "started ${TASK##*/}; waiting for it to finish..." >&2
 aws_ ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
