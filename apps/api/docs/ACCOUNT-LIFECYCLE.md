@@ -18,7 +18,19 @@
 | Administrator reset | `POST …/members/:userId/password-reset` | school administrator | own-school members only; never yourself or a platform administrator |
 | Deactivate | `POST …/members/:userId/deactivate` | school administrator | archives the membership, revokes sessions acting in that school (all sessions if it was their last); never yourself or a platform administrator |
 
-Audit events: `platform.bootstrap`, `platform.school.provisioned`, `account.invitation.created|revoked|accepted`, `auth.password.reset_requested|reset_issued|reset|rehashed`, `account.membership.deactivated` (no token material in any detail).
+Audit events: `platform.bootstrap`, `platform.school.provisioned`, `account.invitation.created|revoked|accepted`, `directory.staff.linked_on_invitation`, `auth.password.reset_requested|reset_issued|reset|rehashed`, `account.membership.deactivated` (no token material in any detail).
+
+### Staff record link (104)
+
+Class teachers, teaching assignments and timetables name a **staff record**, and a staff record reaches an account only
+through `staff_members.user_id`. Since migration 104, accepting a staff invitation links the record when the match is
+certain: exactly **one** active, unlinked staff record of the inviting school has the invited e-mail (case-insensitive),
+and the account has no staff record in that school yet. Then `user_id` is set in the same transaction and
+`directory.staff.linked_on_invitation` (invitation id, staff id) is audited. Anything else (no record, two records with that
+e-mail, the record already linked to someone, the account already linked, an archived record, a record in another school)
+links nothing, and a People administrator sets `userId` on the record as before. No new power: whoever can set a staff
+record's e-mail can already set its `userId`, and the `staff_members_check_user_link` trigger (022) still requires an
+active membership of the same school. The invitation itself does not take a staff id.
 
 ## Password hashing (068)
 Argon2id via `node:crypto` (`crypto.argon2`, Node ≥ 24.7 — `engines` raised; **no silent fallback**). Parameters m=47104 KiB, t=1, p=1, 32-byte tag, 16-byte salt (OWASP first choice; ≈45 ms on the development machine; benchmark on the deployment hardware before launch). The legacy scrypt format stays verifiable; after a **successful** login against a legacy/weaker hash the API stores a fresh Argon2id hash through `auth_rehash_password` — a compare-and-swap on the exact hash verified, Argon2id-only (no downgrade), audited without hash material. Concurrent logins therefore cannot corrupt or downgrade a hash. Verification caps stored parameters (≤256 MiB, ≤10 passes) so a corrupt row cannot demand unbounded memory; concurrent memory is bounded by the libuv pool (4 threads) and the login token buckets. No forced resets.

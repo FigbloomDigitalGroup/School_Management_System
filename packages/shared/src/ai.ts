@@ -1,3 +1,6 @@
+import { apiFetchAiStatus } from "./api/aiApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
 import type { QuestionDraft } from "./examPapers";
@@ -70,6 +73,7 @@ export const AI_COMMENT_BATCH = 15;
 export async function draftReportComments(
   who: "teacher" | "principal" | "both", learners: AiLearner[],
 ): Promise<{ ref: string; teacher: string; principal: string }[]> {
+  if (onApi()) throw new NotOnApiError("AI report card comment drafting");
   const { comments } = await ask<{ comments: { ref: string; teacher: string; principal: string }[] }>("report_comment", { who, learners });
   return comments;
 }
@@ -114,6 +118,7 @@ export function questionDraftsFromAi(questions: AiQuestion[]): QuestionDraft[] {
 }
 
 export async function draftQuestions(req: QuestionRequest): Promise<QuestionDraft[]> {
+  if (onApi()) throw new NotOnApiError("AI question drafting");
   const { questions } = await ask<{ questions: AiQuestion[] }>("questions", req);
   return questionDraftsFromAi(questions);
 }
@@ -132,6 +137,7 @@ export interface PaperImportRequest {
 
 /** Bloom reads an existing paper and returns it as builder drafts, flagged where the teacher should check. */
 export async function importPaperWithAi(req: PaperImportRequest): Promise<PaperImportDraft> {
+  if (onApi()) throw new NotOnApiError("AI paper import");
   const raw = await ask<unknown>("paper_import", req, IMPORT_TIMEOUT_MS);
   return draftFromImport(parseImportedPaper(raw));
 }
@@ -148,6 +154,7 @@ export interface HomeworkDraftRequest {
 }
 
 export async function draftHomework(req: HomeworkDraftRequest): Promise<{ title: string; body: string; guide: ParentGuide }> {
+  if (onApi()) throw new NotOnApiError("AI homework drafting");
   const r = await ask<{ title: string; body: string; guide: { about: string; needs: string[]; help: string; avoid: string; minutes: number } }>("homework", req);
   const minutes = Number.isInteger(r.guide?.minutes) && r.guide.minutes >= 1 && r.guide.minutes <= 600 ? r.guide.minutes : null;
   return {
@@ -171,10 +178,12 @@ export type MessageLanguage = "en" | "sw" | "both";
 export async function draftMessage(input: {
   notes: string; audience: string; tone: MessageTone; language: MessageLanguage; schoolName?: string;
 }): Promise<{ subject: string; body: string }> {
+  if (onApi()) throw new NotOnApiError("AI message drafting");
   return ask("message", input);
 }
 
 export async function translateMessage(subject: string, body: string, to: "sw" | "en"): Promise<{ subject: string; body: string }> {
+  if (onApi()) throw new NotOnApiError("AI message translation");
   return ask("translate", { subject, body, to });
 }
 
@@ -184,6 +193,7 @@ export interface TutorTurn { role: "user" | "assistant"; content: string }
 
 /** The helper's next reply. Throws an EdgeError with status 423 while an exam is open. */
 export async function askTutor(messages: TutorTurn[]): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Bloom study helper chat");
   const { text } = await ask<{ text: string }>("tutor", { messages });
   return text;
 }
@@ -201,6 +211,7 @@ export interface AiStatus {
 }
 
 export async function fetchAiStatus(tenantId: string): Promise<AiStatus | null> {
+  if (onApi()) return apiFetchAiStatus(tenantId);
   const { data, error } = await supabase().rpc("ai_status", { p_tenant_id: tenantId });
   if (error) throw new Error(error.message);
   const row = (data as {
@@ -214,6 +225,7 @@ export async function fetchAiStatus(tenantId: string): Promise<AiStatus | null> 
 }
 
 export async function saveAiSettings(tenantId: string, enabled: boolean, tutorEnabled: boolean, webSearchEnabled: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("AI settings");
   const { error } = await supabase().rpc("set_ai_settings", {
     p_tenant_id: tenantId, p_enabled: enabled, p_tutor_enabled: tutorEnabled, p_web_search_enabled: webSearchEnabled,
   });
