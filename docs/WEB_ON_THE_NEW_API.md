@@ -45,6 +45,9 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 - **Fees** (office side): view term collection stats, largest outstanding balances and overpayments; create, edit and archive
   term fee items; run term billing; search payable invoices and record payments (cash, M-Pesa, bank, cheque); review, confirm
   or reject submitted payment proofs.
+- **Inventory** (`admin/inventory`): view the register of active items with out/available counts, add stock or tracked-asset
+  items, issue copies to learners, user-linked staff, or a whole class, view Out now and Overdue issues, record returns
+  (returned, damaged, or lost), write off items with nothing out, and export CSV.
 - Platform and organization accounts are told their console is not on the new system yet, and are signed out.
 
 ## What does not, and why
@@ -85,6 +88,27 @@ Each flag is one missing endpoint; when the API gains it, the flag turns on and 
 | Guardian signature requests & signature status | signatures wait on C12 (`FIG-1880`) |
 | AI writing helper | calls a Supabase edge function |
 | SMS and email channel checkboxes | SMS/email delivery waits on B8 (`FIG-1876`); `in_app` and `push` work (`publish` enqueues `announcement.push` on the server) |
+
+### Inventory screen: what the API cannot do yet
+
+`inventoryCapabilities()` in `packages/shared/src/capabilities.ts` hides controls the API does not back yet:
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| Edit an inventory item | no `PATCH /v1/tenants/{tenantId}/inventory/items/{itemId}` endpoint |
+| Restore a written-off item ("Put back on the register") | no unretire endpoint, and `GET /inventory/items` returns active items only |
+| Purchase date, unit cost, and item notes | not stored on the API's `InventoryItem` schema |
+| History tab and Lost counter | `GET /inventory/issues` returns open (`status = 'out'`) issues only |
+| Hand-out note when issuing an item | `POST /inventory/issues` has no `note` field (`POST .../close` does) |
+| Charge lost or damaged items to fees | waits on closed-issue history and charge-by-issue lookup |
+| Teacher's "My items" (`teacher/items`) | `GET /inventory/issues` requires `resource.inventory.read`, which regular teachers do not hold |
+
+How the model is mapped (`packages/shared/src/api/inventoryApi.ts`):
+
+- `POST /inventory/issues` requires `holder_user_id` to be an active school membership `user_id`, so the staff picker lists
+  only staff directory records linked to a user account.
+- Issuing to a whole class verifies that enough copies are on the shelf for every active learner in the class who does not
+  already hold one, then sends individual `POST /inventory/issues` calls 4 at a time (`settlePool`).
 
 Where the model differs it is mapped in `packages/shared/src/api/setupApi.ts`: a class belongs to an academic year (the screen
 shows the current year's classes, and a class needs a current year, which "Start a term" makes); a teacher is a staff record,
@@ -135,6 +159,7 @@ How the model is mapped (`packages/shared/src/api/peopleApi.ts`):
   `learners.ts` and the guardian list in `learnerBio.ts`. `pool.ts` runs writes a few at a time.
 - `packages/shared/src/api/attendanceApi.ts`: the API side of `attendanceSession.ts`, `earlySignOut.ts`, and the attendance
   register reads/writes in `teacherData.ts` (writing registers one learner per request, max 4 in flight until A4 bulk write).
+- `packages/shared/src/api/inventoryApi.ts`: the API side of `inventory.ts` (`admin/inventory`), plus API guards in `feeCharges.ts`.
 - `packages/shared/src/capabilities.ts`: what each area can do on this build's backend.
 - `packages/shared/src/backend.ts`: `initBackend`, `onApi()`.
 - `packages/shared/src/session.ts`: every function branches on `onApi()`, so the screens that use `useSession`
@@ -196,3 +221,6 @@ inside the same 30 seconds needs the next code.
 11. **Validation answers** put the real problem in `details`; the message is a generic list of the required fields
     ("admission_no, full_name and gender (male|female) are required; ..."). The web turns `details` into words ("Phone is
     not in the right format."). The import's own errors use the column names ("date_of_birth is not a valid date").
+12. **Inventory read and lifecycle gaps.** `GET /v1/tenants/{tenantId}/inventory/issues` returns open (`status = 'out'`) issues
+    only and requires `resource.inventory.read` (so regular teachers get 403 on `teacher/items`, and admins cannot view closed
+    issue history or Lost totals). Items also lack `PATCH` (edit), unretire, and `purchased_on`/`unit_cost_cents`/`notes`.
