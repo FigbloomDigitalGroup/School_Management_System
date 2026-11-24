@@ -150,9 +150,9 @@ the shared function behind it throws `NotOnApiError`.
 | Change class for several learners at once; Export | no bulk move; exports are async jobs, not ported |
 | The roster's Guardian, Login and Fees columns | the Guardian column shows no real data on either build yet; learners have no sign-in; fees are their own area, not ported |
 | Learner sign-ins: create logins, password resets | learners have no accounts on the API |
-| Invite guardians, send their sign-in again | guardian invitations exist, but families can read nothing yet (FIG-1869) |
+| Guardian sign-in made by the school (login ID and password), "Send sign-in details again" | guardians sign in through an invitation, not a password the school chooses: see "Sign-in invitations" below |
 | Home address and bus, health, documents, early sign-outs, sports and activities, photos, bio data and bio-data requests | not in the API's learner record, or not ported yet |
-| Staff accounts: admin access, password reset, Remove staff, a teacher's subjects, calls | staff are directory records (a name, a role, contact details), not accounts; accounts come from invitations, not ported |
+| Staff accounts made with a password, Remove staff, a teacher's subjects, calls; admin access on the staff card | staff are directory records, and a sign-in comes from an invitation (see "Sign-in invitations"); admin access is on Access & roles; no delete (archive instead) |
 | The import's home and health columns | the API's import has five columns: admission_no, full_name, gender, date_of_birth, boarding |
 
 Shown only on the API build, because the API has them and Supabase does not: archive and restore for staff (with an
@@ -430,6 +430,214 @@ Attendance page for a plain teacher (finding 23).
 28. **Higher education marks.** The API has one grade per enrolment and no section assessments with marks, so the course
     gradebook (`GpaGradebook`) has nothing to run on.
 
+## Chats, notices and messages
+
+`admin/chats`, `teacher/chats`, `teacher/notices` and `teacher/messages` run on an API build. The screens are the Supabase
+app's own; the shared functions behind them (`chat.ts`, the notice functions in `teacherData.ts` and `otherStaff.ts`,
+`subscribeAnnouncements` in `parentData.ts`) branch on `onApi()` into `api/chatApi.ts`, `api/noticesApi.ts`,
+`api/inboxApi.ts` and `api/directoryApi.ts`. `staff/chats` and `staff/notices` use the same functions: when the staff shell
+exists it needs only the two routes.
+
+| Page | On the API build |
+|---|---|
+| `admin/chats` | "My chats" only: list, start a chat, read and send text. The "All school chats" and "Calls" tabs are hidden |
+| `teacher/chats` | The same list and thread. A plain teacher cannot see names or start a chat (finding 29) |
+| `teacher/notices` | The inbox, newest first, with the notice's text. No unread marks, attachments or signatures |
+| `teacher/messages` | Opens. A teacher without the Communication area gets a message saying why instead of a composer (finding 33) |
+
+### Polling instead of realtime
+
+The API has no push channel, so `packages/shared/src/api/poll.ts` asks again every few seconds. The header of that file
+is its documentation. In short: `startPolling`, `pollNewItems` (the shape of `subscribeChatMessages` and the other
+`subscribe*` helpers that deliver rows) and `pollChanges` (the shape of `subscribeAnnouncements`); one request at a time;
+paused while the tab is hidden and after 10 minutes with no input, so a tab left open does not keep the API's idle timer
+alive; one catch-up request when the person comes back; a longer wait after failures. An open thread asks every 4.5 s, the
+chat list every 10 s, the notices inbox every 30 s. The fleet, visitors and parent slices use the same file.
+
+### What is hidden on this build, and why
+
+`chatCapabilities()` and `noticesCapabilities()` in `packages/shared/src/capabilities.ts`; the shared function behind each
+control throws `NotOnApiError`.
+
+| Hidden | Missing in the API |
+|---|---|
+| Sending and opening files in a chat | chat messages are text only; files wait on storage (A5, FIG-1873) |
+| Voice and video calls, and the school's call log | not in the contract (C13) |
+| "All school chats" (the office reading every chat) and the line "The school's administrators can read this chat" | nobody can read a chat they are not in, the office included (finding 30) |
+| Unread counts: the menu badge, a bold name, the count on a chat | the API does not say what a person has read (finding 29) |
+| Unread dots and the menu badge on notices | the inbox has no read state (finding 32) |
+| Notice attachments, "Waiting for your signature", the AI writing helper in Messages | storage (A5), signatures (C12), an edge function; the same as the Announcements page |
+| A list of people to start a chat with, for a person who may not read the staff list | there is no contacts endpoint (finding 29) |
+
+### How the model is mapped
+
+- A chat has `peer_user_id` and `last_message_at`, nothing else. The other person's name comes from the staff list
+  (`GET /staff`, which needs `resource.staff.read`: a school admin and the People area have it, a plain teacher does not),
+  kept for a minute per school. Without it the chat shows "Someone at the school". Parents and learners cannot be named:
+  guardian contacts carry no account id.
+- The chat list's preview is the newest message of each of the 30 latest chats, one small request each.
+- "Start a chat" offers staff who have an account (`userId` on the staff record), active, other than the person. Who may
+  talk to whom is the server's `may_talk`: staff with staff, a parent with the school office. A refused pair is a 403 on
+  the first message, shown as the server's own words.
+- A thread is the newest 1,000 messages. A poll asks for the newest 50 and merges by id.
+- The notices inbox is `GET /communications/announcements/inbox`: what reaches the person (whole school, their role, them by
+  name, the classes they teach) and what they wrote. That is more than the Supabase list, which showed only whole-school
+  notices and ones sent to the teacher by name. "From" is "You" for their own, a teacher's name when the staff list can be
+  read, else "School office".
+- "Sent by you" is the person's own published notices, read from the inbox (a teacher cannot read the composer's list, and
+  drafts are not in the inbox). Opening a notice calls `POST .../read` once, for when the inbox says what is read.
+- A class message is an in-app announcement with audience `{ kind: "class", class_id, recipients }`, created and published.
+  `recipients` is stored but the server's reach rule ignores it. Parents and learners are not reached until their accounts
+  are linked (FIG-1869): only the teachers of that class see it. The composer says so.
+- A teacher who holds an admin area lands in the admin console on this build, which has no console switch yet. Their
+  `teacher/chats`, `teacher/notices` and `teacher/messages` are reachable by address only, as `teacher/leave` is.
+
+### Things found in the API while doing this (for the owner)
+
+29. **The chat list is only ids.** `GET /chat/conversations` answers `peer_user_id` and `last_message_at`: no name, no role,
+    no last message, no unread count. There is also no "people I may chat with" list, no unread count and no single-chat
+    read. A plain teacher cannot read `/staff`, so every chat is "Someone at the school" and they cannot start one. Add to
+    each conversation `peer { user_id, full_name, role }`, `last_message { body, sender_id, created_at }` and
+    `unread_count` (from `conversation_members.last_read_at`, which exists and is never returned), plus
+    `GET /chat/contacts` (the people `may_talk` allows, with a name and a role) and `GET /chat/unread-count`.
+30. **No oversight read.** `listMessages` needs membership of the chat, so the office cannot read other people's chats, and
+    there is no school-wide list. The Supabase app tells families and teachers "The school's administrators can read this
+    chat", and the Communication area is described as reading the school's chats. That is a product and privacy decision
+    first, an endpoint second.
+31. **Chat messages come newest first with no `since`**, so a poll re-reads a page. A `since` (or `after`) cursor on
+    `GET .../messages` and on the conversation list would make polling cheaper (B7).
+32. **The announcements inbox has no read state and no author name.** Items have the composer's shape, with `author_id`
+    only. `communications_announcement_reads` is written by `POST .../read` and never returned. Add `read_at` (null when
+    unread) and the author's name and role to each inbox item. Class and year-group notices also reach no parent or learner
+    until their accounts are linked (FIG-1869), and `recipients` in a class audience is ignored by
+    `communications_audience_reaches`.
+33. **A teacher cannot send a class message.** `POST /communications/announcements` and `.../publish` need
+    `resource.announcement.write`, which only the school admin role and the Communication area hold. The check for a `class`
+    audience does not look at who the sender is: anyone with the permission can post to any class. A rule that lets a teacher
+    create and publish a `class` announcement for a class they teach (the reach function already knows who teaches what)
+    would make the Messages page work for the people it is for. It widens who may write to families, so it is the owner's
+    call.
+34. **`/notifications` is not announcements.** It lists generic in-app notifications (transport, medication and so on; its
+    items are an untyped `object` in the OpenAPI file), and publishing an announcement creates none. The Notices page does
+    not use it. A bell or a notification centre would be a new screen the web app does not have.
+
+## Sign-in invitations (People page)
+
+On the API a sign-in is made by an **invitation**, not by the school choosing a password. The People page now has:
+
+- **Learner card, Guardians:** each guardian with an e-mail or phone has **Invite by e-mail** (or **by SMS** when there is no e-mail). An open
+  invitation shows "Invited (r***@gmail.com), open until ...", with **Send again** (a new invitation replaces the open one) and **Cancel invitation**.
+- **Invite guardians** (toolbar, selected learners): the same controls for every guardian of up to 25 selected learners, with a line saying families
+  cannot read anything on the new system yet.
+- **Staff card, Sign-in:** a staff record with no sign-in is invited by e-mail (a teacher, other staff or a driver; an administrator's sign-in is made
+  by the platform). A record that has a sign-in can have a one-time **reset link** made (needs the password confirmed again).
+- Every invitation or reset answers `delivery`. When the message was not sent (no e-mail provider, or it failed; a local API never sends) the
+  single-use code or link comes back once and is shown for the school to hand over, with a Copy button. Staff links are the web's own
+  `/accept-invite?token=` and `/reset-password?token=` addresses.
+
+| Hidden or missing on the API build | Why |
+|---|---|
+| A list of open staff invitations (the staff card shows only the one sent in this visit, which can be cancelled) | no endpoint lists them (finding 35) |
+| Joining the new sign-in to the staff record by itself | nothing tells the web which sign-in accepted: the record's `userId` can only be set with a user id the web cannot find (finding 36) |
+| A page where a guardian accepts the code | the guardian accept endpoints exist (`/v1/guardian-invitations/preview` and `/accept`) but the web has no page for them, and families can read nothing yet (FIG-1869) |
+| Guardian invitations by e-mail text | the server sends no e-mail for guardian invitations (they are "handed over as a code or QR by the school"), so a guardian invitation always shows the code |
+| Making a reset link for yourself or for an administrator | the server refuses both |
+
+### API findings (continued)
+
+35. **No list of open staff invitations.** `POST /v1/tenants/{id}/invitations` and its `revoke` exist; nothing lists them, so a page cannot show who
+    was invited and is still waiting. Guardian invitations have a list.
+36. **Accepting a staff invitation does not link the staff record.** The invitation takes an e-mail, a role and a name, and accepting makes a user and a
+    membership; the staff record keeps `userId: null`. `PATCH .../staff/{id}` can set `userId`, but nothing returns a user's id (no members list, no
+    lookup by e-mail). Linking by e-mail inside `account_accept_invitation` (a staff record of the school with the same e-mail and no `userId`), or a
+    `staff_id` on the invitation, would fix it. Until then an invited teacher has a sign-in but is not "their" staff record (their classes, leave).
+37. **Guardian invitations carry no e-mail and no accept page.** `guardian_invitation` messages are never sent (the e-mail notifier returns
+    `not_configured` for them), so the school hands over the code, and the web has no page that takes it.
+
+
+## Timetable, My classes and Courses
+
+Pages: `teacher/timetable`, `teacher/classes`, the Timetable window of a class on `admin/classes`, and `admin/courses` (higher-education
+schools). `teacher/sections` is not on the API build (see below). Capability flags: `timetableCapabilities()` and
+`coursesCapabilities()` in `packages/shared/src/capabilities.ts`. The API side is `api/timetableApi.ts`, `api/teachingLookups.ts`,
+`api/teachingApi.ts` and `api/coursesApi.ts`.
+
+**Needs API PR #363 merged first:** `GET /v1/tenants/{id}/staff/me` (a person's own staff record) and a teacher-scoped
+`GET /subjects` (the subjects of the classes they teach). Without them these pages still open, but a plain teacher cannot tell which
+periods and classes are theirs, a period's subject shows as "Lesson", and My classes lists no subjects.
+
+### What works
+
+- **Timetable (teacher):** the classes the teacher teaches or leads; one class's week or all of them; the class teacher sees the
+  whole week of their homeroom (each period says whose it is), a subject teacher sees only their own periods. Times and rooms come
+  from the class's timetable slots.
+- **My classes (teacher):** the classes, the person's role in each (class teacher or subject teacher), the subjects they teach
+  there, the roll size.
+- **Classes > Timetable (admin):** the class's periods, Monday to Friday, with start and end times, subject, teacher and room; add a
+  period (day, start, end, subject, room). An overlapping period is refused by the API and the window says so.
+- **Courses (admin, higher-education schools):** semesters (= academic terms: list, add, set as current), the course catalogue (list,
+  add), sections of a semester (list, add), a section's roster (list, enrol learners).
+
+### How the model is mapped
+
+- A timetable **slot** has a subject, a day number, a start and an end time and a room. It has no free-text label, so a period is
+  named by its subject; "Games", "Library" or "Break" can only be periods if the school makes them subjects. Saturday and Sunday
+  slots are not shown (the screens' week is Monday to Friday).
+- Who teaches a period is the **teaching assignment** of that subject in that class (the slot's own link when it has one). "Mine"
+  means "assigned to my staff id", found with `GET .../staff/me`.
+- A class records its class teacher as a staff id. In a teacher's own class list, a class they lead carries their sign-in id as
+  `class_teacher_id`, so the screens' existing "am I this class's teacher" check works (this also fixes the early sign-out check on
+  the teacher Attendance screen).
+- A **semester is an academic term**. "Add semester" finds or makes the calendar year (1 January to 31 December), then the term.
+  "Set as current" also sets the term's year current. Every higher-education call is refused (400) unless the school's profile says
+  it is a higher-education school.
+- A course's **title** is the screens' course name and its **credit hours** are its credits. The API has no batch, so enrolling
+  several learners goes one at a time (four at once) and a refusal part-way says how many went in.
+- The school-wide lookups of a timetable page (subject names, staff names, the person's own staff id) are kept for 8 seconds so a
+  page of six classes asks for them once.
+
+### What a plain teacher can and cannot do on the API
+
+A plain teacher (no area) reads only the classes they teach (OD-2), and those classes' memberships, assignments and timetable
+slots. They cannot read the staff list, learners or academic years/terms. So on the Timetable page they see their periods; a colleague's
+name is missing from the class teacher's whole-class view; and the page's "Timetable · Term 1" heading is missing (no term read).
+A teacher who teaches nothing sees "You aren't assigned to any classes yet." A person with no staff record (a school administrator
+who was never added to the directory) has no periods of their own.
+
+### What the API cannot do yet (hidden on the API build)
+
+| Hidden on the API build | Missing in the API |
+|---|---|
+| The week-grid editor of a class's timetable (replaces the whole week; CSV import) | a slot can be made and listed, not changed or removed; so there is a list and an "Add a period" form instead |
+| A free-text period label ("Games", "Library", "Break") | a slot is a subject's period, with no label |
+| "Needs cover" and "Covered by" on a teacher's timetable | `/attendance-coverage` is attendance cover by class and day, not cover for a period, and a plain teacher cannot read others' leave |
+| The "Live classes" panel on the teacher Timetable | calls and live classes are not in the API |
+| A course's department | a course is a code, a title and credit hours |
+| A section's instructor, room, capacity and weekly schedule | a section is a course in a term with a label |
+| Dropping a student from a section | an enrolment can be made; nothing ends it (the status `withdrawn` exists, with no endpoint) |
+| **`teacher/sections` ("My sections")** | no instructor on a section, so a lecturer's sections cannot be found. The page is not on the API build |
+
+`/timetable-publications` (a versioned snapshot of a class's timetable that is published) has no Supabase counterpart and nothing
+on the web reads it, so it is not used.
+
+### API findings (numbered 38 to 44 so that no other slice shares a number)
+
+38. **A plain teacher cannot learn their own staff id.** Class teachers, teaching assignments and timetable slots name staff ids, a
+    teacher cannot read the staff list, and `/auth/me` has no staff id. Fixed in API PR #363 with `GET /staff/me`.
+39. **A plain teacher cannot read the subject list**, so a timetable slot or a teaching assignment (subject ids) cannot be named, and
+    "My classes" cannot list subjects. Fixed in API PR #363: `GET /subjects` is scoped like the class list (OD-2) to the subjects of
+    the active teaching assignments and timetable slots of the classes they teach.
+40. **Colleagues' names:** the class teacher's whole-class timetable would name each period's teacher, which needs the staff list.
+    A plain teacher sees no name. A staff name inside the teaching-assignment record, or a scoped staff read, would fix it.
+41. **A timetable slot cannot be changed or removed**, and a slot needs a subject (no "Break", "Games", "Assembly").
+42. **A higher-education section has no instructor, room, capacity or schedule**, and an enrolment cannot be ended. So a lecturer's
+    "My sections" cannot be built on the API, and the admin cannot name an instructor.
+43. **The OpenAPI file does not declare** `sectionId` on `GET /he-enrolments` or `courseId` on `GET /he-sections`, although the routes
+    honour them. The typed client cannot send them, so a section's roster lists every enrolment of the school and picks the section
+    out. Declaring them would make it one small call.
+44. **Per-period cover for approved leave** (the Supabase "Needs cover" list) has no API counterpart: `/attendance-coverage` assigns
+    who may take a class's register on a day.
+
 ## Activities and medical
 
 Three pages open from the menu on an API build: **Sports & activities** for school administrators (`admin/activities`) and for teachers
@@ -460,7 +668,7 @@ How the model is mapped (`activitiesApi.ts`):
   A patron list that goes wrong half way says how many were added; the activity itself is already made.
 - Counts: there is no count endpoint, so each activity's members are read, four at a time.
 - Only school administrators and holders of the Activities area may read or change activities. **A plain teacher cannot open the
-  page**: it says "Activities are not open to teachers yet" and what to ask for (finding 31).
+  page**: it says "Activities are not open to teachers yet" and what to ask for (finding 47).
 
 ### Sick bay
 
@@ -489,7 +697,7 @@ How the model is mapped (`medicalApi.ts`):
   need `resource.learner.read` (the People area) and health records and dose records need `resource.medication.read`, which only
   school administrators hold. So a nurse with only the Medical area can log and change visits but cannot search for a learner, sees
   no names, and sees no allergies. The page tells them (a note at the top, and in the visit and record windows) so that "nothing
-  shown" never reads as "no allergies" (finding 29).
+  shown" never reads as "no allergies" (finding 45).
 - A new visit with an outcome, a place, a time out or a follow-up is two calls: the server's create takes none of them, so a change
   follows. If the change is refused the nurse is told the visit was logged and must not be logged again. A time out is never sent
   earlier than the time the server stamped (the database refuses it).
@@ -511,28 +719,28 @@ How the model is mapped (`medicalApi.ts`):
 
 ### Things found in the API while doing this
 
-(Numbered after the grades slice's 23 to 28.)
+(Numbered after the timetable and courses slice's 38 to 44.)
 
-29. **The Medical area is not enough to run a sick bay.** `resource.medical.read` and `.write` open the board, visits and settings,
+45. **The Medical area is not enough to run a sick bay.** `resource.medical.read` and `.write` open the board, visits and settings,
     but the learner list needs `resource.learner.read` and the health record and dose records need `resource.medication.read`
     (school administrators only). A nurse cannot find a learner, sees no names on the board and no allergies. Either the Medical
     area should also carry a learner lookup and the health read, or the visit and board answers should carry the learner's name and
     admission number.
-30. **A health record cannot be cleared.** `PUT /health/learners/{id}/profile` keeps the old blood group, diet notes and emergency
+46. **A health record cannot be cleared.** `PUT /health/learners/{id}/profile` keeps the old blood group, diet notes and emergency
     notes when sent `null` (a `COALESCE` in `upsertLearnerHealthProfile`). The web sends `""` (and `"unknown"` for the blood group)
     to clear them. A `PATCH`, or treating `null` as "clear", would be clearer. The record also has no field for medicines taken,
     support needs, the family doctor or an emergency contact.
-31. **A patron cannot see their own activities.** Activities are readable only by school administrators and the Activities area
+47. **A patron cannot see their own activities.** Activities are readable only by school administrators and the Activities area
     (`resource.activity.read`); a plain teacher, even the patron, gets a 403, and there is no read of an activity's patrons. A
     teacher read scoped to the activities they are patron of (as classes are for teachers), with patrons in the activity record,
     would fix the teacher page.
-32. **Activities cannot be changed once made, and have no events.** No `PATCH` or `DELETE` on an activity, patron or member (B11),
+48. **Activities cannot be changed once made, and have no events.** No `PATCH` or `DELETE` on an activity, patron or member (B11),
     and `GET /activities` lists open activities only, so a closed one could not be found again. Re-adding a member with a role does
     nothing (`ON CONFLICT DO NOTHING`). Fixtures, competitions, trips, results and the family notice have no endpoints.
-33. **The sick bay has no history and no register link.** The board is open visits only, `time_in` cannot be set (a visit logged
+49. **The sick bay has no history and no register link.** The board is open visits only, `time_in` cannot be set (a visit logged
     late gets the wrong time), a visit's outcome fields cannot be sent when it is created (so the web makes two calls and can
     fail between them), and `attendance_mark` has columns and a grant but no endpoint.
-34. **Medication has no reads for the school.** There is no list of authorizations, schedules or administrations, so the round,
+50. **Medication has no reads for the school.** There is no list of authorizations, schedules or administrations, so the round,
     the requests, the overdue banner and the reports have nothing to show. The flow (the nurse asks, the family consents, the office
     approves, a schedule) is also not the one the Supabase screens have (the family asks, the nurse approves). Reading a health
     record or dose records writes no audit event, though the screen used to promise one.

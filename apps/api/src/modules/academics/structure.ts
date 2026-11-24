@@ -472,16 +472,46 @@ export async function createSubject(
   }
 }
 
+/**
+ * OD-2 subject read scope: the subjects a teacher meets in the classes they may read, that is the subjects of the ACTIVE teaching
+ * assignments and the ACTIVE timetable slots of `classIds`. A teacher with no academics read could otherwise never name a
+ * timetable period or a "subjects you teach" list (both carry only subject ids). Read only: no write route uses it.
+ */
+export async function subjectIdsInClasses(tx: Tx, input: { tenantId: string; classIds: string[] }): Promise<string[]> {
+  if (input.classIds.length === 0) return [];
+  const res = await tx.query<{ subject_id: string }>(
+    `SELECT subject_id FROM teaching_assignments
+      WHERE tenant_id = $1 AND active = true AND class_id = ANY($2::uuid[])
+     UNION
+     SELECT subject_id FROM timetable_slots
+      WHERE tenant_id = $1 AND active = true AND class_id = ANY($2::uuid[])`,
+    [input.tenantId, input.classIds],
+  );
+  return res.rows.map((r) => r.subject_id);
+}
+
 export async function listSubjects(
   tx: Tx,
-  input: { tenantId: string; active?: boolean | null; page: PageInput },
+  input: { tenantId: string; active?: boolean | null; page: PageInput; scopeSubjectIds?: string[] | null },
 ): Promise<Page<PublicSubject>> {
-  const all = input.active === null || input.active === undefined;
+  if (input.scopeSubjectIds !== undefined && input.scopeSubjectIds !== null && input.scopeSubjectIds.length === 0) {
+    return { items: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
+  const clauses = ["tenant_id = $1"];
+  const params: unknown[] = [input.tenantId];
+  if (input.active === true || input.active === false) {
+    params.push(input.active);
+    clauses.push(`active = $${params.length}`);
+  }
+  if (input.scopeSubjectIds != null) {
+    params.push(input.scopeSubjectIds);
+    clauses.push(`id = ANY($${params.length}::uuid[])`);
+  }
   const res = await pageQuery<{ id: string }>(
     tx,
     `SELECT id, tenant_id, code, name, active, archived_at, created_at, updated_at
-       FROM subjects WHERE tenant_id = $1${all ? "" : " AND active = $2"}`,
-    all ? [input.tenantId] : [input.tenantId, input.active],
+       FROM subjects WHERE ${clauses.join(" AND ")}`,
+    params,
     { name: "subjects", expr: "lower(q.name)", type: "text", dir: "asc" },
     input.page,
   );

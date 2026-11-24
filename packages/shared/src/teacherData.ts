@@ -2,6 +2,9 @@ import {
   apiFetchClassRoster, apiFetchCurrentTerm, apiFetchTeacherClasses, apiFetchTeacherClassProgress,
   apiFetchTodayAttendanceMarks, apiWriteAttendance,
 } from "./api/attendanceApi";
+import { apiFetchTeacherClassTimetable } from "./api/timetableApi";
+import { apiFetchMyClasses } from "./api/teachingApi";
+import { apiFetchNotices, apiFetchSentByMe, apiMarkNoticeRead, apiSendClassMessage } from "./api/noticesApi";
 import { onApi } from "./backend";
 import {
   apiFetchExamsForTerm, apiFetchGradesAccess, apiFetchMarksForExamSubject, apiFetchPublishedSubjects, apiFetchTeacherSubjectsForClass,
@@ -74,6 +77,8 @@ export async function fetchTeacherSubjectsForClass(teacherId: string, classId: s
 
 /** Whole-school announcements, plus anything addressed to this teacher personally (e.g. a principal's reminder). */
 export async function fetchTeacherNotices(teacherId: string): Promise<NoticeInfo[]> {
+  // On the API the inbox is the signed-in person's own: it holds what reaches them and what they wrote.
+  if (onApi()) return apiFetchNotices();
   const [{ data, error }, { data: reads, error: readsError }] = await Promise.all([
     supabase()
       .from("announcements")
@@ -114,6 +119,7 @@ export async function fetchTeacherUnreadNoticeCount(teacherId: string): Promise<
 
 /** Records that this teacher has opened a notice, so it drops off the unread badge for good. */
 export async function markNoticeRead(teacherId: string, announcementId: string): Promise<void> {
+  if (onApi()) return apiMarkNoticeRead(announcementId);
   const { error } = await supabase()
     .from("announcement_reads")
     .upsert({ announcement_id: announcementId, profile_id: teacherId }, { onConflict: "announcement_id,profile_id" });
@@ -143,6 +149,7 @@ export async function fetchTeacherClassTimetable(classId: string, teacherId: str
   byDay: Record<Weekday, TeacherTimetableRow[]>;
   isClassTeacher: boolean;
 }> {
+  if (onApi()) return apiFetchTeacherClassTimetable(classId, teacherId);
   const sb = supabase();
   const [slots, { data: classRow, error: e1 }, { data: assignmentRows, error: e2 }] = await Promise.all([
     fetchClassTimetableSlots(classId),
@@ -200,6 +207,7 @@ export interface MyClassRow extends ClassGroup {
 /** "My classes" — every class a teacher is assigned to, whether as class
  *  teacher or a subject teacher, with what they teach there and roll size. */
 export async function fetchMyClasses(teacherId: string): Promise<MyClassRow[]> {
+  if (onApi()) return apiFetchMyClasses(teacherId);
   const classes = await fetchTeacherClasses(teacherId);
   if (!classes.length) return [];
 
@@ -301,6 +309,7 @@ export async function fetchGradesAccess(): Promise<GradesAccess> {
 /** A teacher's own sent messages — always in-app only, always one class at a time,
  *  a lighter form over the same announcements table admin's whole-school composer uses. */
 export async function fetchSentByMe(teacherId: string): Promise<Announcement[]> {
+  if (onApi()) return apiFetchSentByMe(teacherId);
   const { data, error } = await supabase()
     .from("announcements").select("*").eq("author_id", teacherId)
     .order("created_at", { ascending: false }).limit(20);
@@ -317,6 +326,7 @@ export async function sendClassMessage(
   /** draft: saved unpublished, so files can be attached before publishAnnouncement() sends it. */
   { draft = false }: { draft?: boolean } = {},
 ): Promise<string> {
+  if (onApi()) return apiSendClassMessage(tenantId, classId, recipients, subject, body, draft);
   const { data, error, status } = await supabase().from("announcements").insert({
     tenant_id: tenantId,
     author_id: teacherId,
