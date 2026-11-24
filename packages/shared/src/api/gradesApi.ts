@@ -297,7 +297,7 @@ export async function apiFetchTeacherSubjectsForClass(teacherUserId: string, cla
     }),
     listApiSubjects(tid),
   ]);
-  const mineIds = new Set(assignments.filter((a) => a.class_id === classId && a.active).map((a) => a.subject_id));
+  const mineIds = new Set(assignments.filter((a) => a.class_id === classId && a.staff_member_id === mine.id && a.active).map((a) => a.subject_id));
   return subjects.filter((s) => mineIds.has(s.id)).map((s) => subjectFromApi(s, tid)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -316,12 +316,6 @@ export async function apiFetchPublishedSubjects(examId: string, classId: string,
   const { termId, title } = parseExamId(examId);
   const rows = await listAssessments(tid, { classId, termId });
   return new Set(examPapersOf(rows).filter((a) => sameTitle(a.title, title) && a.status !== "draft").map((a) => a.subject_id));
-}
-
-/** The paper's total and status, for the Gradebook's header and its read-only state. */
-export async function apiFetchPaperState(examId: string, classId: string, subjectId: string, tenantId?: string): Promise<{ outOf: number; status: ApiAssessment["status"] }> {
-  const paper = await paperFor(tenantIdOrThrow(tenantId), examId, classId, subjectId);
-  return { outOf: numberOf(paper.max_score), status: paper.status };
 }
 
 export async function apiFetchMarksForExamSubject(

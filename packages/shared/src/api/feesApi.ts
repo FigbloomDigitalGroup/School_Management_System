@@ -52,7 +52,7 @@ export function feeItemFromApi(f: ApiFeeItem): FeeItem {
 
 // ---------------------------------------------------------------- optional directory/academics lookups (graceful on 403)
 
-async function listLearnersOrEmpty(tenantId: string): Promise<ApiLearner[]> {
+export async function listLearnersOrEmpty(tenantId: string): Promise<ApiLearner[]> {
   try {
     return await listAllPages(async (cursor) => {
       const r = await apiClient().get("/v1/tenants/{tenantId}/learners", {
@@ -68,7 +68,7 @@ async function listLearnersOrEmpty(tenantId: string): Promise<ApiLearner[]> {
   }
 }
 
-async function listClassesOrEmpty(tenantId: string): Promise<ApiClass[]> {
+export async function listClassesOrEmpty(tenantId: string): Promise<ApiClass[]> {
   try {
     const year = await currentAcademicYear(tenantId);
     return await listAllPages(async (cursor) => {
@@ -85,7 +85,7 @@ async function listClassesOrEmpty(tenantId: string): Promise<ApiClass[]> {
   }
 }
 
-async function listMembershipsOrEmpty(tenantId: string): Promise<ApiMembership[]> {
+export async function listMembershipsOrEmpty(tenantId: string): Promise<ApiMembership[]> {
   try {
     return await listAllPages(async (cursor) => {
       const r = await apiClient().get("/v1/tenants/{tenantId}/class-memberships", {
@@ -101,7 +101,7 @@ async function listMembershipsOrEmpty(tenantId: string): Promise<ApiMembership[]
   }
 }
 
-async function listInvoicesForTerm(tenantId: string, termId: string): Promise<ApiInvoice[]> {
+export async function listInvoicesForTerm(tenantId: string, termId: string): Promise<ApiInvoice[]> {
   const all = await listAllPages(async (cursor) => {
     const r = await apiClient().get("/v1/tenants/{tenantId}/finance/invoices", {
       path: { tenantId },
