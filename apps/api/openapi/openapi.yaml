@@ -1938,6 +1938,42 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/staff/me:
+    get:
+      tags:
+        - directory
+      summary: Get my own staff record
+      description: The caller's own ACTIVE staff record in this school (linked through `userId`). Any member of the school may
+        read their own row; no directory permission is needed, so a teacher who cannot read the staff list can still learn
+        their own staff id (teaching assignments, class teachers and timetable slots name staff ids). 404 when the account
+        has no active staff record here (a school administrator who was never added to the directory, a parent, a student).
+      operationId: getMyStaff
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The caller's staff record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/staff/{staffId}:
     get:
       tags:
