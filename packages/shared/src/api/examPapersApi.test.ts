@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initBackend } from "../backend";
-import { NotOnApiError, examPapersCapabilities } from "../capabilities";
+import { NotOnApiError, canManageExamPapers, examPapersCapabilities } from "../capabilities";
 import {
-  createExamPaper, createOnlineExamPaper, deleteExamPaper, fetchCurrentTermExams, fetchExamPapers, fetchPaperContent,
-  fetchPaperScripts, markExamAttempt, releaseExamResults, saveExamQuestions, savePaperBody, sendExamScoresToGradebook,
-  setPaperFile, setPaperPublished, updateExamPaper, type QuestionDraft,
+  createExamPaper, createOnlineExamPaper, deleteExamPaper, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs,
+  fetchPaperContent, fetchPaperScripts, markExamAttempt, releaseExamResults, saveExamQuestions, savePaperBody,
+  sendExamScoresToGradebook, setPaperFile, setPaperPublished, updateExamPaper, type QuestionDraft,
 } from "../examPapers";
 import { fetchClassSizes } from "../homework";
 import { fetchSchoolClassOptions, fetchSchoolSubjectOptions } from "../teacherData";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { apiQuestionsFromDrafts } from "./examPapersApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
+import { clearTeachingLookups } from "./teachingLookups";
 import { createMemoryTokenStore } from "./tokenStore";
 
 const T = "11111111-1111-4111-8111-111111111111";
@@ -50,6 +51,7 @@ function boot(routes: Record<string, FakeRoute>) {
   vi.stubGlobal("fetch", api.fetch);
   initBackend({ kind: "api", apiUrl: BASE });
   resetApiClient();
+  clearTeachingLookups();
   setApiTokenStore(createMemoryTokenStore({ token: "tok", expiresAt: "2099-01-01T00:00:00Z", userId: U1 }));
   setApiActiveTenant(T);
   return api;
@@ -57,6 +59,7 @@ function boot(routes: Record<string, FakeRoute>) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearTeachingLookups();
   resetApiClient();
   initBackend({ kind: "supabase" });
 });
@@ -206,5 +209,32 @@ describe("examPapersCapabilities and NotOnApiError guards", () => {
     await expect(markExamAttempt("a1", {}, {}, "")).rejects.toThrow(NotOnApiError);
     await expect(releaseExamResults("p1", true)).rejects.toThrow(NotOnApiError);
     await expect(sendExamScoresToGradebook("p1")).rejects.toThrow(NotOnApiError);
+  });
+
+  it("loads teacher teaching pairs via /staff/me and checks canManageExamPapers", async () => {
+    expect(canManageExamPapers([], "teacher")).toBe(true);
+
+    const ST1 = "d1d1d1d1-d1d1-4d1d-8d1d-d1d1d1d1d1d1";
+    const ST2 = "d2d2d2d2-d2d2-4d2d-8d2d-d2d2d2d2d2d2";
+    boot({
+      [`GET ${P}/staff/me`]: {
+        body: { staff: { id: ST1, tenantId: T, userId: U1, full_name: "Teacher", classification: "teacher", staff_title: null, phone: null, active: true, archived_at: null, ...stamp } },
+      },
+      [`GET ${P}/staff`]: refused("forbidden", 403),
+      [`GET ${P}/teaching-assignments`]: list("assignments", [
+        { id: "a1", tenantId: T, class_id: C1, subject_id: S1, staff_member_id: ST1, active: true, ...stamp },
+        { id: "a2", tenantId: T, class_id: C2, subject_id: S2, staff_member_id: ST1, active: false, ...stamp },
+        { id: "a3", tenantId: T, class_id: C2, subject_id: S1, staff_member_id: ST2, active: true, ...stamp },
+      ]),
+    });
+
+    const pairs = await fetchMyTeachingPairs(U1);
+    expect([...pairs]).toEqual([`${C1}:${S1}`]);
+    expect(canManageExamPapers([], "teacher")).toBe(false);
+    expect(canManageExamPapers(["academics"], "teacher")).toBe(true);
+    expect(canManageExamPapers([], "school_admin")).toBe(true);
+
+    boot({ [`GET ${P}/staff/me`]: refused("not_found", 404) });
+    expect((await fetchMyTeachingPairs(U1)).size).toBe(0);
   });
 });

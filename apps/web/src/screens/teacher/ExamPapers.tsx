@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, aiCapabilities, applyPaperImport, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind,
+  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, aiCapabilities, applyPaperImport, blankQuestion, canAddOption, canManageExamPapers, canRemoveOption, changeQuestionKind,
   createExamPaper, createOnlineExamPaper, deleteExamPaper, examPapersCapabilities,
-  fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
+  fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchHomeworkSubjectsForClass, fetchMyTeachingPairs, fetchPaperContent, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
+  fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
   flaggedQuestionsBanner, flaggedQuestionsProblem, saveExamQuestions, savePaperBody, savedPaperPublishProblem,
   setPaperFile, setPaperPublished, toLocalInput, totalPoints, updateExamPaper, validatePaper,
   validateQuestions, windowLabel,
@@ -45,8 +45,9 @@ const TEXTAREA = "w-full resize-y rounded-md border border-[#D3DAD5] px-3 py-2.5
  */
 export function ExamPapers({ admin = false }: { admin?: boolean }) {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas } = useTenantSession();
   const caps = examPapersCapabilities();
+  const mayManage = admin || canManageExamPapers(adminAreas, profile.role);
   const canAiDraft = aiCapabilities().aiDrafting;
   const [reloadKey, setReloadKey] = useState(0);
   // importing: open the editor straight onto "Import a paper with Bloom"
@@ -62,16 +63,17 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
       }
     : {
         classes: () => fetchTeacherClasses(profile.id),
-        subjectsFor: (classId: string) => fetchTeacherSubjectsForClass(profile.id, classId),
+        subjectsFor: (classId: string) => fetchHomeworkSubjectsForClass(profile.id, classId),
       }, [admin, tenant.id, profile.id]);
 
-  const { data: classes } = useAsync(() => scope.classes(), [scope]);
+  const { data: classes } = useAsync(() => (mayManage ? scope.classes() : Promise.resolve([])), [scope, mayManage]);
   const { data, loading, error } = useAsync(async () => {
+    if (!mayManage) return { papers: [] as ExamPaperRow[], sizes: {} as Record<string, number> };
     const [all, pairs] = await Promise.all([fetchExamPapers(tenant.id), admin ? Promise.resolve(null) : fetchMyTeachingPairs(profile.id)]);
     const papers = pairs ? all.filter((p) => pairs.has(`${p.classId}:${p.subjectId}`)) : all;
-    const sizes = await fetchClassSizes([...new Set(papers.map((p) => p.classId))]);
+    const sizes = caps.scripts ? await fetchClassSizes([...new Set(papers.map((p) => p.classId))]) : {};
     return { papers, sizes };
-  }, [tenant.id, profile.id, admin, reloadKey]);
+  }, [tenant.id, profile.id, admin, mayManage, caps.scripts, reloadKey]);
 
   const papers = data?.papers ?? [];
   const sizes = data?.sizes ?? {};
@@ -111,17 +113,28 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
           ? (caps.draftWorkflow
               ? "Every exam paper and test posted in the school. Learners read a paper, or sit it online and get it marked here."
               : "Online exam papers posted in the school for a class and subject.")
-          : "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here."}
-        actions={
-          <>
-            {canAiDraft && aiStatus?.aiEnabled && <Button disabled={!classes?.length} onClick={() => setEditing({ importing: true })}>Import a paper</Button>}
-            <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>New paper</Button>
-          </>
-        }
+          : (caps.draftWorkflow
+              ? "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here."
+              : "Online exam papers for a class and subject you teach.")}
+        actions={mayManage
+          ? (
+            <>
+              {canAiDraft && aiStatus?.aiEnabled && <Button disabled={!classes?.length} onClick={() => setEditing({ importing: true })}>Import a paper</Button>}
+              <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>New paper</Button>
+            </>
+          )
+          : undefined}
       />
 
       <div className="px-7 py-6">
-        {error ? (
+        {!mayManage ? (
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState
+              title="Teachers can't post exam papers here yet."
+              body="On the new system only the school office, or a teacher given the Academics area, can view or post online exam papers. Ask the school office for the Academics area."
+            />
+          </div>
+        ) : error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the papers: {error.message}
           </p>

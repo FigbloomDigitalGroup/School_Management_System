@@ -42,7 +42,7 @@ export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type B
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
 export { feeTotalsFromInvoices } from "./adminOverviewApi";
-export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper } from "./examPapersApi";
+export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPairs } from "./examPapersApi";
 export { apiCreateLearningMaterial } from "./materialsApi";
 export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
 export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";

@@ -6,6 +6,7 @@ import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import { activeTenantId } from "./peopleApi";
 import type { components } from "./schema";
 import { listActiveLearnerIds, listApiSubjects } from "./setupApi";
+import { apiListTeachingAssignments, apiMyStaffId, whenRefused } from "./teachingLookups";
 
 /**
  * Online exam papers on apps/api: the API side of `examPapers.ts`, plus the school class/subject/size
@@ -183,4 +184,17 @@ export async function apiFetchClassSizes(classIds: string[]): Promise<Record<str
     counts[m.class_id] = (counts[m.class_id] ?? 0) + 1;
   }
   return counts;
+}
+
+/** `"classId:subjectId"` pairs this signed-in teacher is assigned to teach, via `GET /staff/me`. */
+export async function apiFetchMyTeachingPairs(tenantId?: string): Promise<Set<string>> {
+  const tid = tenantId ?? activeTenantId();
+  const myStaffId = await apiMyStaffId(tid);
+  if (!myStaffId) return new Set();
+  const assignments = await apiListTeachingAssignments(tid).catch(whenRefused([]));
+  return new Set(
+    assignments
+      .filter((a) => a.staff_member_id === myStaffId && a.active)
+      .map((a) => `${a.class_id}:${a.subject_id}`),
+  );
 }

@@ -1,4 +1,4 @@
-import { apiCreateOnlineExamPaper, apiFetchExamPapers } from "./api/examPapersApi";
+import { apiCreateOnlineExamPaper, apiFetchExamPapers, apiFetchMyTeachingPairs } from "./api/examPapersApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
@@ -385,6 +385,7 @@ export async function fetchExamPapers(tenantId: string): Promise<ExamPaperRow[]>
 
 /** "classId:subjectId" for every class and subject this teacher is assigned. */
 export async function fetchMyTeachingPairs(teacherId: string): Promise<Set<string>> {
+  if (onApi()) return apiFetchMyTeachingPairs();
   const { data, error } = await supabase().from("teaching_assignments").select("class_id, subject_id").eq("teacher_id", teacherId);
   if (error) throw new Error(error.message);
   return new Set(((data ?? []) as { class_id: string; subject_id: string }[]).map((r) => `${r.class_id}:${r.subject_id}`));

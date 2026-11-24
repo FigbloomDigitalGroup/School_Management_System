@@ -761,6 +761,14 @@ export function examPapersCapabilities(): ExamPapersCapabilities {
   return onApi() ? EXAM_PAPERS_ON_API : EXAM_PAPERS_ON_SUPABASE;
 }
 
+/**
+ * Whether the signed-in person may read and create online exam papers on `teacher/exams` (`GET/POST /online-exam-papers`
+ * require `resource.academics.read` / `resource.academics.write`, held by school admins and holders of the Academics area).
+ */
+export function canManageExamPapers(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("academics");
+}
+
 /** Learning materials (admin/materials, later teacher/materials). */
 export interface MaterialsCapabilities {
   /** Uploading files to object storage or attaching external links (API stores title/description metadata only). */
