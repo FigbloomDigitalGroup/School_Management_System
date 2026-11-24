@@ -1,5 +1,6 @@
 import { apiLoginWithEmail, apiLogout, apiMe } from "./api/authApi";
 import { apiClient } from "./api/client";
+import { apiLoadMyWorkspaces, apiLoadOrgSession } from "./api/orgApi";
 import { apiOnSessionChange } from "./api/sessionEvents";
 import { apiHomeDestination, apiLoadSchoolSession, apiSignInProfile, forgetApiSchools } from "./api/sessionApi";
 import { fetchMyAdminAreas, mayHoldAdminAreas, type AdminArea } from "./adminAreas";
@@ -199,8 +200,8 @@ export interface OrgSessionSnapshot {
 
 /** Reads who is signed in and the organization at `orgSlug`. Null when nobody is signed in. */
 export async function loadOrgSession(orgSlug: string | null): Promise<OrgSessionSnapshot | null> {
-  // Organizations are not on the API's client side yet (they have no address to look up): nobody has an org console there.
-  if (onApi()) return null;
+  // On the API the organisation is found among the person's own (GET /v1/org/organizations, S11).
+  if (onApi()) return apiLoadOrgSession(orgSlug);
   const userId = await currentUserId();
   if (!userId) return null;
 
@@ -223,7 +224,7 @@ export interface MyWorkspaces {
 
 /** The workspace picker's data. Null when nobody is signed in or the person is not an org_admin. */
 export async function loadMyWorkspaces(): Promise<MyWorkspaces | null> {
-  if (onApi()) return null;
+  if (onApi()) return apiLoadMyWorkspaces();
   const userId = await currentUserId();
   if (!userId) return null;
 

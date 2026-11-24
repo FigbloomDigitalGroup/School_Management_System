@@ -26,9 +26,8 @@ describe("stepAfterSignIn", () => {
 });
 
 describe("consoleOnApi", () => {
-  it("has every school role, and not the organization or platform consoles", () => {
-    for (const r of ["school_admin", "teacher", "parent", "student", "driver", "staff"] as const) expect(consoleOnApi(r)).toBe(true);
-    expect(consoleOnApi("org_admin")).toBe(false);
+  it("has every school role and the organization console, and not the platform console", () => {
+    for (const r of ["school_admin", "teacher", "parent", "student", "driver", "staff", "org_admin"] as const) expect(consoleOnApi(r)).toBe(true);
     expect(consoleOnApi("super_admin")).toBe(false);
   });
 });
@@ -73,12 +72,26 @@ describe("continueSignIn", () => {
     expect(await continueSignIn()).toEqual({ kind: "step", step: "mfa-challenge" });
   });
 
-  it("refuses an organization or platform account and ends its session", async () => {
+  it("opens an org admin's organization: its dashboard for one, the picker for several", async () => {
+    const orgMe = me({ memberships: [], authz: { role: "org_admin", tenantId: null, isSuperAdmin: false } });
+    const org = (slug: string) => ({ id: `id-${slug}`, name: slug, slug, kind: "group_owner", status: "active" });
+    const orgs = (...slugs: string[]) => ({ body: { items: slugs.map(org), page: { limit: 200, next_cursor: null } } });
+    boot({ "GET /v1/auth/me": orgMe, "GET /v1/auth/mfa/status": mfa("none"), "GET /v1/org/organizations": orgs("north-org") });
+    expect(await continueSignIn()).toEqual({ kind: "open", path: "/org/north-org/dashboard" });
+    boot({ "GET /v1/auth/me": orgMe, "GET /v1/auth/mfa/status": mfa("none"), "GET /v1/org/organizations": orgs("north-org", "south-org") });
+    expect(await continueSignIn()).toEqual({ kind: "open", path: "/org-picker" });
+    // org admins answer two-step before anything opens
+    boot({ "GET /v1/auth/me": orgMe, "GET /v1/auth/mfa/status": mfa("enroll") });
+    expect(await continueSignIn()).toEqual({ kind: "step", step: "mfa-enroll" });
+  });
+
+  it("refuses an org admin with no organization left, and a platform account, and ends the session", async () => {
     const api = boot({
       "GET /v1/auth/me": me({ memberships: [], authz: { role: "org_admin", tenantId: null, isSuperAdmin: false } }),
       "GET /v1/auth/mfa/status": mfa("none"), "POST /v1/auth/logout": { body: { ok: true } },
+      "GET /v1/org/organizations": { body: { items: [], page: { limit: 200, next_cursor: null } } },
     });
-    expect(await continueSignIn()).toEqual({ kind: "refused", message: "Organization consoles are not on the new system yet." });
+    expect(await continueSignIn()).toEqual({ kind: "refused", message: "Your account is not linked to an organization any more. Contact Figbloom support." });
     expect(store.get()).toBeNull();
     expect(api.callsTo("POST /v1/auth/logout")).toHaveLength(1);
 
