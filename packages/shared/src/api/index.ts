@@ -5,6 +5,8 @@ export * from "./tokenStore";
 export * from "./client";
 export * from "./paging";
 export * from "./authApi";
+export * from "./sessionLifecycle";
+export * from "./qrCode";
 export { apiLoadSchoolSession, adminAreasFromPermissions, accentFromApi, tenantFromApi, profileFromApi, roleOutsideSchools, viewOfMe, isRole, forgetApiSchools, type ApiSchoolSession, type MeView, type MembershipView } from "./sessionApi";
 export * from "./sessionEvents";
 export * from "./signInFlow";

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   apiChangePassword, apiLoginWithEmail, apiLogout, apiMfaChallenge, apiMfaEnroll, apiMfaVerify, apiReauth,
-  continueSignIn, forgetApiSchools, hasSession, isApiError, userMessage, type MfaEnrolment, type SignInStep,
+  continueSignIn, forgetApiSchools, hasSession, isApiError, safeReturnPath, signOutReasonNotice, userMessage,
+  type MfaEnrolment, type SignInStep,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
 import { Button } from "../components/ui/Button";
 import { TextField } from "../components/ui/Field";
+import { QrCodeSvg } from "./QrCodeSvg";
 
 /** The illustrated side of sign-in, the same welcome the Supabase build shows. */
 const WELCOME: Scene = {
@@ -27,13 +29,22 @@ type Stage = "checking" | "credentials" | SignInStep;
  */
 export function ApiSignIn() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const nextParam = searchParams.get("next");
+  const initialNotice = searchParams.get("invited") === "1"
+    ? "Invitation accepted. Sign in with your email and new password."
+    : signOutReasonNotice(searchParams.get("reason"));
   const [stage, setStage] = useState<Stage>("checking");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(initialNotice);
 
   const proceed = useCallback(async () => {
     try {
       const out = await continueSignIn();
-      if (out.kind === "open") { nav(out.path, { replace: true }); return; }
+      if (out.kind === "open") {
+        const destination = safeReturnPath(nextParam, out.path) ?? out.path;
+        nav(destination, { replace: true });
+        return;
+      }
       if (out.kind === "refused") { setNotice(out.message); setStage("credentials"); return; }
       setNotice("");
       setStage(out.step);
@@ -42,7 +53,7 @@ export function ApiSignIn() {
       if (!(isApiError(err) && err.code === "unauthorized")) setNotice(userMessage(err));
       setStage("credentials");
     }
-  }, [nav]);
+  }, [nav, nextParam]);
 
   // A session kept from earlier: carry on from where it stands. Without one, the form.
   useEffect(() => {
@@ -265,8 +276,11 @@ function EnrolStep({ onDone, onCancel }: { onDone: () => Promise<void>; onCancel
     <Card title="Add this account to your authenticator app" lead="Use any authenticator app (Google Authenticator, Microsoft Authenticator, Authy).">
       <ol className="grid gap-4 text-body">
         <li>
-          <p className="font-semibold">1. Add the key</p>
-          <p className="mt-1 text-[12.5px] text-ink-muted">In the app, choose “enter a setup key”, and type this key. Choose time-based.</p>
+          <p className="font-semibold">1. Scan the QR code or add the key</p>
+          <p className="mt-1 text-[12.5px] text-ink-muted">Scan this QR code with your authenticator app, or choose “enter a setup key” (time-based) and type the key below.</p>
+          <div className="mt-3 flex justify-center">
+            <QrCodeSvg value={enrolment.otpauthUri} />
+          </div>
           <p data-testid="mfa-secret" className="mt-2 select-all break-all rounded-md border border-line bg-page px-3 py-2 font-mono text-[14px] tracking-wider">{groupKey(enrolment.secret)}</p>
           <a className="mt-1 inline-block text-[12px] font-medium text-forest underline" href={enrolment.otpauthUri}>On this phone? Open it in your authenticator app</a>
         </li>

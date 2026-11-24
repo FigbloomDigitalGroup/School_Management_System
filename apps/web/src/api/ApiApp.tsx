@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ConfirmHost } from "../components/ui/Confirm";
 import { ToastHost } from "../components/ui/Toast";
+import { ApiAcceptInvite } from "./ApiAcceptInvite";
 import { ApiSchool } from "./ApiHome";
+import { ApiSessionGuard } from "./ApiSessionGuard";
 import { ApiSignIn } from "./ApiSignIn";
 
 /**
@@ -13,11 +15,15 @@ export function ApiApp() {
   return (
     <ToastHost>
       <ConfirmHost />
-      <Routes>
-        <Route path="/signin" element={<ApiSignIn />} />
-        <Route path="/s/:slug/*" element={<ApiSchool />} />
-        <Route path="*" element={<Navigate to="/signin" replace />} />
-      </Routes>
+      <ApiSessionGuard>
+        <Routes>
+          <Route path="/signin" element={<ApiSignIn />} />
+          <Route path="/accept-invite" element={<ApiAcceptInvite />} />
+          <Route path="/invite" element={<ApiAcceptInvite />} />
+          <Route path="/s/:slug/*" element={<ApiSchool />} />
+          <Route path="*" element={<Navigate to="/signin" replace />} />
+        </Routes>
+      </ApiSessionGuard>
     </ToastHost>
   );
 }
