@@ -470,7 +470,7 @@ async function main() {
       body: {
         subject: welcomeSubject,
         body: "Term 1 opens Monday at 7:30 am. Please ensure learners report in full uniform.",
-        audience: { kind: "all" },
+        audience: { kind: "whole_school" },
         channels: ["in_app"],
       },
       tenantId,
