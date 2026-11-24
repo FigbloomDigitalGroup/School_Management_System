@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchOrgAdminsForOwnOrg, inviteOrgAdmin, logOrganizationAccess, type OrgAdminInviteResult } from "@figbloom/shared";
+import { fetchOrgAdminsForOwnOrg, inviteOrgAdmin, logOrganizationAccess, orgCapabilities, type OrgAdminInviteResult } from "@figbloom/shared";
 import { Button } from "../../components/ui/Button";
 import { Cell, Mono } from "../../components/ui/DataTable";
 import { TextField } from "../../components/ui/Field";
@@ -21,16 +21,20 @@ export function OrgAdmins() {
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchOrgAdminsForOwnOrg(organization.id), [organization.id, reloadKey]);
   const toast = useToast();
+  // On the new API: the list only. Who may add or remove an org admin is still an owner decision (orgCapabilities, S11).
+  const caps = orgCapabilities();
 
   useEffect(() => {
-    void logOrganizationAccess(organization.id, profile.id, "viewed_admins_list");
+    if (orgCapabilities().pageViewLog) void logOrganizationAccess(organization.id, profile.id, "viewed_admins_list");
   }, [organization.id, profile.id]);
 
   const spec: RecordsSpec = {
     eyebrow: organization.name,
     title: "Admins",
-    blurb: "Everyone who can sign in and administer this organization — every school in it, not just one.",
-    actions: [{ label: "+ Invite admin", primary: true, onClick: () => setInviting(true) }],
+    blurb: caps.inviteOrgAdmin
+      ? "Everyone who can sign in and administer this organization — every school in it, not just one."
+      : "Everyone who can sign in and administer this organization. Adding or removing an admin is not on the new system yet.",
+    actions: caps.inviteOrgAdmin ? [{ label: "+ Invite admin", primary: true, onClick: () => setInviting(true) }] : [],
     stats: [{ label: "Admins", value: String(data?.length ?? 0) }],
     columns: [
       { key: "name", header: "Name", width: "1.6fr" },
@@ -40,9 +44,9 @@ export function OrgAdmins() {
     rows: (data ?? []).map((a) => ({
       id: a.id,
       tags: [],
-      cells: [<Cell>{a.full_name}</Cell>, <Mono>{a.email ?? "—"}</Mono>],
+      cells: [<Cell>{a.full_name}{a.is_you ? " (you)" : ""}</Cell>, <Mono>{a.email ?? "—"}</Mono>],
     })),
-    empty: { title: "No admins yet", body: "Invite someone to help administer this organization." },
+    empty: { title: "No admins yet", body: caps.inviteOrgAdmin ? "Invite someone to help administer this organization." : "Nobody administers this organization yet." },
   };
 
   return (

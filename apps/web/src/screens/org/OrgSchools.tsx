@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  SCHOOL_LEVEL_OPTIONS, activateOrgSchool, createTenantSelfService, fetchOrganizationTenantSummaries, inviteAdmin, logOrganizationAccess, normalizeSlug, similarSchoolNames, suggestSlug, validateSlug, formatMoney,
+  SCHOOL_LEVEL_OPTIONS, activateOrgSchool, orgCapabilities, createTenantSelfService, fetchOrganizationTenantSummaries, inviteAdmin, logOrganizationAccess, normalizeSlug, similarSchoolNames, suggestSlug, validateSlug, formatMoney,
   type EmailOutcome, type OrganizationTenantSummary, type Tenant,
 } from "@figbloom/shared";
 import { Badge, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
@@ -31,9 +31,11 @@ export function OrgSchools() {
   const [opening, setOpening] = useState<string | null>(null);
   const { data, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id, reloadKey]);
   const toast = useToast();
+  // On the new API: name, address and status only; no adding or opening a school here (orgCapabilities, S11).
+  const caps = orgCapabilities();
 
   useEffect(() => {
-    void logOrganizationAccess(organization.id, profile.id, "viewed_schools_list");
+    if (orgCapabilities().pageViewLog) void logOrganizationAccess(organization.id, profile.id, "viewed_schools_list");
   }, [organization.id, profile.id]);
 
   /** A school added before org-created schools went live straight away: let the org open it itself. */
@@ -64,52 +66,61 @@ export function OrgSchools() {
   const totalBilled = data.reduce((a, s) => a + s.fees_billed_cents, 0);
   const totalCollected = data.reduce((a, s) => a + s.fees_collected_cents, 0);
 
+  // Each column, stat and chip is kept only where this backend has the data (orgCapabilities): the API has no figures or kinds.
+  const keep = <T,>(on: boolean, item: T): T[] => (on ? [item] : []);
   const spec: RecordsSpec = {
     eyebrow: organization.name,
     title: "Schools",
-    blurb: "Every school in this organization, at a glance — aggregate figures only.",
-    actions: [{ label: "+ Add school", primary: true, onClick: () => setAdding(true) }],
+    blurb: caps.schoolFigures
+      ? "Every school in this organization, at a glance — aggregate figures only."
+      : "Every school in this organization. Learner numbers, attendance and fees for each school are not on the new system yet.",
+    actions: caps.addSchool ? [{ label: "+ Add school", primary: true, onClick: () => setAdding(true) }] : [],
     stats: [
       { label: "Schools", value: String(data.length) },
-      { label: "Active students", value: data.reduce((a, s) => a + s.active_students, 0).toLocaleString() },
+      ...keep(caps.schoolFigures, { label: "Active students", value: data.reduce((a, s) => a + s.active_students, 0).toLocaleString() }),
       // Every school in an organization is Kenyan today (the country
       // selector is locked to Kenya) — once organizations can span
       // countries, summing cents across schools becomes a real
       // multi-currency aggregation problem, not just a formatting one.
-      { label: "Fees collected", value: formatMoney(totalCollected, "KE"), sub: totalBilled > 0 ? `of ${formatMoney(totalBilled, "KE")} billed` : "nothing billed yet" },
+      ...keep(caps.schoolFigures, { label: "Fees collected", value: formatMoney(totalCollected, "KE"), sub: totalBilled > 0 ? `of ${formatMoney(totalBilled, "KE")} billed` : "nothing billed yet" }),
       { label: "Needs attention", value: String(data.filter((s) => s.status !== "active").length), alarming: data.some((s) => s.status !== "active") },
     ],
     columns: [
       { key: "name", header: "School", width: "1.6fr" },
-      { key: "type", header: "Type", width: "1fr" },
-      { key: "students", header: "Students", align: "right", width: "1fr" },
-      { key: "fees", header: "Fees collected", align: "right", width: "1.4fr" },
+      ...keep(caps.schoolKind, { key: "type", header: "Type", width: "1fr" }),
+      ...keep(!caps.schoolFigures, { key: "address", header: "Web address", width: "1.4fr" }),
+      ...keep(caps.schoolFigures, { key: "students", header: "Students", align: "right" as const, width: "1fr" }),
+      ...keep(caps.schoolFigures, { key: "fees", header: "Fees collected", align: "right" as const, width: "1.4fr" }),
       { key: "status", header: "Status", width: "1fr" },
       { key: "view", header: "", align: "right", width: "1.1fr" },
     ],
     chips: [
       { label: "All" },
-      { label: "K-12", match: ["k12"] },
-      { label: "Higher-ed", match: ["higher_ed"] },
+      ...keep(caps.schoolKind, { label: "K-12", match: ["k12"] }),
+      ...keep(caps.schoolKind, { label: "Higher-ed", match: ["higher_ed"] }),
       { label: "Needs attention", match: ["needs_attention"] },
     ],
-    minWidth: "960px",
-    empty: {
+    minWidth: caps.schoolFigures ? "960px" : "640px",
+    empty: caps.addSchool ? {
       title: "No schools yet",
       body: "Add your first school: it only needs a name, and it's ready to use straight away.",
       action: <Button variant="accent" onClick={() => setAdding(true)}>Add your first school</Button>,
+    } : {
+      title: "No schools yet",
+      body: "On the new system Figbloom adds a school to your organization. Once one is added, it appears here.",
     },
     rows: data.map((s) => ({
       id: s.tenant_id,
       tags: [s.institution_type, ...(s.status !== "active" ? ["needs_attention"] : [])],
       cells: [
         <span className="text-[13px] font-medium">{s.name}</span>,
-        <Mono>{s.institution_type === "higher_ed" ? (s.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[s.higher_ed_subtype] : "Higher-ed") : "K-12"}</Mono>,
-        <Mono>{s.active_students.toLocaleString()}</Mono>,
-        <span className="text-[13px]">{formatMoney(s.fees_collected_cents, "KE")} / {formatMoney(s.fees_billed_cents, "KE")}</span>,
+        ...keep(caps.schoolKind, <Mono>{s.institution_type === "higher_ed" ? (s.higher_ed_subtype ? HIGHER_ED_SUBTYPE_LABEL[s.higher_ed_subtype] : "Higher-ed") : "K-12"}</Mono>),
+        ...keep(!caps.schoolFigures, <Mono>{s.slug ? `/s/${s.slug}` : "—"}</Mono>),
+        ...keep(caps.schoolFigures, <Mono>{s.active_students.toLocaleString()}</Mono>),
+        ...keep(caps.schoolFigures, <span className="text-[13px]">{formatMoney(s.fees_collected_cents, "KE")} / {formatMoney(s.fees_billed_cents, "KE")}</span>),
         <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge>,
         <span className="flex items-center justify-end gap-3">
-          {s.status === "onboarding" && (
+          {caps.openForSignIn && s.status === "onboarding" && (
             <button type="button" disabled={opening === s.tenant_id} onClick={() => void openForSignIn(s)}
               className="text-[12px] font-semibold text-forest hover:underline disabled:opacity-50">
               {opening === s.tenant_id ? "Opening…" : "Open for sign-in"}
