@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { APIProvider, Map as GoogleMap, Marker, Polyline, useApiIsLoaded, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
-import { activeDirections, DEFAULT_MAP_LOOK, distanceM, fmtEta, isLive, parseMapLook, roughEta, stopsInTravelOrder, subscribeVehiclePositions, type BusOnRoute, type EtaResult, type MapLook, type RouteStop } from "@figbloom/shared";
+import { activeDirections, DEFAULT_MAP_LOOK, distanceM, fmtEta, isLive, onApi, parseMapLook, roughEta, startPolling, stopsInTravelOrder, subscribeVehiclePositions, type BusOnRoute, type EtaResult, type MapLook, type RouteStop } from "@figbloom/shared";
 
 // The ETA wording and fallback guess are shared with the phone apps.
 export { fmtEta };
@@ -76,24 +76,28 @@ const DIRECTION_POLL_MS = 15_000;
  * running trip's direction by polling, so a bus that turns round (a new trip
  * the other way) renumbers its stops and redraws its route within seconds.
  */
-export function useLiveBuses(tenantId: string, initial: BusOnRoute[]): BusOnRoute[] {
+export function useLiveBuses(tenantId: string, initial: BusOnRoute[], follow = true): BusOnRoute[] {
   const [buses, setBuses] = useState(initial);
   useEffect(() => setBuses(initial), [initial]);
+  // `follow` false: the screen has its own position for the bus (a driver's phone), and on the new system a driver may not read the fleet.
   useEffect(
-    () => subscribeVehiclePositions(tenantId, (v) => setBuses((prev) => prev.map((b) => (b.vehicle.id === v.id ? { ...b, vehicle: { ...b.vehicle, ...v } } : b)))),
-    [tenantId],
+    () => (follow ? subscribeVehiclePositions(tenantId, (v) => setBuses((prev) => prev.map((b) => (b.vehicle.id === v.id ? { ...b, vehicle: { ...b.vehicle, ...v } } : b)))) : undefined),
+    [tenantId, follow],
   );
   useEffect(() => {
+    if (!follow) return undefined;
     let alive = true;
-    const check = () => void activeDirections().then((dirs) => {
+    const check = () => activeDirections().then((dirs) => {
       if (!alive) return;
       setBuses((prev) => (prev.some((b) => (dirs.get(b.vehicle.id) ?? null) !== b.direction)
         ? prev.map((b) => ({ ...b, direction: dirs.get(b.vehicle.id) ?? null }))
         : prev));
     }).catch(() => { /* keep the last known direction */ });
-    const id = window.setInterval(check, DIRECTION_POLL_MS);
+    // Supabase: as before, every 15 s for as long as the page is open. The new system pauses while the tab is hidden or unused (poll.ts).
+    if (onApi()) return startPolling(check, { intervalMs: DIRECTION_POLL_MS });
+    const id = window.setInterval(() => void check(), DIRECTION_POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
-  }, [tenantId]);
+  }, [tenantId, follow]);
   return buses;
 }
 

@@ -1,3 +1,5 @@
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { replaceRouteStops } from "./fleet";
 import { supabase } from "./supabase";
 import type { RouteStop } from "./types";
@@ -283,6 +285,8 @@ export interface LearnerHome { lat: number | null; lng: number | null; landmark:
 
 /** Set a learner's home (admins: any learner; guardians: their own child). Address null leaves it as it is; "" clears it. */
 export async function setLearnerHome(studentId: string, home: LearnerHome): Promise<void> {
+  // The API's learner has no home pin, landmark or address (the People page hides them: peopleCapabilities().learnerHome).
+  if (onApi()) throw new NotOnApiError("A learner's home");
   const { error } = await supabase().rpc("set_child_home", {
     p_student_id: studentId, p_lat: home.lat, p_lng: home.lng, p_landmark: home.landmark, p_address: home.address,
   });
@@ -291,6 +295,8 @@ export async function setLearnerHome(studentId: string, home: LearnerHome): Prom
 
 /** Every route with its stops in order: what suggestRouteForHome plans against. */
 export async function listRoutesWithStops(tenantId: string): Promise<(PlanRoute & { stops: (PlanStop & { id: string; sequence: number })[] })[]> {
+  // A route's stops cannot be read on the API (fleetCapabilities().routeStops), so there is nothing to plan against.
+  if (onApi()) throw new NotOnApiError("A route's stops");
   const { data, error } = await supabase().from("routes")
     .select("id, name, active, route_stops(id, name, lat, lng, sequence)")
     .eq("tenant_id", tenantId).order("name")
@@ -317,6 +323,9 @@ export async function assignStudentToRoute(input: {
   stopId?: string | null;
   newStop?: { name: string; lat: number; lng: number; position: number } | null;
 }): Promise<string | null> {
+  // The API puts a learner on a route and a stop that exists (PUT learner-transport), but cannot add a stop in the middle of a
+  // route or take a learner off a bus, which this call does: not offered on the API until the whole of it can be.
+  if (onApi()) throw new NotOnApiError("Putting a learner on a bus route");
   const { data, error } = await supabase().rpc("assign_learner_bus", {
     p_student_id: input.studentId, p_route_id: input.routeId,
     p_stop_id: input.stopId ?? null, p_new_stop: input.newStop ?? null,
@@ -353,6 +362,8 @@ export interface RouteRider {
 
 /** Who rides a route, with their homes. Active learners only. */
 export async function listRouteRiders(routeId: string): Promise<RouteRider[]> {
+  // No list of a route's riders on the API (fleetCapabilities().routeRiders).
+  if (onApi()) throw new NotOnApiError("Who rides a route");
   const { data, error } = await supabase().from("student_transport")
     .select("student_id, stop_id, student:students(full_name, avatar_url, active, home_lat, home_lng, home_landmark, home_address)")
     .eq("route_id", routeId)
@@ -375,6 +386,7 @@ export async function listRouteRiders(routeId: string): Promise<RouteRider[]> {
  * stop if it's still on the route.
  */
 export async function saveRebuiltStops(routeId: string, planned: PlannedStop[]): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Saving a route's stops");
   await replaceRouteStops("", routeId, planned);
   const saved = await supabase().from("route_stops").select("id, sequence").eq("route_id", routeId).order("sequence")
     .returns<{ id: string; sequence: number }[]>();

@@ -1,4 +1,4 @@
-import { listBusesOnRoutes } from "@figbloom/shared";
+import { isApiError, listBusesOnRoutes } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { FleetLiveMap } from "../../components/fleet/FleetLiveMap";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -16,7 +16,10 @@ export function TeacherBuses() {
       <div className="px-7 py-6">
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
-            <span aria-hidden>✕</span>Could not load the buses: {error.message}
+            <span aria-hidden>✕</span>
+            {isApiError(error) && error.code === "forbidden"
+              ? "The new system does not let you see the school's buses with the access you have. Ask the school office to give you the Transport area."
+              : `Could not load the buses: ${error.message}`}
           </p>
         ) : loading || !data ? (
           <Skeleton className="h-[560px] rounded-xl" />

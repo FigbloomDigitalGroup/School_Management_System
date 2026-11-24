@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fmtDistance, isLive, routeProgress, stopsInTravelOrder, type BusOnRoute } from "@figbloom/shared";
+import { fleetCapabilities, fmtDistance, isLive, routeProgress, stopsInTravelOrder, type BusOnRoute } from "@figbloom/shared";
 import { DriverChip } from "./DriverChip";
 import { Eta, LiveDot, LiveRouteMap, MapSheet, ROUTE_COLORS, busPosition, fmtAgo, fmtEta, useLiveBuses, useNow } from "./LiveRouteMap";
 
@@ -64,12 +64,15 @@ function BusDetail({ bus, now }: { bus: BusOnRoute; now: number }) {
   const progress = pos ? routeProgress(ordered, pos) : null;
   const next = live && progress?.nextIndex != null ? ordered[progress.nextIndex] : null;
   const at = live && progress?.atIndex != null ? ordered[progress.atIndex] : null;
+  // The new system cannot list a route's stops, so there is no next stop to show; the route is known only while the bus is on a trip.
+  const hasStops = bus.stops.length > 0;
+  const noRoute = fleetCapabilities().assignments ? "No route assigned" : "Not on a trip";
 
   return (
     <div className="mt-3 border-t border-line-soft pt-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-semibold">{bus.route?.name ?? "No route assigned"}</div>
+          <div className="truncate text-[14px] font-semibold">{bus.route?.name ?? noRoute}</div>
           {bus.vehicle.make_model && <div className="truncate text-[12px] text-ink-muted">{bus.vehicle.make_model}</div>}
         </div>
         <LiveDot live={live} />
@@ -82,7 +85,7 @@ function BusDetail({ bus, now }: { bus: BusOnRoute; now: number }) {
         <div className="mt-3 rounded-xl bg-warn-bg px-3 py-2.5 text-[12.5px] text-warn-ink">
           <span className="font-semibold">Off route</span> · {fmtDistance(progress.offRouteM)} from the nearest stop
         </div>
-      ) : live ? (
+      ) : live && hasStops ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-page px-3 py-2.5">
             <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">{at ? "At stop" : "Next stop"}</div>

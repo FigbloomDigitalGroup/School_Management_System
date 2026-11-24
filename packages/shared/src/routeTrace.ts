@@ -1,3 +1,4 @@
+import { onApi } from "./backend";
 import { distanceM, fetchTripPath } from "./fleet";
 import { supabase } from "./supabase";
 
@@ -112,6 +113,9 @@ const TRIPS_TO_TRY = 6;
  * first, stopping at the first that will do.
  */
 export async function fetchRouteTrace(routeId: string, stops: PathPoint[]): Promise<PathPoint[] | null> {
+  // On the API only the office reads trips and positions, and a family cannot: there is no road path to draw, so the caller
+  // draws the straight line, as it does for a route that no trip has driven yet. (Used by the phone app, not the web pages.)
+  if (onApi()) return null;
   const { data, error } = await supabase()
     .from("trips").select("id").eq("route_id", routeId).eq("status", "completed")
     .order("started_at", { ascending: false }).limit(TRIPS_TO_TRY)

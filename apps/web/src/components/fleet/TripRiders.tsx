@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  arrangeRiders, breakdownAffected, riderMarkedAt, listTripRiders, markRider, pushRiderUpdates, reportBreakdown, riderMarkRow,
+  arrangeRiders, breakdownAffected, enqueueRiderMark, fleetCapabilities, isApiError, riderMarkedAt, listTripRiders, markRider, pushRiderUpdates, reportBreakdown, stopsOfRiders,
   type ArrangedRider, type RiderStatus, type Trip, type TripRider,
 } from "@figbloom/shared";
 import { queue } from "../../lib/queue";
@@ -20,8 +20,9 @@ const PLACE_NOTE: Record<ArrangedRider["place"], string | null> = {
 /** The one or two things a driver can do with a child, by where they are. "Undo" fixes a mis-tap. */
 function actionsFor(r: ArrangedRider): { label: string; status: RiderStatus; primary?: boolean }[] {
   if (r.status === "boarded") return [{ label: "Got off", status: "alighted", primary: true }];
-  if (r.status === "alighted") return [{ label: "Undo", status: "boarded" }];
-  if (r.status === "absent") return [{ label: "Undo", status: "expected" }];
+  // The new system cannot take a mark back, so there is no Undo there: a child marked "not here" stays so for the trip.
+  if (r.status === "alighted") return fleetCapabilities().undoRiderMark ? [{ label: "Undo", status: "boarded" }] : [];
+  if (r.status === "absent") return fleetCapabilities().undoRiderMark ? [{ label: "Undo", status: "expected" }] : [];
   // absent from class: no "not here" to tap, but they can still be marked on if they turn up
   if (r.absent_from_class) return [{ label: "On bus", status: "boarded" }];
   return [{ label: "On bus", status: "boarded", primary: true }, { label: "Not here", status: "absent" }];
@@ -67,8 +68,10 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
     return () => window.clearInterval(id);
   }, [trip.id]);
 
-  const stopName = useMemo(() => new Map(stops.map((s) => [s.id, s.name])), [stops]);
-  const arranged = useMemo(() => (riders ? arrangeRiders(riders, stops.map((s) => s.id)) : []), [riders, stops]);
+  // Without the route's stops (the new system cannot list them) the stops are the ones on the children's list, in travel order.
+  const usedStops = useMemo(() => (stops.length || !riders ? stops : stopsOfRiders(riders, trip.direction)), [stops, riders, trip.direction]);
+  const stopName = useMemo(() => new Map(usedStops.map((s) => [s.id, s.name])), [usedStops]);
+  const arranged = useMemo(() => (riders ? arrangeRiders(riders, usedStops.map((s) => s.id)) : []), [riders, usedStops]);
 
   async function mark(r: ArrangedRider, status: RiderStatus) {
     setError(null);
@@ -76,7 +79,7 @@ export function TripRiders({ trip, tenantId, stops, online, pos }: {
     const input = { tenantId, tripId: trip.id, studentId: r.student_id, stopId: r.stop_id, status, markedAt: new Date().toISOString() };
     try {
       if (online) await markRider(input);
-      else await queue.enqueue("trip_riders", [riderMarkRow(input)]);
+      else await enqueueRiderMark(queue, input);
       // the tap's own time, so "Dropped off 3:42 pm" shows straight away, not after a reload
       const at = input.markedAt;
       setRiders((prev) => prev?.map((p) => (p.student_id === r.student_id ? {
@@ -206,7 +209,14 @@ function ReportBreakdown({ tripId, affected, online, pos }: { tripId: string; af
       setOpen(false);
       setNote("");
     } catch (err) {
-      setResult({ ok: false, text: err instanceof Error ? err.message : "Could not report the breakdown." });
+      // No answer at all: the report may have been received. The new system does not tell a second report from the first.
+      const unknown = isApiError(err) && err.status === 0;
+      setResult({
+        ok: false,
+        text: unknown
+          ? "No answer from the school's server. The report may have gone through: call the school office before you send it again."
+          : err instanceof Error ? err.message : "Could not report the breakdown.",
+      });
     } finally {
       setSending(false);
     }
@@ -230,8 +240,8 @@ function ReportBreakdown({ tripId, affected, online, pos }: { tripId: string; af
     <div className="mt-3 rounded-xl border-[1.5px] border-warn-ink p-3">
       <div className="text-body font-semibold text-ink">The bus has broken down</div>
       <p className="mt-1 text-small leading-relaxed text-ink-muted">
-        The office is alerted{affected ? `, and the families of the ${affected === 1 ? "1 child" : `${affected} children`} on the bus or still waiting are told` : ""}.
-        Families of children already dropped off are not.
+        The office is alerted{affected && fleetCapabilities().breakdownTellsFamilies ? `, and the families of the ${affected === 1 ? "1 child" : `${affected} children`} on the bus or still waiting are told` : ""}.
+        {fleetCapabilities().breakdownTellsFamilies ? "Families of children already dropped off are not." : "Families are not told from here: the office decides whether to tell them."}
       </p>
       <label className="mt-2 block text-[11.5px] font-semibold text-ink-muted" htmlFor="breakdown-note">What happened (optional)</label>
       <textarea

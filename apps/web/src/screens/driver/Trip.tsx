@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signOutHere, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
+import { fleetCapabilities, isOpenRidersError, onApi, signOutHere, syncLabel, type Trip, type TripDirection } from "@figbloom/shared";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
 import { useOnline } from "../../lib/useOnline";
 import { queue } from "../../lib/queue";
 import {
-  endTrip, fmtDistance, listBusesOnRoutes, locationPingRow, myActiveTrip, myAssignment, pingLocation, routeProgress, startTrip, stopsInTravelOrder,
+  busFromAssignment, endTrip, enqueueLocationPing, fmtDistance, listBusesOnRoutes, myActiveTrip, myAssignment, pingLocation, routeProgress, startTrip, stopsInTravelOrder,
   type AssignmentRow, type BusOnRoute,
 } from "@figbloom/shared";
+import { confirmDialog } from "../../components/ui/Confirm";
 import { Avatar } from "../../components/Avatar";
 import { Eta, LiveRouteMap, MapSheet, busPosition, fmtEta, useLiveBuses, type LatLng } from "../../components/fleet/LiveRouteMap";
 import { TripRiders } from "../../components/fleet/TripRiders";
@@ -28,6 +29,11 @@ interface DriverState {
 async function loadDriverState(driverId: string, tenantId: string): Promise<DriverState> {
   const assignment = await myAssignment(driverId);
   if (!assignment) return { assignment: null, activeTrip: null, bus: null };
+  // A driver may not read the fleet on the new system (the Transport area does): the bus is their own assignment, and the phone's position is the bus's.
+  if (!fleetCapabilities().driverLiveFeed) {
+    const activeTrip = await myActiveTrip(driverId);
+    return { assignment, activeTrip, bus: busFromAssignment(assignment, activeTrip?.direction ?? null) };
+  }
   const [activeTrip, buses] = await Promise.all([myActiveTrip(driverId), listBusesOnRoutes(tenantId)]);
   return { assignment, activeTrip, bus: buses.find((b) => b.vehicle.id === assignment.vehicle_id) ?? null };
 }
@@ -141,7 +147,7 @@ export function DriverTrip() {
         } else {
           // No signal — hold the ping on the phone rather than drop it. History still needs
           // it even though the live map's "where is it now" cache only resumes once we're back.
-          void queue.enqueue("vehicle_locations", [locationPingRow(pingInput)])
+          void enqueueLocationPing(queue, pingInput)
             .then(() => queue.pendingFor("vehicle_locations"))
             .then((p) => setQueuedPings(p.length));
           setLastPing({ at: new Date(), lat: latitude, lng: longitude });
@@ -180,7 +186,19 @@ export function DriverTrip() {
     setActionError(null);
     setEnding(true);
     try {
-      await endTrip(trip.id);
+      try {
+        await endTrip(trip.id);
+      } catch (err) {
+        // The new system will not end an afternoon trip while children are marked on the bus without a drop-off, until the driver says so.
+        if (!isOpenRidersError(err)) throw err;
+        const sure = await confirmDialog({
+          title: err.count === 1 ? "1 child is still marked on the bus" : `${err.count} children are still marked on the bus`,
+          body: "They have no drop-off recorded. Mark them off first, or end the trip anyway.",
+          confirmLabel: "End trip anyway", danger: true,
+        });
+        if (!sure) return;
+        await endTrip(trip.id, { acknowledgeOpenRiders: true });
+      }
       setTrip(null);
       setLastPing(null);
       setGeoError(null);
@@ -300,7 +318,7 @@ export function DriverTrip() {
               </>
             ) : (
               <>
-                {next ? (
+                {!fleetCapabilities().routeStops ? null : next ? (
                   <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-page px-3.5 py-3">
                     <div className="min-w-0">
                       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -318,6 +336,9 @@ export function DriverTrip() {
 
                 {geoError && <p className="mt-2 text-small leading-relaxed text-warn-ink">{geoError}</p>}
                 {queuedPings > 0 && <p className="mt-2 text-small leading-relaxed text-warn-ink">{syncLabel(queuedPings, online)}</p>}
+                {queuedPings > 0 && onApi() && (
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-ink-faint">The school's system refuses a position held for more than 10 minutes, so a long stretch without signal leaves a gap in the trip's path.</p>
+                )}
                 <div className="mt-2 text-[11.5px] text-ink-faint">
                   {lastPing ? `${queuedPings > 0 ? "Last fix" : "Last sent"} ${lastPing.at.toLocaleTimeString()}` : "Sharing your location once the first fix arrives"}
                 </div>
@@ -362,7 +383,7 @@ function DriverMap({ tenantId, bus: initial, selfPos, direction, children }: {
   direction: TripDirection;
   children: (next: { name: string; lat: number; lng: number } | null, stopNo: number, stopCount: number, pos: LatLng | null, offRouteM: number | null) => ReactNode;
 }) {
-  const live = useLiveBuses(tenantId, useMemo(() => (initial ? [initial] : []), [initial]));
+  const live = useLiveBuses(tenantId, useMemo(() => (initial ? [initial] : []), [initial]), fleetCapabilities().driverLiveFeed);
   const bus = live[0] ? { ...live[0], direction } : null;
   const pos = selfPos ?? (bus ? busPosition(bus) : null);
   const ordered = bus ? stopsInTravelOrder(bus.stops, direction) : [];

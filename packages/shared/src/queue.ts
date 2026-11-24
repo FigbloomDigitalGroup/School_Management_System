@@ -14,10 +14,26 @@ export interface KeyValueStore {
   setItem(key: string, value: string): Promise<void> | void;
 }
 
+/**
+ * A write held for the new API (apps/api) instead of a Supabase upsert: the call to make, with the key that marks every
+ * retry of it as the same request. `rows` of such a write is empty.
+ */
+export interface QueuedApiCall {
+  /** Which call (a name `sendQueuedApiWrite` knows, e.g. "driver-location"). */
+  op: string;
+  /** The path parameters of the call, including the school it was made in (`tenantId`). */
+  params: Record<string, string>;
+  body?: unknown;
+  /** Sent as `Idempotency-Key`, the same on every retry. */
+  idempotencyKey: string;
+}
+
 export interface QueuedWrite {
   id: string;
   table: string;
   rows: unknown[];
+  /** Set for a write held for the new API; one without it is a Supabase write. */
+  api?: QueuedApiCall;
   queuedAt: string;
   attempts: number;
   lastError?: string;
@@ -62,6 +78,13 @@ export function isRetryable(err: unknown): boolean {
 }
 
 const KEY = "figbloom.queue.v1";
+
+/** A random key for `Idempotency-Key`: 8 to 64 of A-Z a-z 0-9 . _ - is what the API accepts. Shared code has no bare `crypto`. */
+export function newIdempotencyKey(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 /**
  * The natural key each queued table upserts on. Replaying a write without it
@@ -134,6 +157,20 @@ export class WriteQueue {
     };
     await this.change((all) => [...all, item]);
     return item;
+  }
+
+  /**
+   * Holds a call to the new API. `table` only groups what the screens count (`pendingFor("vehicle_locations")`); the call
+   * itself is `call`. Its idempotency key is made here, once, so a retry after a dropped answer carries the same one.
+   */
+  enqueueApi(table: string, call: Omit<QueuedApiCall, "idempotencyKey">): Promise<QueuedWrite> {
+    const key = newIdempotencyKey();
+    const item: QueuedWrite = {
+      id: `${table}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      table, rows: [], api: { ...call, idempotencyKey: key }, queuedAt: new Date().toISOString(), attempts: 0,
+      ...(typeof this.user === "string" ? { userId: this.user } : {}),
+    };
+    return this.change((all) => [...all, item]).then(() => item);
   }
 
   /** Writes still waiting to go out. */
