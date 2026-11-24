@@ -3,6 +3,11 @@ import {
   apiFetchTodayAttendanceMarks, apiWriteAttendance,
 } from "./api/attendanceApi";
 import { onApi } from "./backend";
+import {
+  apiFetchExamsForTerm, apiFetchGradesAccess, apiFetchMarksForExamSubject, apiFetchPublishedSubjects, apiFetchTeacherSubjectsForClass,
+  apiPublishMarks, apiSaveExamMarks, apiUnpublishMarks,
+} from "./api/gradesApi";
+import { FULL_GRADES_ACCESS, type GradesAccess } from "./capabilities";
 import { fetchClassTimetableSlots } from "./timetable";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
@@ -51,6 +56,7 @@ export async function fetchCurrentTerm(): Promise<Term | null> {
 
 /** Subjects this teacher is assigned to teach for one specific class. */
 export async function fetchTeacherSubjectsForClass(teacherId: string, classId: string): Promise<Subject[]> {
+  if (onApi()) return apiFetchTeacherSubjectsForClass(teacherId, classId);
   const { data, error } = await supabase()
     .from("teaching_assignments")
     .select("subject_id, subjects(*)")
@@ -215,6 +221,7 @@ export async function fetchMyClasses(teacherId: string): Promise<MyClassRow[]> {
 
 /** This term's exams, for the gradebook's exam picker — web and mobile both need it. */
 export async function fetchExamsForTerm(termId: string): Promise<Exam[]> {
+  if (onApi()) return apiFetchExamsForTerm(termId);
   const { data, error } = await supabase().from("exams").select("*").eq("term_id", termId).order("name");
   if (error) throw new Error(error.message);
   return (data ?? []) as Exam[];
@@ -223,7 +230,10 @@ export async function fetchExamsForTerm(termId: string): Promise<Exam[]> {
 /** Existing scores for one exam+subject, keyed by student — only students with a saved row appear. */
 export async function fetchMarksForExamSubject(
   examId: string, subjectId: string, studentIds: string[],
+  /** Needed on the API (a paper belongs to a class); ignored on Supabase. */
+  classId?: string,
 ): Promise<Record<string, number | null>> {
+  if (onApi()) return apiFetchMarksForExamSubject(examId, subjectId, studentIds, classId);
   if (!studentIds.length) return {};
   const { data, error } = await supabase()
     .from("marks").select("student_id, score")
@@ -246,7 +256,8 @@ export interface MarkRow {
 /** A draft save — visible to school staff only, never to families, until publishMarks() releases
  *  that class and subject. Named saveExamMarks, not saveMarks, to avoid colliding with
  *  courseGrades.ts's higher-ed equivalent (assessment-based, different signature). */
-export async function saveExamMarks(rows: MarkRow[]): Promise<void> {
+export async function saveExamMarks(rows: MarkRow[], classId?: string): Promise<void> {
+  if (onApi()) return apiSaveExamMarks(rows, classId);
   if (!rows.length) return;
   const { error, status } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
   if (error) throw writeErrorFrom(error, status);
@@ -261,22 +272,30 @@ export async function saveExamMarks(rows: MarkRow[]): Promise<void> {
  * administers the school) and records who published.
  */
 export async function publishMarks(examId: string, classId: string, subjectId: string): Promise<void> {
+  if (onApi()) return apiPublishMarks(examId, classId, subjectId);
   const { error } = await supabase().rpc("publish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
   if (error) throw new Error(error.message);
 }
 
 /** Takes a published class and subject back to draft, e.g. after a mistyped column was noticed. */
 export async function unpublishMarks(examId: string, classId: string, subjectId: string): Promise<void> {
+  if (onApi()) return apiUnpublishMarks();
   const { error } = await supabase().rpc("unpublish_marks", { p_exam_id: examId, p_class_id: classId, p_subject_id: subjectId });
   if (error) throw new Error(error.message);
 }
 
 /** Which subjects of this exam are already out for this class (ids). */
 export async function fetchPublishedSubjects(examId: string, classId: string): Promise<Set<string>> {
+  if (onApi()) return apiFetchPublishedSubjects(examId, classId);
   const { data, error } = await supabase()
     .from("mark_publications").select("subject_id").eq("exam_id", examId).eq("class_id", classId);
   if (error) throw new Error(error.message);
   return new Set(((data ?? []) as { subject_id: string }[]).map((r) => r.subject_id));
+}
+
+/** What the person may do with grades on this backend (on the API a plain teacher cannot open the Gradebook, and only the office publishes). */
+export async function fetchGradesAccess(): Promise<GradesAccess> {
+  return onApi() ? apiFetchGradesAccess() : FULL_GRADES_ACCESS;
 }
 
 /** A teacher's own sent messages — always in-app only, always one class at a time,

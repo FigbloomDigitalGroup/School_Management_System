@@ -66,11 +66,15 @@ export function againstMean(score: number, classMean: number): string {
 }
 
 /** Bulk entry: accepts "72", "72 ", "abs", "-" and rejects anything out of range. */
-export function parseScoreInput(raw: string, outOf = 100): { ok: true; score: number | null } | { ok: false; message: string } {
+export function parseScoreInput(
+  raw: string, outOf = 100,
+  /** Marks with up to two decimals, and totals up to 99,999 (the new system's `max_score`); Supabase marks are whole numbers up to 999. */
+  options: { decimals?: boolean } = {},
+): { ok: true; score: number | null } | { ok: false; message: string } {
   const v = raw.trim().toLowerCase();
   if (v === "" || v === "-") return { ok: true, score: null };
   if (v === "abs" || v === "absent") return { ok: true, score: null };
-  if (!/^\d{1,3}$/.test(v)) return { ok: false, message: "Numbers only, or 'abs' if they missed it." };
+  if (!(options.decimals ? /^\d{1,5}(\.\d{1,2})?$/ : /^\d{1,3}$/).test(v)) return { ok: false, message: "Numbers only, or 'abs' if they missed it." };
   const n = Number(v);
   if (n > outOf) return { ok: false, message: `This paper is out of ${outOf}.` };
   return { ok: true, score: n };

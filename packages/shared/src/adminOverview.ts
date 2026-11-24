@@ -1,3 +1,5 @@
+import { apiFetchTermReport } from "./api/reportsApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { fetchAllPages, fetchAllRows } from "./paging";
 import { today } from "./attendance";
@@ -400,6 +402,7 @@ interface ClassFigures {
  * classes or the latest exam reads as nothing; a failed read of the figures throws the database's message.
  */
 export async function fetchTermReport(tenantId: string, country: string): Promise<TermReport> {
+  if (onApi()) return apiFetchTermReport(tenantId, country);
   const sb = supabase();
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
   const termId = term?.id ?? null;
