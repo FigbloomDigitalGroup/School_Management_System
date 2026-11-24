@@ -2858,6 +2858,120 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/org/organizations:
+    get:
+      tags:
+        - org
+      summary: The organizations the caller administers, every status (S11)
+      description: >
+        Only the caller's own org_admin memberships, including suspended, pending and rejected organizations, so a
+        client can say so instead of hiding one. Requires org.tenants.read. SQL keyset-paginated: order is
+        `name, id` with `COLLATE "C"`; the cursor carries the last organization's id. See docs/ORG-CONSOLE.md.
+      operationId: listMyOrganizations
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - org.tenants.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The caller's organizations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyOrganizationList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/org/organizations/{organizationId}/admins:
+    get:
+      tags:
+        - org
+      summary: The org admins of one organization the caller administers (S11)
+      description: >
+        Requires org.admins.read and an org_admin membership of this organization, which must be active. Another
+        organization, an unknown id and a non-active organization all answer the same 403. Returns the name, sign-in
+        e-mail, account status and since-when of each admin; no other contact field. Keyset-paginated on the
+        membership's `(created_at, id)`.
+      operationId: listOrgAdmins
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - org.admins.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The organization's administrators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgAdminList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/org/organizations/{organizationId}/audit-events:
+    get:
+      tags:
+        - org
+      summary: The caller's own audit events about one organization they administer (S11)
+      description: >
+        Requires org.audit.read and an org_admin membership of this active organization (otherwise the same 403 as the
+        admins list). Only events the caller caused: in one of the organization's schools, or naming the organization
+        (delegation grants, revokes and refusals). Never another person's events, never the IP address. Newest first,
+        keyset-paginated on `(occurred_at, id)`. Read through the SECURITY DEFINER function `org_my_audit_events`
+        (migration 105); the runtime role has no SELECT on the audit table.
+      operationId: listMyOrgAuditEvents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - org.audit.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The caller's audit events in this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgAuditEventList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/rbac/org-delegations:
     get:
       tags:
@@ -18227,6 +18341,124 @@ components:
                 type: string
               organizationSlug:
                 type: string
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    MyOrganizationList:
+      type: object
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - name
+              - slug
+              - kind
+              - status
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              slug:
+                type: string
+              kind:
+                type: string
+                enum: [government, county, constituency, group_owner]
+              status:
+                type: string
+                enum: [pending, active, suspended, rejected]
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    OrgAdminList:
+      type: object
+      required:
+        - organizationId
+        - items
+        - page
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - userId
+              - fullName
+              - email
+              - status
+              - since
+              - isYou
+            properties:
+              userId:
+                type: string
+                format: uuid
+              fullName:
+                type: string
+              email:
+                type:
+                  - string
+                  - "null"
+              status:
+                type: string
+                enum: [active, disabled, invited]
+              since:
+                type: string
+                description: When the person became an admin of this organization (UTC, microseconds).
+              isYou:
+                type: boolean
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    OrgAuditEventList:
+      type: object
+      required:
+        - organizationId
+        - items
+        - page
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - occurredAt
+              - eventType
+              - schoolId
+              - schoolName
+              - detail
+            properties:
+              id:
+                type: string
+                format: uuid
+              occurredAt:
+                type: string
+                description: UTC, microseconds.
+              eventType:
+                type: string
+              schoolId:
+                type:
+                  - string
+                  - "null"
+                format: uuid
+              schoolName:
+                type:
+                  - string
+                  - "null"
+              detail:
+                type: object
+                additionalProperties: true
+                description: The event's own detail as recorded (never token or password material).
         page:
           $ref: "#/components/schemas/PageInfo"
     OrgDelegationList:
