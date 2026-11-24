@@ -1,3 +1,6 @@
+import { apiFetchAiHelperRoster, apiFetchAiHelperSettings, apiSaveAiHelperSettings, apiSetAiHelperOptIn } from "./api/aiApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /**
@@ -114,6 +117,7 @@ export interface AiHelperSettings {
 }
 
 export async function fetchAiHelperSettings(tenantId: string): Promise<AiHelperSettings | null> {
+  if (onApi()) return apiFetchAiHelperSettings(tenantId);
   const { data, error } = await supabase().from("tenants")
     .select("ai_tutor_access, ai_helper_price_cents, ai_helper_billing_enabled, ai_helper_cancel_days")
     .eq("id", tenantId).maybeSingle();
@@ -128,6 +132,7 @@ export async function fetchAiHelperSettings(tenantId: string): Promise<AiHelperS
 }
 
 export async function saveAiHelperSettings(tenantId: string, s: AiHelperSettings): Promise<void> {
+  if (onApi()) return apiSaveAiHelperSettings(tenantId, s);
   const { error } = await supabase().rpc("set_ai_helper_settings", {
     p_tenant_id: tenantId, p_access: s.access, p_price_cents: s.priceCents,
     p_billing_enabled: AI_HELPER_BILLING_AVAILABLE && s.billingEnabled, p_cancel_days: s.cancelDays,
@@ -170,6 +175,7 @@ interface StatusRow {
 
 /** A learner's study helper picture; studentId null: the signed-in learner's own. Null when the caller may not see it. */
 export async function fetchAiHelperStatus(studentId: string | null): Promise<AiHelperStatus | null> {
+  if (onApi()) throw new NotOnApiError("Learner study helper status");
   const { data, error } = await supabase().rpc("ai_helper_status", { p_student_id: studentId });
   if (error) throw new Error(error.message);
   const r = (data as StatusRow[] | null)?.[0];
@@ -186,6 +192,7 @@ export async function fetchAiHelperStatus(studentId: string | null): Promise<AiH
 
 /** A parent or guardian turns the helper on or off for their child. Answers what happened (see optInOutcomeText). */
 export async function setAiHelperOptIn(studentId: string, on: boolean): Promise<string> {
+  if (onApi()) return apiSetAiHelperOptIn(studentId, on);
   const { data, error } = await supabase().rpc("set_ai_helper_optin", { p_student_id: studentId, p_on: on });
   if (error) throw new Error(error.message);
   return String(data ?? "");
@@ -212,6 +219,7 @@ export interface AiHelperRosterRow {
 
 /** Learners with an opt-in or this month's use, by name. Empty for anyone without the fees area. */
 export async function fetchAiHelperRoster(tenantId: string): Promise<AiHelperRosterRow[]> {
+  if (onApi()) return apiFetchAiHelperRoster(tenantId);
   const { data, error } = await supabase().rpc("ai_helper_roster", { p_tenant_id: tenantId });
   if (error) throw new Error(error.message);
   return ((data ?? []) as {

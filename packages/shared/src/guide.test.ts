@@ -160,6 +160,16 @@ describe("setupSteps", () => {
     expect(byKey.fees!.ask).toMatch(/fee items/);
   });
 
+  it("leaves off the steps a build cannot check or do", () => {
+    const keys = (c: SetupCounts) => setupSteps(c).map((s) => s.key);
+    expect(keys(EMPTY)).toEqual(expect.arrayContaining(["details", "payments"]));
+    const without = keys({ ...EMPTY, leaveOut: ["details", "payments"] });
+    expect(without).not.toContain("details");
+    expect(without).not.toContain("payments");
+    expect(without).toHaveLength(keys(EMPTY).length - 2);
+    expect(keys({ ...EMPTY, leaveOut: ["payments"] })).toContain("details");
+  });
+
   it("only links pages a full admin has", () => {
     for (const s of setupSteps(EMPTY)) expect(PAGE_ABOUT[s.to], s.to).toBeTruthy();
   });

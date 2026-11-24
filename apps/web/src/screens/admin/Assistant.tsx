@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchSetupCounts, setupSteps, type SetupStep } from "@figbloom/shared";
+import { aiCapabilities, fetchSetupCounts, setupSteps, type SetupStep } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { BACK_TO_ASSISTANT, GuideChat, useGuideHost } from "../../components/GuidePanel";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -19,6 +19,7 @@ export function AdminAssistant() {
   const [reloadKey, setReloadKey] = useState(0);
   const [ask, setAsk] = useState<{ text: string; id: number } | null>(null);
 
+  const caps = aiCapabilities();
   const { data: counts, error } = useAsync(() => fetchSetupCounts(tenant.id), [tenant.id, reloadKey]);
   const steps = counts ? setupSteps(counts) : null;
   const required = steps?.filter((s) => !s.optional) ?? [];
@@ -30,7 +31,9 @@ export function AdminAssistant() {
       <PageHead
         eyebrow="School · assistant"
         title="School assistant"
-        blurb="Work down the list, or tell the assistant what you want. It sets up classes, subjects, the term, exams and fee items after you check its plan, and shows you how to do the rest."
+        blurb={caps.guideSetupPlans
+          ? "Work down the list, or tell the assistant what you want. It sets up classes, subjects, the term, exams and fee items after you check its plan, and shows you how to do the rest."
+          : "Work down the list, or ask the assistant how to set up your school. Automatic setup plans are not on the new system yet."}
       />
       <div className="grid gap-5 px-7 py-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <section aria-labelledby="setup-list" className="flex flex-col gap-3">
@@ -65,7 +68,9 @@ export function AdminAssistant() {
             <GuideChat host={host} ask={ask} linkState={BACK_TO_ASSISTANT} onApplied={() => setReloadKey((k) => k + 1)} />
           ) : (
             <p className="m-auto max-w-[360px] p-6 text-center text-[13px] text-ink-soft">
-              The assistant uses AI, which is turned off for this school. Turn it on in School settings to chat with it. The checklist works either way.
+              {caps.schoolSwitch
+                ? "The assistant uses AI, which is turned off for this school. Turn it on in School settings to chat with it. The checklist works either way."
+                : "The assistant uses AI, which is not turned on for this school yet. The new system has no switch for it yet. The checklist works either way."}
             </p>
           )}
         </section>

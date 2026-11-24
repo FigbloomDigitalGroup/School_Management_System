@@ -1,3 +1,5 @@
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /** A failed edge-function call, carrying the HTTP status when there was one (undefined: never reached the function, or timed out). */
@@ -25,6 +27,7 @@ export interface InvokeOptions {
  * read from `error.context`.
  */
 export async function invokeEdge<T>(fn: string, body: Record<string, unknown>, { timeoutMs, signal }: InvokeOptions): Promise<T> {
+  if (onApi()) throw new NotOnApiError(`Edge function "${fn}"`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const cancel = () => controller.abort();
