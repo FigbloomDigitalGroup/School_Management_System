@@ -102,7 +102,7 @@ export function ApiStaffHome({ session, pages }: { session: SchoolSession; pages
         </section>
 
         <p className="mt-6 rounded-xl border border-line bg-page px-5 py-4 text-[13px] leading-relaxed text-ink-muted">
-          {notYet.length > 0 && <>Not on the new system yet, so not in your menu: {notYet.join(", ")}. </>}
+          {notYet.length > 0 && <>Not in your menu on the new system: {notYet.join(", ")}. </>}
           {itemsHidden && <>My items shows for staff who hold the Inventory area.</>}
         </p>
       </div>
