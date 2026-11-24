@@ -3,8 +3,8 @@
 Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains why each area has its own file.
 
 
-The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). No parent
-or student page is ported yet: the web slices come after this merges.
+The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). The parent
+pages that use them are described in [parent-pages.md](parent-pages.md); the student pages wait on student accounts (finding 14).
 
 - `GET /v1/tenants/{t}/me/children`: the parent's own children in that school, with each child's current class.
 - Per child, `GET /v1/tenants/{t}/me/children/{learnerId}/…`: `attendance`, `results`, `report-cards`, `homework`,

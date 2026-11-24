@@ -7,8 +7,9 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { useTenantSession } from "../../lib/sessionContext";
 import { useAsync } from "../../lib/useAsync";
-import { fmtDistance, isLive, myChildBus, routeProgress, stopsInTravelOrder, type BusOnRoute, type BusUpdate, type ChildInfo } from "@figbloom/shared";
+import { fmtDistance, isLive, myChildBus, onApi, routeProgress, stopsInTravelOrder, type BusOnRoute, type BusUpdate, type ChildInfo } from "@figbloom/shared";
 import { useParentData } from "../../lib/parentContext";
+import { ApiParentBus } from "./ApiBus";
 
 /** A child and the bus they ride, if any, with their own stop on it. */
 interface Ride { child: ChildInfo; bus: BusOnRoute | null; stopId: string | null; routeName: string | null }
@@ -27,7 +28,12 @@ async function loadRides(children: ChildInfo[]): Promise<Ride[]> {
  * Only their own children's buses: other buses' routes would show where other
  * families' children are picked up. RLS enforces that too, not just this page.
  */
+/** On the new API the page is ApiBus.tsx (the family read has no route stops or live feed); on Supabase it is the live map below. */
 export function ParentBus() {
+  return onApi() ? <ApiParentBus /> : <SupabaseParentBus />;
+}
+
+function SupabaseParentBus() {
   const { tenant } = useTenantSession();
   const { children, loading: parentLoading, error: parentError } = useParentData();
   const key = children.map((c) => c.id).join(",");

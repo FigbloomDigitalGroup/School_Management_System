@@ -4,7 +4,7 @@ import {
   FULL_MEDICAL_ACCESS, MEDICAL_HEALTH_HIDDEN, MEDICAL_LEARNERS_HIDDEN, medicalAccessNotes, medicalCapabilities, NotOnApiError,
 } from "../capabilities";
 import {
-  addVisitMedication, approveRequest, declineRequest, fetchChildMedical, fetchDoses, fetchMedicalAccess, fetchMedicalStock, fetchNotifyPolicy,
+  addVisitMedication, approveRequest, declineRequest, fetchDoses, fetchMedicalAccess, fetchMedicalStock, fetchNotifyPolicy,
   fetchOpenVisits, fetchPendingRequests, fetchSchedules, fetchUnreadMedicalNotices, fetchVisits, findMedicalLearners, logVisit,
   markMedicalNoticesRead, markVisitAttendance, openMedicalRecord, pushMedicalNotices, recordDose, requestMedication, saveNotifyPolicy,
   saveSchedule, stopSchedule, updateVisit, withdrawMedicationRequest, type SickBayVisitDraft,
@@ -409,7 +409,6 @@ describe("what the API cannot do, which throws before any call", () => {
     ["pending medication requests", () => fetchPendingRequests(T)],
     ["approving a request", () => approveRequest("r1", { drug: "x", dose: "y", times: ["08:00"], starts_on: "2026-11-24", ends_on: null, notes: "" })],
     ["declining a request", () => declineRequest("r1", "no")],
-    ["a child's medical history", () => fetchChildMedical(L1)],
     ["unread medical notices", () => fetchUnreadMedicalNotices(U1)],
     ["marking notices read", () => markMedicalNoticesRead(L1)],
     ["asking for medication", () => requestMedication(T, L1, {} as never, null)],

@@ -1,3 +1,5 @@
+import { apiPayWithMpesa } from "./api/parentPayApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { EdgeError, invokeEdge } from "./edge";
 import { PAYMENT_FAILURES } from "./fees";
@@ -33,6 +35,8 @@ export interface PayInput {
   amountCents: number;
   /** 2547XXXXXXXX / 2541XXXXXXXX, from normaliseMsisdn(). */
   msisdn: string;
+  /** The child the invoice is for. The API reads the payment back from the child's own fees; without it, the parent's children are searched for the invoice. */
+  learnerId?: string;
 }
 
 export interface PayOptions {
@@ -83,6 +87,7 @@ export function outcomeOf(row: PaymentRow): Exclude<PayResult, { kind: "unavaila
 
 /** Asks for the prompt, then waits for Safaricom's answer to appear on the payment row. */
 export async function payWithMpesa(input: PayInput, options: PayOptions = {}): Promise<PayResult> {
+  if (onApi()) return apiPayWithMpesa(input, options);
   const { onPrompted, signal, intervalMs = 3000, timeoutMs = 90_000 } = options;
 
   let paymentId: string;

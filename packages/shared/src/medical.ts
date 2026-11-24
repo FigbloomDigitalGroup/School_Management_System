@@ -1,3 +1,4 @@
+import { apiFetchChildMedical, type FamilyHealthView } from "./api/parentHealthApi";
 import { onApi } from "./backend";
 import { FULL_MEDICAL_ACCESS, NotOnApiError, type MedicalAccess } from "./capabilities";
 import * as medicalApi from "./api/medicalApi";
@@ -217,6 +218,8 @@ export interface MedicationDose {
   recorded_at: string;
   given_by: string | null;
   note: string | null;
+  /** API only: what the nurse recorded in words ("Given late", "Held"), where the three statuses are too few. */
+  label?: string;
 }
 
 /** A dose is "due now" from this long before its time... */
@@ -709,11 +712,13 @@ export interface ChildMedical {
   doses: MedicationDose[];
   requests: MedicationRequest[];
   notices: MedicalNotice[];
+  /** API only: the health details on file and the medicines the school has asked this guardian to consent to. */
+  family?: FamilyHealthView;
 }
 
 /** A guardian's view of their own child: visits, medication and its record, requests, and what they were told. */
 export async function fetchChildMedical(studentId: string): Promise<ChildMedical> {
-  if (onApi()) throw new NotOnApiError("Child medical history");
+  if (onApi()) return apiFetchChildMedical(studentId);
   const sb = supabase();
   const since = addDays(localDay(new Date()), -60);
   const [visits, schedules, doses, requests, notices] = await Promise.all([

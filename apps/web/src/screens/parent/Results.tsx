@@ -1,4 +1,4 @@
-import { GRADE_INK, againstMean, gradeFor, gradingSchemeFor, loadPublishedCbeResults } from "@figbloom/shared";
+import { GRADE_INK, againstMean, gradeFor, gradingSchemeFor, loadPublishedCbeResults, parentCapabilities } from "@figbloom/shared";
 import { CbeResults } from "../../components/CbeResults";
 import { ExamSwitcher } from "../../components/ExamSwitcher";
 import { useAsync } from "../../lib/useAsync";
@@ -14,6 +14,7 @@ import { ChildExamPapers } from "./ExamPapers";
 import { ReportCardDownloads } from "../../components/ReportCardDownloads";
 import { ExamAbsences } from "../../components/ExamAbsences";
 import { LearnerProgress } from "../../components/analytics/LearnerProgress";
+import { FamilyReportCards } from "./FamilyReportCards";
 
 /**
  * An exam for the selected child, the newest one with results out unless the
@@ -22,6 +23,7 @@ import { LearnerProgress } from "../../components/analytics/LearnerProgress";
  */
 export function ParentResults() {
   const { tenant } = useTenantSession();
+  const can = parentCapabilities();
   const { data, loading, error, child } = useParentData();
   const scheme = gradingSchemeFor(tenant.country, child?.classLevel ?? "secondary");
   // CBE strand results (published assessments), alongside any exam marks.
@@ -100,12 +102,17 @@ export function ParentResults() {
                 title={view.examName ? `${view.examName} results` : "Results"}
                 columns={[
                   { key: "name", header: "Subject", width: "1.6fr", render: (r: ChildSubject) => <Cell>{r.name}</Cell> },
-                  { key: "score", header: "Score", align: "right", width: "0.7fr", render: (r: ChildSubject) => <Mono>{r.score}</Mono> },
+                  {
+                    key: "score", header: "Score", align: "right", width: "0.7fr",
+                    // A paper marked out of something other than 100 says so; the grade and the class mean below work in percent.
+                    render: (r: ChildSubject) => <Mono>{r.maxScore !== undefined && r.maxScore !== 100 ? `${r.rawScore} / ${r.maxScore}` : r.score}</Mono>,
+                  },
                   {
                     key: "grade", header: "Grade", align: "right", width: "0.7fr",
                     render: (r: ChildSubject) => (
-                      <span className="font-mono text-[12.5px] font-semibold" style={{ color: GRADE_INK[gradeFor(r.score, scheme)] }}>
-                        {gradeFor(r.score, scheme)}
+                      // On the API the grade is the one the school's own scheme gave the mark.
+                      <span className="font-mono text-[12.5px] font-semibold" style={{ color: GRADE_INK[r.grade ?? gradeFor(r.score, scheme)] }}>
+                        {r.grade ?? gradeFor(r.score, scheme)}
                       </span>
                     ),
                   },
@@ -123,21 +130,25 @@ export function ParentResults() {
                 minWidth="640px"
                 empty={{ title: "No subjects marked yet", body: "Scores will appear here once teachers submit them for this exam." }}
               />
-              <ExamAbsences studentId={child.id} examId={view.examId} />
+              {can.examAbsences && <ExamAbsences studentId={child.id} examId={view.examId} />}
             </div>
             </>)}
           </>
         )}
-        {child && data && !error && (child.exams.length > 0 || cbe.length > 0) && (
+        {can.progressOverTime && child && data && !error && (child.exams.length > 0 || cbe.length > 0) && (
           <section className="mt-6">
             <h2 className="mb-3 text-lead font-semibold">{child.first}'s progress over time</h2>
             <LearnerProgress key={child.id} studentId={child.id} meanLabel={`${child.first}'s mean`} />
           </section>
         )}
-        {child && child.classId && data && !error && (
+        {can.examPapers && child && child.classId && data && !error && (
           <div className="mt-6"><ChildExamPapers child={child} /></div>
         )}
-        {child && <div className="mt-6"><ReportCardDownloads studentId={child.id} logoUrl={tenant.logo_url} /></div>}
+        {child && (
+          <div className="mt-6">
+            {can.familyReportCards ? <FamilyReportCards studentId={child.id} first={child.first} /> : <ReportCardDownloads studentId={child.id} logoUrl={tenant.logo_url} />}
+          </div>
+        )}
       </div>
     </>
   );

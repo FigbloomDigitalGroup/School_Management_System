@@ -151,7 +151,7 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, failed, tint, on
         </View>
       )}
 
-      <Text style={[s.faint, { marginTop: 10 }]}>{HAND_IN_PARENT_LABEL[item.handIn]}</Text>
+      {item.handIn && <Text style={[s.faint, { marginTop: 10 }]}>{HAND_IN_PARENT_LABEL[item.handIn]}</Text>}
 
       {item.done ? (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>

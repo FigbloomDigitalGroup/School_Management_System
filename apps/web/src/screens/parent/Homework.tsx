@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  daysFromToday, doneByWords, dueWords, fetchAttachments, HAND_IN_PARENT_LABEL, loadParentHomework, minutesWords, setHomeworkDone,
+  daysFromToday, doneByWords, dueWords, fetchAttachments, HAND_IN_PARENT_LABEL, loadParentHomework, minutesWords, parentCapabilities, setHomeworkDone,
   splitHomework, type HomeworkItem, type MediaItem,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -24,6 +24,7 @@ import { ChildSwitcher } from "./ChildSwitcher";
  */
 export function ParentHomework() {
   const toast = useToast();
+  const can = parentCapabilities();
   const { profile } = useTenantSession();
   const { children, child, loading: kidsLoading } = useParentData();
   const [reloadKey, setReloadKey] = useState(0);
@@ -34,7 +35,7 @@ export function ParentHomework() {
   const mine = child ? data?.[child.id] : undefined;
   // Worksheets and videos the teacher attached, for every card on screen in one query.
   const itemIds = (mine?.items ?? []).map((i) => i.id);
-  const { data: files } = useAsync(() => fetchAttachments("homework", itemIds), [itemIds.join(",")]);
+  const { data: files } = useAsync(() => (can.homeworkFiles ? fetchAttachments("homework", itemIds) : Promise.resolve(new Map<string, MediaItem[]>())), [itemIds.join(",")]);
   const groups = splitHomework(mine?.items ?? []);
 
   async function mark(item: HomeworkItem, done: boolean) {
@@ -60,7 +61,10 @@ export function ParentHomework() {
         title={child ? `${child.first}'s homework` : "Homework"}
         blurb={
           child && mine
-            ? `${total === 0 ? "Nothing to do right now." : `${total} still to do.`} ${mine.parentMarksDone ? `You can mark work done for ${child.first}.` : `${child.first} marks their own work done.`}`
+            ? can.homeworkDone
+              ? `${total === 0 ? "Nothing to do right now." : `${total} still to do.`} ${mine.parentMarksDone ? `You can mark work done for ${child.first}.` : `${child.first} marks their own work done.`}`
+              // The API does not record what has been handed in, so it cannot say what is still to do.
+              : `${groups.upcoming.length === 0 ? "Nothing coming up." : `${groups.upcoming.length} coming up.`} The school does not record here which work is done.`
             : undefined
         }
         actions={<ChildSwitcher />}
@@ -85,7 +89,7 @@ export function ParentHomework() {
         ) : (
           <div className="grid max-w-[760px] gap-6">
             {([
-              ["Overdue", groups.overdue],
+              [can.homeworkDone ? "Overdue" : "Past its due date", groups.overdue],
               ["Coming up", groups.upcoming],
               ["Done", groups.done],
             ] as const).map(([label, items]) => items.length > 0 && (
@@ -99,6 +103,7 @@ export function ParentHomework() {
                       files={files?.get(item.id) ?? []}
                       childFirst={child.first}
                       canMark={mine.parentMarksDone}
+                      trackDone={can.homeworkDone}
                       busy={busy === item.id}
                       onMark={(done) => void mark(item, done)}
                     />
@@ -113,16 +118,18 @@ export function ParentHomework() {
   );
 }
 
-function HomeworkCard({ item, files, childFirst, canMark, busy, onMark }: {
+function HomeworkCard({ item, files, childFirst, canMark, trackDone, busy, onMark }: {
   item: HomeworkItem;
   files: MediaItem[];
   childFirst: string;
   canMark: boolean;
+  /** False where nothing records that work was handed in: no "overdue" warning and no "mark done". */
+  trackDone: boolean;
   busy: boolean;
   onMark: (done: boolean) => void;
 }) {
   const g = item.guide;
-  const overdue = !item.done && daysFromToday(item.dueOn) < 0;
+  const overdue = trackDone && !item.done && daysFromToday(item.dueOn) < 0;
   const time = minutesWords(g?.minutes);
 
   return (
@@ -130,7 +137,7 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, onMark }: {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold leading-snug tracking-tight">{item.title}</h3>
-          <div className="mt-0.5 text-[12.5px] text-ink-faint">{item.subject} · {item.teacher}</div>
+          <div className="mt-0.5 text-[12.5px] text-ink-faint">{[item.subject, item.teacher].filter(Boolean).join(" · ")}</div>
         </div>
         {item.done ? <Badge tone="ok">Done</Badge> : <Badge tone={overdue ? "warn" : "muted"}>{dueWords(item.dueOn)}</Badge>}
       </div>
@@ -150,8 +157,8 @@ function HomeworkCard({ item, files, childFirst, canMark, busy, onMark }: {
       )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-[12px] text-ink-faint">{HAND_IN_PARENT_LABEL[item.handIn]}</span>
-        {item.done ? (
+        <span className="text-[12px] text-ink-faint">{item.handIn ? HAND_IN_PARENT_LABEL[item.handIn] : ""}</span>
+        {!trackDone ? null : item.done ? (
           <div className="flex items-center gap-3">
             <span className="text-[12.5px] text-ok-ink">{doneByWords(item.doneBy, childFirst)}</span>
             {/* Only what this parent ticked can be unticked here, and never one with a file attached. */}

@@ -2,6 +2,7 @@ import {
   apiFetchCollectorDetails, apiFetchEarlySignOuts, apiFetchEarlySignOutsForStudents, apiFetchStudentEarlySignOuts,
   apiRecordEarlySignOut, apiVoidEarlySignOut,
 } from "./api/attendanceApi";
+import { apiFetchChildEarlySignOuts } from "./api/parentApi";
 import type { AdminAccess } from "./adminAreas";
 import { today } from "./attendance";
 import { onApi } from "./backend";
@@ -221,6 +222,15 @@ export async function fetchEarlySignOutsForStudents(studentIds: string[], day: s
     .in("student_id", studentIds).eq("taken_on", day).returns<EarlySignOut[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+/**
+ * A parent's children's sign-outs for a day (the Home page). On the API a parent holds no attendance area, so this reads the
+ * family attendance of each child instead (never the collector's ID or phone); on Supabase it is the same query as above.
+ */
+export async function fetchChildrenEarlySignOuts(studentIds: string[], day: string = today()): Promise<EarlySignOut[]> {
+  if (onApi()) return studentIds.length ? apiFetchChildEarlySignOuts(studentIds, day) : [];
+  return fetchEarlySignOutsForStudents(studentIds, day);
 }
 
 /** One learner's sign-outs, newest first: their record. */

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchEarlySignOutsForStudents, formatMoney, gradeFor, gradingSchemeFor, leftEarlyText, liveSignOutsByStudent, loadPublishedCbeResults, newestExamNote, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
+import { fetchChildrenEarlySignOuts, formatMoney, gradeFor, gradingSchemeFor, leftEarlyText, liveSignOutsByStudent, loadPublishedCbeResults, newestExamNote, parentCapabilities, rubricFor, type CbeLearningAreaResult } from "@figbloom/shared";
 import { collectorLine } from "../../lib/earlySignOutView";
 import { cbeOverall } from "../../components/CbeResults";
 import { PageHead } from "../../components/ConsoleShell";
@@ -32,6 +32,7 @@ export function ParentHome() {
   const { tenant } = useTenantSession();
   const { data, loading, error, child } = useParentData();
   const toast = useToast();
+  const can = parentCapabilities();
   // A CBE learner with no exam marks is summarised from their published strand
   // assessments instead; exam marks still win for anyone who has them.
   const rubric = child ? rubricFor(tenant.country, child.classLevel) : null;
@@ -42,7 +43,7 @@ export function ParentHome() {
   );
   // Today's early sign-out for this child, if any (RLS lets a parent read their own child's). Never shows the collector's ID or phone.
   const { data: signOutToday } = useAsync(
-    () => (child ? fetchEarlySignOutsForStudents([child.id]).then((rows) => liveSignOutsByStudent(rows).get(child.id) ?? null).catch(() => null) : Promise.resolve(null)),
+    () => (child ? fetchChildrenEarlySignOuts([child.id]).then((rows) => liveSignOutsByStudent(rows).get(child.id) ?? null).catch(() => null) : Promise.resolve(null)),
     [child?.id],
   );
   const cbe = cbeLearner && rubric ? cbeOverall((child && cbeByStudent?.get(child.id)) || [], rubric) : null;
@@ -81,9 +82,9 @@ export function ParentHome() {
       />
 
       <div className="px-7 py-6">
-        {data && <LiveClassBanner classIds={[...new Set(data.children.map((c) => c.classId))]} />}
-        <PendingSignatures />
-        <HealthConsentRequests />
+        {can.liveClasses && data && <LiveClassBanner classIds={[...new Set(data.children.map((c) => c.classId))]} />}
+        {can.signatures && <PendingSignatures />}
+        {can.childProfile && <HealthConsentRequests />}
         {error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the dashboard: {error.message}
@@ -167,7 +168,7 @@ export function ParentHome() {
               </div>
             )}
 
-            <section className="mt-5 overflow-hidden rounded-lg border border-line bg-white">
+            {can.inbox && <section className="mt-5 overflow-hidden rounded-lg border border-line bg-white">
               <header className="flex items-center justify-between border-b border-line px-4 py-3">
                 <h2 className="text-body font-semibold">From the school</h2>
                 <button
@@ -205,12 +206,14 @@ export function ParentHome() {
                   ))
                 )}
               </div>
-            </section>
-            <ParentChildProfile tenantId={tenant.id} childId={child.id} childFirst={child.first} toast={toast} />
-            <CallContacts
-              title="Call the school"
-              blurb="Voice or video, in the app: your children's teachers, the office, and your children."
-            />
+            </section>}
+            {can.childProfile && <ParentChildProfile tenantId={tenant.id} childId={child.id} childFirst={child.first} toast={toast} />}
+            {can.calls && (
+              <CallContacts
+                title="Call the school"
+                blurb="Voice or video, in the app: your children's teachers, the office, and your children."
+              />
+            )}
           </>
         )}
       </div>

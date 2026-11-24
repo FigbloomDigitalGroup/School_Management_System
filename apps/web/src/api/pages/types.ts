@@ -14,6 +14,17 @@ export interface AdminPageDef {
 }
 
 /**
+ * One page of the parent console (role "parent"). The parent home (`parent`) is not registered here: it is the console's own page,
+ * as `admin` and `teacher` are.
+ */
+export interface ParentPageDef {
+  /** Its address under /s/<slug>/, e.g. "parent/fees". */
+  path: string;
+  /** What the page shows. */
+  element: ReactNode;
+}
+
+/**
  * One teacher page. It is served in the teacher console, and by address inside the admin console for a teacher who holds
  * admin areas (that person lands in the admin console, which has no console switch on the API build yet).
  */
@@ -45,6 +56,7 @@ export interface StaffPageDef {
 /** What one area registers: the pages it ports onto the API build. */
 export interface AreaPages {
   admin?: AdminPageDef[];
+  parent?: ParentPageDef[];
   teacher?: TeacherPageDef[];
   staff?: StaffPageDef[];
 }

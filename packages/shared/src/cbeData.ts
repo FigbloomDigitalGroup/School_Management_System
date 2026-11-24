@@ -1,5 +1,7 @@
 import type { Strand } from "./curriculum";
 import { rubricFor, summariseStrands, type RubricLevel } from "./gradingSchemes";
+import { apiLoadPublishedCbeResults } from "./api/parentApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import { writeErrorFrom } from "./queue";
 import type { ClassLevel } from "./types";
@@ -173,6 +175,7 @@ interface PublishedResultRow {
 export async function loadPublishedCbeResults(
   studentIds: string[], country: string, { termId }: { termId?: string } = {},
 ): Promise<Map<string, CbeLearningAreaResult[]>> {
+  if (onApi()) return apiLoadPublishedCbeResults(studentIds, country, { termId });
   const out = new Map<string, CbeLearningAreaResult[]>();
   if (!studentIds.length) return out;
   const sb = supabase();

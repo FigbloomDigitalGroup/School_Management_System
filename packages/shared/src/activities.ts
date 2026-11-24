@@ -1,3 +1,4 @@
+import { apiLoadLearnerActivities } from "./api/parentApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import * as activitiesApi from "./api/activitiesApi";
@@ -452,7 +453,8 @@ export interface LearnerActivities {
 
 /** A learner's clubs, what's coming up for them, and what they've won. Works for staff and for the learner's own family. */
 export async function loadLearnerActivities(tenantId: string, studentId: string, now: Date = new Date()): Promise<LearnerActivities> {
-  if (onApi()) throw new NotOnApiError("Learner activities");
+  // On the API this is the family read (clubs and teams only); the office reads a learner's activities another way (the Activities page).
+  if (onApi()) return apiLoadLearnerActivities(studentId);
   const sb = supabase();
   const [activities, { data: memberships, error: mErr }, { data: parts, error: pErr }] = await Promise.all([
     fetchActivities(tenantId),
