@@ -130,7 +130,7 @@ export function rosterLearnerFromApi(l: Learner, classId: string | null): Roster
 export function rosterStaffFromApi(s: StaffMember): RosterStaff {
   return {
     id: s.id, full_name: s.full_name, role: s.classification, staff_title: s.staff_title, email: s.email, phone: s.phone,
-    login_id: null, photo_changed_at: null, handles_visitors: false, avatar_url: null,
+    login_id: null, photo_changed_at: null, handles_visitors: false, avatar_url: null, user_id: s.userId ?? null,
   };
 }
 
