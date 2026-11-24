@@ -68,7 +68,7 @@ describe("mapping", () => {
     });
     expect(rosterLearnerFromApi(learner(2, { active: false, archived_at: "2026-03-01T00:00:00Z" }) as never, null).archived_at).toBe("2026-03-01T00:00:00Z");
     expect(rosterStaffFromApi(staffRec("s1", "Tabitha", "teacher", { staff_title: "HOD", phone: "0712 345 678", email: "t@x.co" }) as never)).toEqual({
-      id: "s1", full_name: "Tabitha", role: "teacher", staff_title: "HOD", email: "t@x.co", phone: "0712 345 678", login_id: null, photo_changed_at: null, handles_visitors: false, avatar_url: null,
+      id: "s1", full_name: "Tabitha", role: "teacher", staff_title: "HOD", email: "t@x.co", phone: "0712 345 678", login_id: null, photo_changed_at: null, handles_visitors: false, avatar_url: null, user_id: null,
     });
   });
 });
@@ -592,14 +592,15 @@ describe("peopleCapabilities", () => {
   it("offers on Supabase everything it had, and not the API-only extras", () => {
     initBackend({ kind: "supabase" });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, staffAccounts: true, learnerHome: true, bulkChangeClass: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
+    expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, staffAccounts: true, learnerHome: true, bulkChangeClass: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
   });
 
-  it("offers on the API only what it can do: archive, guardian contacts, and not what has no endpoint", () => {
+  it("offers on the API only what it can do: archive, guardian contacts, sign-in invitations, and not what has no endpoint", () => {
     initBackend({ kind: "api", apiUrl: BASE });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, unassignClass: false });
-    const off = Object.entries(c).filter(([k]) => !["staffArchive", "guardianContactForm", "learnerWithoutClass"].includes(k)).filter(([, v]) => v);
+    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, unassignClass: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
+    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "guardianInvitations", "staffSignIn"];
+    const off = Object.entries(c).filter(([k]) => !on.includes(k)).filter(([, v]) => v);
     expect(off).toEqual([]);
   });
 });

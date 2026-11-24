@@ -1,3 +1,9 @@
+import {
+  apiFetchChatContacts, apiFetchChatMessages, apiFetchConversationPeople, apiFetchMyConversations, apiMarkConversationRead, apiPollActivity,
+  apiPollThread, apiSendChatMessage, apiStartConversation,
+} from "./api/chatApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { deleteFiles, fileLink } from "./files";
 import { supabase } from "./supabase";
 import { mimeForFile, safeFileName } from "./materials";
@@ -41,6 +47,8 @@ export interface ConversationSummary {
   unread: number;
   /** False once the pair may no longer talk (a teacher moved off the class): the thread is read-only. */
   canReply: boolean;
+  /** False on the API when the other person's name could not be had (the API gives ids; names need the staff list). Left out on Supabase. */
+  nameKnown?: boolean;
 }
 
 export interface ChatMessage {
@@ -189,6 +197,9 @@ export function mergeMessage(list: ChatMessage[], m: ChatMessage): ChatMessage[]
 // ---------------------------------------------------------------- data
 
 export async function fetchChatContacts(): Promise<ChatContact[]> {
+  if (onApi()) {
+    return (await apiFetchChatContacts()).map((c) => ({ profileId: c.userId, name: c.name, role: c.role, avatarUrl: null, detail: c.title ?? chatRoleWord(c.role) }));
+  }
   const { data, error } = await supabase().rpc("my_chat_contacts");
   if (error) throw new Error(error.message);
   return ((data ?? []) as { profile_id: string; full_name: string; role: Role; avatar_url: string | null; detail: string }[])
@@ -196,6 +207,7 @@ export async function fetchChatContacts(): Promise<ChatContact[]> {
 }
 
 export async function fetchMyConversations(): Promise<ConversationSummary[]> {
+  if (onApi()) return apiFetchMyConversations();
   const { data, error } = await supabase().rpc("my_conversations");
   if (error) throw new Error(error.message);
   return ((data ?? []) as {
@@ -217,12 +229,14 @@ export async function fetchMyConversations(): Promise<ConversationSummary[]> {
 
 /** The caller's chat with this person, created the first time. Refused unless the pair may talk. */
 export async function startConversation(otherProfileId: string): Promise<string> {
+  if (onApi()) return apiStartConversation(otherProfileId);
   const { data, error } = await supabase().rpc("start_conversation", { p_other: otherProfileId });
   if (error) throw new Error(error.message);
   return data as string;
 }
 
 export async function fetchConversationPeople(conversationId: string): Promise<ChatPerson[]> {
+  if (onApi()) return apiFetchConversationPeople(conversationId);
   const { data, error } = await supabase().rpc("conversation_people", { p_conversation_id: conversationId });
   if (error) throw new Error(error.message);
   return ((data ?? []) as { profile_id: string; full_name: string; role: Role; avatar_url: string | null }[])
@@ -230,6 +244,7 @@ export async function fetchConversationPeople(conversationId: string): Promise<C
 }
 
 export async function fetchChatMessages(conversationId: string): Promise<ChatMessage[]> {
+  if (onApi()) return apiFetchChatMessages(conversationId);
   const { data, error } = await supabase()
     .from("chat_messages").select(MESSAGE_COLUMNS)
     .eq("conversation_id", conversationId)
@@ -242,6 +257,7 @@ export async function fetchChatMessages(conversationId: string): Promise<ChatMes
 export interface ChatFileDraft { path: string; name: string; mimeType: string; sizeBytes: number }
 
 export async function sendChatMessage(conversationId: string, body: string | null, file?: ChatFileDraft): Promise<ChatMessage> {
+  if (onApi()) return apiSendChatMessage(conversationId, body, file !== undefined);
   const { data, error } = await supabase()
     .from("chat_messages")
     .insert({
@@ -265,6 +281,7 @@ export async function uploadChatFile(tenantId: string, conversationId: string, f
 
 /** The same, for a file the phone has read into a Blob (React Native has no File to give a name). */
 export async function uploadChatBlob(tenantId: string, conversationId: string, file: UploadableFile): Promise<ChatFileDraft> {
+  if (onApi()) throw new NotOnApiError("Sending a file in a chat");
   const path = chatFilePath(tenantId, conversationId, file.name);
   await uploadFile(CHAT_FILES_BUCKET, path, file);
   return { path, name: file.name, mimeType: file.mimeType, sizeBytes: file.blob.size };
@@ -272,19 +289,24 @@ export async function uploadChatBlob(tenantId: string, conversationId: string, f
 
 /** Takes back a file whose message never got sent. */
 export async function removeUnsentChatFile(path: string): Promise<void> {
+  if (onApi()) return;
   await deleteFiles(CHAT_FILES_BUCKET, [path]);
 }
 
 export async function chatFileUrl(path: string, download?: string): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Opening a file from a chat");
   return fileLink(CHAT_FILES_BUCKET, path, 3600, download);
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {
+  if (onApi()) return apiMarkConversationRead(conversationId);
   const { error } = await supabase().rpc("mark_conversation_read", { p_conversation_id: conversationId });
   if (error) throw new Error(error.message);
 }
 
 export async function fetchChatUnreadCount(): Promise<number> {
+  // The API does not say what a person has read, so there is no count to give (chatCapabilities().unreadCounts is false).
+  if (onApi()) return 0;
   const { data, error } = await supabase().rpc("my_chat_unread_count");
   if (error) throw new Error(error.message);
   return (data as number | null) ?? 0;
@@ -292,6 +314,8 @@ export async function fetchChatUnreadCount(): Promise<number> {
 
 /** Asks the chat-push edge function to tell the other person's phone. Best effort: a chat still works without push. */
 export async function pushChatMessage(messageId: string): Promise<void> {
+  // On the API the server does the push (not wired to a provider yet): nothing for the client to ask.
+  if (onApi()) return;
   await supabase().functions.invoke("chat-push", { body: { message_id: messageId } }).catch(() => {});
 }
 
@@ -307,6 +331,7 @@ export function filterSchoolConversations<T extends Pick<SchoolConversation, "a"
 }
 
 export async function fetchSchoolConversations(tenantId: string, studentId?: string | null): Promise<SchoolConversation[]> {
+  if (onApi()) throw new NotOnApiError("Reading every chat in the school");
   const { data, error } = await supabase().rpc("school_conversations", { p_tenant_id: tenantId, p_student_id: studentId ?? null });
   if (error) throw new Error(error.message);
   return ((data ?? []) as {
@@ -325,12 +350,15 @@ export async function fetchSchoolConversations(tenantId: string, studentId?: str
 /**
  * New messages the caller can read (RLS decides), live. With a conversation
  * id, just that thread; without, everything in the school the caller can see,
- * which is what the sidebar badge listens to.
+ * which is what the sidebar badge listens to. On the API there is no realtime: it polls (api/poll.ts), an open thread every
+ * few seconds, the school scope every ten. The first answer of a thread poll is reported too, so a message that came in
+ * while the thread loaded is not lost: a thread merges by id (mergeMessage) and ignores ones it has.
  */
 export function subscribeChatMessages(
   scope: { conversationId: string } | { tenantId: string },
   onInsert: (m: ChatMessage) => void,
 ): () => void {
+  if (onApi()) return "conversationId" in scope ? apiPollThread(scope.conversationId, onInsert) : apiPollActivity(scope.tenantId, onInsert);
   const filter = "conversationId" in scope ? `conversation_id=eq.${scope.conversationId}` : `tenant_id=eq.${scope.tenantId}`;
   const channel = supabase()
     .channel(`chat-${filter}-${Date.now()}-${Math.random().toString(36).slice(2)}`)

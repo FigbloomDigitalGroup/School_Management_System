@@ -1,5 +1,6 @@
 import { apiFetchAnnouncementsData, apiInsertAnnouncement } from "./api/announcementsApi";
 import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 import { STAFF_ROLES, type AudienceRecipients } from "./audience";
@@ -200,6 +201,8 @@ export async function sendAnnouncementPush(announcementId: string): Promise<void
 
 /** Removes an unpublished announcement draft (e.g. when its attachment upload fails or is cancelled). */
 export async function deleteAnnouncement(announcementId: string): Promise<void> {
+  // Only a screen that attaches files saves a draft first, and the API build has none (announcementsCapabilities().attachments).
+  if (onApi()) throw new NotOnApiError("Deleting an announcement draft");
   const { error } = await supabase().from("announcements").delete().eq("id", announcementId);
   if (error) throw new Error(error.message);
 }

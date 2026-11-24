@@ -30,6 +30,8 @@ export type RosterLearner = Pick<Student, "id" | "admission_no" | "full_name" | 
 /** A staff member on the roster: school admins, teachers, drivers and other staff. */
 export type RosterStaff = Pick<Profile, "id" | "full_name" | "role" | "staff_title" | "email" | "phone" | "login_id" | "photo_changed_at" | "handles_visitors"> & {
   avatar_url: string | null;
+  /** API only: the sign-in this record is linked to, if any (staff are directory records there). Supabase staff are their own profile. */
+  user_id?: string | null;
 };
 
 export interface PeopleRoster {
