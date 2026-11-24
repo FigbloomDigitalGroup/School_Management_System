@@ -53,32 +53,123 @@ export function unpaidOutcome(resultCode: number): { status: "cancelled" | "time
 export type StkOutcome = { done: true; resultCode: number } | { done: false };
 
 /**
- * Ask Daraja what became of an STK prompt. While it's still in progress
- * Daraja answers HTTP 500 with errorCode 500.001.1001 ("The transaction is
- * being processed") — that's an answer, not an error. Anything else that
- * isn't a result throws, including a ResultCode that isn't a whole number:
- * Number("") and Number(null) are 0, which would read as paid (FIG-1322).
+ * Daraja turned the query away for now, not for good: throttled (HTTP 429,
+ * which the sandbox answers a lot), a 5xx that isn't "still processing", a
+ * reply that took too long, or no reply at all. Worth asking again shortly.
  */
-export async function queryStk(checkoutRequestId: string): Promise<StkOutcome> {
+export class DarajaBusy extends Error {
+  constructor(message: string, readonly retryAfterMs?: number) {
+    super(message);
+    this.name = "DarajaBusy";
+  }
+}
+
+export interface QueryRetry {
+  /** The wait before each further attempt; [] asks once. */
+  delaysMs?: number[];
+  /** Also ask again while Daraja says the prompt is still being processed (default true). */
+  retryWhileProcessing?: boolean;
+  /** Never start an attempt that could end later than this after the first one began. */
+  budgetMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * Time budget. A query is retried after 1.5 s, 3 s and 5 s (longer if Daraja
+ * sends a Retry-After), each attempt cut off at 4 s, and no attempt is started
+ * that could end more than 16 s after the first began: about 11 s when Daraja
+ * answers 429 at once, never more than 16 s plus the OAuth call. That stays
+ * well inside the tightest limit the functions run under (29 s behind API
+ * Gateway; the self-hosted edge runtime allows 400 s, Envoy 410 s).
+ */
+export const QUERY_RETRY_DELAYS_MS = [1500, 3000, 5000];
+export const QUERY_BUDGET_MS = 16_000;
+export const QUERY_ATTEMPT_TIMEOUT_MS = 4_000;
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Retry-After in ms (seconds, or an HTTP date), or undefined when absent or unreadable. */
+export function retryAfterMs(header: string | null, now = Date.now()): number | undefined {
+  if (!header) return undefined;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) return Number(value) * 1000;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+}
+
+/**
+ * Ask Daraja what became of an STK prompt, asking again (see the budget
+ * above) while it is throttled, briefly unavailable or, unless told not to,
+ * still processing. While a prompt is in progress Daraja answers HTTP 500
+ * with errorCode 500.001.1001 ("The transaction is being processed") —
+ * that's an answer, not an error, and is returned as { done: false } once
+ * retries run out. Throws DarajaBusy when every attempt was turned away, and
+ * a plain Error for anything that isn't a result (a refused token, a 4xx, a
+ * ResultCode that isn't a whole number: Number("") and Number(null) are 0,
+ * which would read as paid, FIG-1322).
+ */
+export async function queryStk(checkoutRequestId: string, retry: QueryRetry = {}): Promise<StkOutcome> {
+  const {
+    delaysMs = QUERY_RETRY_DELAYS_MS, retryWhileProcessing = true, budgetMs = QUERY_BUDGET_MS, sleep = realSleep, now = Date.now,
+  } = retry;
+  const token = await darajaToken();
+  const start = now();
+  for (let attempt = 0; ; attempt++) {
+    let outcome: StkOutcome | undefined;
+    let busy: DarajaBusy | undefined;
+    try {
+      outcome = await queryStkOnce(checkoutRequestId, token);
+    } catch (err) {
+      if (!(err instanceof DarajaBusy)) throw err;
+      busy = err;
+    }
+    if (outcome && (outcome.done || !retryWhileProcessing)) return outcome;
+
+    const scheduled = delaysMs[attempt];
+    const wait = scheduled === undefined ? undefined : Math.max(scheduled, busy?.retryAfterMs ?? 0);
+    if (wait === undefined || now() - start + wait + QUERY_ATTEMPT_TIMEOUT_MS > budgetMs) {
+      if (busy) throw busy;
+      return outcome!;
+    }
+    console.warn(`daraja: STK query attempt ${attempt + 1}: ${busy ? busy.message : "still processing"}; asking again in ${wait} ms`);
+    await sleep(wait);
+  }
+}
+
+/** One STK query. */
+async function queryStkOnce(checkoutRequestId: string, token: string): Promise<StkOutcome> {
   const shortcode = Deno.env.get("DARAJA_SHORTCODE")!;
   const passkey = Deno.env.get("DARAJA_PASSKEY")!;
   const ts = timestamp();
-  const token = await darajaToken();
-  const res = await fetch(darajaUrl("/mpesa/stkpushquery/v1/query"), {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      BusinessShortCode: shortcode,
-      Password: stkPassword(shortcode, passkey, ts),
-      Timestamp: ts,
-      CheckoutRequestID: checkoutRequestId,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), QUERY_ATTEMPT_TIMEOUT_MS);
+  let res: Response;
   // deno-lint-ignore no-explicit-any
-  const out: any = await res.json().catch(() => ({}));
+  let out: any;
+  try {
+    res = await fetch(darajaUrl("/mpesa/stkpushquery/v1/query"), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        BusinessShortCode: shortcode,
+        Password: stkPassword(shortcode, passkey, ts),
+        Timestamp: ts,
+        CheckoutRequestID: checkoutRequestId,
+      }),
+      signal: controller.signal,
+    });
+    out = await res.json().catch(() => ({}));
+  } catch (err) {
+    throw new DarajaBusy(`STK query got no answer: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    clearTimeout(timer);
+  }
   if (out.errorCode === "500.001.1001") return { done: false };
   if (!res.ok || out.ResponseCode !== "0" || out.ResultCode === undefined) {
-    throw new Error(`STK query failed (HTTP ${res.status}): ${out.errorMessage ?? out.ResponseDescription ?? "no result"}`);
+    const message = `STK query failed (HTTP ${res.status}): ${out.errorMessage ?? out.ResponseDescription ?? "no result"}`;
+    if (res.status === 429 || res.status >= 500) throw new DarajaBusy(message, retryAfterMs(res.headers.get("Retry-After")));
+    throw new Error(message);
   }
   const raw = out.ResultCode;
   const code = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : NaN;

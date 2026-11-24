@@ -46,6 +46,15 @@ export interface PayOptions {
 }
 
 const START_TIMEOUT_MS = 30_000;
+/**
+ * While waiting, once the prompt is this old, ask mpesa-stk-push to "check" the
+ * payment every CHECK_EVERY_MS: it asks Daraja and settles a payment the callback
+ * couldn't confirm (Daraja's sandbox throttles that query), exactly as the
+ * callback would. Spaced out so the checks don't add to the throttling.
+ */
+const CHECK_AFTER_MS = 25_000;
+const CHECK_EVERY_MS = 15_000;
+const CHECK_TIMEOUT_MS = 25_000;
 
 function aborted(): Error {
   const err = new Error("Aborted");
@@ -102,9 +111,17 @@ export async function payWithMpesa(input: PayInput, options: PayOptions = {}): P
 
   onPrompted?.();
 
-  const deadline = Date.now() + timeoutMs;
+  const promptedAt = Date.now();
+  const deadline = promptedAt + timeoutMs;
+  let lastCheck = -Infinity;
   for (;;) {
     await sleep(intervalMs, signal);
+    if (Date.now() - promptedAt >= CHECK_AFTER_MS && Date.now() - lastCheck >= CHECK_EVERY_MS) {
+      lastCheck = Date.now();
+      // Best effort: whatever it answers, the payment row below is what counts.
+      await invokeEdge("mpesa-stk-push", { action: "check", payment_id: paymentId }, { timeoutMs: CHECK_TIMEOUT_MS, signal }).catch(() => undefined);
+      if (signal?.aborted) throw aborted();
+    }
     // A lookup that fails (no signal for a moment) is not an answer: keep waiting.
     const { data } = await supabase()
       .from("payments")
