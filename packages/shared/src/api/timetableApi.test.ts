@@ -129,6 +129,28 @@ describe("a teacher's class timetable on the API", () => {
     expect(Object.values(t.byDay).flat()).toEqual([]);
   });
 
+  it("never calls a period with nobody teaching it 'mine' for a person with no staff record", async () => {
+    const GAMES = "40000009-1111-4111-8111-111111111111";
+    boot({
+      ...fullRoutes(null),
+      [`GET ${P}/timetable-slots`]: list("slots", [slot("g1", GAMES, 1, "10:00:00", "10:40:00")]),
+      [`GET ${P}/staff/me`]: refused("not_found", 404),
+    });
+    const t = await fetchTeacherClassTimetable(C1, "u1");
+    expect(Object.values(t.byDay).flat()).toEqual([]);
+  });
+
+  it("follows the slot's own assignment link before looking the subject up (two teachers of one subject in a class)", async () => {
+    boot({
+      ...fullRoutes(ST_ME),
+      // David teaches Mathematics here too, but this Monday period is linked to Mercy's Mathematics assignment.
+      [`GET ${P}/teaching-assignments`]: list("assignments", [assignment("a-me", ST_ME, MATH), assignment("a-mercy-math", ST_OTHER, MATH)]),
+      [`GET ${P}/timetable-slots`]: list("slots", [slot("s1", MATH, 1, "08:00:00", "08:40:00", { teaching_assignment_id: "a-mercy-math" })]),
+    });
+    const t = await fetchTeacherClassTimetable(C1, "u1");
+    expect(t.byDay.Mon.map((r) => [r.teacherId, r.mine])).toEqual([[ST_OTHER, false]]);
+  });
+
   it("asks for the school-wide lookups once for a page of classes, and again after they are cleared", async () => {
     boot(fullRoutes(null));
     await Promise.all([fetchTeacherClassTimetable(C1, "u1"), fetchTeacherClassTimetable(C1, "u1")]);

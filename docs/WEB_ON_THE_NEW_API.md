@@ -233,9 +233,12 @@ schools). `teacher/sections` is not on the API build (see below). Capability fla
 `coursesCapabilities()` in `packages/shared/src/capabilities.ts`. The API side is `api/timetableApi.ts`, `api/teachingLookups.ts`,
 `api/teachingApi.ts` and `api/coursesApi.ts`.
 
-**Needs API PR "teacher self-reads" merged first:** `GET /v1/tenants/{id}/staff/me` (a person's own staff record) and a
-teacher-scoped `GET /subjects`. Without them these pages still open, but a plain teacher cannot tell which periods and classes are
-theirs, and sees "Lesson" for a period's subject.
+**Needs API PR #363 merged first:** `GET /v1/tenants/{id}/staff/me` (a person's own staff record). Without it these pages
+still open, but a plain teacher cannot tell which periods and classes are theirs.
+
+**Still open for a plain teacher (finding 13):** they cannot read the subject list, so a period's subject has no name and shows as
+"Lesson", and My classes lists no subjects. A teacher-scoped `GET /subjects` (the subjects of the classes they teach, as the class
+list is scoped) would fix it; it is not built yet.
 
 ### What works
 
@@ -296,7 +299,8 @@ on the web reads it, so it is not used.
 12. **A plain teacher cannot learn their own staff id.** Class teachers, teaching assignments and timetable slots name staff ids, a
     teacher cannot read the staff list, and `/auth/me` has no staff id. `GET /staff/me` (separate API PR) fixes it.
 13. **A plain teacher cannot read the subject list**, so a timetable slot or a teaching assignment (subject ids) cannot be named, and
-    "My classes" cannot list subjects. A scoped read like the class list (subjects of the classes they teach) is in the same API PR.
+    "My classes" cannot list subjects. The fix is a scoped read like the class list (OD-2): the subjects of the active teaching
+    assignments and timetable slots of the classes they teach. Not built yet; **the first follow-up for these pages**.
 14. **Colleagues' names:** the class teacher's whole-class timetable would name each period's teacher, which needs the staff list.
     A plain teacher sees no name. A staff name inside the teaching-assignment record, or a scoped staff read, would fix it.
 15. **A timetable slot cannot be changed or removed**, and a slot needs a subject (no "Break", "Games", "Assembly").

@@ -144,6 +144,15 @@ describe("My classes on the API", () => {
     expect(rows.map((r) => r.learnerCount)).toEqual([1, 1]);
   });
 
+  it("counts only the learners of the person's own classes", async () => {
+    const OTHER_CLASS = "c9c9c9c9-c9c9-4c9c-8c9c-c9c9c9c9c9c9";
+    boot(plain({
+      [`GET ${P}/class-memberships`]: list("memberships", [...MEMBERSHIPS, membership("m9", "10000009-1111-4111-8111-111111111111", OTHER_CLASS)]),
+    }));
+    const rows = await fetchMyClasses(U1);
+    expect(rows.map((r) => r.learnerCount)).toEqual([2, 1]);
+  });
+
   it("names no subject the person may not read, and gives no subjects when their own staff id is unknown", async () => {
     boot(plain({ [`GET ${P}/subjects`]: refused("forbidden", 403) }));
     expect((await fetchMyClasses(U1)).map((r) => r.subjects)).toEqual([[], []]);
