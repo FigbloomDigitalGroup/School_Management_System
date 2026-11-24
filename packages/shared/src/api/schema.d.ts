@@ -4315,7 +4315,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Initiate an authorized object upload and obtain a presigned upload URL */
+        /**
+         * Initiate an authorized object upload and obtain a presigned upload URL
+         * @description Authorization, accepted content types and size limits depend on `owner_resource_type` (apps/api/docs/STORAGE-OWNER-TYPES.md). Staff need the owning domain's permission: directory_document, export_artifact, medication_authorization, general and avatar `resource.document.write`; payment_proof `resource.finance.administer`; homework_attachment, learning_material and exam_paper `resource.academics.write`; school_logo `resource.school_profile.write`. Without that permission only two narrow paths exist: a parent may upload a payment_proof whose owner_resource_id is an invoice of one of their own children (live family link), and any member of the school may upload the avatar whose owner_resource_id is their own user id. owner_resource_id is required for payment_proof (an invoice of this school) and avatar (a learner or a member of this school); for the other types it is optional and not used to authorize. Content types: payment_proof JPEG, PNG, WebP or PDF up to 10 MiB; avatar and school_logo JPEG, PNG or WebP up to 5 MiB; every other type PDF, JPEG, PNG, WebP, CSV, plain text, JSON, XLSX or DOCX up to 25 MiB. A caller with no staff write permission and no membership of this school is refused (403) before the body is read.
+         */
         post: operations["initStorageUpload"];
         delete?: never;
         options?: never;
@@ -4332,7 +4335,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify and finalize an uploaded object */
+        /**
+         * Verify and finalize an uploaded object
+         * @description Needs the owner type's staff write permission (see initStorageUpload), or: a parent finishing their own payment_proof upload while the invoice's learner is still their child; a member finishing their own avatar upload. A caller without any staff write permission gets 403 for an object that does not exist or is not theirs.
+         */
         post: operations["completeStorageUpload"];
         delete?: never;
         options?: never;
@@ -4347,11 +4353,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get storage object metadata */
+        /**
+         * Get storage object metadata
+         * @description Needs the owner type's staff read permission: directory_document, export_artifact, medication_authorization, general and avatar `resource.document.read`; payment_proof `resource.finance.read`; homework_attachment, learning_material and exam_paper `resource.academics.read`; school_logo `resource.school_profile.read`. Without it: a parent may read payment_proof objects of their own children's invoices, a member may read the avatar that names their own user id, and every member of the school may read a school_logo. A caller without any staff read permission gets 403 for an object that does not exist or is not theirs.
+         */
         get: operations["getStorageObjectMetadata"];
         put?: never;
         post?: never;
-        /** Delete a storage object */
+        /**
+         * Delete a storage object
+         * @description Needs the owner type's staff write permission (see initStorageUpload), or a member deleting the avatar that names their own user id. A family cannot delete a payment proof. A caller without any staff write permission gets 403 for an object that does not exist or is not theirs.
+         */
         delete: operations["deleteStorageObject"];
         options?: never;
         head?: never;
@@ -4367,7 +4379,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Authorize and issue a short-lived presigned download URL */
+        /**
+         * Authorize and issue a short-lived presigned download URL
+         * @description Same authorization as getStorageObjectMetadata: the owner type's staff read permission, or a parent for payment_proof objects of their own children's invoices, a member for their own avatar, any member for a school_logo. The object must be available (409 otherwise).
+         */
         post: operations["createStorageDownloadUrl"];
         delete?: never;
         options?: never;
@@ -19621,7 +19636,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    owner_resource_type: "directory_document" | "export_artifact" | "medication_authorization" | "general";
+                    owner_resource_type: "directory_document" | "export_artifact" | "medication_authorization" | "general" | "payment_proof" | "homework_attachment" | "learning_material" | "exam_paper" | "avatar" | "school_logo";
                     owner_resource_id?: string | null;
                     original_filename: string;
                     content_type: string;
