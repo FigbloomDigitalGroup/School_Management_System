@@ -1,3 +1,4 @@
+import { parentCapabilities } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { LearnerActivitiesView } from "../../components/learners/Activities";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -16,7 +17,7 @@ export function ParentActivities() {
       <PageHead
         eyebrow={child ? `${child.cls} · ADM ${child.adm}` : "Sports & activities"}
         title={child ? `${child.first}'s sports & activities` : "Sports & activities"}
-        blurb="Clubs, teams and societies, fixtures and competitions coming up, and medals and awards."
+        blurb={parentCapabilities().activityEvents ? "Clubs, teams and societies, fixtures and competitions coming up, and medals and awards." : "The clubs, teams and societies your child belongs to, and who runs them."}
         actions={<ChildSwitcher />}
       />
       <div className="px-7 py-6">

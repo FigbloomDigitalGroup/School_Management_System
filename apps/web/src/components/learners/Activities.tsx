@@ -1,5 +1,5 @@
 import {
-  ACTIVITY_CATEGORY_LABEL, EVENT_KIND_LABEL, EVENT_LEVEL_LABEL, achievementLabel, formatEventWhen, loadLearnerActivities,
+  ACTIVITY_CATEGORY_LABEL, EVENT_KIND_LABEL, EVENT_LEVEL_LABEL, achievementLabel, formatEventWhen, loadLearnerActivities, parentCapabilities,
 } from "@figbloom/shared";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/DataTable";
@@ -19,6 +19,8 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
   compact?: boolean;
 }) {
   const { data, loading, error } = useAsync(() => loadLearnerActivities(tenantId, studentId), [tenantId, studentId]);
+  // Fixtures, trips and awards are not in the API's family read: only the clubs and teams are shown there, and the page does not claim there are none.
+  const events = parentCapabilities().activityEvents;
 
   if (error) {
     return (
@@ -37,7 +39,7 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
   }
   if (!data) return null;
 
-  const nothing = !data.clubs.length && !data.upcoming.length && !data.achievements.length;
+  const nothing = !data.clubs.length && (!events || (!data.upcoming.length && !data.achievements.length));
   if (nothing) {
     const body = first
       ? `${first} isn't in any club, team or society yet. The patron adds members; ask at school if ${first} has joined one.`
@@ -72,7 +74,7 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
         )}
       </section>
 
-      {!compact && (
+      {!compact && events && (
         <section>
           <h2 className="mb-2.5 font-mono text-micro tracking-[0.12em] text-ink-faint">COMING UP · {data.upcoming.length}</h2>
           {data.upcoming.length === 0 ? (
@@ -98,7 +100,7 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
         </section>
       )}
 
-      <section>
+      {events && <section>
         <h2 className="mb-2.5 font-mono text-micro tracking-[0.12em] text-ink-faint">ACHIEVEMENTS · {data.achievements.length}</h2>
         {data.achievements.length === 0 ? (
           <p className="text-[12.5px] text-ink-muted">No medals or awards recorded yet.</p>
@@ -118,7 +120,7 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
             ))}
           </ul>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { loadParentData, subscribeAnnouncements, type ChildInfo, type ParentData } from "@figbloom/shared";
+import { loadParentData, onApi, subscribeAnnouncements, type ChildInfo, type ParentData } from "@figbloom/shared";
 import { useAsync } from "./useAsync";
 import { useTenantSession } from "./sessionContext";
 
@@ -31,7 +31,8 @@ export function ParentDataProvider({ children: kids }: { children: ReactNode }) 
   const { data, loading, error } = useAsync(() => loadParentData(profile.id), [profile.id, reloadKey]);
   const [params, setParams] = useSearchParams();
 
-  useEffect(() => subscribeAnnouncements(tenant.id, () => setReloadKey((k) => k + 1)), [tenant.id]);
+  // No realtime on the API: the inbox that would reload this is not on the parent pages of an API build yet.
+  useEffect(() => (onApi() ? undefined : subscribeAnnouncements(tenant.id, () => setReloadKey((k) => k + 1))), [tenant.id]);
 
   const list = useMemo(() => data?.children ?? [], [data]);
   const childId = params.get("child") ?? list[0]?.id ?? null;

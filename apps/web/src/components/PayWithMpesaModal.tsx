@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, parseShillings, payableSuggestions, payWithMpesa, wholeShillings, type PaymentFailure } from "@figbloom/shared";
+import { formatMoney, PAYMENT_FAILURES, normaliseMsisdn, parseShillings, parentCapabilities, payableSuggestions, payWithMpesa, wholeShillings, type PaymentFailure } from "@figbloom/shared";
 import { Button } from "./ui/Button";
 import { Modal } from "./ui/Modal";
 import { Mono } from "./ui/DataTable";
@@ -17,6 +17,8 @@ interface Props {
   balanceCents: number;
   /** This term's invoice; null until the school has billed. */
   invoiceId: string | null;
+  /** The child the fee is for: the API reads the payment back from that child's own fees. */
+  learnerId?: string;
   country: string;
   /** Prefilled M-Pesa number, or "" — never a stand-in: a prefilled demo number would send a real prompt to a stranger's phone. */
   initialPhone: string;
@@ -32,7 +34,7 @@ interface Props {
  * When online M-Pesa isn't available for the school, the dialog shows the
  * school's own paybill/till/bank details instead of pretending.
  */
-export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents, invoiceId, country, initialPhone, onClose, onSettled }: Props) {
+export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents, invoiceId, learnerId, country, initialPhone, onClose, onSettled }: Props) {
   const { tenant } = useTenantSession();
   const [phase, setPhase] = useState<Phase>("form");
   // what was typed, kept as typed: a decimal point is refused with a reason, never dropped (FIG-1334)
@@ -62,7 +64,7 @@ export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents
     abort.current = controller;
     try {
       const result = await payWithMpesa(
-        { invoiceId, amountCents: amount, msisdn: p.msisdn },
+        { invoiceId, amountCents: amount, msisdn: p.msisdn, learnerId },
         { signal: controller.signal, onPrompted: () => setPhase("prompting") },
       );
       switch (result.kind) {
@@ -217,7 +219,7 @@ export function PayWithMpesaModal({ payeeName, payeeFirst, context, balanceCents
             <p className="text-[13px] text-ink-muted">Ask the school office how to pay.</p>
           )}
           <p className="text-[12px] leading-relaxed text-ink-faint">
-            After you pay, upload your proof on the Fees page or show it at the office. The school records the payment and {payeeFirst}'s balance updates.
+            {parentCapabilities().paymentProofSubmit ? "After you pay, upload your proof on the Fees page or show it at the office." : "After you pay, show your receipt at the office."} The school records the payment and {payeeFirst}'s balance updates.
           </p>
         </div>
       )}

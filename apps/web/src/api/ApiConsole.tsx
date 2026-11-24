@@ -12,6 +12,7 @@ import { TermSetup } from "../screens/admin/TermSetup";
 import { Attendance as TeacherAttendance } from "../screens/teacher/Attendance";
 import { TeacherReports } from "../screens/teacher/TeacherReports";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
+import { ApiParentConsole } from "./ApiParent";
 
 // The People screen is large (its modals pull in a lot), so it loads when it is opened.
 const People = lazy(() => import("../screens/admin/People").then((m) => ({ default: m.People })));
@@ -80,6 +81,8 @@ function TeacherPage({ session, children }: { session: SchoolSession; children: 
 }
 
 export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onSignOut: () => Promise<void> }) {
+  // A parent has their own console (ApiParent.tsx); everyone else keeps the admin and teacher ones below.
+  if (session.profile.role === "parent") return <ApiParentConsole session={session} />;
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
   if (!hasAdminConsole(access)) {
     if (session.profile.role === "teacher") {

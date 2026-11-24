@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  DOSE_STATUS_LABEL, fetchChildMedical, localDay, markMedicalNoticesRead, REQUEST_STATUS_LABEL, requestDraftProblem,
-  requestMedication, withdrawMedicationRequest, type MedicationRequestDraft,
+  apiAnswerMedicationConsent, DOSE_STATUS_LABEL, fetchChildMedical, localDay, markMedicalNoticesRead, parentCapabilities, REQUEST_STATUS_LABEL, requestDraftProblem,
+  requestMedication, userMessage, withdrawMedicationRequest, type FamilyHealthView, type MedicationAuthorizationView, type MedicationRequestDraft,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
@@ -28,6 +28,7 @@ import { confirmDialog } from "../../components/ui/Confirm";
  */
 export function ParentHealth() {
   const toast = useToast();
+  const can = parentCapabilities();
   const { tenant } = useTenantSession();
   const { child } = useParentData();
   const [reloadKey, setReloadKey] = useState(0);
@@ -58,11 +59,16 @@ export function ParentHealth() {
         eyebrow={child ? `${child.cls} · ADM ${child.adm}` : "Health"}
         title={child ? `${child.first}'s health at school` : "Health"}
         blurb="Visits to the sick bay, medicine the school gives, and what the nurse has told you."
-        actions={<div className="flex flex-wrap items-center gap-2"><ChildSwitcher />{child && <Button variant="accent" onClick={() => setAsking(true)}>Ask the nurse to give a medicine</Button>}</div>}
+        actions={<div className="flex flex-wrap items-center gap-2"><ChildSwitcher />{can.medicationRequests && child && <Button variant="accent" onClick={() => setAsking(true)}>Ask the nurse to give a medicine</Button>}</div>}
       />
       <div className="grid gap-5 px-7 py-6">
         {error ? <ErrorLine what="health records" error={error} /> : loading || !data ? <TableSkeleton rows={5} /> : (
           <>
+            {data.family && child && (
+              <MedicineConsent first={child.first} authorizations={data.family.authorizations} onChanged={() => setReloadKey((k) => k + 1)} />
+            )}
+            {data.family?.profile && <HealthDetails profile={data.family.profile} first={child?.first ?? "your child"} />}
+
             {data.notices.length > 0 && (
               <Card title="From the sick bay">
                 {data.notices.slice(0, 5).map((n) => (
@@ -116,7 +122,7 @@ export function ParentHealth() {
                       <ul className="mt-1 grid gap-0.5 text-[12px]">
                         {doses.slice(0, 9).map((d) => (
                           <li key={d.id}>
-                            <span className="font-mono">{d.due_on} {d.due_time}</span> · {DOSE_STATUS_LABEL[d.status]}{d.note ? ` (${d.note})` : ""}
+                            <span className="font-mono">{d.due_on} {d.due_time}</span> · {d.label ?? DOSE_STATUS_LABEL[d.status]}{d.note ? ` (${d.note})` : ""}
                           </li>
                         ))}
                       </ul>
@@ -146,6 +152,87 @@ export function ParentHealth() {
           onClose={() => setAsking(false)} onSent={() => { setAsking(false); setReloadKey((k) => k + 1); toast("Sent to the school nurse."); }} />
       )}
     </>
+  );
+}
+
+const CONSENT_LABEL: Record<MedicationAuthorizationView["consent"], string> = {
+  pending: "Waiting for your OK", granted: "You agreed", declined: "You said no", revoked: "You withdrew your OK",
+};
+const AUTH_LABEL: Record<MedicationAuthorizationView["status"], string> = {
+  draft: "Being prepared", pending_consent: "Waiting for your OK", approved: "Approved by the school", rejected: "Not approved by the school", expired: "Ended", revoked: "Stopped",
+};
+
+/**
+ * Medicines the school has set up for the child and the guardian's consent to each (the new system's way: the school makes the
+ * authorization, a guardian answers it). A guardian may agree, say no, or withdraw an earlier OK; the nurse gives nothing without it.
+ */
+function MedicineConsent({ first, authorizations, onChanged }: { first: string; authorizations: MedicationAuthorizationView[]; onChanged: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  if (authorizations.length === 0) return null;
+
+  async function answer(a: MedicationAuthorizationView, decision: "granted" | "declined" | "revoked") {
+    if (decision === "revoked" && !(await confirmDialog({ title: `Withdraw your OK for ${a.medication}?`, confirmLabel: "Withdraw" }))) return;
+    setBusy(a.id);
+    try {
+      await apiAnswerMedicationConsent(a.id, decision);
+      toast(decision === "granted" ? `You agreed to ${a.medication} for ${first}.` : decision === "declined" ? "Saved. The nurse will not give it." : "Your OK is withdrawn.");
+      onChanged();
+    } catch (err) {
+      toast(`Could not save that: ${userMessage(err)}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const waiting = authorizations.filter((a) => a.consent === "pending" && a.status === "pending_consent").length;
+  return (
+    <Card title={waiting ? `Medicines · ${waiting} waiting for your OK` : "Medicines the school has set up"}>
+      {authorizations.map((a) => (
+        <div key={a.id} className="border-b border-line-soft px-4 py-3 last:border-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13.5px] font-semibold">{a.medication} {a.dosage}</span>
+            <Badge tone={a.status === "approved" ? "ok" : a.status === "pending_consent" ? "info" : "muted"}>{AUTH_LABEL[a.status]}</Badge>
+          </div>
+          <p className="mt-0.5 text-[12.5px] text-ink-muted">{a.frequency}, {a.route}, {a.startDate} to {a.endDate}</p>
+          <p className="mt-0.5 text-[12px] text-ink-faint">{CONSENT_LABEL[a.consent]}{a.rejectionReason ? ` · The school said: ${a.rejectionReason}` : ""}</p>
+          {(a.consent === "pending" || a.consent === "declined" || a.consent === "revoked") && a.status !== "rejected" && a.status !== "expired" && (
+            <div className="mt-2 flex gap-2">
+              <Button variant="accent" disabled={busy === a.id} onClick={() => void answer(a, "granted")}>I agree</Button>
+              {a.consent === "pending" && <Button disabled={busy === a.id} onClick={() => void answer(a, "declined")}>No, do not give it</Button>}
+            </div>
+          )}
+          {a.consent === "granted" && (
+            <div className="mt-2"><Button disabled={busy === a.id} onClick={() => void answer(a, "revoked")}>Withdraw my OK</Button></div>
+          )}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+/** What the school has on file about the child's health (read only here: a parent cannot change it on the new system yet). */
+function HealthDetails({ profile, first }: { profile: NonNullable<FamilyHealthView["profile"]>; first: string }) {
+  const rows: [string, string][] = [
+    ["Blood group", profile.bloodGroup ?? ""],
+    ["Allergies", profile.allergies.join(", ")],
+    ["Conditions", profile.conditions.join(", ")],
+    ["Diet", profile.dietaryNotes ?? ""],
+    ["In an emergency", profile.emergencyNotes ?? ""],
+  ];
+  const shown = rows.filter(([, v]) => v);
+  return (
+    <Card title={`${first}'s health details on file`}>
+      {shown.length === 0 ? (
+        <EmptyState title="Nothing on file" body="The school has no health details recorded." />
+      ) : shown.map(([k, v]) => (
+        <div key={k} className="flex gap-3 border-b border-line-soft px-4 py-2.5 text-[13px] last:border-0">
+          <span className="w-36 shrink-0 text-ink-faint">{k}</span>
+          <span className="min-w-0">{v}</span>
+        </div>
+      ))}
+      <p className="px-4 py-2.5 text-[12px] text-ink-faint">To change these, tell the school office.</p>
+    </Card>
   );
 }
 
