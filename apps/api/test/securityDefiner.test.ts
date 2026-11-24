@@ -98,7 +98,7 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "guardian_record_delivery(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "delivery outcome from the provider boundary; never accepts an invitation" },
   "guardian_revoke_account_link(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "final, audited revocation of a live link" },
   "guardian_revoke_invitation(uuid,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "revoke an open invitation" },
-  "account_accept_invitation(text,text,text,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "accept an invitation; token hash lookup, single use" },
+  "account_accept_invitation(text,text,text,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "accept an invitation; token hash lookup, single use; links the one unlinked active staff record of that school with the invited e-mail (104)" },
   "account_actor_is_super()": { secdef: true, grantees: ["figbloom_app"], why: "is the GUC actor a super administrator" },
   "account_admin_issue_reset(uuid,uuid,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "administrator-issued password reset token" },
   "account_complete_password_reset(text,text)": { secdef: true, grantees: ["figbloom_app"], why: "consume reset token, set Argon2id hash, revoke sessions" },

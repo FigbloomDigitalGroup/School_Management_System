@@ -554,11 +554,21 @@ export async function archiveLearner(
     if (!existing.active) throw validationError("Learner is already archived");
     throw notFound("Learner not found");
   }
+  // Finding 8: a learner who leaves the school leaves their class too, so nothing that counts class memberships
+  // counts them. Restore does not give the class back (it may be archived, or the year over); the school places the
+  // learner again, which migration 101 allows even in a class they left this year.
+  const ended = await db.query<{ id: string }>(
+    `UPDATE class_memberships
+        SET active = false, archived_at = now(), updated_at = now()
+      WHERE tenant_id = $1 AND learner_id = $2 AND active = true
+      RETURNING id`,
+    [input.tenantId, input.learnerId],
+  );
   await recordSecurityEvent(db, {
     eventType: "directory.learner.archived",
     actorUserId: input.actorUserId,
     tenantId: input.tenantId,
-    detail: { learnerId: row.id },
+    detail: { learnerId: row.id, endedClassMembershipIds: ended.rows.map((m) => m.id) },
     ip: input.ip ?? null,
   });
   return toPublicLearner(mapRow(row));

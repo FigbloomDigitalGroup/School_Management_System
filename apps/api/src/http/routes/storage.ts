@@ -1,14 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
-import { requirePermission } from "../../modules/rbac/authorize.js";
 import {
   createPendingStorageObject,
-  getStorageObjectById,
+  findStorageObjectById,
   markStorageObjectAvailable,
   markStorageObjectDeleted,
   toPublicStorageObject,
 } from "../../modules/storage/service.js";
+import {
+  assertMayStartUploads,
+  authorizeObjectAction,
+  authorizeUploadStart,
+  OWNER_RESOURCE_TYPES,
+} from "../../modules/storage/ownerTypes.js";
 import { getStorageProvider } from "../../modules/storage/storageProvider.js";
 import { recordSecurityEvent } from "../../modules/audit/audit.js";
 import { conflict, notFound } from "../errors.js";
@@ -16,7 +21,7 @@ import { assertUuid, inTenant } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
 const InitUploadBody = z.strictObject({
-  owner_resource_type: z.enum(["directory_document", "export_artifact", "medication_authorization", "general"]),
+  owner_resource_type: z.enum(OWNER_RESOURCE_TYPES),
   owner_resource_id: z.guid().nullable().optional(),
   original_filename: z.string().min(1).max(255),
   content_type: z.string().min(3).max(128),
@@ -35,14 +40,25 @@ export const STORAGE_REQUEST_SCHEMAS = {
 
 const P = "/v1/tenants/:tenantId/storage/objects";
 
+/**
+ * Presigned object storage (migration 090; owner types widened by 102). Authorization is per owner type
+ * (modules/storage/ownerTypes.ts, docs/STORAGE-OWNER-TYPES.md): staff need the owning domain's permission; a family may
+ * touch only payment proofs of its own children's invoices; a member may manage only their own avatar.
+ */
 export async function registerStorageRoutes(app: FastifyInstance, pool: AppPool): Promise<void> {
   app.post(P, async (request, reply) => {
     const params = request.params as { tenantId: string };
     const provider = getStorageProvider();
 
     const record = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.write", { ip, deferAudit: true });
+      await assertMayStartUploads(tx, auth.authz, ip);
       const body = parseOrThrow(InitUploadBody, request.body, "owner_resource_type, original_filename, content_type and byte_size are required");
+      await authorizeUploadStart(tx, auth.authz, {
+        tenantId: params.tenantId,
+        ownerResourceType: body.owner_resource_type,
+        ownerResourceId: body.owner_resource_id ?? null,
+        ip,
+      });
       return createPendingStorageObject(tx, {
         tenantId: params.tenantId,
         actorUserId: auth.user.id,
@@ -75,11 +91,11 @@ export async function registerStorageRoutes(app: FastifyInstance, pool: AppPool)
     assertUuid(params.objectId, "objectId");
     const body = parseOrThrow(CompleteUploadBody, request.body ?? {}, "invalid body");
     const provider = getStorageProvider();
+    const load = (tx: Parameters<typeof findStorageObjectById>[0]) => () => findStorageObjectById(tx, params.tenantId, params.objectId);
 
-    const existing = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.write", { ip, deferAudit: true });
-      return getStorageObjectById(tx, params.tenantId, params.objectId);
-    });
+    const existing = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) =>
+      authorizeObjectAction(tx, auth.authz, { tenantId: params.tenantId, action: "complete", ip }, load(tx)),
+    );
     if (existing.status !== "pending_upload") throw conflict(`Only a pending upload can be finalized (status: ${existing.status})`);
 
     let verifiedSize: number | undefined;
@@ -105,7 +121,8 @@ export async function registerStorageRoutes(app: FastifyInstance, pool: AppPool)
     }
 
     const updated = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.write", { ip, deferAudit: true });
+      // Re-authorized in this transaction: a family link or membership may have ended while the bytes were checked.
+      await authorizeObjectAction(tx, auth.authz, { tenantId: params.tenantId, action: "complete", ip }, load(tx));
       return markStorageObjectAvailable(tx, {
         tenantId: params.tenantId,
         objectId: params.objectId,
@@ -122,10 +139,11 @@ export async function registerStorageRoutes(app: FastifyInstance, pool: AppPool)
   app.get(`${P}/:objectId`, async (request) => {
     const params = request.params as { tenantId: string; objectId: string };
     assertUuid(params.objectId, "objectId");
-    const record = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.read", { ip, deferAudit: true });
-      return getStorageObjectById(tx, params.tenantId, params.objectId);
-    });
+    const record = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) =>
+      authorizeObjectAction(tx, auth.authz, { tenantId: params.tenantId, action: "read", ip }, () =>
+        findStorageObjectById(tx, params.tenantId, params.objectId),
+      ),
+    );
     return { object: toPublicStorageObject(record) };
   });
 
@@ -133,8 +151,9 @@ export async function registerStorageRoutes(app: FastifyInstance, pool: AppPool)
     const params = request.params as { tenantId: string; objectId: string };
     assertUuid(params.objectId, "objectId");
     const record = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.read", { ip, deferAudit: true });
-      const obj = await getStorageObjectById(tx, params.tenantId, params.objectId);
+      const obj = await authorizeObjectAction(tx, auth.authz, { tenantId: params.tenantId, action: "read", ip }, () =>
+        findStorageObjectById(tx, params.tenantId, params.objectId),
+      );
       if (obj.status !== "available") throw conflict("Storage object is not available for download");
       await recordSecurityEvent(tx, {
         eventType: "storage.object.download_authorized",
@@ -157,17 +176,17 @@ export async function registerStorageRoutes(app: FastifyInstance, pool: AppPool)
   app.delete(`${P}/:objectId`, async (request, reply) => {
     const params = request.params as { tenantId: string; objectId: string };
     assertUuid(params.objectId, "objectId");
-    const record = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.write", { ip, deferAudit: true });
-      return getStorageObjectById(tx, params.tenantId, params.objectId);
-    });
+    const load = (tx: Parameters<typeof findStorageObjectById>[0]) => () => findStorageObjectById(tx, params.tenantId, params.objectId);
+    const record = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) =>
+      authorizeObjectAction(tx, auth.authz, { tenantId: params.tenantId, action: "delete", ip }, load(tx)),
+    );
     const provider = getStorageProvider();
     if (provider.configured) {
       const del = await provider.deleteObject({ tenantId: params.tenantId, objectKey: record.object_key });
       if (del.status !== "deleted") throw conflict("The object could not be removed from storage; it was not marked deleted. Try again.");
     }
     await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, "resource.document.write", { ip, deferAudit: true });
+      await authorizeObjectAction(tx, auth.authz, { tenantId: params.tenantId, action: "delete", ip }, load(tx));
       await markStorageObjectDeleted(tx, {
         tenantId: params.tenantId,
         objectId: params.objectId,

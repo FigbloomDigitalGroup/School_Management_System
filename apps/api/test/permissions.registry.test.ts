@@ -25,7 +25,6 @@ const PERMISSION_LITERAL = /["'`]((?:resource|rbac|identity|platform|org|tenant|
 /** Catalogue permissions that intentionally have no route reference, each with the reason. */
 const UNREFERENCED_BY_DESIGN: Record<string, string> = {
   "resource.report.read": "superseded by resource.report.overview.read / resource.report.attendance.read (migration 070); kept so existing role grants and delegations remain valid",
-  "platform.tenants.read": "granted to super_admin in the foundation (001); no route yet lists tenants at platform level",
   "identity.self.read": "role-catalogue marker for the self-service identity surface (/v1/auth/me is session-authenticated, not permission-gated)",
   "session.manage": "role-catalogue marker for session self-management (logout/select-tenant are session-authenticated)",
   "rbac.permissions.read": "referenced by the permission-catalogue route through a constant",

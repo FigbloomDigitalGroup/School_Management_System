@@ -12,6 +12,44 @@ export interface Conversation {
   created_at: string;
   last_message_at: string | null;
   peer_user_id?: string;
+  /** List only (docs/TEACHER-READS.md): the other person's account name, and their role here (null once they have left). */
+  peer_full_name?: string;
+  peer_role?: string | null;
+}
+
+/** Roles that `may_talk` lets talk with every other staff role (staff-to-staff). */
+const STAFF_CHAT_ROLES = ["school_admin", "teacher", "driver", "staff"] as const;
+
+export interface ChatContact {
+  user_id: string;
+  full_name: string;
+  role: (typeof STAFF_CHAT_ROLES)[number];
+}
+
+/**
+ * Who a staff member may start a chat with (docs/TEACHER-READS.md): every other staff-role member of this school whose
+ * account is active (the staff-to-staff rule of `may_talk`, which every chat write checks again). Empty for any other caller:
+ * a parent's list is `/me/chat-contacts`; parents are not listed for staff (guardian identities, FIG-1614).
+ */
+export async function listStaffChatContacts(
+  tx: Tx,
+  input: { tenantId: string; userId: string; callerRole: string | null; page: PageInput },
+): Promise<{ contacts: ChatContact[]; page: PageInfo }> {
+  if (!input.callerRole || !(STAFF_CHAT_ROLES as readonly string[]).includes(input.callerRole)) {
+    return { contacts: [], page: { next_cursor: null, limit: input.page.limit } };
+  }
+  const res = await pageQuery<{ id: string; full_name: string; role: ChatContact["role"] }>(
+    tx,
+    `SELECT u.id, u.full_name, m.role::text AS role
+       FROM school_memberships m
+       JOIN users u ON u.id = m.user_id AND u.status = 'active'
+      WHERE m.tenant_id = $1 AND m.archived_at IS NULL AND m.user_id <> $2
+        AND m.role::text = ANY($3::text[])`,
+    [input.tenantId, input.userId, [...STAFF_CHAT_ROLES]],
+    { name: "chat_staff_contacts", expr: "lower(q.full_name)", type: "text", dir: "asc" },
+    input.page,
+  );
+  return { contacts: res.rows.map((r) => ({ user_id: r.id, full_name: r.full_name, role: r.role })), page: res.page };
 }
 
 export interface ChatMessage {
@@ -95,10 +133,12 @@ export async function listMyConversations(
   const page: PageInput = { limit: input.limit, rawCursor: input.rawCursor };
   const inner = `SELECT c.id, c.tenant_id, c.pair_key, c.created_by, c.created_at, c.last_message_at,
             coalesce(c.last_message_at, c.created_at) AS sort_ts,
-            m2.user_id AS peer_user_id
+            m2.user_id AS peer_user_id, pu.full_name AS peer_full_name, pm.role::text AS peer_role
        FROM conversations c
        JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = $2
        JOIN conversation_members m2 ON m2.conversation_id = c.id AND m2.user_id <> $2
+       JOIN users pu ON pu.id = m2.user_id
+       LEFT JOIN school_memberships pm ON pm.tenant_id = c.tenant_id AND pm.user_id = m2.user_id AND pm.archived_at IS NULL
       WHERE c.tenant_id = $1`;
   const res = await pageQuery<Conversation & { peer_user_id: string; sort_ts: string }>(
     tx,
